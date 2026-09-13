@@ -199,6 +199,9 @@ pub struct Rain {
     pub reduced_motion: bool,
     /// A load to show instead of every app's own, for the `demand:` debug step.
     pinned: Option<f32>,
+    /// The names on the headers are in the focus ring's colour: the app's own colour can be close
+    /// enough to the rain's green to vanish into it, and the ring's is chosen to stand off it.
+    name_colour: u32,
 }
 
 impl Rain {
@@ -209,12 +212,22 @@ impl Rain {
         }
     }
 
-    pub fn new(reduced_motion: bool) -> Self {
+    pub fn new(reduced_motion: bool, ring_rgb: [f32; 3]) -> Self {
         Self {
             streams: Vec::new(),
             glyphs: Glyphs::load(),
             reduced_motion,
             pinned: None,
+            name_colour: rgb_colour(ring_rgb),
+        }
+    }
+
+    /// Writes the names in `ring_rgb` from the next frame, when the ring's colour changes.
+    pub fn set_ring_colour(&mut self, ring_rgb: [f32; 3]) {
+        let colour = rgb_colour(ring_rgb);
+        if colour != self.name_colour {
+            self.name_colour = colour;
+            self.forget_painted_text();
         }
     }
 
@@ -367,6 +380,7 @@ impl Rain {
             glyphs,
             pinned,
             reduced_motion,
+            name_colour,
         } = self;
         let Some(glyphs) = glyphs.as_mut() else {
             return elements;
@@ -388,6 +402,7 @@ impl Rain {
                 let painted = paint_header(
                     &stream.name,
                     stream.colour,
+                    *name_colour,
                     stream.icon.as_ref(),
                     step as f32 / METER_STEPS,
                     scale,
@@ -507,17 +522,19 @@ fn compose(band: &mut Band, glyphs: &mut Glyphs, card: &Card) -> Pixmap {
 }
 
 /// The mockup's stream header: a dark card edged and lit in the app's colour, with its icon, its
-/// name written top to bottom, and the app's own meter (`load`, 0 to 1) along the foot of it.
+/// name written top to bottom in `name_colour`, and the app's own meter (`load`, 0 to 1) along the
+/// foot of it.
 fn paint_header(
     name: &str,
     colour: u32,
+    name_colour: u32,
     icon: Option<&Pixmap>,
     load: f32,
     scale: f64,
 ) -> Option<(Painted, f32)> {
     let style = Style {
         tracking: 0.06,
-        ..Style::new(Face::MonoBold, 15.0, colour)
+        ..Style::new(Face::MonoBold, 15.0, name_colour)
     };
     let label = text::ellipsize(name, &style, 168.0);
     let label_w = text::width(&label, &style).min(168.0);
@@ -609,13 +626,13 @@ fn paint_header(
 /// The meter's colour at `load`: the rain's own scale, from the light grey of an idle machine to
 /// its bright green, so the bar and the glyphs beside it mean the same thing.
 fn meter_colour(load: f32) -> u32 {
-    let [r, g, b] = glmatrix::colour_for(load);
-    u32::from_be_bytes([
-        (r.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (g.clamp(0.0, 1.0) * 255.0).round() as u8,
-        (b.clamp(0.0, 1.0) * 255.0).round() as u8,
-        0xff,
-    ])
+    rgb_colour(glmatrix::colour_for(load))
+}
+
+/// Three channels from 0 to 1 as opaque `0xrrggbbff`.
+fn rgb_colour(rgb: [f32; 3]) -> u32 {
+    let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+    u32::from_be_bytes([r, g, b, 0xff])
 }
 
 /// An app's colour from its icon: the average of its visible pixels, brightened.
