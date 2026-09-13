@@ -52,9 +52,18 @@ pub struct Content {
     pub unread: usize,
     /// Something on the desktop is being captured: the red dot shows, and a click on it stops it.
     pub sharing: bool,
-    /// After a notification or another app took you to a window: the name of the one you left,
-    /// and whether Alt+Tab is the way back to it.
-    pub back: Option<(String, bool)>,
+    /// A button after the overview: the way back after a notification or another app took you to
+    /// a window, or a note on windows that opened while you typed.
+    pub chip: Option<Chip>,
+}
+
+/// A button on the bar that says what just happened to the windows, and where Alt+Tab goes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chip {
+    pub words: String,
+    /// Whether Alt+Tab reaches the window it names, so the key is shown beside the words.
+    pub alt_tab: bool,
+    pub target: Target,
 }
 
 /// Where each button is, in logical pixels from the screen's top-left corner.
@@ -74,6 +83,8 @@ pub enum Target {
     Overview,
     /// The way back to the window a notification or another app took you from.
     Back,
+    /// The newest window that opened while you typed.
+    Opened,
 }
 
 /// The overview button's width, and the gap before it, in the bar's units.
@@ -245,12 +256,12 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         x += w + 8.0;
     }
 
-    if let Some((name, alt_tab)) = &content.back {
+    if let Some(chip) = &content.chip {
         let words = Style::new(Face::Body, 13.5, 0xcdd6f4ff);
         let key = Style::new(Face::Mono, 12.5, 0x7f8aa3ff);
-        let name = text::ellipsize(&format!("Back to {name}"), &words, 180.0);
+        let name = text::ellipsize(&chip.words, &words, 260.0);
         let words_w = text::width(&name, &words);
-        let key_w = if *alt_tab {
+        let key_w = if chip.alt_tab {
             10.0 + text::width("Alt+Tab", &key)
         } else {
             0.0
@@ -259,10 +270,10 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.fill(x, 7.0, w, 26.0, 6.0, 0xffffff0a);
         p.border(x, 7.0, w, 26.0, 6.0, 1.0, 0xffffff1f);
         p.text(&name, x + 10.0, 20.0, &words);
-        if *alt_tab {
+        if chip.alt_tab {
             p.text("Alt+Tab", x + 10.0 + words_w + 10.0, 20.0, &key);
         }
-        target(Target::Back, x, 7.0, w, 26.0);
+        target(chip.target, x, 7.0, w, 26.0);
         x += w + 10.0;
     }
 
@@ -398,7 +409,7 @@ mod tests {
             labels: (1..=5).map(|n| n.to_string()).collect(),
             title: "Firefox".into(),
             mode: Some(("BULLET TIME", AMBER)),
-            back: None,
+            chip: None,
             status: Reading {
                 time: "17:24".into(),
                 date: "Fri 11 Sep".into(),
@@ -552,7 +563,11 @@ mod tests {
     fn the_way_back_is_a_button_before_the_title() {
         let back = Content {
             mode: None,
-            back: Some(("Ghostty".into(), true)),
+            chip: Some(Chip {
+                words: "Back to Ghostty".into(),
+                alt_tab: true,
+                target: Target::Back,
+            }),
             ..content()
         };
         let (_, targets) = paint(&back, 1536, 1.25).unwrap();

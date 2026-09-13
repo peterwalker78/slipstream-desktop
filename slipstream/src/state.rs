@@ -259,6 +259,8 @@ pub struct Slipstream {
     /// A notification or another app took you from one window to another, and when: the bar
     /// offers the way back for a minute.
     way_back: Option<WayBack>,
+    /// Windows that opened while you typed in another app, until you visit them.
+    opened: Vec<Opened>,
     /// The living wallpaper.
     /// The living wallpaper, one per screen: each keeps its own grid, sized to that screen, and
     /// its own turn through the variations.
@@ -528,6 +530,7 @@ impl Slipstream {
             idle: Idle::new(false, settings.wallpaper.fade_after_secs),
             concentration: Default::default(),
             way_back: None,
+            opened: Vec::new(),
             savers: HashMap::new(),
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
@@ -891,6 +894,7 @@ impl Slipstream {
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
             bar::Target::Back => self.go_back(),
+            bar::Target::Opened => self.go_to_opened(),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(
@@ -1207,6 +1211,21 @@ impl Slipstream {
         if self.claim_restored(&window, area) {
             return;
         }
+        // While you type in another app, a new window waits off screen for the pause, so the
+        // window you're typing in doesn't change size under you.
+        if !self.fullscreen_on_screen() && !self.may_take_keyboard(&window, None) {
+            tracing::info!(
+                window = logged_app(&window),
+                "new window waits for a pause in typing"
+            );
+            self.next_in_line(&window);
+            self.opened.push(Opened {
+                window,
+                held: true,
+                at: std::time::Instant::now(),
+            });
+            return;
+        }
         // Split the focused window, so new windows appear next to what you're working on.
         let beside = self.focused_window();
         let active = self.active_workspace();
@@ -1352,6 +1371,95 @@ impl Slipstream {
         Some((self.window_name(&back.from), alt_tab))
     }
 
+    fn is_held(&self, window: &Window) -> bool {
+        self.opened
+            .iter()
+            .any(|opened| opened.held && opened.window == *window)
+    }
+
+    /// A window that opened while you typed and hasn't been visited, on screen with a dim ring.
+    pub fn opened_while_typing(&self, window: &Window) -> bool {
+        self.opened
+            .iter()
+            .any(|opened| !opened.held && opened.window == *window)
+    }
+
+    /// Tiles a held window beside the focused one on the workspace on screen, without the
+    /// keyboard, next in line for Alt+Tab.
+    fn tile_opened(&mut self, window: &Window) {
+        let Some(opened) = self
+            .opened
+            .iter_mut()
+            .find(|opened| opened.held && opened.window == *window)
+        else {
+            return;
+        };
+        opened.held = false;
+        opened.at = std::time::Instant::now();
+        let Some(area) = self.output_area() else {
+            return;
+        };
+        let beside = self.focused_window();
+        let active = self.active_workspace();
+        self.workspaces
+            .insert(active, window.clone(), beside.as_ref(), area);
+        self.retile();
+        self.next_in_line(window);
+    }
+
+    /// Windows held while you typed tile at the pause, or once the oldest has waited as long as a
+    /// notification may.
+    fn tile_held_windows(&mut self) {
+        if self.lock.is_some() || !self.opened.iter().any(|opened| opened.held) {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let longest =
+            std::time::Duration::from_secs_f64(self.settings.notifications.longest_wait_secs());
+        let overdue = self
+            .opened
+            .iter()
+            .any(|opened| opened.held && now.saturating_duration_since(opened.at) >= longest);
+        if self.concentration.typing(now) && !overdue {
+            return;
+        }
+        let held: Vec<Window> = self
+            .opened
+            .iter()
+            .filter(|opened| opened.held)
+            .map(|opened| opened.window.clone())
+            .collect();
+        for window in &held {
+            self.tile_opened(window);
+        }
+        tracing::info!(count = held.len(), overdue, "windows opened while typing tiled");
+    }
+
+    /// The bar's note on windows that opened while you typed: what it says, and whether Alt+Tab
+    /// reaches the newest. Each is dropped once visited or closed, or a minute after it tiled.
+    pub fn opened_note(&mut self) -> Option<(String, bool)> {
+        let focused = self.focused_window();
+        self.opened.retain(|opened| {
+            opened.window.alive()
+                && focused.as_ref() != Some(&opened.window)
+                && (opened.held || opened.at.elapsed() <= WAY_BACK_SHOWN)
+        });
+        let newest = self.opened.last()?.window.clone();
+        let words = match self.opened.len() {
+            1 => format!("{} opened while you typed", self.window_name(&newest)),
+            count => format!("{count} windows opened while you typed"),
+        };
+        let alt_tab = self.focus_history.get(1) == Some(&newest);
+        Some((words, alt_tab))
+    }
+
+    /// The note on windows that opened while you typed, clicked: the newest comes forward.
+    fn go_to_opened(&mut self) {
+        if let Some(window) = self.opened.last().map(|opened| opened.window.clone()) {
+            self.activate_window(&window);
+        }
+    }
+
     /// The bar's way back, clicked.
     fn go_back(&mut self) {
         if let Some(back) = self.way_back.take()
@@ -1388,6 +1496,9 @@ impl Slipstream {
             self.restore(window);
             return;
         }
+        if self.is_held(window) {
+            self.tile_opened(window);
+        }
         if let Some(workspace) = self.workspaces.find(window) {
             self.go_to_workspace(workspace);
         }
@@ -1414,6 +1525,7 @@ impl Slipstream {
         }
         let was_on = self.take_off_workspace(window);
         self.rain.remove(window);
+        self.opened.retain(|opened| opened.window != *window);
         self.tags.retain(|(tagged, ..)| tagged != window);
         if let Some(mode) = self.bullet.as_mut() {
             if mode
@@ -3863,7 +3975,8 @@ impl Slipstream {
             || self.unlocking.is_some();
         let opacity = self.idle.update(now, keep_up) as f32;
         // Pop-ups that arrived while it was faded show now it's coming back, and ones that
-        // arrived while you typed show at the pause.
+        // arrived while you typed show at the pause, as do windows that opened.
+        self.tile_held_windows();
         self.show_waiting_popups(now);
         opacity
     }
@@ -4243,6 +4356,12 @@ impl Slipstream {
             .all_windows()
             .into_iter()
             .chain(self.rain.streams.iter().map(|stream| stream.window.clone()))
+            .chain(
+                self.opened
+                    .iter()
+                    .filter(|opened| opened.held)
+                    .map(|opened| opened.window.clone()),
+            )
             .collect()
     }
 
@@ -4780,6 +4899,14 @@ fn deactivate(window: &Window) {
 /// window transient for it.
 /// How long the bar offers the way back after a jump.
 const WAY_BACK_SHOWN: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A window that opened while you typed in another app. It's `held` off screen until the pause,
+/// then tiles beside you without the keyboard; `at` is when it opened, then when it tiled.
+struct Opened {
+    window: Window,
+    held: bool,
+    at: std::time::Instant,
+}
 
 /// Where a notification or another app took you from, and to.
 struct WayBack {

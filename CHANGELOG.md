@@ -2,6 +2,11 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## [0.0.4] - 2026-09-14
+
+- **A window that opens while you type waits for your pause.** It no longer splits the window you're typing in mid-sentence: it stays off screen until you stop for four seconds, then tiles beside you without taking the keyboard. Like notifications, it never waits longer than the longest wait in Settings → Notifications.
+- **The bar says why it appeared.** "*App* opened while you typed · Alt+Tab" shows from the moment it opens; clicking it or pressing Alt+Tab brings the window in. The new tile keeps a dim ring until you visit it, and both go a minute after it tiles.
+
 ## [0.0.3] - 2026-09-13
 
 - The living wallpaper's variations take turns in a random order: each ticked one shows once, shuffled, before any comes back, and none follows itself. The first one after login is random too.

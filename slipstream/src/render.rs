@@ -977,7 +977,19 @@ pub fn output_elements(
             Some(_) => state.bullet_bar_title(),
             None => state.focused_title(),
         };
-        let back = state.way_back();
+        // Windows that opened while you typed are newer news than the way back.
+        let chip = match state.opened_note() {
+            Some((words, alt_tab)) => Some(bar::Chip {
+                words,
+                alt_tab,
+                target: bar::Target::Opened,
+            }),
+            None => state.way_back().map(|(name, alt_tab)| bar::Chip {
+                words: format!("Back to {name}"),
+                alt_tab,
+                target: bar::Target::Back,
+            }),
+        };
         let content = bar::Content {
             active: highlighted,
             home,
@@ -998,7 +1010,7 @@ pub fn output_elements(
             do_not_disturb: state.settings.notifications.do_not_disturb,
             unread: state.notices.unread(),
             sharing: state.captures.sharing(),
-            back,
+            chip,
         };
         elements.extend(
             chrome
@@ -1350,6 +1362,18 @@ pub fn output_elements(
                 chrome
                     .overview
                     .outline(shown, 0.0, 2, colour, world_scale, alpha * 0.6)
+                    .into_iter()
+                    .map(OutputElement::Solid),
+            );
+        }
+        // A window that opened while you typed elsewhere keeps a dim ring until you visit it.
+        if focused.as_ref() != Some(&window) && state.opened_while_typing(&window) {
+            let alpha = alpha * (1.0 - zoomed_out.min(1.0) as f32) * RING_ALPHA * 0.4;
+            let colour = overview::ring(state.ring_rgb);
+            world.extend(
+                chrome
+                    .overview
+                    .outline(shown, 0.0, RING, colour, world_scale, alpha)
                     .into_iter()
                     .map(OutputElement::Solid),
             );
