@@ -1432,7 +1432,11 @@ impl Slipstream {
         for window in &held {
             self.tile_opened(window);
         }
-        tracing::info!(count = held.len(), overdue, "windows opened while typing tiled");
+        tracing::info!(
+            count = held.len(),
+            overdue,
+            "windows opened while typing tiled"
+        );
     }
 
     /// The bar's note on windows that opened while you typed: what it says, and whether Alt+Tab
