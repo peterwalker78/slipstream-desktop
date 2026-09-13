@@ -490,6 +490,7 @@ impl Slipstream {
         // Reaching for the mouse ends any typing: what a click opens was asked for.
         if button_state == ButtonState::Pressed {
             self.concentration.end();
+            self.concentration.input(std::time::Instant::now());
         }
         // A click while the UI is faded only brings it back.
         if self.wake_ui() && button_state == ButtonState::Pressed {
@@ -989,6 +990,7 @@ impl Slipstream {
         if let Some(shortcut) = typed_shortcut {
             if action.is_some() {
                 self.concentration.end();
+                self.concentration.input(std::time::Instant::now());
             } else if self.seat.get_keyboard().unwrap().current_focus().is_some() {
                 self.concentration.key(std::time::Instant::now(), shortcut);
             }

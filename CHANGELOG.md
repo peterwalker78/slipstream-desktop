@@ -4,8 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [0.0.4] - 2026-09-14
 
-- **A window that opens while you type waits for your pause.** It no longer splits the window you're typing in mid-sentence: it stays off screen until you stop for four seconds, then tiles beside you without taking the keyboard. Like notifications, it never waits longer than the longest wait in Settings → Notifications.
-- **The bar says why it appeared.** "*App* opened while you typed · Alt+Tab" shows from the moment it opens; clicking it or pressing Alt+Tab brings the window in. The new tile keeps a dim ring until you visit it, and both go a minute after it tiles.
+- **Windows you didn't ask for go to the code rain.** A new window tiles and takes the keyboard only when you asked for it: a dialog or window of the app you're using, a program started from it (a command in a terminal), something launched from the desktop, or a window that appears within a few seconds of a click or key press. Anything else, such as an app opening a window by itself, pours into the code rain with a toast naming it; Super+Shift+M or a click on its stream brings it in. While you type in one app, a window from another goes to the rain too, so the window you're typing in never changes size.
 
 ## [0.0.3] - 2026-09-13
 

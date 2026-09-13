@@ -17,13 +17,44 @@ pub const PAUSE: Duration = Duration::from_secs(4);
 pub struct Concentration {
     /// When a key last reached an app, while the keyboard stayed where it was.
     last_typed: Option<Instant>,
+    /// When you last clicked or pressed a key, on anything.
+    last_input: Option<Instant>,
+    /// When you last asked for something to start: a launch from the desktop, or an app handed
+    /// out an activation token for a click or key press.
+    last_asked: Option<Instant>,
 }
+
+/// How soon after a click or key press a window counts as what it opened, such as a confirmation
+/// from a helper process or a portal's file chooser.
+pub const INPUT_OPENS: Duration = Duration::from_secs(5);
+
+/// How long an app started from the desktop may take to show its window.
+pub const LAUNCH_OPENS: Duration = Duration::from_secs(30);
 
 impl Concentration {
     /// A key pressed and passed on to the focused app. `shortcut` is a press with Ctrl, Alt or
     /// Super held: a command rather than typing, so it ends the typing instead.
     pub fn key(&mut self, now: Instant, shortcut: bool) {
         self.last_typed = (!shortcut).then_some(now);
+        self.last_input = Some(now);
+    }
+
+    /// A click or a key press, wherever it went.
+    pub fn input(&mut self, now: Instant) {
+        self.last_input = Some(now);
+    }
+
+    /// Something was started for you.
+    pub fn asked(&mut self, now: Instant) {
+        self.last_asked = Some(now);
+    }
+
+    /// Whether a window appearing now is plausibly what you just asked for.
+    pub fn recently_asked(&self, now: Instant) -> bool {
+        let within = |at: Option<Instant>, limit| {
+            at.is_some_and(|at| now.saturating_duration_since(at) < limit)
+        };
+        within(self.last_input, INPUT_OPENS) || within(self.last_asked, LAUNCH_OPENS)
     }
 
     /// The keyboard went somewhere else, or you clicked or used a desktop key: whatever you were

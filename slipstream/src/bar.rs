@@ -53,7 +53,7 @@ pub struct Content {
     /// Something on the desktop is being captured: the red dot shows, and a click on it stops it.
     pub sharing: bool,
     /// A button after the overview: the way back after a notification or another app took you to
-    /// a window, or a note on windows that opened while you typed.
+    /// a window.
     pub chip: Option<Chip>,
 }
 
@@ -83,8 +83,6 @@ pub enum Target {
     Overview,
     /// The way back to the window a notification or another app took you from.
     Back,
-    /// The newest window that opened while you typed.
-    Opened,
 }
 
 /// The overview button's width, and the gap before it, in the bar's units.

@@ -355,6 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Optionally start one client inside Slipstream: `slipstream --command foot`
+    state.concentration.asked(std::time::Instant::now());
     spawn_client(&args);
 
     // Debug steps also run between frames: a locked host session stops nested redraws.

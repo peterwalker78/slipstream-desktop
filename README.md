@@ -25,7 +25,7 @@ It's built to protect your concentration: windows that open while you type don't
 ## Concentration first
 
 - **Typing** is judged from when keys reach an app, never from which keys. It ends at a pause of four seconds, a shortcut, a click, or a change of focus.
-- **Windows** that another app opens while you type wait off screen until you pause, so the window you're typing in doesn't change size and doesn't lose your next words. The bar says "*App* opened while you typed · Alt+Tab", and at the pause the window tiles beside you with a dim ring until you visit it. Windows you open yourself, dialogs of the app you're in, and programs started from it still come straight to you.
+- **Windows** you didn't ask for, such as an app opening one by itself or a window from another app while you type, pour into the code rain with a toast instead of taking the screen and the keyboard. Windows you open yourself, dialogs of the app you're in, programs started from it, and anything that appears just after a click still come straight to you.
 - **Notifications** that arrive while you type wait for the pause, then show as one card. The bell counts them straight away and Super+N shows them at any time. Critical ones never wait, and nothing waits more than 15 minutes.
 - **The way back**: after a notification takes you to another app, the bar offers "Back to *app* · Alt+Tab" for a minute.
 
