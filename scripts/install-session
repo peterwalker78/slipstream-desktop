@@ -1,0 +1,748 @@
+#!/bin/sh
+# Puts Slipstream on the login screen's session list, having first found out what it is
+# installing onto, or takes it off again.
+#
+#   scripts/install-session             check the system, then install (asks for sudo)
+#   scripts/install-session --check     check only; writes nothing
+#   scripts/install-session --uninstall [--purge] [--yes]
+#
+# Run it as yourself, not with sudo: it needs to know whose desktop this is, and asks for root
+# only for the files outside your home. Everything is checked before anything is written, and the
+# files are written all or nothing, so a refusal or a failure leaves the system as it was. It never
+# installs packages: when something is missing it names the package and the command for this
+# system, and leaves the decision to you.
+#
+# The per-user half (the compositor in ~/.local/bin, its systemd units and portal settings) is
+# scripts/update-session, which needs no root and is what a rebuild runs.
+set -eu
+# Files written as root have to be readable by the login screen, whatever umask you keep.
+umask 022
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+
+# Tests: SLIPSTREAM_TEST_ROOT puts every system file under a folder and writes them without sudo;
+# the other SLIPSTREAM_TEST_ variables stand in for what the system would say about itself.
+root=${SLIPSTREAM_TEST_ROOT:-}
+os_release=${SLIPSTREAM_TEST_OS_RELEASE:-/etc/os-release}
+[ -r "$os_release" ] || os_release=/usr/lib/os-release
+manifest_dir=/usr/local/share/slipstream
+manifest=$manifest_dir/installed
+
+mode=install
+purge=no
+assume_yes=no
+for arg in "$@"; do
+    case $arg in
+        --check) mode=check ;;
+        --uninstall) mode=uninstall ;;
+        --purge) purge=yes ;;
+        --yes | -y) assume_yes=yes ;;
+        -h | --help)
+            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "install-session: unknown option $arg (try --help)" >&2
+            exit 2
+            ;;
+    esac
+done
+if [ "$purge" = yes ] && [ "$mode" != uninstall ]; then
+    echo "install-session: --purge only goes with --uninstall" >&2
+    exit 2
+fi
+
+if [ "$(id -u)" -eq 0 ] && [ -z "$root" ]; then
+    echo "install-session: run this as your own user, not as root." >&2
+    echo "It asks for sudo itself, for the few files outside your home." >&2
+    exit 2
+fi
+if [ -z "${HOME:-}" ] || ! [ -d "$HOME" ]; then
+    echo "install-session: HOME isn't set to a folder, so there's no telling whose desktop this is." >&2
+    exit 2
+fi
+
+bold() {
+    if [ -t 1 ]; then
+        printf '\033[1m%s\033[0m\n' "$*"
+    else
+        printf '%s\n' "$*"
+    fi
+}
+say() { printf '  %s\n' "$*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------------------------
+# What system is this?
+
+field() { sed -n "s/^$1=//p" "$os_release" 2>/dev/null | head -n1 | tr -d "\"'"; }
+os_id=$(field ID)
+os_like=$(field ID_LIKE)
+os_name=$(field PRETTY_NAME)
+[ -n "$os_name" ] || os_name=${os_id:-an unknown system}
+
+family=unknown
+for id in $os_id $os_like; do
+    case $id in
+        fedora | rhel | centos) family=fedora; break ;;
+        debian | ubuntu) family=debian; break ;;
+        arch | archlinux) family=arch; break ;;
+        suse | opensuse | opensuse-tumbleweed | opensuse-leap) family=suse; break ;;
+        nixos) family=nixos; break ;;
+    esac
+done
+
+atomic=no
+if [ -e "${SLIPSTREAM_TEST_OSTREE:-/run/ostree-booted}" ]; then
+    atomic=yes
+fi
+
+# Where PAM looks for the stacks the lock's service includes. Tests point it at a folder of their own.
+pam_dirs=${SLIPSTREAM_TEST_PAM_DIR:-/etc/pam.d /usr/lib/pam.d}
+pam_file=/etc/pam.d/slipstream
+pam_marker="# Written by Slipstream's install-session"
+
+pam_has() {
+    for dir in $pam_dirs; do
+        [ -e "$dir/$1" ] && return 0
+    done
+    return 1
+}
+
+# The lock screen checks the password through a PAM service of its own, which includes the stack
+# this system's own logins use for a password: password-auth on Fedora and its relatives (no
+# fingerprint prompt), common-auth on Debian and openSUSE, system-auth on Arch, and login where
+# none of those is there. The first whose stacks all exist is used.
+pam_auth=
+pam_account=
+pam_stacks=
+case $family in
+    fedora) candidates="include:password-auth include:system-auth include:login" ;;
+    debian) candidates="@include:common-auth include:login" ;;
+    suse) candidates="include:common-auth include:login" ;;
+    arch) candidates="include:system-auth include:system-login include:login" ;;
+    *) candidates="include:login include:system-auth include:common-auth" ;;
+esac
+for candidate in $candidates; do
+    syntax=${candidate%%:*}
+    auth_stack=${candidate#*:}
+    account_stack=$auth_stack
+    [ "$auth_stack" = common-auth ] && account_stack=common-account
+    if pam_has "$auth_stack" && pam_has "$account_stack"; then
+        if [ "$syntax" = @include ]; then
+            pam_auth="@include $auth_stack"
+            pam_account="@include $account_stack"
+        else
+            pam_auth="auth       include      $auth_stack"
+            pam_account="account    include      $account_stack"
+        fi
+        pam_stacks="$auth_stack $account_stack"
+        break
+    fi
+done
+
+# The display manager, by the unit systemd starts for it, else by what is running. With no
+# display-manager.service, systemctl answers with the name it was asked about.
+dm=${SLIPSTREAM_TEST_DM-}
+if [ -z "${SLIPSTREAM_TEST_DM+set}" ]; then
+    if have systemctl; then
+        dm=$(systemctl show -p Id --value display-manager.service 2>/dev/null || true)
+        dm=${dm%.service}
+        [ "$dm" = display-manager ] && dm=
+    fi
+    if [ -z "$dm" ] && have pgrep; then
+        for name in plasmalogin sddm gdm gdm3 lightdm greetd ly cosmic-greeter; do
+            if pgrep -x "$name" >/dev/null 2>&1; then
+                dm=$name
+                break
+            fi
+        done
+    fi
+fi
+case $dm in
+    gdm3) dm=gdm ;;
+    ly-dm | ly@*) dm=ly ;;
+esac
+
+# The first directory in a `Key=a,b` line of a display manager's config files, if one is set.
+config_dir() {
+    key=$1
+    shift
+    for file in "$@"; do
+        [ -r "$file" ] || continue
+        value=$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n1)
+        if [ -n "$value" ]; then
+            printf '%s\n' "$value"
+        fi
+    done | tail -n1 | tr ',:' '\n' | head -n1
+}
+
+# Where that display manager looks for Wayland sessions. `/usr/local/share/wayland-sessions`
+# being right on this laptop is a fact about SDDM and its Plasma Login fork, not about Linux.
+session_dir=
+session_note=
+lightdm_dropin=
+case $dm in
+    sddm | plasmalogin)
+        # SDDM 0.20 and later read /usr/local/share/wayland-sessions before /usr/share; a
+        # SessionDir set in its config wins.
+        set -- /usr/lib/"$dm"/"$dm".conf.d/*.conf /etc/"$dm".conf /etc/"$dm".conf.d/*.conf
+        configured=$(config_dir SessionDir "$@")
+        session_dir=${configured:-/usr/local/share/wayland-sessions}
+        ;;
+    gdm | cosmic-greeter)
+        # Both read wayland-sessions under every XDG data directory, /usr/local/share first.
+        session_dir=/usr/local/share/wayland-sessions
+        ;;
+    lightdm)
+        # LightDM's sessions-directory doesn't include /usr/local. On a writable /usr the file
+        # goes beside the other sessions; on an atomic system a drop-in adds /usr/local instead.
+        if [ "$atomic" = yes ]; then
+            session_dir=/usr/local/share/wayland-sessions
+            lightdm_dropin=/etc/lightdm/lightdm.conf.d/50-slipstream.conf
+        else
+            session_dir=/usr/share/wayland-sessions
+        fi
+        ;;
+    ly)
+        configured=$(config_dir waylandsessions /etc/ly/config.ini)
+        session_dir=${configured:-/usr/share/wayland-sessions}
+        ;;
+    greetd)
+        # greetd has no session list; its greeter does. tuigreet and ReGreet both default to
+        # /usr/share/wayland-sessions.
+        if [ "$atomic" = yes ]; then
+            session_dir=/usr/local/share/wayland-sessions
+            session_note="greetd's greeter has to be told about it: for tuigreet, add
+    --sessions /usr/local/share/wayland-sessions:/usr/share/wayland-sessions
+  to the command in /etc/greetd/config.toml."
+        else
+            session_dir=/usr/share/wayland-sessions
+        fi
+        ;;
+    "")
+        session_dir=/usr/local/share/wayland-sessions
+        session_note="No display manager was found, so this is a guess. Without one, start it from a
+  text console with: slipstream --session"
+        ;;
+    *)
+        session_dir=/usr/local/share/wayland-sessions
+        session_note="$dm isn't one this script knows, so $session_dir is a guess. If Slipstream isn't
+  on the login screen afterwards, copy the .desktop file to where $dm reads sessions."
+        ;;
+esac
+
+# Every file this script may write, as root. The manifest lists what an install actually wrote;
+# nothing outside this list is ever removed, whatever a manifest says.
+session_launcher=/usr/local/bin/slipstream-session
+session_entry=$session_dir/slipstream.desktop
+
+ours() {
+    case $1 in
+        "$session_launcher" | */wayland-sessions/slipstream.desktop | "$pam_file" \
+            | /etc/lightdm/lightdm.conf.d/50-slipstream.conf | "$manifest" \
+            | /usr/local/share/xdg-desktop-portal/slipstream-portals.conf) return 0 ;;
+    esac
+    return 1
+}
+
+# Whether an existing file at a path this script writes came from Slipstream, so it may be
+# replaced or removed. A file someone else put there is left alone.
+# POSIX sh has no local variables, so its own are named to stay out of callers' way.
+written_by_slipstream() {
+    wbs_file=$root$1
+    [ -e "$wbs_file" ] || return 0
+    case $1 in
+        "$session_launcher") grep -q "Starts Slipstream as a login session" "$wbs_file" 2>/dev/null ;;
+        */slipstream.desktop) grep -q "^Exec=/usr/local/bin/slipstream-session" "$wbs_file" 2>/dev/null ;;
+        "$pam_file" | */50-slipstream.conf) grep -qF "$pam_marker" "$wbs_file" 2>/dev/null ;;
+        *) return 0 ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------------------------
+# What it needs.
+
+# Package names per family, for the one line that tells you how to get what's missing.
+package() {
+    case $1:$family in
+        xwayland:fedora) echo xorg-x11-server-Xwayland ;;
+        xwayland:debian | xwayland:suse) echo xwayland ;;
+        xwayland:arch) echo xorg-xwayland ;;
+        portal:*) echo xdg-desktop-portal ;;
+        portal-wlr:*) echo xdg-desktop-portal-wlr ;;
+        wpctl:*) echo wireplumber ;;
+        pactl:arch) echo libpulse ;;
+        pactl:*) echo pulseaudio-utils ;;
+        pw-play:debian) echo pipewire-bin ;;
+        pw-play:arch) echo pipewire ;;
+        pw-play:suse) echo pipewire-tools ;;
+        pw-play:*) echo pipewire-utils ;;
+        nmcli:debian) echo network-manager ;;
+        nmcli:arch) echo networkmanager ;;
+        nmcli:*) echo NetworkManager ;;
+        bluetoothctl:arch) echo bluez-utils ;;
+        bluetoothctl:*) echo bluez ;;
+        power-profiles:*) echo power-profiles-daemon ;;
+        terminal:*) echo foot ;;
+    esac
+}
+
+install_command() {
+    case $family:$atomic in
+        fedora:yes) echo "rpm-ostree install $* && systemctl reboot" ;;
+        fedora:no) echo "sudo dnf install $*" ;;
+        debian:*) echo "sudo apt install $*" ;;
+        arch:*) echo "sudo pacman -S $*" ;;
+        suse:yes) echo "sudo transactional-update pkg install $* && sudo reboot" ;;
+        suse:no) echo "sudo zypper install $*" ;;
+        *) echo "install with your package manager: $*" ;;
+    esac
+}
+
+problems=""
+problem() { problems="$problems
+  - $*"; }
+missing=""
+missing_packages=""
+lacks() {
+    missing="$missing
+  - $2"
+    pkg=$(package "$1")
+    case " $missing_packages " in
+        *" $pkg "*) ;;
+        *) missing_packages="$missing_packages $pkg" ;;
+    esac
+}
+
+check() {
+    if [ "$family" = nixos ]; then
+        problem "NixOS: a script that writes into /usr is the wrong shape here. Slipstream would
+    need a NixOS module (services.displayManager.sessionPackages), which doesn't exist yet."
+    fi
+    for file in session/slipstream-session session/slipstream.desktop; do
+        if ! [ -r "$repo/$file" ]; then
+            problem "$repo/$file is missing: run this from a complete copy of Slipstream."
+        fi
+    done
+    for tool in install mktemp sed grep; do
+        have "$tool" || problem "$tool isn't installed, and this script needs it."
+    done
+    # A seat manager, without which the hardware backend can't open the screen or the input
+    # devices at all.
+    if [ -n "${SLIPSTREAM_TEST_SEAT:-}" ] || [ -d /run/systemd/seats ] || [ -S /run/seatd.sock ] \
+        || have seatd; then
+        :
+    else
+        problem "no seat manager: neither logind nor seatd is running, so Slipstream couldn't take
+    the screen and keyboard. Install and enable seatd, or use a systemd-based system."
+    fi
+    if [ -z "$root" ] && ! have sudo; then
+        problem "sudo isn't installed, and the session's entry has to go outside your home."
+    fi
+    # Where the session file goes has to be writable (as root). /usr on an atomic system isn't.
+    case $session_dir in
+        /usr/local/*) ;;
+        /usr/*)
+            if [ "$atomic" = yes ]; then
+                problem "$dm reads sessions from $session_dir, which is read-only on $os_name.
+    Point $dm at /usr/local/share/wayland-sessions in its configuration, then run this again."
+            fi
+            ;;
+    esac
+    case $session_dir in
+        /*) ;;
+        *) problem "$dm's configured session folder, '$session_dir', isn't an absolute path." ;;
+    esac
+
+    # The lock's PAM service includes this system's password stack. Without it PAM falls back to
+    # refusing everyone, and the right password would read as wrong for ever.
+    if [ -z "$pam_stacks" ]; then
+        problem "none of the PAM stacks the lock screen could use ($candidates) is in
+    $pam_dirs. Slipstream's lock would refuse every password here."
+    fi
+
+    # Files already where this script writes that something else put there are never replaced.
+    for path in "$session_launcher" "$session_entry" "$pam_file" $lightdm_dropin; do
+        if ! written_by_slipstream "$path"; then
+            problem "$root$path already exists and wasn't written by Slipstream; move it away
+    if it's not needed, then run this again."
+        fi
+    done
+
+    # What individual features need. None of these stops the session working.
+    have Xwayland || lacks xwayland "Xwayland: X11 apps (Steam, older games) won't open"
+    if ! [ -e /usr/share/xdg-desktop-portal/portals/wlr.portal ]; then
+        lacks portal-wlr "xdg-desktop-portal-wlr: no screen sharing (Discord, Meet, OBS)"
+    fi
+    have wpctl || lacks wpctl "wpctl: the volume keys, the on-screen display and the tray's volume"
+    have pactl || lacks pactl "pactl: bullet time can't muffle the sound"
+    have pw-play || lacks pw-play "pw-play: no click at the new volume"
+    have nmcli || lacks nmcli "nmcli: quick settings' Wi-Fi tile does nothing"
+    have bluetoothctl || lacks bluetoothctl "bluetoothctl: quick settings' Bluetooth tile does nothing"
+    if have busctl && ! busctl --system status org.freedesktop.UPower.PowerProfiles >/dev/null 2>&1 \
+        && ! busctl --system status net.hadess.PowerProfiles >/dev/null 2>&1; then
+        lacks power-profiles "power-profiles-daemon: quick settings' Power mode tile does nothing"
+    fi
+    terminal=no
+    for t in ghostty konsole ptyxis gnome-terminal foot alacritty kitty wezterm xterm; do
+        if have "$t"; then
+            terminal=yes
+            break
+        fi
+    done
+    [ "$terminal" = yes ] || lacks terminal "a terminal: Super+Return opens nothing"
+    # The compositor itself, once installed: every library it links has to be here.
+    bin="$HOME/.local/bin/slipstream"
+    if [ -x "$bin" ] && have ldd; then
+        libs=$(ldd "$bin" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
+        if [ -n "$libs" ]; then
+            problem "the installed compositor can't start: missing libraries $libs"
+        fi
+    fi
+}
+
+report() {
+    bold "Slipstream on $os_name"
+    say "family: $family$([ "$atomic" = yes ] && echo ', atomic (/usr is read-only)')"
+    say "display manager: ${dm:-none found}"
+    say "session entry: $root$session_entry"
+    if [ -n "$lightdm_dropin" ]; then
+        say "LightDM drop-in: $root$lightdm_dropin (adds /usr/local's sessions)"
+    fi
+    if [ -n "$pam_stacks" ]; then
+        say "lock screen's PAM service: $root$pam_file, with"
+        say "  $pam_auth"
+        say "  $pam_account"
+    fi
+    if [ -n "$session_note" ]; then
+        say "note: $session_note"
+    fi
+    if [ -n "$missing" ]; then
+        echo
+        bold "It will work, minus these:"
+        printf '%s\n' "$missing" | sed '1d'
+        say ""
+        # shellcheck disable=SC2086 # one word per package
+        say "To add them: $(install_command $missing_packages)"
+        if [ "$atomic" = yes ]; then
+            say "(Layering packages and rebooting is your call; this script never does it.)"
+        fi
+    fi
+    if [ -e /usr/libexec/ublue-motd ] && ! [ -e "$HOME/.config/no-show-user-motd" ]; then
+        echo
+        bold "Worth knowing on Universal Blue:"
+        say "The login banner (ublue-motd) waits forever for a terminal that's still starting, so a"
+        say "terminal reopened with your layout can sit there taking no typing until Ctrl+C."
+        say "To turn the banner off: touch ~/.config/no-show-user-motd"
+    fi
+    if [ -n "$problems" ]; then
+        echo
+        bold "It can't be installed here:"
+        printf '%s\n' "$problems" | sed '1d'
+    fi
+}
+
+inside_slipstream() {
+    case "${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}" in
+        Slipstream* | *:slipstream) return 0 ;;
+    esac
+    return 1
+}
+
+confirm() {
+    [ "$assume_yes" = yes ] && return 0
+    printf '%s [y/N] ' "$1"
+    read -r answer || answer=
+    case $answer in y | Y | yes) return 0 ;; esac
+    return 1
+}
+
+scratch=
+cleanup() {
+    if [ -n "$scratch" ]; then
+        rm -rf "$scratch"
+    fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+
+new_scratch() {
+    base=${XDG_RUNTIME_DIR:-/tmp}
+    [ -d "$base" ] && [ -w "$base" ] || base=/tmp
+    scratch=$(mktemp -d "$base/slipstream-install.XXXXXX")
+    chmod 755 "$scratch"
+}
+
+# Runs the root half: `apply PLAN REMOVE`. PLAN lists files to put in place, one `mode<TAB>source<TAB>
+# destination` per line; every one is copied beside its destination first, and only once all are
+# there are they moved into place, so a failure part way leaves nothing changed. REMOVE lists
+# files to delete afterwards. Written out and run with a single sudo, so there's one password
+# prompt and no sudo timeout can land between two steps.
+write_root_script() {
+    cat >"$scratch/apply" <<'APPLY'
+#!/bin/sh
+set -eu
+umask 022
+plan=$1
+remove=$2
+tab=$(printf '\t')
+unstage() {
+    while IFS=$tab read -r _ _ dest; do
+        if [ -n "$dest" ]; then
+            rm -f "$dest.slipstream-new"
+        fi
+    done <"$plan"
+}
+trap unstage EXIT
+n=0
+while IFS=$tab read -r mode src dest; do
+    [ -n "$dest" ] || continue
+    n=$((n + 1))
+    if [ "${SLIPSTREAM_TEST_FAIL_AT:-0}" = "$n" ]; then
+        echo "(test) failing before file $n" >&2
+        exit 1
+    fi
+    dir=$(dirname "$dest")
+    [ -d "$dir" ] || install -d -m755 "$dir"
+    install -m"$mode" "$src" "$dest.slipstream-new"
+done <"$plan"
+while IFS=$tab read -r _ _ dest; do
+    [ -n "$dest" ] || continue
+    mv -f "$dest.slipstream-new" "$dest"
+    if command -v restorecon >/dev/null 2>&1; then
+        restorecon "$dest" 2>/dev/null || true
+    fi
+done <"$plan"
+while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rm -f "$path"
+    case $path in
+        */share/slipstream/installed) rmdir "$(dirname "$path")" 2>/dev/null || true ;;
+    esac
+done <"$remove"
+exit 0
+APPLY
+}
+
+as_root() {
+    if [ -n "$root" ]; then
+        sh "$@"
+    else
+        sudo sh "$@"
+    fi
+}
+
+# Every path in a manifest that this script is allowed to remove, one per line.
+manifest_paths() {
+    [ -r "$root$manifest" ] || return 0
+    while IFS= read -r mp_path; do
+        if ours "$mp_path"; then
+            printf '%s\n' "$mp_path"
+        elif [ -n "$mp_path" ]; then
+            echo "install-session: ignoring '$mp_path' in the manifest: not a file Slipstream writes" >&2
+        fi
+    done <"$root$manifest"
+}
+
+# ---------------------------------------------------------------------------------------------
+
+if [ "$mode" = uninstall ]; then
+    if inside_slipstream; then
+        echo "install-session: you're inside a Slipstream session right now." >&2
+        echo "Removing it would pull the desktop out from under itself and leave the next login" >&2
+        echo "with nothing to start. Log into another desktop and run this from there." >&2
+        exit 1
+    fi
+    config=${XDG_CONFIG_HOME:-$HOME/.config}
+    data=${XDG_DATA_HOME:-$HOME/.local/share}
+    state=${XDG_STATE_HOME:-$HOME/.local/state}
+    # What the manifest lists, plus what earlier versions of this script wrote without one. A file
+    # that exists but wasn't written by Slipstream stays.
+    candidates_list=$(
+        {
+            manifest_paths
+            printf '%s\n' "$session_launcher" /usr/local/share/wayland-sessions/slipstream.desktop \
+                "$session_entry" "$pam_file" /usr/local/share/xdg-desktop-portal/slipstream-portals.conf \
+                "$manifest"
+        } | sed '/^$/d' | sort -u
+    )
+    system_files=
+    kept=
+    while IFS= read -r path; do
+        [ -n "$path" ] && [ -e "$root$path" ] || continue
+        if written_by_slipstream "$path"; then
+            system_files="$system_files$root$path
+"
+        else
+            kept="$kept$root$path
+"
+        fi
+    done <<EOF
+$candidates_list
+EOF
+    user_files="$HOME/.local/bin/slipstream
+$HOME/.local/bin/slipstream-settings
+$data/applications/io.github.peterwalker78.SlipstreamSettings.desktop
+$config/systemd/user/slipstream-session.target
+$config/systemd/user/slipstream-shutdown.target
+$config/xdg-desktop-portal/slipstream-portals.conf
+$config/xdg-desktop-portal-wlr/Slipstream"
+    bold "This removes:"
+    printf '%s%s\n' "$system_files" "$user_files" | while IFS= read -r f; do
+        if [ -n "$f" ] && [ -e "$f" ]; then
+            say "$f"
+        fi
+    done
+    if [ "$purge" = yes ]; then
+        say "$config/slipstream (your settings)"
+        say "$state/slipstream (the log and the remembered layout)"
+    else
+        echo
+        bold "It leaves:"
+        say "$config/slipstream (your settings) and $state/slipstream (the log and layout)."
+        say "Add --purge to remove those too."
+    fi
+    if [ -n "$kept" ]; then
+        printf '%s' "$kept" | while IFS= read -r f; do
+            say "$f: not written by Slipstream, so it stays"
+        done
+    fi
+    say "Packages such as xdg-desktop-portal-wlr stay: something else may be using them."
+    echo
+    confirm "Remove Slipstream?" || { echo "Nothing removed."; exit 1; }
+    if [ -n "$system_files" ]; then
+        new_scratch
+        write_root_script
+        : >"$scratch/plan"
+        printf '%s' "$system_files" >"$scratch/remove"
+        if ! as_root "$scratch/apply" "$scratch/plan" "$scratch/remove"; then
+            echo "install-session: removing the system files failed; your own files were left too." >&2
+            exit 1
+        fi
+    fi
+    printf '%s\n' "$user_files" | while IFS= read -r f; do rm -f "$f"; done
+    if [ "$purge" = yes ]; then
+        rm -rf "$config/slipstream" "$state/slipstream"
+    fi
+    if [ -z "$root" ]; then
+        systemctl --user daemon-reload 2>/dev/null || true
+    fi
+    echo "Slipstream is gone from the login screen."
+    exit 0
+fi
+
+check
+report
+if [ -n "$problems" ]; then
+    echo
+    echo "Nothing was written."
+    exit 1
+fi
+if [ "$mode" = check ]; then
+    exit 0
+fi
+
+echo
+if [ -n "$root" ]; then
+    bold "Installing under $root"
+else
+    bold "Installing (sudo asks for your password)"
+    if ! sudo -v; then
+        echo
+        echo "sudo didn't let this through, so nothing was written."
+        exit 1
+    fi
+fi
+new_scratch
+write_root_script
+plan=$scratch/plan
+: >"$plan"
+written=
+put() {
+    printf '%s\t%s\t%s\n' "$1" "$2" "$root$3" >>"$plan"
+    written="$written$3
+"
+}
+put 755 "$repo/session/slipstream-session" "$session_launcher"
+put 644 "$repo/session/slipstream.desktop" "$session_entry"
+if [ -n "$lightdm_dropin" ]; then
+    printf '%s\n' \
+        "$pam_marker: LightDM doesn't read /usr/local's sessions," \
+        "# and /usr can't be written on this system. Removed by install-session --uninstall." \
+        "[LightDM]" \
+        "sessions-directory=/usr/local/share/wayland-sessions:/usr/share/lightdm/sessions:/usr/share/xsessions:/usr/share/wayland-sessions" \
+        >"$scratch/lightdm.conf"
+    put 644 "$scratch/lightdm.conf" "$lightdm_dropin"
+fi
+# The lock screen's PAM service. Without it the lock refuses to go up at all.
+printf '%s\n' \
+    "$pam_marker: the lock screen checks your password with this." \
+    "# Removed by install-session --uninstall." \
+    "$pam_auth" \
+    "$pam_account" \
+    >"$scratch/pam"
+put 644 "$scratch/pam" "$pam_file"
+# What was written, so --uninstall removes exactly that.
+printf '%s%s\n' "$written" "$manifest" >"$scratch/installed"
+put 644 "$scratch/installed" "$manifest"
+
+# What an earlier install wrote that this one doesn't: a session entry in a folder the display
+# manager no longer reads, a drop-in for a display manager that's gone, and the portal settings
+# that are per-user now.
+: >"$scratch/remove"
+stale=$(
+    manifest_paths
+    echo /usr/local/share/xdg-desktop-portal/slipstream-portals.conf
+)
+while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "
+$written$manifest
+" in
+        *"
+$path
+"*) continue ;;
+    esac
+    if [ -e "$root$path" ] && written_by_slipstream "$path"; then
+        printf '%s\n' "$root$path" >>"$scratch/remove"
+    fi
+done <<EOF
+$stale
+EOF
+
+if ! as_root "$scratch/apply" "$plan" "$scratch/remove"; then
+    echo
+    echo "Installing failed part way, and what had been copied was taken back: nothing changed."
+    exit 1
+fi
+printf '%s' "$written" | while IFS= read -r f; do
+    if [ -n "$f" ]; then
+        say "$root$f"
+    fi
+done
+while IFS= read -r f; do
+    if [ -n "$f" ]; then
+        say "removed $f (no longer used)"
+    fi
+done <"$scratch/remove"
+
+# The login screen reads these as its own user: check they're really there, and readable.
+for f in "$session_entry" "$session_launcher" "$pam_file"; do
+    if ! [ -r "$root$f" ]; then
+        echo "install-session: $root$f can't be read after installing; the login screen won't see it." >&2
+        exit 1
+    fi
+done
+if ! [ -x "$root$session_launcher" ]; then
+    echo "install-session: $root$session_launcher isn't executable after installing." >&2
+    exit 1
+fi
+
+echo
+if [ -x "$HOME/.local/bin/slipstream" ]; then
+    echo "Slipstream is on the login screen's session list."
+else
+    echo "Slipstream is on the login screen's session list. Now run scripts/update-session to"
+    echo "put the compositor in ~/.local/bin, which is what that entry starts."
+fi

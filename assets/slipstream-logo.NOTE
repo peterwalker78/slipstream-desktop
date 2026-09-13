@@ -1,0 +1,6 @@
+slipstream-logo.txt and slipstream-logo-stacked.txt are the word SLIPSTREAM rendered with
+FIGlet in the "Delta Corps Priest 1" font (font author: CoSMiC cHiLD, made with patorjk.com's
+FIGFont Editor), the style Omarchy's screensaver art uses. Only the rendered text is included,
+not the font. Regenerate with:
+
+    figlet -f "Delta Corps Priest 1.flf" -w 400 SLIPSTREAM > slipstream-logo.txt

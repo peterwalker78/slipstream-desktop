@@ -1,0 +1,53 @@
+name: build
+
+# Private repos get limited free CI minutes, so this runs on pushes to main
+# and on demand only, and cancels superseded runs.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:44
+    steps:
+      - name: Install toolchain and libraries
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git gcc clang mold rustup pkgconf-pkg-config \
+            libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
+            libseat-devel libdrm-devel mesa-libEGL-devel pixman-devel libdisplay-info-devel gtk4-devel \
+            ShellCheck dash
+          rustup-init -y --profile minimal -c rustfmt -c clippy
+
+      - uses: actions/checkout@v7
+
+      - name: Scripts
+        run: |
+          shellcheck -s sh scripts/install-session scripts/update-session scripts/package-release \
+            scripts/test-install-session session/slipstream-session
+          shellcheck scripts/nested scripts/stubborn
+          scripts/test-install-session
+          SHELL_UNDER_TEST=dash scripts/test-install-session
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-
+
+      - name: Format
+        run: . ~/.cargo/env && cargo fmt --all --check
+
+      - name: Clippy
+        run: . ~/.cargo/env && cargo clippy --workspace --locked -- -D warnings
+
+      - name: Test
+        run: . ~/.cargo/env && cargo test --workspace --locked

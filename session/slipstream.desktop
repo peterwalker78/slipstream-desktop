@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Slipstream
+Comment=Keyboard-first desktop (beta)
+Exec=/usr/local/bin/slipstream-session
+TryExec=/usr/local/bin/slipstream-session
+Type=Application
+DesktopNames=Slipstream;KDE

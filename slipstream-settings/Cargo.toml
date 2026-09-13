@@ -1,0 +1,14 @@
+[package]
+name = "slipstream-settings"
+description = "Slipstream's Settings app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# gtk4-rs 0.11 needs a newer Rust than the compositor does.
+rust-version = "1.92"
+
+[dependencies]
+slipstream-config.workspace = true
+gtk4.workspace = true
+pango.workspace = true

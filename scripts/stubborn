@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# A window that can never answer a close request, for checking the way out's "still here" card. It
+# starts a client — foot unless another is named — and stops it once the window is up: a stopped
+# process never reads `xdg_toplevel.close`, which is exactly what a wedged app, or one that ignores
+# the request, looks like to the compositor.
+#
+# It cleans up after itself, so a test can't leave a stopped process behind holding a socket.
+#
+#   SLIPSTREAM_DEBUG="2000:run:/path/to/scripts/stubborn;3000:logout;…"
+#
+# STUBBORN_AFTER is how long to wait for the window (seconds), STUBBORN_FOR how long to stay
+# stubborn before letting the client go.
+set -u
+
+client=("$@")
+[ ${#client[@]} -eq 0 ] && client=(foot)
+
+"${client[@]}" &
+pid=$!
+
+sleep "${STUBBORN_AFTER:-1.5}"
+kill -STOP "$pid" 2>/dev/null || exit 0
+echo "stubborn: ${client[*]} (pid $pid) is stopped and will ignore close requests" >&2
+
+sleep "${STUBBORN_FOR:-30}"
+kill -CONT "$pid" 2>/dev/null
+kill -TERM "$pid" 2>/dev/null
+wait "$pid" 2>/dev/null

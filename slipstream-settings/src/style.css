@@ -1,0 +1,241 @@
+/* The Settings window's look: its colours, spacing and fonts. */
+
+window.slipstream-settings {
+  background-color: #17191f;
+  color: #e6e8ee;
+  font-family: "Atkinson Hyperlegible", sans-serif;
+  font-size: 14px;
+}
+
+window.slipstream-settings headerbar {
+  min-height: 46px;
+  padding: 0 10px;
+  background: #1d2028;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+  box-shadow: none;
+}
+
+window.slipstream-settings headerbar .title {
+  font-weight: 700;
+}
+
+window.slipstream-settings headerbar windowcontrols button {
+  min-width: 24px;
+  min-height: 24px;
+  /* Centred in the 46 px bar rather than stretched to its height. */
+  margin: 11px 0;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cfd3dc;
+}
+
+/* Sidebar */
+.side {
+  padding: 10px 8px;
+  background: #1a1c23;
+}
+
+.side > row {
+  margin-bottom: 2px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: none;
+  color: #c9cdd6;
+}
+
+.side > row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.side > row:selected {
+  background: rgba(255, 181, 71, 0.12);
+  color: #ffd08a;
+}
+
+/* Pages */
+.main {
+  padding: 22px 28px;
+}
+
+.page-title {
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  font-size: 25px;
+  color: #f1f3f7;
+}
+
+.page-sub {
+  color: #8b91a0;
+}
+
+.hero {
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+}
+
+.group-title {
+  padding-left: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #8b91a0;
+}
+
+.card {
+  background: #1f222b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.card > .row {
+  min-height: 32px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.card > .row:first-child {
+  border-top: none;
+}
+
+.row-sub {
+  font-size: 12.5px;
+  color: #8b91a0;
+}
+
+.kv {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: #c9cdd6;
+}
+
+/* Controls */
+/* An on/off setting, lit in the same colour as a ticked box. */
+.row switch {
+  border: 1px solid #3a4050;
+  border-radius: 14px;
+  background: #23262f;
+  box-shadow: none;
+}
+
+.row switch:checked {
+  border-color: #42d3ff;
+  background: #42d3ff;
+}
+
+.row switch slider {
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 50%;
+  background: #aeb3bf;
+  box-shadow: none;
+}
+
+.row switch:checked slider {
+  background: #10141c;
+}
+
+/* The tick against each wallpaper variation, in the colour Slipstream marks what's chosen. */
+.row checkbutton check {
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 5px;
+  border: 1px solid #3a4050;
+  background: #23262f;
+  box-shadow: none;
+}
+
+.row checkbutton check:checked {
+  border-color: #42d3ff;
+  background: #42d3ff;
+  color: #10141c;
+}
+
+/* "All of them" when only some are ticked: a dash in the same cyan, on the unticked box. */
+.row checkbutton check:indeterminate {
+  border-color: #42d3ff;
+  background: #23262f;
+  color: #42d3ff;
+}
+
+/* A wallpaper variation's moving preview, dark until its frames arrive. */
+.row picture.preview {
+  border-radius: 6px;
+  background: #0b0e13;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* A workspace's name, and the buttons beside it. */
+.row entry {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid #3a4050;
+  background: #23262f;
+  color: #dfe2e9;
+}
+
+.row entry:focus-within {
+  border-color: #42d3ff;
+}
+
+.row button.flat {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 7px;
+  color: #aeb3bf;
+}
+
+.row button.flat:disabled {
+  color: #4a4f5c;
+}
+
+.row > button {
+  padding: 5px 14px;
+  border-radius: 7px;
+  background: #2a2e38;
+  color: #dfe2e9;
+}
+
+dropdown > button {
+  padding: 5px 12px;
+  border-radius: 7px;
+  background: #2a2e38;
+  color: #dfe2e9;
+}
+
+/* Keyboard focus, in the mockup's amber */
+.side > row:focus-visible,
+.row switch:focus-visible,
+.row checkbutton:focus-visible,
+.row button:focus-visible,
+dropdown > button:focus-visible {
+  outline: 2px solid #ffb547;
+  outline-offset: -2px;
+}
+
+.note {
+  margin: 0 28px 16px;
+}
+
+.note .error {
+  color: #ff8a80;
+}
+
+.note .told {
+  color: #aeb3bf;
+}
+
+.note > button {
+  padding: 5px 14px;
+  border-radius: 7px;
+  background: #2a2e38;
+  color: #dfe2e9;
+}
+
+.note > button:focus-visible {
+  outline: 2px solid #ffb547;
+  outline-offset: -2px;
+}

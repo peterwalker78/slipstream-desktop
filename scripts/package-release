@@ -1,0 +1,52 @@
+#!/bin/sh
+# Packs a release: slipstream-VERSION-SYSTEM-ARCH.tar.gz, holding the ready-built programs in bin/,
+# the session files and the scripts that install them, and the licences, with a .sha256 beside it.
+# Run after `cargo build --release`; CI does both for every version tag.
+#
+#   scripts/package-release [OUT_DIR]
+#
+# The programs link the libraries of the system they were built on, so SYSTEM names it (fedora44,
+# from /etc/os-release). SLIPSTREAM_PACKAGE_FROM packs programs from another folder.
+set -eu
+umask 022
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repo/Cargo.toml" | head -n1)
+[ -n "$version" ] || { echo "package-release: no version in Cargo.toml" >&2; exit 1; }
+os_release=/etc/os-release
+[ -r "$os_release" ] || os_release=/usr/lib/os-release
+field() { sed -n "s/^$1=//p" "$os_release" | head -n1 | tr -d "\"'"; }
+id=$(field ID)
+version_id=$(field VERSION_ID)
+system=${id:-linux}${version_id%%.*}
+arch=$(uname -m)
+from=${SLIPSTREAM_PACKAGE_FROM:-${CARGO_TARGET_DIR:-$repo/target}/release}
+out=${1:-$repo/target/dist}
+name=slipstream-$version-$system-$arch
+
+for program in slipstream slipstream-settings; do
+    [ -x "$from/$program" ] || { echo "package-release: $from/$program isn't built" >&2; exit 1; }
+done
+built_version=$("$from/slipstream" --version)
+if [ "$built_version" != "slipstream $version" ]; then
+    echo "package-release: $from/slipstream says '$built_version', not version $version" >&2
+    exit 1
+fi
+
+mkdir -p "$out"
+stage=$out/.stage
+rm -rf "$stage"
+trap 'rm -rf "$stage"' EXIT
+mkdir -p "$stage/$name/bin" "$stage/$name/scripts" "$stage/$name/session" \
+    "$stage/$name/slipstream-settings" "$stage/$name/licences"
+cp "$from/slipstream" "$from/slipstream-settings" "$stage/$name/bin/"
+cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$stage/$name/scripts/"
+cp "$repo"/session/* "$stage/$name/session/"
+cp "$repo/slipstream-settings/io.github.peterwalker78.SlipstreamSettings.desktop" \
+    "$stage/$name/slipstream-settings/"
+cp "$repo/README.md" "$repo/CHANGELOG.md" "$repo/LICENSE" "$stage/$name/"
+cp "$repo"/assets/fonts/*-OFL.txt "$repo/assets/slipstream-logo.NOTE" \
+    "$repo/slipstream/LICENSE-smallvil-MIT.txt" "$stage/$name/licences/"
+
+tar -C "$stage" --owner=0 --group=0 -czf "$out/$name.tar.gz" "$name"
+(cd "$out" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
+echo "$out/$name.tar.gz"

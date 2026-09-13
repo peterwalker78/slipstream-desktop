@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Slipstream Settings
+Comment=When the desktop fades to the wallpaper, how much windows move, and other Slipstream settings
+Exec=slipstream-settings
+Icon=preferences-system
+Categories=Settings;DesktopSettings;GTK;
+Keywords=preferences;settings;wallpaper;screensaver;idle;timeout;motion;animations;effects;
+OnlyShowIn=Slipstream;
+StartupNotify=true

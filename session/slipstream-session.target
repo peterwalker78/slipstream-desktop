@@ -1,0 +1,17 @@
+[Unit]
+Description=Slipstream session
+Documentation=man:systemd.special(7)
+
+# Nothing in this session declared BindsTo=graphical-session.target, so the target never went
+# active and every unit with Requisite=graphical-session.target refused to start: the portal
+# (no file pickers or screencasts for Flatpaks), Flatpak document sharing, GVfs and AT-SPI.
+# BindsTo implies Requires for activation, and a dependency-driven start is exempt from
+# graphical-session.target's RefuseManualStart=yes, which a plain `systemctl start` is not.
+BindsTo=graphical-session.target
+Before=graphical-session.target
+
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target

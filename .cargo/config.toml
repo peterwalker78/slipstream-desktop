@@ -1,0 +1,8 @@
+# Memory guard for a 14 GB laptop: never more than 4 parallel compile jobs.
+[build]
+jobs = 4
+
+# mold links much faster and with less memory than the default linker.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

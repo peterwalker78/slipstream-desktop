@@ -1,0 +1,205 @@
+#!/bin/sh
+# Tests for install-session, run against a scratch folder standing in for the system's root and a
+# scratch home, so nothing real is read for the checks that matter or written at all.
+#
+#   scripts/test-install-session          with sh
+#   SHELL_UNDER_TEST=dash scripts/test-install-session
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+shell=${SHELL_UNDER_TEST:-sh}
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+failures=0
+passed=0
+
+fail() {
+    echo "FAIL: $*" >&2
+    failures=$((failures + 1))
+}
+ok() { passed=$((passed + 1)); }
+
+# A fresh system and home for each case.
+fresh() {
+    rm -rf "${work:?}/root" "${work:?}/home" "${work:?}/pam"
+    mkdir -p "$work/root" "$work/home" "$work/pam"
+    : >"$work/pam/password-auth"
+    : >"$work/pam/system-auth"
+    : >"$work/pam/login"
+    printf 'ID=fedora\nPRETTY_NAME="Fedora Linux 44"\n' >"$work/os-release"
+}
+
+run() {
+    env -u XDG_CURRENT_DESKTOP -u XDG_SESSION_DESKTOP -u XDG_CONFIG_HOME -u XDG_DATA_HOME \
+        -u XDG_STATE_HOME -u SLIPSTREAM_TEST_FAIL_AT \
+        HOME="$work/home" \
+        SLIPSTREAM_TEST_ROOT="$work/root" \
+        SLIPSTREAM_TEST_OS_RELEASE="$work/os-release" \
+        SLIPSTREAM_TEST_PAM_DIR="$work/pam" \
+        SLIPSTREAM_TEST_OSTREE="${OSTREE:-$work/not-atomic}" \
+        SLIPSTREAM_TEST_DM="${DM-plasmalogin}" \
+        SLIPSTREAM_TEST_SEAT=yes \
+        ${FAIL_AT:+SLIPSTREAM_TEST_FAIL_AT=$FAIL_AT} \
+        "$shell" "${SCRIPT:-$repo/scripts/install-session}" "$@" >"$work/out" 2>&1
+}
+
+expect_status() {
+    want=$1
+    shift
+    status=0
+    run "$@" || status=$?
+    if [ "$status" -ne "$want" ]; then
+        fail "$case_name: exit $status, wanted $want"
+        sed 's/^/    | /' "$work/out" >&2
+        return 1
+    fi
+    ok
+}
+
+mode_of() { stat -c %a "$1"; }
+r=$work/root
+entry=$r/usr/local/share/wayland-sessions/slipstream.desktop
+launcher=$r/usr/local/bin/slipstream-session
+pam=$r/etc/pam.d/slipstream
+manifest=$r/usr/local/share/slipstream/installed
+leftovers() { find "$r" -name '*.slipstream-new' | grep -q . ; }
+
+case_name="installs everything, readable, with a manifest"
+fresh
+if expect_status 0; then
+    for f in "$entry" "$launcher" "$pam" "$manifest"; do
+        [ -f "$f" ] || fail "$case_name: $f missing"
+    done
+    [ "$(mode_of "$launcher")" = 755 ] || fail "$case_name: launcher mode $(mode_of "$launcher")"
+    [ "$(mode_of "$entry")" = 644 ] || fail "$case_name: entry mode $(mode_of "$entry")"
+    [ "$(mode_of "$r/usr/local/share/wayland-sessions")" = 755 ] || fail "$case_name: session folder mode"
+    grep -q "auth       include      password-auth" "$pam" || fail "$case_name: PAM stack"
+    [ "$(grep -c . "$manifest")" = 4 ] || fail "$case_name: manifest has $(grep -c . "$manifest") lines"
+    leftovers && fail "$case_name: staged files left behind"
+fi
+
+case_name="installing again replaces its own files"
+expect_status 0 || true
+
+case_name="a tight umask still leaves files the login screen can read"
+fresh
+(umask 077 && expect_status 0) || fail "$case_name"
+[ -f "$entry" ] && [ "$(mode_of "$entry")" = 644 ] || fail "$case_name: entry mode"
+[ "$(mode_of "$r/etc/pam.d")" = 755 ] || fail "$case_name: pam.d mode $(mode_of "$r/etc/pam.d")"
+
+case_name="--check writes nothing"
+fresh
+expect_status 0 --check || true
+[ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote $(find "$r" -type f)"
+
+case_name="a PAM file someone else wrote is never replaced"
+fresh
+mkdir -p "$r/etc/pam.d"
+echo "auth required pam_deny.so" >"$pam"
+expect_status 1 || true
+grep -q pam_deny "$pam" || fail "$case_name: PAM file changed"
+[ -e "$entry" ] && fail "$case_name: wrote the session entry anyway"
+grep -q "wasn't written by Slipstream" "$work/out" || fail "$case_name: no reason given"
+
+case_name="a failure part way changes nothing"
+fresh
+FAIL_AT=3 expect_status 1 || true
+[ -z "$(find "$r" -type f)" ] || fail "$case_name: left $(find "$r" -type f)"
+
+case_name="a failed reinstall keeps the working install"
+fresh
+expect_status 0 || true
+before=$(cat "$pam" "$entry" "$manifest" | cksum)
+FAIL_AT=4 expect_status 1 || true
+[ "$(cat "$pam" "$entry" "$manifest" | cksum)" = "$before" ] || fail "$case_name: files changed"
+leftovers && fail "$case_name: staged files left behind"
+
+case_name="moving to another display manager removes the old drop-in"
+fresh
+OSTREE=$work/os-release DM=lightdm expect_status 0 || true
+dropin=$r/etc/lightdm/lightdm.conf.d/50-slipstream.conf
+[ -f "$dropin" ] || fail "$case_name: no LightDM drop-in"
+OSTREE=$work/os-release DM=plasmalogin expect_status 0 || true
+[ -e "$dropin" ] && fail "$case_name: drop-in still there"
+grep -q 50-slipstream "$manifest" && fail "$case_name: manifest still lists it"
+
+case_name="Debian includes common-auth"
+fresh
+printf 'ID=debian\n' >"$work/os-release"
+: >"$work/pam/common-auth"
+: >"$work/pam/common-account"
+DM=gdm expect_status 0 || true
+grep -q "^@include common-auth" "$pam" || fail "$case_name: $(cat "$pam")"
+
+case_name="no usable PAM stack refuses"
+fresh
+rm -f "$work/pam/"*
+expect_status 1 || true
+[ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote files"
+
+case_name="no display manager found still installs, with a note"
+fresh
+DM="" expect_status 0 || true
+grep -q "No display manager was found" "$work/out" || fail "$case_name: no note"
+
+case_name="uninstall removes what it wrote, and only that"
+fresh
+expect_status 0 || true
+mkdir -p "$work/home/.local/bin" "$work/home/.config/slipstream"
+: >"$work/home/.local/bin/slipstream"
+: >"$work/home/.config/slipstream/settings.toml"
+echo "/etc/passwd" >>"$manifest"
+mkdir -p "$r/etc"
+echo "root:x:0:0" >"$r/etc/passwd"
+expect_status 0 --uninstall --yes || true
+for f in "$entry" "$launcher" "$pam" "$manifest" "$work/home/.local/bin/slipstream"; do
+    [ -e "$f" ] && fail "$case_name: $f still there"
+done
+[ -d "$r/usr/local/share/slipstream" ] && fail "$case_name: manifest folder still there"
+[ -e "$r/etc/passwd" ] || fail "$case_name: removed a file the manifest had no business listing"
+[ -e "$work/home/.config/slipstream/settings.toml" ] || fail "$case_name: settings removed without --purge"
+
+case_name="uninstall leaves a PAM file it didn't write"
+fresh
+mkdir -p "$r/etc/pam.d"
+echo "auth required pam_deny.so" >"$pam"
+expect_status 0 --uninstall --yes || true
+[ -e "$pam" ] || fail "$case_name: removed it"
+
+case_name="--purge removes settings too"
+fresh
+mkdir -p "$work/home/.config/slipstream" "$work/home/.local/state/slipstream"
+expect_status 0 --uninstall --purge --yes || true
+[ -d "$work/home/.config/slipstream" ] && fail "$case_name: settings still there"
+
+case_name="uninstall asks, and no answer removes nothing"
+fresh
+expect_status 0 || true
+status=0
+run --uninstall </dev/null || status=$?
+if [ "$status" = 1 ] && [ -e "$entry" ]; then
+    ok
+else
+    fail "$case_name: exit $status"
+fi
+
+case_name="bad options"
+fresh
+expect_status 2 --frobnicate || true
+expect_status 2 --purge || true
+
+case_name="a copy in a folder with spaces"
+fresh
+mkdir -p "$work/copy with spaces/scripts" "$work/copy with spaces/session"
+cp "$repo/scripts/install-session" "$work/copy with spaces/scripts/"
+cp "$repo/session/slipstream-session" "$repo/session/slipstream.desktop" "$work/copy with spaces/session/"
+SCRIPT="$work/copy with spaces/scripts/install-session" expect_status 0 || true
+[ "$(cksum <"$entry")" = "$(cksum <"$repo/session/slipstream.desktop")" ] || fail "$case_name: entry differs"
+
+case_name="an incomplete copy refuses"
+fresh
+rm "$work/copy with spaces/session/slipstream.desktop"
+SCRIPT="$work/copy with spaces/scripts/install-session" expect_status 1 || true
+[ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote files"
+
+echo "install-session ($shell): $passed checks passed, $failures failed"
+[ "$failures" -eq 0 ]

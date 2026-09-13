@@ -1,0 +1,17 @@
+[Unit]
+Description=Shutdown running Slipstream session
+Documentation=man:systemd.special(7)
+
+# Started with --job-mode=replace-irreversibly; the default dependencies would add
+# Before=shutdown.target and can wedge logging out.
+DefaultDependencies=no
+
+# Evaporate once the teardown is done, so the next login isn't blocked by an active unit that
+# conflicts with graphical-session.target.
+StopWhenUnneeded=true
+
+Conflicts=graphical-session.target graphical-session-pre.target
+After=graphical-session.target graphical-session-pre.target
+
+Conflicts=slipstream-session.target
+After=slipstream-session.target

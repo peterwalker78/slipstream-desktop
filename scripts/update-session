@@ -1,0 +1,137 @@
+#!/bin/sh
+# Installs Slipstream and its Settings app in ~/.local, where the login session runs them. No root
+# needed. The compositor's changes take effect at the next login; the Settings app's straight away.
+#
+#   scripts/update-session     build (in the `slipstream` distrobox if there is one), then install
+#
+# In an unpacked release, which carries the programs ready-built in bin/, nothing is built.
+#
+# Every file is copied beside its destination and then moved into place, so an interrupted update
+# never leaves half a program for the next login to start.
+set -eu
+umask 022
+
+if [ "$(id -u)" -eq 0 ]; then
+    echo "update-session: run this as your own user, not as root: it installs into your home." >&2
+    exit 2
+fi
+case ${1:-} in
+    "") ;;
+    -h | --help)
+        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "update-session: unknown option $1 (try --help)" >&2
+        exit 2
+        ;;
+esac
+if [ -z "${HOME:-}" ] || ! [ -d "$HOME" ]; then
+    echo "update-session: HOME isn't set to a folder." >&2
+    exit 2
+fi
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Whether a distrobox called exactly `slipstream` exists.
+has_box() {
+    have distrobox || return 1
+    distrobox list --no-color 2>/dev/null | awk -F'|' '
+        { name = $2; gsub(/^[ \t]+|[ \t]+$/, "", name); if (name == "slipstream") found = 1 }
+        END { exit !found }'
+}
+
+if [ -x "$repo/bin/slipstream" ] && ! [ -f "$repo/Cargo.toml" ]; then
+    built=$repo/bin
+    echo "Installing the release's programs from $built"
+else
+    if has_box; then
+        # Fedora Atomic hosts see /var/home; the box sees /home. A login shell, so rustup's cargo is
+        # on PATH.
+        case $repo in
+            /var/home/*) box_repo=${repo#/var} ;;
+            *) box_repo=$repo ;;
+        esac
+        # shellcheck disable=SC2016 # expanded by the box's shell, from the argument after it
+        distrobox enter slipstream -- bash -lc 'cd "$1" && cargo build --locked' _ "$box_repo"
+    elif have cargo; then
+        (cd "$repo" && cargo build --locked)
+    else
+        echo "update-session: no cargo to build with, and no slipstream distrobox." >&2
+        echo "Install Rust (https://rustup.rs) and try again, or use a release with bin/ in it." >&2
+        exit 1
+    fi
+    built=${CARGO_TARGET_DIR:-$repo/target}/debug
+fi
+
+for program in slipstream slipstream-settings; do
+    if ! [ -x "$built/$program" ]; then
+        echo "update-session: $built/$program isn't there, so nothing was installed." >&2
+        exit 1
+    fi
+done
+
+# A binary built in a box links the box's libraries, and a release's links the system it was built
+# for: say so now rather than at the next login.
+if have ldd; then
+    for program in slipstream slipstream-settings; do
+        libs=$(ldd "$built/$program" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
+        if [ -n "$libs" ]; then
+            echo "update-session: $program links libraries this system doesn't have: $libs" >&2
+            echo "Nothing was installed. scripts/install-session --check names the packages." >&2
+            exit 1
+        fi
+    done
+fi
+if ! version=$("$built/slipstream" --version 2>&1); then
+    echo "update-session: the compositor doesn't run on this system:" >&2
+    printf '  %s\n' "$version" >&2
+    echo "Nothing was installed." >&2
+    exit 1
+fi
+
+# `put MODE SOURCE DEST`: copied beside DEST, then moved over it in one step.
+put() {
+    mkdir -p "$(dirname "$3")"
+    cp "$2" "$3.slipstream-new"
+    chmod "$1" "$3.slipstream-new"
+    mv -f "$3.slipstream-new" "$3"
+}
+# The same, for text made here rather than copied.
+put_text() {
+    mkdir -p "$(dirname "$2")"
+    cat >"$2.slipstream-new"
+    chmod "$1" "$2.slipstream-new"
+    mv -f "$2.slipstream-new" "$2"
+}
+
+bin_dir=$HOME/.local/bin
+config=${XDG_CONFIG_HOME:-$HOME/.config}
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+
+put 755 "$built/slipstream" "$bin_dir/slipstream"
+put 755 "$built/slipstream-settings" "$bin_dir/slipstream-settings"
+# The Settings app's entry, so the explorer lists it (in Slipstream only).
+entry=io.github.peterwalker78.SlipstreamSettings.desktop
+put 644 "$repo/slipstream-settings/$entry" "$data/applications/$entry"
+# The session targets, which the compositor starts so graphical-session.target comes up and the
+# portal will run. They're per-user units, and ~/.config/systemd/user is the first directory the
+# user manager searches, so this needs no root.
+put 644 "$repo/session/slipstream-session.target" "$config/systemd/user/slipstream-session.target"
+put 644 "$repo/session/slipstream-shutdown.target" "$config/systemd/user/slipstream-shutdown.target"
+systemctl --user daemon-reload 2>/dev/null || true
+# Screen sharing: which portal backend answers under Slipstream, and that backend's picker. Both
+# are per-user and named for Slipstream, so no root is needed and KDE's own session is untouched.
+put 644 "$repo/session/slipstream-portals.conf" "$config/xdg-desktop-portal/slipstream-portals.conf"
+# The binary's path goes into a sed replacement, where \, & and the | delimiter are special.
+escaped=$(printf '%s\n' "$bin_dir/slipstream" | sed 's/[\\&|]/\\&/g')
+sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" \
+    | put_text 644 "$config/xdg-desktop-portal-wlr/Slipstream"
+
+echo "Installed $version."
+if [ ! -x /usr/local/bin/slipstream-session ]; then
+    echo "Run scripts/install-session once to add Slipstream to the login screen."
+else
+    echo "Log out and choose Slipstream on the login screen."
+fi

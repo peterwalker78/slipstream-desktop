@@ -1,0 +1,49 @@
+#!/bin/sh
+# Starts Slipstream as a login session. The login screen runs this through
+# /usr/local/share/wayland-sessions/slipstream.desktop (see scripts/install-session).
+
+# The log goes in the state folder; if that can't be written, somewhere it can, so a session that
+# fails to start still says why.
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/slipstream"
+if ! mkdir -p "$state_dir" 2>/dev/null || ! [ -w "$state_dir" ]; then
+    state_dir="${XDG_RUNTIME_DIR:-/tmp}/slipstream-$(id -u)"
+    mkdir -p "$state_dir"
+fi
+log="$state_dir/slipstream.log"
+[ -f "$log" ] && mv -f "$log" "$log.old"
+
+export XDG_CURRENT_DESKTOP=Slipstream:KDE
+export XDG_SESSION_DESKTOP=slipstream
+export XDG_SESSION_TYPE=wayland
+# Wayland everywhere it's optional.
+export QT_QPA_PLATFORM=wayland
+export MOZ_ENABLE_WAYLAND=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export _JAVA_AWT_WM_NONREPARENTING=1
+export XCURSOR_THEME="${XCURSOR_THEME:-breeze_cursors}"
+export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+
+# The keyboard layout set in System Settings or the installer, unless one is already chosen.
+# localectl asks a D-Bus service, so it's given a few seconds at most rather than holding up login.
+if [ -z "${XKB_DEFAULT_LAYOUT:-}" ] && command -v localectl >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+        status=$(timeout 5 localectl status 2>/dev/null || true)
+    else
+        status=$(localectl status 2>/dev/null || true)
+    fi
+    kb() { printf '%s\n' "$status" | sed -n "s/^ *X11 $1: //p"; }
+    XKB_DEFAULT_LAYOUT=$(kb Layout)
+    XKB_DEFAULT_MODEL=$(kb Model)
+    XKB_DEFAULT_VARIANT=$(kb Variant)
+    XKB_DEFAULT_OPTIONS=$(kb Options)
+    export XKB_DEFAULT_LAYOUT XKB_DEFAULT_MODEL XKB_DEFAULT_VARIANT XKB_DEFAULT_OPTIONS
+fi
+
+unset DISPLAY WAYLAND_DISPLAY
+
+bin="$HOME/.local/bin/slipstream"
+if [ ! -x "$bin" ]; then
+    echo "slipstream-session: $bin is missing; run scripts/update-session" >"$log"
+    exit 1
+fi
+exec "$bin" --session >"$log" 2>&1

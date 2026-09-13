@@ -1,0 +1,9 @@
+/target
+*.log
+.envrc
+
+# Local design notes and editor or tool settings.
+/docs/
+/CLAUDE.md
+AGENTS.md
+.claude/
