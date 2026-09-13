@@ -5,6 +5,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 ## [0.0.4] - 2026-09-14
 
 - **Windows you didn't ask for go to the code rain.** A new window tiles and takes the keyboard only when you asked for it: a dialog or window of the app you're using, a program started from it (a command in a terminal), something launched from the desktop, or a window that appears within a few seconds of a click or key press. Anything else, such as an app opening a window by itself, pours into the code rain with a toast naming it; Super+Shift+M or a click on its stream brings it in. While you type in one app, a window from another goes to the rain too, so the window you're typing in never changes size.
+- The code rain's app names are written in the focus ring's colour, and follow it when it's changed in Settings.
 
 ## [0.0.3] - 2026-09-13
 
