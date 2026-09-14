@@ -40,7 +40,11 @@ use smithay::{
             ImageCaptureSourceState, OutputCaptureSourceState, ToplevelCaptureSourceState,
         },
         image_copy_capture::ImageCopyCaptureState,
+        keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
         output::OutputManagerState,
+        pointer_constraints::PointerConstraintsState,
+        pointer_gestures::PointerGesturesState,
+        relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         selection::{
             data_device::DataDeviceState, ext_data_control,
@@ -263,6 +267,10 @@ pub struct Slipstream {
     /// What a new screen's wallpaper starts from.
     wallpaper: slipstream_config::Wallpaper,
     pub idle_inhibit_state: IdleInhibitManagerState,
+    /// Virtual machines and remote desktops asking for every key (`takeback.rs`).
+    pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
+    /// Which windows have been told they hold the pointer or the keys, and the one refused.
+    pub takeback: crate::takeback::TakeBack,
     /// Bullet time while it's open (Super+Tab).
     pub bullet: Option<bullet::Mode<Window>>,
     /// How far out bullet time's overview is zoomed, 0 to 1, on wall time so it's never slowed.
@@ -388,6 +396,13 @@ impl Slipstream {
 
         // Video players ask for the screen to stay awake, which keeps the UI from fading.
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+
+        // Games: relative motion for mouse look, and the pointer locked or confined to their
+        // window. Touchpad swipes and pinches reach apps too (zooming a page or a picture).
+        RelativePointerManagerState::new::<Self>(&dh);
+        PointerConstraintsState::new::<Self>(&dh);
+        PointerGesturesState::new::<Self>(&dh);
+        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         // logind's answers to Sleep, Restart and Shut down arrive here from the thread that asked.
         let (power_answers, answers) = channel::channel();
@@ -527,6 +542,8 @@ impl Slipstream {
             savers: HashMap::new(),
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
+            keyboard_shortcuts_inhibit_state,
+            takeback: Default::default(),
             bullet: None,
             overview: Tween::at_rest([0.0]),
             bullet_labels: Vec::new(),

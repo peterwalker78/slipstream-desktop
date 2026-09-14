@@ -1,15 +1,23 @@
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
+        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, GestureBeginEvent,
+        GestureEndEvent as GestureEndEventTrait,
+        GesturePinchUpdateEvent as GesturePinchUpdateEventTrait,
+        GestureSwipeUpdateEvent as GestureSwipeUpdateEventTrait, InputBackend, InputEvent,
         InputTime, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
         PointerMotionEvent, Switch, SwitchState, SwitchToggleEvent,
     },
     input::{
         keyboard::{FilterResult, Keycode, Keysym, xkb},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent},
+        pointer::{
+            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
+            RelativeMotionEvent,
+        },
     },
     utils::{Logical, Point, SERIAL_COUNTER},
-    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
+    wayland::{compositor::with_states, seat::WaylandFocus, shell::xdg::XdgToplevelSurfaceData},
 };
 
 use crate::{
@@ -17,6 +25,7 @@ use crate::{
     focus::KeyboardFocus,
     keys::{self, Action, Mods},
     state::Slipstream,
+    takeback::Constraint,
 };
 
 /// What the keyboard filter decided a key is for.
@@ -95,6 +104,7 @@ impl Slipstream {
             Action::QuickSettings => self.toggle_quick_settings(),
             Action::NotificationCentre => self.toggle_notification_centre(),
             Action::Maximise => self.toggle_maximise(),
+            Action::TakeBack => self.take_back(),
         }
     }
 
@@ -369,7 +379,44 @@ impl Slipstream {
                 self.wake_ui();
                 let pointer = self.seat.get_pointer().unwrap();
                 let delta = event.delta();
-                let pos = self.clamp_to_outputs(pointer.current_location() + delta);
+                let from = pointer.current_location();
+                let constraint = self.active_constraint();
+                let relative = RelativeMotionEvent {
+                    delta,
+                    delta_unaccel: event.delta_unaccel(),
+                    time: event.time(),
+                };
+                // A locked pointer stays put: the app hears only how far the mouse moved.
+                if matches!(constraint, Some(Constraint::Locked)) {
+                    let under = self.pointer_target(from);
+                    pointer.relative_motion(self, under, &relative);
+                    pointer.frame(self);
+                    return;
+                }
+                let mut pos = self.clamp_to_outputs(from + delta);
+                // A confined pointer moves along each axis only as far as it stays inside.
+                if let Some(Constraint::Confined {
+                    region,
+                    origin,
+                    surface,
+                }) = constraint
+                {
+                    let inside = |state: &Self, point: Point<f64, Logical>| {
+                        let over = state
+                            .pointer_target(point)
+                            .and_then(|(focus, _)| focus.wl_surface().map(|s| s.into_owned()))
+                            .is_some_and(|under| under == surface);
+                        over && region
+                            .as_ref()
+                            .is_none_or(|region| region.contains((point - origin).to_i32_round()))
+                    };
+                    if !inside(self, Point::from((pos.x, from.y))) {
+                        pos.x = from.x;
+                    }
+                    if !inside(self, Point::from((pos.x, pos.y))) {
+                        pos.y = from.y;
+                    }
+                }
                 let serial = SERIAL_COUNTER.next_serial();
                 let under = self.motion_target(pos);
                 pointer.motion(
@@ -381,16 +428,9 @@ impl Slipstream {
                         time: event.time(),
                     },
                 );
-                pointer.relative_motion(
-                    self,
-                    under,
-                    &RelativeMotionEvent {
-                        delta,
-                        delta_unaccel: event.delta_unaccel(),
-                        time: event.time(),
-                    },
-                );
+                pointer.relative_motion(self, under, &relative);
                 pointer.frame(self);
+                self.update_pointer_constraint();
                 self.exit_hover(pos);
                 self.offer_hover(pos);
                 self.share_hover(pos);
@@ -469,6 +509,108 @@ impl Slipstream {
                 let pointer = self.seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
+            }
+            // Touchpad swipes, pinches and holds go to the window under the pointer.
+            InputEvent::GestureSwipeBegin { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let fingers = event.fingers();
+                pointer.gesture_swipe_begin(
+                    self,
+                    &GestureSwipeBeginEvent {
+                        serial,
+                        time: Event::time(&event),
+                        fingers,
+                    },
+                );
+            }
+            InputEvent::GestureSwipeUpdate { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let delta = GestureSwipeUpdateEventTrait::delta(&event);
+                pointer.gesture_swipe_update(
+                    self,
+                    &GestureSwipeUpdateEvent {
+                        time: Event::time(&event),
+                        delta,
+                    },
+                );
+            }
+            InputEvent::GestureSwipeEnd { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let cancelled = GestureEndEventTrait::cancelled(&event);
+                pointer.gesture_swipe_end(
+                    self,
+                    &GestureSwipeEndEvent {
+                        serial,
+                        time: Event::time(&event),
+                        cancelled,
+                    },
+                );
+            }
+            InputEvent::GesturePinchBegin { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let fingers = event.fingers();
+                pointer.gesture_pinch_begin(
+                    self,
+                    &GesturePinchBeginEvent {
+                        serial,
+                        time: Event::time(&event),
+                        fingers,
+                    },
+                );
+            }
+            InputEvent::GesturePinchUpdate { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                pointer.gesture_pinch_update(
+                    self,
+                    &GesturePinchUpdateEvent {
+                        time: Event::time(&event),
+                        delta: GesturePinchUpdateEventTrait::delta(&event),
+                        scale: event.scale(),
+                        rotation: event.rotation(),
+                    },
+                );
+            }
+            InputEvent::GesturePinchEnd { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let cancelled = GestureEndEventTrait::cancelled(&event);
+                pointer.gesture_pinch_end(
+                    self,
+                    &GesturePinchEndEvent {
+                        serial,
+                        time: Event::time(&event),
+                        cancelled,
+                    },
+                );
+            }
+            InputEvent::GestureHoldBegin { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let fingers = event.fingers();
+                pointer.gesture_hold_begin(
+                    self,
+                    &GestureHoldBeginEvent {
+                        serial,
+                        time: Event::time(&event),
+                        fingers,
+                    },
+                );
+            }
+            InputEvent::GestureHoldEnd { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                let cancelled = GestureEndEventTrait::cancelled(&event);
+                pointer.gesture_hold_end(
+                    self,
+                    &GestureHoldEndEvent {
+                        serial,
+                        time: Event::time(&event),
+                        cancelled,
+                    },
+                );
             }
             // The laptop's lid. It only reaches a compositor at all while logind's own handling
             // is inhibited (`inhibit.rs`); otherwise the machine suspends before this is read.
@@ -757,7 +899,10 @@ impl Slipstream {
             .fullscreen
             .as_ref()
             .is_some_and(|full| self.focused_window().as_ref() == Some(full));
-        let tap_allowed = (injected || !self.nested) && !gamescope_focused && !fullscreen_focused;
+        // An app holding the shortcuts gets Super on its own too.
+        let inhibited = self.shortcuts_inhibited();
+        let tap_allowed =
+            (injected || !self.nested) && !gamescope_focused && !fullscreen_focused && !inhibited;
         // Whether another key is already down, before `input` counts this one.
         let alone = !self
             .seat
@@ -950,6 +1095,25 @@ impl Slipstream {
                     if pressed && state.switcher.is_some() && key == Keysym::Escape {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::CancelSwitch));
+                    }
+                    // An app holding the shortcuts (a virtual machine, a remote desktop) gets every
+                    // key but the one that takes them back. The hardware keys (volume, brightness,
+                    // media) stay the laptop's.
+                    if inhibited {
+                        let action = keys::action_for(&state.bindings, mods, key);
+                        let kept = matches!(action, Some(Action::TakeBack))
+                            || (action.is_some() && keys::is_hardware_key(key));
+                        if pressed && kept {
+                            state.suppressed_keys.push(key);
+                            return FilterResult::Intercept(Some(KeyUse::Action(action.unwrap())));
+                        }
+                        if !pressed {
+                            if let Some(i) = state.suppressed_keys.iter().position(|k| *k == key) {
+                                state.suppressed_keys.remove(i);
+                                return FilterResult::Intercept(None);
+                            }
+                        }
+                        return FilterResult::Forward;
                     }
                     // gamescope uses some Super keys itself and never asks to block ours.
                     if gamescope_focused && keys::passes_to_gamescope(mods, key) {

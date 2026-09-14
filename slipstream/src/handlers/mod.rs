@@ -21,6 +21,10 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::fractional_scale::{FractionalScaleHandler, with_fractional_scale};
 use smithay::wayland::idle_inhibit::IdleInhibitHandler;
 use smithay::wayland::output::OutputHandler;
+use smithay::input::pointer::PointerHandle;
+use smithay::wayland::keyboard_shortcuts_inhibit::{
+    KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+};
 use smithay::wayland::pointer_constraints::PointerConstraintsHandler;
 use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::selection::data_device::{
@@ -59,6 +63,10 @@ impl SeatHandler for Slipstream {
             .and_then(|surface| dh.get_client(surface.id()).ok());
         set_data_device_focus(dh, seat, client.clone());
         set_primary_focus(dh, seat, client);
+        // The keyboard is still being changed over here, so the grabs are looked at once it has.
+        let focused = focused.cloned();
+        self.loop_handle
+            .insert_idle(move |state| state.grabs_after_focus_change(focused.as_ref()));
     }
 
     fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {
@@ -66,7 +74,23 @@ impl SeatHandler for Slipstream {
     }
 }
 
-impl PointerConstraintsHandler for Slipstream {}
+/// Games locking or confining the pointer: whether a constraint holds is `takeback.rs`'s call.
+impl PointerConstraintsHandler for Slipstream {
+    fn new_constraint(&mut self, _surface: &WlSurface, _pointer: &PointerHandle<Self>) {
+        self.update_pointer_constraint();
+    }
+}
+
+/// Virtual machines and remote desktops asking for every key, granted to the focused window.
+impl KeyboardShortcutsInhibitHandler for Slipstream {
+    fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
+        &mut self.keyboard_shortcuts_inhibit_state
+    }
+
+    fn new_inhibitor(&mut self, _inhibitor: KeyboardShortcutsInhibitor) {
+        self.update_shortcuts_inhibitor();
+    }
+}
 
 /// Apps playing video ask for the screen to stay awake; while any does, the UI doesn't fade.
 impl IdleInhibitHandler for Slipstream {

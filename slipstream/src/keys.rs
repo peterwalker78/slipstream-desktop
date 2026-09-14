@@ -75,6 +75,8 @@ pub enum Action {
     Lock,
     /// A media key: to whichever player is playing.
     Media(crate::media::Transport),
+    /// Take the pointer and the keyboard shortcuts back from the app holding them.
+    TakeBack,
 }
 
 /// The shortcut sheet's groups, in the order it shows them.
@@ -145,6 +147,7 @@ impl Action {
             Action::ShortcutSheet => "every key",
             Action::Lock => "lock the screen",
             Action::Media(_) => "play, pause, next, previous",
+            Action::TakeBack => "take the mouse and keys back from an app",
         }
     }
 
@@ -181,7 +184,8 @@ impl Action {
             | Action::Screenshot { .. }
             | Action::ShortcutSheet
             | Action::Lock
-            | Action::Media(_) => Group::PanelsAndSystem,
+            | Action::Media(_)
+            | Action::TakeBack => Group::PanelsAndSystem,
         }
     }
 }
@@ -312,6 +316,8 @@ pub fn defaults() -> Vec<Binding> {
     let bind = |mods, key, action| Binding { mods, key, action };
     let mut bindings = vec![
         bind(mod_shift, Keysym::Escape, Action::Quit),
+        // A game holding the pointer, or a virtual machine holding every key, gives them back.
+        bind(mod_, Keysym::Escape, Action::TakeBack),
         // Interim: once bullet time exists, its arrow keys move focus and Mod+arrows snap
         // windows, as the audited keymap plans.
         bind(mod_, Keysym::Left, Action::Focus(Direction::Left)),
@@ -526,6 +532,12 @@ pub const DIGITS: [Keysym; 9] = [
     Keysym::_9,
 ];
 
+/// The laptop's own keys: volume, brightness, media and the like, which stay the desktop's even
+/// while an app holds every other key.
+pub fn is_hardware_key(key: Keysym) -> bool {
+    (0x1008_ff00..=0x1008_ffff).contains(&key.raw())
+}
+
 pub fn action_for(bindings: &[Binding], mods: Mods, key: Keysym) -> Option<Action> {
     bindings
         .iter()
@@ -702,7 +714,20 @@ mod tests {
             Some(Action::Quit)
         );
         assert_eq!(action_for(&bindings, Mods::default(), Keysym::Escape), None);
-        assert_eq!(action_for(&bindings, SUPER, Keysym::Escape), None);
+        // Super+Esc on its own takes the mouse and keys back; it never logs out.
+        assert_eq!(
+            action_for(&bindings, SUPER, Keysym::Escape),
+            Some(Action::TakeBack)
+        );
+    }
+
+    #[test]
+    fn only_the_laptops_own_keys_count_as_hardware_keys() {
+        assert!(is_hardware_key(Keysym::XF86_AudioRaiseVolume));
+        assert!(is_hardware_key(Keysym::XF86_MonBrightnessDown));
+        assert!(!is_hardware_key(Keysym::Escape));
+        assert!(!is_hardware_key(Keysym::Print));
+        assert!(!is_hardware_key(Keysym::Super_L));
     }
 
     #[test]
