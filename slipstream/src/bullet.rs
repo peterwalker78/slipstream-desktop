@@ -325,11 +325,9 @@ pub fn bar_click(target: bar::Target) -> BarClick {
         bar::Target::Workspace(index) => BarClick::Look(index),
         bar::Target::Sharing => BarClick::Stay,
         bar::Target::Overview => BarClick::Back,
-        bar::Target::Apps
-        | bar::Target::Clock
-        | bar::Target::Tray
-        | bar::Target::Bell
-        | bar::Target::Back => BarClick::Leave,
+        bar::Target::Apps | bar::Target::Clock | bar::Target::Tray | bar::Target::Bell => {
+            BarClick::Leave
+        }
     }
 }
 

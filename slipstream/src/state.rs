@@ -256,9 +256,6 @@ pub struct Slipstream {
     pub idle: Idle,
     /// Whether you're typing, which decides what may take the keyboard.
     pub concentration: crate::concentration::Concentration,
-    /// A notification or another app took you from one window to another, and when: the bar
-    /// offers the way back for a minute.
-    way_back: Option<WayBack>,
     /// The living wallpaper.
     /// The living wallpaper, one per screen: each keeps its own grid, sized to that screen, and
     /// its own turn through the variations.
@@ -527,7 +524,6 @@ impl Slipstream {
             rain: Rain::new(false, ring_rgb),
             idle: Idle::new(false, settings.wallpaper.fade_after_secs),
             concentration: Default::default(),
-            way_back: None,
             savers: HashMap::new(),
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
@@ -890,7 +886,6 @@ impl Slipstream {
             bar::Target::Tray => self.toggle_quick_settings(),
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
-            bar::Target::Back => self.go_back(),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(
@@ -1325,39 +1320,7 @@ impl Slipstream {
             return;
         }
         tracing::info!(app, "activated");
-        self.jump_to(&window);
-    }
-
-    /// Brings a window forward for something other than you, a notification or another app, and
-    /// remembers where you were so the bar can offer the way back.
-    pub fn jump_to(&mut self, window: &Window) {
-        let from = self.focused_window();
-        self.activate_window(window);
-        if let Some(from) = from
-            && from != *window
-            && self.focused_window().as_ref() == Some(window)
-        {
-            self.way_back = Some(WayBack {
-                from,
-                to: window.clone(),
-                at: std::time::Instant::now(),
-            });
-        }
-    }
-
-    /// The bar's way back: the name of the window you were taken from, and whether Alt+Tab
-    /// reaches it. It goes after a minute, once you're back, if the window closes, or when you
-    /// move on to a third window.
-    pub fn way_back(&mut self) -> Option<(String, bool)> {
-        let back = self.way_back.as_ref()?;
-        let focused = self.focused_window();
-        let moved_on = focused.as_ref().is_some_and(|focused| *focused != back.to);
-        if back.at.elapsed() > WAY_BACK_SHOWN || !back.from.alive() || moved_on {
-            self.way_back = None;
-            return None;
-        }
-        let alt_tab = self.focus_history.get(1) == Some(&back.from);
-        Some((self.window_name(&back.from), alt_tab))
+        self.activate_window(&window);
     }
 
     /// Whether you asked for `window`: a dialog of the window you're using, a window from its
@@ -1404,15 +1367,6 @@ impl Slipstream {
             window = logged_app(&window),
             "new window poured into code rain"
         );
-    }
-
-    /// The bar's way back, clicked.
-    fn go_back(&mut self) {
-        if let Some(back) = self.way_back.take()
-            && back.from.alive()
-        {
-            self.activate_window(&back.from);
-        }
     }
 
     /// A token's proof that someone asked: a click or key press on this seat since the keyboard
@@ -4837,16 +4791,6 @@ fn deactivate(window: &Window) {
 
 /// Whether `window` is `parent`'s own: an xdg toplevel whose parent is its surface, or an X11
 /// window transient for it.
-/// How long the bar offers the way back after a jump.
-const WAY_BACK_SHOWN: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Where a notification or another app took you from, and to.
-struct WayBack {
-    from: Window,
-    to: Window,
-    at: std::time::Instant,
-}
-
 fn is_child_of(window: &Window, parent: &Window) -> bool {
     if let (Some(child), Some(parent)) = (window.toplevel(), parent.wl_surface()) {
         return child.parent().as_ref() == Some(&*parent);

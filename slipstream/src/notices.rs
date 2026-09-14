@@ -913,7 +913,7 @@ impl Slipstream {
             .as_deref()
             .and_then(|app| self.window_for_app(app));
         if let Some(window) = window {
-            self.jump_to(&window);
+            self.activate_window(&window);
         }
         if notice.resident {
             let gone = self.notices.dismiss_popup(id);

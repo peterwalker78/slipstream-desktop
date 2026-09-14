@@ -977,11 +977,6 @@ pub fn output_elements(
             Some(_) => state.bullet_bar_title(),
             None => state.focused_title(),
         };
-        let chip = state.way_back().map(|(name, alt_tab)| bar::Chip {
-            words: format!("Back to {name}"),
-            alt_tab,
-            target: bar::Target::Back,
-        });
         let content = bar::Content {
             active: highlighted,
             home,
@@ -1002,7 +997,6 @@ pub fn output_elements(
             do_not_disturb: state.settings.notifications.do_not_disturb,
             unread: state.notices.unread(),
             sharing: state.captures.sharing(),
-            chip,
         };
         elements.extend(
             chrome
