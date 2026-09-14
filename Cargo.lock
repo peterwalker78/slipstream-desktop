@@ -2293,7 +2293,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slipstream"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bitflags",
  "calloop",
@@ -2316,7 +2316,7 @@ dependencies = [
 
 [[package]]
 name = "slipstream-config"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "serde",
  "toml",
@@ -2324,7 +2324,7 @@ dependencies = [
 
 [[package]]
 name = "slipstream-settings"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "gtk4",
  "pango",
