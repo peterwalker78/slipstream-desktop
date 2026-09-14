@@ -184,12 +184,14 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     // Mockup pixels to logical ones, for the click targets.
     let unit = f as f64 / scale;
     let mut targets = Vec::new();
-    let mut target = |target, x: f32, y: f32, w: f32, h: f32| {
+    // Each button takes clicks the bar's whole height, up to the screen's top edge, so a pointer
+    // thrown against the edge still lands on what's under it.
+    let mut target = |target, x: f32, w: f32| {
         targets.push((
             target,
             Rectangle::new(
-                (x as f64 * unit, y as f64 * unit).into(),
-                (w as f64 * unit, h as f64 * unit).into(),
+                (x as f64 * unit, 0.0).into(),
+                (w as f64 * unit, HEIGHT as f64).into(),
             ),
         ));
     };
@@ -200,7 +202,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     // Left: the apps button, then the workspaces.
     let mut x = 8.0;
     p.icon(icons::LOGO, x + 6.5, 9.5, 21.0, None);
-    target(Target::Apps, x, 5.0, 34.0, 30.0);
+    // The buttons in the corners reach out to the screen's side edges as well.
+    target(Target::Apps, 0.0, x + 34.0);
     x += 34.0 + 8.0;
     // Names take room the clock needs. When they would run past a third of the bar, only the
     // workspace in front shows its name and the rest go by their numbers.
@@ -235,12 +238,12 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
             p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
         }
         p.text(&label, x + (w - label_w) / 2.0, 20.0, &style);
-        target(Target::Workspace(index), x, 7.0, w, 26.0);
+        target(Target::Workspace(index), x, w);
         x += w + 6.0;
     }
     x += OVERVIEW_GAP;
     p.icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(0x9aa4b6ff));
-    target(Target::Overview, x, 7.0, OVERVIEW_W, 26.0);
+    target(Target::Overview, x, OVERVIEW_W);
     x += OVERVIEW_W + 8.0;
 
     if let Some((mode, chip)) = content.mode {
@@ -271,7 +274,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         if chip.alt_tab {
             p.text("Alt+Tab", x + 10.0 + words_w + 10.0, 20.0, &key);
         }
-        target(chip.target, x, 7.0, w, 26.0);
+        target(chip.target, x, w);
         x += w + 10.0;
     }
 
@@ -293,7 +296,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         baseline,
         &date,
     );
-    target(Target::Clock, centre_x, 6.5, centre_w, 27.0);
+    target(Target::Clock, centre_x, centre_w);
 
     // The focused window's title fills what's left of the left column.
     let title = Style::new(Face::Body, 14.0, 0x98a2b4ff);
@@ -315,7 +318,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         icons::BELL
     };
     p.icon(bell, right + 9.0, 11.0, 18.0, Some(INK));
-    target(Target::Bell, right, 6.0, 36.0, 28.0);
+    target(Target::Bell, right, wide - right);
     // The unread badge, over the bell's top right corner.
     if content.unread > 0 {
         let count = if content.unread > 99 {
@@ -365,7 +368,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     }
     let tray_w = 22.0 + tray.len() as f32 * 18.0 + (tray.len() - 1) as f32 * 11.0 + percent_w;
     right -= 8.0 + tray_w;
-    target(Target::Tray, right, 6.0, tray_w, 28.0);
+    target(Target::Tray, right, tray_w);
     let mut item_x = right + 11.0;
     for (icon, ink) in &tray {
         p.icon(icon, item_x, 11.0, 18.0, Some(*ink));
@@ -389,7 +392,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0xff5a5a80);
         p.fill(right + 12.0, 16.0, 8.0, 8.0, 4.0, LIVE);
         p.text(word, right + 12.0 + 8.0 + 8.0, 20.0, &style);
-        target(Target::Sharing, right, 6.0, w, 28.0);
+        target(Target::Sharing, right, w);
     }
 
     Some((p.pixmap, targets))
@@ -521,27 +524,20 @@ mod tests {
                 .unwrap()
         };
         let cyan = |[r, g, b]: [u8; 3]| b > 120 && g > 90 && r < 100;
+        // Clicks take the bar's whole height, but the buttons are drawn 7 to 33 of its 40 units
+        // down: 5.6 to 26.4 logical pixels.
+        let (top, bottom) = (5.6, 26.4);
         // The highlight's band along the bottom, on the workspace being looked at only.
         let band = |index| {
             let area = button(index);
-            pixel(
-                &pixmap,
-                area.loc.x + area.size.w / 2.0,
-                area.loc.y + area.size.h - 0.8,
-                scale,
-            )
+            pixel(&pixmap, area.loc.x + area.size.w / 2.0, bottom - 0.8, scale)
         };
         assert!(cyan(band(3)));
         assert!(!cyan(band(1)));
         // The ring down the left edge of home's button, and not of any other.
         let edge = |pixmap: &Pixmap, index| {
             let area = button(index);
-            pixel(
-                pixmap,
-                area.loc.x + 0.4,
-                area.loc.y + area.size.h / 2.0,
-                scale,
-            )
+            pixel(pixmap, area.loc.x + 0.4, (top + bottom) / 2.0, scale)
         };
         assert!(cyan(edge(&pixmap, 0)));
         assert!(!cyan(edge(&pixmap, 2)));
@@ -620,5 +616,21 @@ mod tests {
         assert_eq!(bar.target_at(768.0, 16.0), Some(Target::Clock));
         assert_eq!(bar.target_at(1525.0, 16.0), Some(Target::Bell));
         assert_eq!(bar.target_at(768.0, 60.0), None, "below the bar");
+        assert_eq!(
+            bar.target_at(third.loc.x + 2.0, 0.0),
+            Some(Target::Workspace(2)),
+            "the top edge of the screen"
+        );
+        assert_eq!(bar.target_at(768.0, 0.0), Some(Target::Clock));
+        assert_eq!(
+            bar.target_at(0.0, 0.0),
+            Some(Target::Apps),
+            "the top left corner"
+        );
+        assert_eq!(
+            bar.target_at(1535.9, 0.0),
+            Some(Target::Bell),
+            "the top right corner"
+        );
     }
 }
