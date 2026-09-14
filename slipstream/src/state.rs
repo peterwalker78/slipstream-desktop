@@ -236,6 +236,8 @@ pub struct Slipstream {
     pub centre: crate::centre::Centre,
     /// The shortcut sheet (Super+/).
     pub sheet: crate::sheet::Sheet,
+    /// Night light's warmth and schedule (`nightlight.rs`).
+    pub night: crate::nightlight::Night,
     /// Low battery's warnings and its countdown card (`battery.rs`).
     pub battery: crate::battery::Battery,
     /// The clipboard history (Super+V).
@@ -550,6 +552,7 @@ impl Slipstream {
             snip: None,
             history: Default::default(),
             battery: Default::default(),
+            night: Default::default(),
             clip_answers,
             snip_flights: Vec::new(),
             screenshot_answers,
@@ -4120,9 +4123,18 @@ impl Slipstream {
         tracing::info!(?settings, "settings changed");
         self.idle.set_fade_after(settings.wallpaper.fade_after_secs);
         self.idle.set_lock_after(settings.lock.after_idle_mins);
-        let night_light = settings.display.night_light;
-        if night_light != self.settings.display.night_light {
-            self.set_night_light(night_light);
+        // Night light follows on the next pass; a new schedule is looked at afresh.
+        let (new, old) = (&settings.display, &self.settings.display);
+        if (
+            new.night_light_schedule,
+            &new.night_light_from,
+            &new.night_light_to,
+        ) != (
+            old.night_light_schedule,
+            &old.night_light_from,
+            &old.night_light_to,
+        ) {
+            self.night.schedule_changed();
         }
         self.set_reduced_motion(settings.motion.reduced);
         let now = self.clock.tick();

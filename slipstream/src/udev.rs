@@ -186,9 +186,7 @@ pub fn run(
                         .loop_handle
                         .insert_idle(move |state| state.render_screen(node, crtc));
                 }
-                if state.settings.display.night_light {
-                    state.set_night_light(true);
-                }
+                state.set_night_light(state.night.current);
             }
         })
         .map_err(|err| err.error)?;
@@ -472,9 +470,7 @@ impl Slipstream {
         self.screen_connected(&screen_output, x);
         self.loop_handle
             .insert_idle(move |state| state.render_screen(node, crtc));
-        if self.settings.display.night_light {
-            self.set_night_light(true);
-        }
+        self.set_night_light(self.night.current);
     }
 
     fn connector_disconnected(&mut self, node: DrmNode, crtc: crtc::Handle) {
@@ -782,7 +778,7 @@ impl Slipstream {
 
     /// Night light on every screen, or off, through each CRTC's gamma ramp. Screens that light up
     /// later, or come back from another virtual terminal, get it again.
-    pub fn set_night_light(&self, on: bool) {
+    pub fn set_night_light(&self, strength: f64) {
         let Some(udev) = self.udev.as_ref() else {
             return;
         };
@@ -800,10 +796,10 @@ impl Slipstream {
                     tracing::info!(%node, "this screen has no gamma ramp for night light");
                     continue;
                 }
-                let [red, green, blue] = crate::nightlight::ramps(length, on);
+                let [red, green, blue] = crate::nightlight::ramps(length, strength);
                 match device.set_gamma(*crtc, &red, &green, &blue) {
-                    Ok(()) => tracing::info!(%node, on, "night light"),
-                    Err(err) => tracing::warn!(%node, on, "couldn't set night light: {err}"),
+                    Ok(()) => tracing::debug!(%node, strength, "night light"),
+                    Err(err) => tracing::warn!(%node, strength, "couldn't set night light: {err}"),
                 }
             }
         }

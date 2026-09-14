@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use slipstream_config::{
-    Borders, Clipboard, Display, Lock, Motion, Notifications, Session, Settings, Sound, Wallpaper,
-    read, write,
+    Borders, Clipboard, Display, Lock, Motion, NightSchedule, Notifications, Session, Settings,
+    Sound, Wallpaper, read, write,
 };
 
 fn scratch(name: &str) -> PathBuf {
@@ -33,7 +33,11 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             change_every_mins: 30,
         },
         motion: Motion { reduced: true },
-        display: Display { night_light: true },
+        display: Display {
+            night_light: true,
+            night_light_schedule: NightSchedule::Sunset,
+            ..Default::default()
+        },
         notifications: Notifications {
             do_not_disturb: true,
             wait_while_typing: false,

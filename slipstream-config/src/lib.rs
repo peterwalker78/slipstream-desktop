@@ -13,6 +13,9 @@
 //!
 //! [display]
 //! night-light = false
+//! night-light-schedule = "off"
+//! night-light-from = "21:00"
+//! night-light-to = "07:00"
 //!
 //! [notifications]
 //! do-not-disturb = false
@@ -44,6 +47,8 @@
 //!
 //! Missing keys take their defaults and unknown ones are ignored, so an older compositor still
 //! reads a newer file.
+
+pub mod sun;
 
 use std::{
     ffi::OsString,
@@ -382,11 +387,72 @@ pub struct Motion {
 }
 
 /// The screens.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Display {
-    /// Night light: warmer colours on every screen.
+    /// Night light: warmer colours on every screen. On a schedule, Slipstream turns it on and off
+    /// itself; turning it by hand in between lasts until the schedule's next change.
     pub night_light: bool,
+    /// When night light comes on by itself.
+    pub night_light_schedule: NightSchedule,
+    /// A custom schedule's start and end, `HH:MM` local time; night runs past midnight if the end
+    /// is earlier than the start.
+    pub night_light_from: String,
+    pub night_light_to: String,
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self {
+            night_light: false,
+            night_light_schedule: NightSchedule::Off,
+            night_light_from: "21:00".into(),
+            night_light_to: "07:00".into(),
+        }
+    }
+}
+
+/// Night light's schedule.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NightSchedule {
+    /// Only by hand.
+    #[default]
+    Off,
+    /// From sunset to sunrise where the time zone's city is.
+    Sunset,
+    /// Between `night-light-from` and `night-light-to`.
+    Custom,
+}
+
+/// How long night light takes to warm up or cool down when its schedule turns it, in minutes.
+pub const NIGHT_FADE_MINS: f64 = 30.0;
+
+impl Display {
+    /// Tonight's night, in local minutes after midnight: when it starts and ends for `date`, at a
+    /// clock `offset_mins` ahead of UTC. `None` without a schedule, and for sunset where the sun
+    /// doesn't set or the time zone's place is unknown, in which case the custom hours stand in.
+    pub fn night_window(
+        &self,
+        date: (i64, u32, u32),
+        offset_mins: f64,
+        location: Option<(f64, f64)>,
+    ) -> Option<(f64, f64)> {
+        let custom = || {
+            Some((
+                sun::parse_time(&self.night_light_from).unwrap_or(21.0 * 60.0),
+                sun::parse_time(&self.night_light_to).unwrap_or(7.0 * 60.0),
+            ))
+        };
+        match self.night_light_schedule {
+            NightSchedule::Off => None,
+            NightSchedule::Custom => custom(),
+            NightSchedule::Sunset => location
+                .and_then(|(lat, lon)| sun::sun_times(lat, lon, date, offset_mins))
+                .map(|(sunrise, sunset)| (sunset, sunrise))
+                .or_else(custom),
+        }
+    }
 }
 
 /// Notifications.
@@ -1024,7 +1090,12 @@ mod tests {
                 change_every_mins: 5,
             },
             motion: Motion { reduced: true },
-            display: Display { night_light: true },
+            display: Display {
+                night_light: true,
+                night_light_schedule: NightSchedule::Custom,
+                night_light_from: "22:15".into(),
+                night_light_to: "06:45".into(),
+            },
             notifications: Notifications {
                 do_not_disturb: true,
                 wait_while_typing: false,
@@ -1057,6 +1128,10 @@ mod tests {
         );
         assert!(text.contains("change-every-mins = 5"), "{text}");
         assert!(text.contains("night-light = true"), "{text}");
+        assert!(
+            text.contains(r#"night-light-schedule = "custom""#),
+            "{text}"
+        );
         assert!(text.contains("do-not-disturb = true"), "{text}");
         assert!(text.contains("history = false"), "{text}");
         assert!(text.contains(r##"selected-tile = "#b794ff""##), "{text}");

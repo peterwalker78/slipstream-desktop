@@ -131,7 +131,136 @@ fn appearance(store: &Store) -> gtk::Widget {
         Some("Windows jump into place and effects become short fades"),
         &reduced,
     );
+
+    night_light(&page, store);
     page.upcast()
+}
+
+/// Times offered for a night light schedule: every half hour.
+fn half_hours() -> Vec<String> {
+    (0..48)
+        .map(|n| slipstream_config::sun::format_time(n as f64 * 30.0))
+        .collect()
+}
+
+/// Tonight's sunset and tomorrow's sunrise where the time zone's city is, as the schedule's row
+/// says them.
+fn sunset_note() -> String {
+    let now = gtk::glib::DateTime::now_local();
+    let location = slipstream_config::sun::location();
+    let times = now.ok().zip(location).and_then(|(now, (lat, lon))| {
+        let date = (
+            now.year() as i64,
+            now.month() as u32,
+            now.day_of_month() as u32,
+        );
+        let offset = now.utc_offset().as_minutes() as f64;
+        slipstream_config::sun::sun_times(lat, lon, date, offset)
+    });
+    match times {
+        Some((sunrise, sunset)) => format!(
+            "Warms up over half an hour from sunset, about {} today, and cools again from \
+             sunrise, about {}, going by your time zone. Turning it by hand in quick settings \
+             lasts until the next change.",
+            slipstream_config::sun::format_time(sunset),
+            slipstream_config::sun::format_time(sunrise)
+        ),
+        None => "Your time zone doesn't say where the sun sets, so the hours below are used \
+                 instead."
+            .to_string(),
+    }
+}
+
+fn night_light(page: &gtk::Box, store: &Store) {
+    use slipstream_config::NightSchedule;
+    let night = group(page, "Night light");
+    let schedules = [
+        (NightSchedule::Off, "Only by hand"),
+        (NightSchedule::Sunset, "Sunset to sunrise"),
+        (NightSchedule::Custom, "Set hours"),
+    ];
+    let names: Vec<&str> = schedules.iter().map(|(_, name)| *name).collect();
+    let schedule = gtk::DropDown::from_strings(&names);
+    let current = store.get().display.night_light_schedule;
+    schedule.set_selected(
+        schedules
+            .iter()
+            .position(|(which, _)| *which == current)
+            .unwrap_or(0) as u32,
+    );
+    let sub = row(
+        &night,
+        "Schedule",
+        Some(
+            "Warmer colours in the evening. Quick settings (Super+A) turns it on and off by hand.",
+        ),
+        &schedule,
+    );
+
+    let times = half_hours();
+    let names: Vec<&str> = times.iter().map(String::as_str).collect();
+    let pick = |value: &str| {
+        let minutes = slipstream_config::sun::parse_time(value).unwrap_or(0.0);
+        ((minutes / 30.0).round() as u32).min(47)
+    };
+    let from = gtk::DropDown::from_strings(&names);
+    from.set_selected(pick(&store.get().display.night_light_from));
+    let to = gtk::DropDown::from_strings(&names);
+    to.set_selected(pick(&store.get().display.night_light_to));
+    row(&night, "From", None, &from);
+    row(
+        &night,
+        "Until",
+        Some("The next morning, if earlier than the start."),
+        &to,
+    );
+
+    let follow = {
+        let (from, to, sub) = (from.clone(), to.clone(), sub.clone());
+        move |which: NightSchedule| {
+            // The hours count for a set schedule, and for sunset where the sun's times can't be
+            // worked out.
+            let custom = which == NightSchedule::Custom
+                || (which == NightSchedule::Sunset && slipstream_config::sun::location().is_none());
+            from.set_sensitive(custom);
+            to.set_sensitive(custom);
+            if let Some(sub) = &sub {
+                sub.set_text(&match which {
+                    NightSchedule::Off => "Warmer colours in the evening. Quick settings \
+                                           (Super+A) turns it on and off by hand."
+                        .to_string(),
+                    NightSchedule::Sunset => sunset_note(),
+                    NightSchedule::Custom => "Warms up over half an hour from the start, and \
+                                              cools over half an hour from the end."
+                        .to_string(),
+                });
+            }
+        }
+    };
+    follow(current);
+    let schedule_store = store.clone();
+    schedule.connect_selected_notify(move |schedule| {
+        if let Some((which, _)) = schedules.get(schedule.selected() as usize) {
+            let which = *which;
+            follow(which);
+            schedule_store.change(move |settings| settings.display.night_light_schedule = which);
+        }
+    });
+    for (dropdown, is_from) in [(from, true), (to, false)] {
+        let times = times.clone();
+        let store = store.clone();
+        dropdown.connect_selected_notify(move |dropdown| {
+            if let Some(time) = times.get(dropdown.selected() as usize).cloned() {
+                store.change(move |settings| {
+                    if is_from {
+                        settings.display.night_light_from = time;
+                    } else {
+                        settings.display.night_light_to = time;
+                    }
+                });
+            }
+        });
+    }
 }
 
 fn wallpaper(store: &Store) -> gtk::Widget {

@@ -397,6 +397,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.tick_lock();
         // Low battery: the wallpaper's pace, the warnings and the countdown to sleep.
         state.tick_battery();
+        // Night light's schedule, and its warmth easing in and out.
+        state.tick_night_light();
         state.drop_dead_streams();
         state.refresh_pointer_focus();
         // The portal picks windows to share from this list.
@@ -410,8 +412,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     // So the login screen, or the next session, doesn't inherit warmed colours.
-    if hardware && state.settings.display.night_light {
-        state.set_night_light(false);
+    if hardware && state.night.current > 0.0 {
+        state.set_night_light(0.0);
     }
     // Quitting from inside bullet time would otherwise leave the desktop's sound muffled.
     sound::restore();
