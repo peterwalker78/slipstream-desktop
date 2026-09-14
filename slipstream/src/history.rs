@@ -740,9 +740,14 @@ impl Slipstream {
     /// Puts clip `index` back on the clipboard, at the top of the list, and pastes it into the
     /// focused app.
     fn paste_clip(&mut self, index: usize) {
-        let Some(clip) = self.history.get(index).cloned() else {
-            return;
-        };
+        if let Some(clip) = self.history.get(index).cloned() {
+            self.put_on_clipboard(clip, true);
+        }
+    }
+
+    /// Puts `clip` on the clipboard as Slipstream's own, at the top of the history, and with
+    /// `paste` sends the focused app the keys that paste it.
+    pub fn put_on_clipboard(&mut self, clip: Clip, paste: bool) {
         let (types, selection): (Vec<String>, Selection) = match &clip {
             Clip::Text(text) => (
                 TEXT_TYPES.iter().map(|kind| kind.to_string()).collect(),
@@ -756,12 +761,17 @@ impl Slipstream {
         {
             tracing::warn!(?err, "couldn't offer the clip to X11 apps");
         }
-        self.history.add(clip);
+        if self.settings.clipboard.history {
+            self.history.add(clip);
+        }
+        if !paste {
+            return;
+        }
         let Some(window) = self.focused_window() else {
             return;
         };
         let terminal = crate::state::window_app_id(&window).is_some_and(|id| is_terminal(&id));
-        tracing::info!(terminal, "pasting from the clipboard history");
+        tracing::info!(terminal, "pasting");
         // The paste keys go through the keyboard's own routing, as a debug step's do, so the app
         // sees an ordinary Ctrl+V.
         let mut keys = vec![("Control_L", true)];

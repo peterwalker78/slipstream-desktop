@@ -4231,6 +4231,16 @@ impl Slipstream {
             Item::File(path) => self.open_path(&path),
             Item::Run(query) => self.run_query(&query),
             Item::Shortcuts => self.toggle_sheet(),
+            Item::Answer(answer) => {
+                tracing::info!("copied an answer from the explorer");
+                let clip = crate::history::Clip::Text(answer.value.clone().into());
+                self.put_on_clipboard(clip, false);
+                self.show_toast(&format!("Copied {}", answer.value), &answer.shown);
+            }
+            Item::Emoji(emoji, name) => {
+                tracing::info!(name, "typing an emoji from the explorer");
+                self.put_on_clipboard(crate::history::Clip::Text(emoji.into()), true);
+            }
             Item::LogOut => {
                 tracing::info!("log out chosen in the explorer");
                 self.begin_exit(Intent::LogOut);

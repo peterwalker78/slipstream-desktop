@@ -4,6 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- **The app explorer answers sums and conversions, and finds emoji.** Type `12*7`, `2^10`, `sqrt 2` or `15% of 80`, or `5 km in miles`, `100f to c`, `3.5 GiB in MB`, `70 kg in st`: the answer appears on the right, decoding out of rain glyphs as it changes, and Enter copies it. Type `:` and a word (`:fire`, `:thumbs`, `:party`) and Enter types the emoji into the app you're in.
 - **Super+V opens the clipboard history**, as on Windows: the last 25 things you copied, text and pictures (screenshots and snips included), newest first. Choose one and press Enter to paste it into the app you're in; Delete forgets one. The chosen entry's text decodes out of rain glyphs as you reach it. It's kept in memory only and forgotten when you log out, anything a password manager marks as secret is never kept, and Settings → Session has a switch to turn it off.
 - While Caps Lock is on, an amber **CAPS** chip sits beside the tray, and on the lock screen the password box shows the Caps Lock arrow at its right end, as Windows does.
 - Caps Lock's and Num Lock's cards read the same either way: a title saying which way the key went, and a note under it ("Screensaver paused" and "Screensaver back on"; on the lock screen, "Typing in capitals" and "Typing in lower case"; "Number pad types numbers" and "Number pad moves the cursor"). Both stay up equally long.

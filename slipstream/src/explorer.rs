@@ -70,6 +70,10 @@ pub enum Item {
     LogOut,
     /// The shortcut sheet.
     Shortcuts,
+    /// A sum or a conversion worked out from the query: Enter copies it.
+    Answer(crate::calc::Answer),
+    /// An emoji found by a `:` query, and its name: Enter types it.
+    Emoji(&'static str, &'static str),
 }
 
 pub enum Outcome {
@@ -106,6 +110,11 @@ struct Catalog {
     run_program: Option<(String, bool)>,
 }
 
+/// How many emoji a `:` query lists.
+const EMOJI_SHOWN: usize = 6;
+/// How long an answer takes to decode when it changes.
+const ANSWER_DECODE: f64 = 0.32;
+
 /// How many recent files are kept for the side column and the search.
 const RECENT: usize = 24;
 
@@ -114,6 +123,8 @@ type RecentReader = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
 
 struct Results {
     apps: Vec<App>,
+    answer: Option<crate::calc::Answer>,
+    emoji: Vec<(&'static str, &'static str)>,
     run: Option<String>,
     files: Vec<PathBuf>,
     log_out: bool,
@@ -124,6 +135,12 @@ impl Results {
     /// Everything selectable, in selection order.
     fn items(&self) -> Vec<Item> {
         let mut items: Vec<Item> = self.apps.iter().cloned().map(Item::App).collect();
+        items.extend(self.answer.clone().map(Item::Answer));
+        items.extend(
+            self.emoji
+                .iter()
+                .map(|(emoji, name)| Item::Emoji(emoji, name)),
+        );
         items.extend(self.run.clone().map(Item::Run));
         items.extend(self.files.iter().cloned().map(Item::File));
         if self.log_out {
@@ -157,6 +174,8 @@ struct Look {
     ring: u32,
     width: i32,
     scale: f64,
+    /// How far the answer's decode is, in thirtieths of a second, while it runs.
+    decode_step: Option<u64>,
 }
 
 pub struct Explorer {
@@ -186,6 +205,10 @@ pub struct Explorer {
     frame: Rectangle<f64, Logical>,
     targets: Vec<(Item, Rectangle<f64, Logical>)>,
     pub reduced_motion: bool,
+    /// The answer last shown, and when it changed, so a new one decodes into place.
+    answer_since: Option<(String, f64)>,
+    /// How long the shown answer has been decoding, for the paint.
+    answer_age: f64,
 }
 
 impl Explorer {
@@ -224,6 +247,8 @@ impl Explorer {
             frame: Rectangle::from_size((0.0, 0.0).into()),
             targets: Vec::new(),
             reduced_motion,
+            answer_since: None,
+            answer_age: f64::MAX,
         }
     }
 
@@ -441,13 +466,27 @@ impl Explorer {
     }
 
     fn results(&self) -> Results {
+        // `:` and a word looks for emoji and nothing else.
+        if let Some(words) = self.query.trim_start().strip_prefix(':') {
+            return Results {
+                apps: Vec::new(),
+                answer: None,
+                emoji: crate::emoji::search(words, EMOJI_SHOWN),
+                run: None,
+                files: Vec::new(),
+                log_out: false,
+                shortcuts: false,
+            };
+        }
+        let answer = crate::calc::answer(&self.query);
         let query = self.query.trim().to_lowercase();
         let catalog = self.catalog.lock().unwrap();
         let apps: Vec<App> = apps::search(&catalog.apps, &query)
             .into_iter()
             .cloned()
             .collect();
-        let run = (!query.is_empty() && apps.is_empty()).then(|| self.query.trim().to_string());
+        let run = (!query.is_empty() && apps.is_empty() && answer.is_none())
+            .then(|| self.query.trim().to_string());
         let files = if query.is_empty() {
             catalog.recent.iter().take(3).cloned().collect()
         } else {
@@ -461,6 +500,8 @@ impl Explorer {
         };
         Results {
             apps,
+            answer,
+            emoji: Vec::new(),
             run,
             files,
             log_out: "log out".contains(&query) || "logout".contains(&query),
@@ -611,6 +652,22 @@ impl Explorer {
         }
         self.warm_icons(scale);
         let since = now - self.opened_at;
+        // A new answer decodes out of rain glyphs, on wall time.
+        let answer = self.results().answer.map(|answer| answer.value);
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |elapsed| elapsed.as_secs_f64());
+        match (&answer, &self.answer_since) {
+            (Some(value), Some((shown, _))) if value == shown => {}
+            (Some(value), _) => self.answer_since = Some((value.clone(), wall)),
+            (None, _) => self.answer_since = None,
+        }
+        self.answer_age = self
+            .answer_since
+            .as_ref()
+            .map_or(f64::MAX, |(_, at)| wall - at);
+        let decode_step = (!self.reduced_motion && self.answer_age < ANSWER_DECODE)
+            .then_some((self.answer_age * 30.0) as u64);
         let look = {
             let catalog = self.catalog.lock().unwrap();
             Look {
@@ -623,6 +680,7 @@ impl Explorer {
                 ring,
                 width,
                 scale,
+                decode_step,
             }
         };
         if self.shown.as_ref() != Some(&look) {
@@ -805,7 +863,7 @@ impl Explorer {
         ));
         if look.query.is_empty() {
             p.text(
-                "Search apps and files",
+                "Apps, files, sums, :emoji",
                 x + 9.0,
                 centre,
                 &Style::new(Face::Body, 27.0, panel::PLACEHOLDER),
@@ -818,7 +876,8 @@ impl Explorer {
         let body_y = fy + SEARCH_H + 1.0;
         let apps_w = width * 1.6 / 2.6;
         let tile_w = (apps_w - 40.0 - TILE_GAP * (COLUMNS - 1) as f32) / COLUMNS as f32;
-        if results.apps.is_empty() {
+        let answering = results.answer.is_some() || look.query.trim_start().starts_with(':');
+        if results.apps.is_empty() && !answering {
             let message = if look.query.trim().is_empty() {
                 "Looking for apps…".to_string()
             } else {
@@ -898,6 +957,73 @@ impl Explorer {
         let (row_x, row_w) = (side_x + 17.0, width - apps_w - 33.0);
         let mut y = body_y + 14.0;
         let mut index = results.apps.len();
+        if let Some(answer) = &results.answer {
+            y += header(&mut p, row_x, y, "Answer");
+            let selected = index == look.selected;
+            answer_row(
+                &mut p,
+                row_x,
+                y,
+                row_w,
+                answer,
+                selected,
+                look.ring,
+                look.decode_step.map(|_| self.answer_age),
+            );
+            targets.push((
+                Item::Answer(answer.clone()),
+                on_screen(row_x, y, row_w, ROW_H),
+            ));
+            y += ROW_H + 3.0;
+            index += 1;
+        }
+        if !results.emoji.is_empty() {
+            y += header(&mut p, row_x, y, "Emoji");
+        } else if look.query.trim_start().starts_with(':') {
+            y += header(&mut p, row_x, y, "Emoji");
+            side_row(
+                &mut p,
+                row_x,
+                y,
+                row_w,
+                &Row {
+                    icon: icons::SEARCH,
+                    label: if look.query.trim().len() > 1 {
+                        "No emoji match".into()
+                    } else {
+                        "Type a word: :fire, :thumbs, :party".into()
+                    },
+                    trailing: None,
+                    keycap: false,
+                    selected: false,
+                    dim: true,
+                    glyph: None,
+                },
+                look.ring,
+            );
+            y += ROW_H + 3.0;
+        }
+        for (emoji, name) in &results.emoji {
+            side_row(
+                &mut p,
+                row_x,
+                y,
+                row_w,
+                &Row {
+                    icon: "",
+                    label: name.to_string(),
+                    trailing: (index == look.selected).then(|| "⏎".to_string()),
+                    keycap: true,
+                    selected: index == look.selected,
+                    dim: false,
+                    glyph: Some(emoji),
+                },
+                look.ring,
+            );
+            targets.push((Item::Emoji(emoji, name), on_screen(row_x, y, row_w, ROW_H)));
+            y += ROW_H + 3.0;
+            index += 1;
+        }
         if let Some(command) = &results.run {
             y += header(&mut p, row_x, y, "Run");
             let (opens, label) = run_label(command, self.run_is_program(command));
@@ -913,6 +1039,7 @@ impl Explorer {
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,
+                    glyph: None,
                 },
                 look.ring,
             );
@@ -928,8 +1055,12 @@ impl Explorer {
         } else {
             "Files"
         };
-        y += header(&mut p, row_x, y, files_title);
-        if results.files.is_empty() {
+        // A sum or an emoji search has no use for an empty files list.
+        let files_shown = !results.files.is_empty() || !answering;
+        if files_shown {
+            y += header(&mut p, row_x, y, files_title);
+        }
+        if results.files.is_empty() && files_shown {
             side_row(
                 &mut p,
                 row_x,
@@ -942,6 +1073,7 @@ impl Explorer {
                     keycap: false,
                     selected: false,
                     dim: true,
+                    glyph: None,
                 },
                 look.ring,
             );
@@ -964,6 +1096,7 @@ impl Explorer {
                     keycap: false,
                     selected: index == look.selected,
                     dim: false,
+                    glyph: None,
                 },
                 look.ring,
             );
@@ -987,6 +1120,7 @@ impl Explorer {
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,
+                    glyph: None,
                 },
                 look.ring,
             );
@@ -1007,6 +1141,7 @@ impl Explorer {
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,
+                    glyph: None,
                 },
                 look.ring,
             );
@@ -1113,11 +1248,88 @@ struct Row<'a> {
     keycap: bool,
     selected: bool,
     dim: bool,
+    /// Text drawn in the icon's place: an emoji.
+    glyph: Option<&'a str>,
 }
 
 /// The selection's fill: the ring colour, faint.
 fn selection_fill(ring: u32) -> u32 {
     (ring & 0xffffff00) | 0x1c
+}
+
+/// The answer to a sum or a conversion: what was understood, then the value, which decodes out of
+/// rain glyphs for `decoding` seconds after it changes. Enter copies it.
+#[allow(clippy::too_many_arguments)]
+fn answer_row(
+    p: &mut Painter,
+    x: f32,
+    y: f32,
+    w: f32,
+    answer: &crate::calc::Answer,
+    selected: bool,
+    ring: u32,
+    decoding: Option<f64>,
+) {
+    if selected {
+        p.fill(x, y, w, ROW_H, 9.0, selection_fill(ring));
+        p.border(x, y, w, ROW_H, 9.0, 2.0, ring);
+    }
+    let centre = y + ROW_H / 2.0;
+    p.icon(icons::RUN, x + 12.0, centre - 11.0, 22.0, Some(0x9aa4b6ff));
+    let right = x + w - 12.0;
+    let hint = "copy";
+    let hint_style = Style::new(Face::Body, 12.0, panel::HINT);
+    let hint_w = text::width(hint, &hint_style);
+    p.text(hint, right - hint_w, centre, &hint_style);
+    let room = w - 46.0 - hint_w - 24.0;
+    let colour = if selected { 0xffffffff } else { 0xe6e9efff };
+    let style = Style::new(Face::Body, 15.0, colour);
+    // What was understood, the value, and any unit after it: `5 km = ` `3.107` ` mi`.
+    let (lead, value, tail) = match answer.shown.rfind(&answer.value) {
+        Some(at) => (
+            &answer.shown[..at],
+            answer.value.as_str(),
+            &answer.shown[at + answer.value.len()..],
+        ),
+        None => (answer.shown.as_str(), "", ""),
+    };
+    let value_style = Style::new(Face::BodyBold, 15.0, colour);
+    let full = text::width(&answer.shown, &style) + 2.0;
+    if full > room || decoding.is_none() {
+        let mut at = x + 46.0;
+        at += p.text(
+            &text::ellipsize(lead, &style, room * 0.6),
+            at,
+            centre,
+            &style,
+        );
+        let left = (x + 46.0 + room - at).max(0.0);
+        at += p.text(
+            &text::ellipsize(value, &value_style, left),
+            at,
+            centre,
+            &value_style,
+        );
+        let left = (x + 46.0 + room - at).max(0.0);
+        p.text(&text::ellipsize(tail, &style, left), at, centre, &style);
+        return;
+    }
+    let mut at = x + 46.0;
+    at += p.text(lead, at, centre, &style);
+    let [r, g, b, _] = ring.to_be_bytes();
+    let glyph_style = Style::new(Face::MonoBold, 15.0, u32::from_be_bytes([r, g, b, 0xff]));
+    let age = decoding.unwrap_or(f64::MAX);
+    let masks = crate::history::decoded(value.chars().count(), age, value.len() as u64);
+    for (ch, mask) in value.chars().zip(masks) {
+        let shown = mask.unwrap_or(ch).to_string();
+        let style = if mask.is_some() {
+            &glyph_style
+        } else {
+            &value_style
+        };
+        at += p.text(&shown, at, centre, style);
+    }
+    p.text(tail, at, centre, &style);
 }
 
 fn side_row(p: &mut Painter, x: f32, y: f32, w: f32, row: &Row, ring: u32) {
@@ -1127,7 +1339,14 @@ fn side_row(p: &mut Painter, x: f32, y: f32, w: f32, row: &Row, ring: u32) {
     }
     let centre = y + ROW_H / 2.0;
     let ink = if row.dim { panel::HINT } else { 0x9aa4b6ff };
-    p.icon(row.icon, x + 12.0, centre - 11.0, 22.0, Some(ink));
+    match row.glyph {
+        Some(glyph) => {
+            let style = Style::new(Face::Body, 20.0, 0xf2f4f8ff);
+            let glyph_w = text::width(glyph, &style);
+            p.text(glyph, x + 12.0 + (22.0 - glyph_w) / 2.0, centre, &style);
+        }
+        None => p.icon(row.icon, x + 12.0, centre - 11.0, 22.0, Some(ink)),
+    }
     let mut room = w - 12.0 - 22.0 - 12.0 - 12.0;
     if let Some(trailing) = &row.trailing {
         let right = x + w - 12.0;
