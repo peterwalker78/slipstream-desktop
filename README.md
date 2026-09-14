@@ -11,6 +11,10 @@ Bullet time slows the whole desktop down. Pop-ups wait until you stop typing.
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
 [![licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 
+<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
+
+<sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
+
 [**Install**](#installing) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
 
 </div>
@@ -23,12 +27,18 @@ There's no separate screensaver to wait for. A living wallpaper runs behind your
 
 There are **twenty** of them, and many aren't canned animations at all but real simulations seeded from the logo: strange attractors, colliding galaxies, slime mould, reaction–diffusion, flocking starlings, growing frost. A few favourites:
 
-- **Attractor:** the logo unravels into a strange attractor drawn in fine dots, which slowly changes shape and winds back into letters.
-- **Galaxies:** the logo's two halves wind up into spiral galaxies that collide and merge, then the collision runs backwards.
-- **Life:** Conway's Game of Life seeded with the logo, glowing and swirling to a beat.
-- **Physarum:** a slime mould creeps out of the letters and spreads over the screen as a network of veins.
-- **Murmuration:** the logo takes off as a flock of starlings, scatters from a falcon, and lands back in the letters.
-- **Frost:** frost grows out of the letters in branching ferns, glitters, and melts back the way it came.
+<table>
+<tr>
+<td align="center"><img src="assets/readme/wallpaper-attractor.webp" alt="Attractor: a strange attractor traced in fine dots" width="280"><br><b>Attractor</b><br><sub>The logo unravels into a strange attractor, then winds back into letters.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-galaxies.webp" alt="Galaxies: two spiral galaxies drawn in dots, circling each other" width="280"><br><b>Galaxies</b><br><sub>The logo's two halves become spiral galaxies that collide, then run backwards.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-life.webp" alt="Life: glowing, colourful Game of Life cells swirling round the logo" width="280"><br><b>Life</b><br><sub>Conway's Game of Life, seeded with the logo, glowing and swirling to a beat.</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="assets/readme/wallpaper-physarum.webp" alt="Physarum: a network of amber veins across the screen" width="280"><br><b>Physarum</b><br><sub>A slime mould creeps out of the letters and spreads over the screen as veins.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-warp.webp" alt="Warp: streaks flying out of a vanishing point behind the logo" width="280"><br><b>Warp</b><br><sub>A steering tunnel of streaks, with the logo coming up out of the vanishing point.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-coral.webp" alt="Coral: spots and stripes growing round the logo" width="280"><br><b>Coral</b><br><sub>The letters seed a chemical reaction that grows over the screen, then dies back.</sub></td>
+</tr>
+</table>
 
 <details>
 <summary><b>All twenty wallpapers</b></summary>
@@ -62,19 +72,27 @@ Tick as many as you like in Settings → Wallpaper, which has moving previews, a
 
 ## Minimise into the Matrix
 
+<img src="assets/readme/rain.webp" alt="Three code-rain streams at the right edge of the screen, headed Foot, Foot and Konsole. The busy Konsole stream falls fast and bright green, the idle Foot streams slow and grey, and each spells out its app's name." width="240" align="right">
+
 Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
 
 The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
 
 It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
 
+<br clear="right">
+
 ## Bullet time
+
+<img src="assets/readme/bullet.webp" alt="Bullet time: every workspace appears as a tilted 3D frame with amber letter hints over each window, and a key press glides the view across to the next workspace." width="960">
 
 **Super+Tab** tilts the whole desktop back into 3D, with every workspace laid out side by side and a letter on each window. Press the letter and you're there. Or move windows between workspaces, weigh them, minimise or close them from the overview.
 
 While it's open, **everything the compositor draws drops to a quarter speed**: window animations, the rain, the wallpaper. When you leave, the clock catches back up to where it would have been, smoothly and with no jump.
 
 ## Concentration first
+
+<img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
 
 Most desktops let any app break your train of thought at any moment. Slipstream doesn't.
 
