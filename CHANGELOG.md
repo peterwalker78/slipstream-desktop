@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## [0.2.0] - 2026-09-14
 
 - **Floating windows, as niri has them.** Dialogs and fixed-height windows (splash screens, Firefox's picture-in-picture) open floating above the tiling: a dialog centred over the window it belongs to, anything else centred on the screen at the size it asks for. They stay above the tiles with dialogs above their parents, move with their workspace, and keep their place when a screen changes size. **Super+Shift+V** floats a window or tiles it again, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. While a floating window has the keyboard, Super+arrows go between floating windows, Super+Alt+arrows move it and Super+[ ] resize it; Super+drag or its own title bar moves it and its edges resize it. A floating window asking for fullscreen fills the screen from the tiling and floats again afterwards.
 - **Night light can follow a schedule**: sunset to sunrise, worked out from your time zone with no location needed, or hours you set (Settings → Appearance). When the schedule turns it, the screen warms up over half an hour the way the light outside changes, and cools the same way in the morning; switching it by hand in quick settings eases over a second and lasts until the next change.
