@@ -1608,6 +1608,16 @@ impl Slipstream {
     /// Focuses the workspace's remembered window, or its newest, or nothing if it's empty. The
     /// remembered one is only taken if it is still here: it is set when a workspace is left, and
     /// the window can have closed or moved since.
+    /// Whether the keyboard is still somewhere sensible after the workspaces changed: on a window
+    /// of the workspace the focused screen shows, or on another program's launcher or panel.
+    fn focus_survives_workspace_change(&self) -> bool {
+        if self.keyboard_layer().is_some() {
+            return true;
+        }
+        self.focused_window()
+            .is_some_and(|window| self.workspaces.find(&window) == Some(self.active_workspace()))
+    }
+
     pub fn restore_focus(&mut self) {
         let ws = self.current_workspace();
         let here = ws.layout.windows();
@@ -2894,7 +2904,13 @@ impl Slipstream {
                 .jump_camera(&screen.output.name(), screen.workspace);
         }
         self.retile();
-        self.restore_focus();
+        // A rename or a reorder leaves the focused window where it was, and the keyboard stays
+        // with it: Settings saves on every key typed into a name, and taking the keyboard from
+        // Settings each time would send the next key somewhere else. Only a focus the change has
+        // stranded (its workspace deleted, or no longer on the screen) is put right.
+        if !self.focus_survives_workspace_change() {
+            self.restore_focus();
+        }
         tracing::info!(before, count, "the workspace list changed");
     }
 

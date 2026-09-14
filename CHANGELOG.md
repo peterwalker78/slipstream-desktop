@@ -4,6 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- Renaming a workspace in Settings no longer moves the keyboard to another window after every letter typed.
 - **Super+Shift+S snips** part of the screen, as on Windows. The screen freezes and dims: drag out a region, press the letter shown on a window (or click it) for just that window, or press Enter for the whole screen. Esc or a right click gives up. The snip is saved and copied like any screenshot, and breaks into fragments that turn into rain glyphs and fly into the toast saying where it went. With reduced motion it simply fades.
 - Games can lock the mouse for mouse look, or keep it inside their window, and hear how far it moved; virtual machines and remote desktops can ask for every key. Only the window you're using gets either, and the first time it takes them a toast says so. **Super+Esc** takes the mouse and keys back, and pressed again gives them back to the window. The volume, brightness and media keys always stay the desktop's.
 - A minimised app's button above its code rain shows only its icon and its meter, so every button is the same height. The rain still spells the app's name, and an app with no icon shows its initial.
