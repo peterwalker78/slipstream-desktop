@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## [0.1.0] - 2026-09-14
 
 - The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner as it sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light without pulling the picture aside, so the desktop moves smoothly as the edge passes over it. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Each way takes 0.6 s. Waking runs the same movement in reverse, but starts at full speed and settles, so the desktop shows up as soon as a key is pressed.
 - Caps Lock no longer holds off the screen lock. It still keeps the screensaver off, but a desktop left with Caps Lock on now locks after its idle minutes like any other. Its card says so ("Screensaver paused", adding "lock still on" when the screen locks by itself) and stays up half a second longer. The key hints on an empty workspace and the Super+/ sheet list Caps Lock too.
