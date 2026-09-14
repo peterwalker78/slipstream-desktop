@@ -187,6 +187,10 @@ pub struct Slipstream {
     pub fullscreen: Option<Window>,
     /// `shot:` debug steps waiting for the next frame.
     pub screenshots: Vec<String>,
+    /// Super+Shift+S while it's being chosen (`snip.rs`).
+    pub snip: Option<crate::snip::Snip>,
+    /// Snips breaking up and flying into their toast.
+    pub snip_flights: Vec<crate::snip::Flight>,
     /// Print and Super+Shift+S, waiting for their screen's next frame (`screenshot.rs`).
     pub screenshot_requests: Vec<crate::screenshot::Request>,
     /// Where finished screenshots come back to the event loop from the thread that wrote them.
@@ -526,6 +530,8 @@ impl Slipstream {
             fullscreen: None,
             screenshots: Vec::new(),
             screenshot_requests: Vec::new(),
+            snip: None,
+            snip_flights: Vec::new(),
             screenshot_answers,
             flash: None,
             desktop_return: None,
@@ -3937,6 +3943,7 @@ impl Slipstream {
             || self.exit.is_some()
             || self.offer.is_some()
             || self.share.is_some()
+            || self.snip.is_some()
             || self.restoring.is_some()
             || self.lock.is_some()
             || self.unlocking.is_some();

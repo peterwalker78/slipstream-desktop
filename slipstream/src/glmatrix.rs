@@ -599,6 +599,12 @@ impl Glyphs {
         }
     }
 
+    /// Glyph `index` (GLMatrix's atlas numbering) centred in a `size` cell, as coverage, mirrored
+    /// as the rain draws it.
+    pub fn coverage(&mut self, index: usize, size: (usize, usize)) -> Option<Vec<u8>> {
+        self.scaled(index, true, size).map(<[u8]>::to_vec)
+    }
+
     /// Glyph `index` centred in a `size` cell (width, height), as coverage.
     fn scaled(&mut self, index: usize, mirrored: bool, size: (usize, usize)) -> Option<&[u8]> {
         if self.scaled.len() > 4000 {

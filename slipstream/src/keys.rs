@@ -142,7 +142,7 @@ impl Action {
             Action::MoveToNextScreen => "send window to the next screen",
             Action::Maximise => "maximise",
             Action::Screenshot { window: false } => "screenshot",
-            Action::Screenshot { window: true } => "screenshot of the window",
+            Action::Screenshot { window: true } => "snip a region or a window",
             Action::ShowDesktop => "an empty workspace, and back",
             Action::ShortcutSheet => "every key",
             Action::Lock => "lock the screen",
@@ -386,7 +386,7 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::p, Action::NextScreen),
         bind(mod_shift, Keysym::p, Action::MoveToNextScreen),
         bind(mod_, Keysym::a, Action::QuickSettings),
-        // Windows' screenshot keys: Print for the screen, Win+Shift+S for the focused window
+        // Windows' screenshot keys: Print for the screen, Win+Shift+S to snip a region or a window
         // (gamescope keeps it while focused, as it does Super+S).
         bind(
             Mods::default(),

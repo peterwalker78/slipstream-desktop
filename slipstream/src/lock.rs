@@ -889,6 +889,8 @@ impl Slipstream {
         // A screenshot asked for just before is never taken of the lock, nor flashes over it.
         self.screenshot_requests.clear();
         self.flash = None;
+        self.snip = None;
+        self.snip_flights.clear();
         if let Some(picker) = self.share.take() {
             tracing::info!("sharing declined: the screen locked");
             picker.answer(false);

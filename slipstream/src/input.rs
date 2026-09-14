@@ -55,6 +55,8 @@ enum KeyUse {
     CancelSwitch,
     /// A key for the shortcut sheet, with the character it types.
     Sheet(Keysym, Option<char>),
+    /// A key while a snip is being chosen.
+    Snip(Keysym),
 }
 
 impl Slipstream {
@@ -207,6 +209,7 @@ impl Slipstream {
             || self.centre.is_open()
             || self.bullet.is_some()
             || self.share.is_some()
+            || self.snip.is_some()
             || self.offer.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
     }
@@ -338,6 +341,7 @@ impl Slipstream {
         self.exit_hover(pos);
         self.offer_hover(pos);
         self.share_hover(pos);
+        self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
         self.drag_quick_slider(pos);
     }
@@ -434,6 +438,7 @@ impl Slipstream {
                 self.exit_hover(pos);
                 self.offer_hover(pos);
                 self.share_hover(pos);
+                self.snip_pointer_moved(pos);
                 self.bullet_pointer_moved(pos);
                 self.drag_quick_slider(pos);
             }
@@ -682,6 +687,13 @@ impl Slipstream {
         let keyboard = self.seat.get_keyboard().unwrap();
 
         let serial = SERIAL_COUNTER.next_serial();
+
+        // A snip being chosen takes every button: a drag, a click on a window, or a right click to
+        // give up.
+        if self.snip.is_some() {
+            self.snip_button(button, button_state == ButtonState::Pressed);
+            return;
+        }
 
         // So does the share picker's.
         if self.share.is_some() {
@@ -1024,6 +1036,11 @@ impl Slipstream {
                     // The share picker takes every key: an app is waiting on it, and a
                     // keypress meant for a window could otherwise reach the window
                     // that's about to be shared.
+                    // A snip being chosen takes every key: Esc, Enter or a window's letter.
+                    if pressed && state.snip.is_some() {
+                        state.suppressed_keys.push(key);
+                        return FilterResult::Intercept(Some(KeyUse::Snip(handle.modified_sym())));
+                    }
                     if pressed && state.share.is_some() {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Share(
@@ -1147,6 +1164,7 @@ impl Slipstream {
             Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),
             Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
             Some(Some(KeyUse::Sheet(sym, ch))) => self.sheet_key(sym, ch),
+            Some(Some(KeyUse::Snip(sym))) => self.snip_key(sym),
             // Smithay tells the next focus which forwarded keys are still held. A key held as the
             // lock went up and let go under it would be announced as held at unlock, and the app
             // would repeat it, so the release is recorded here, with no focus to send it to.

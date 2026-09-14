@@ -780,7 +780,14 @@ pub fn output_elements(
     // Other programs' launchers, pickers and panels in front of everything of the desktop's, and
     // their docks and wallpapers behind the windows, all inside the pane that fades. Not in
     // bullet time, which is the desktop's own.
-    let layers_shown = tiling_output && ui > 0.0 && zoomed_out <= 0.0;
+    // A snip being chosen is in front of everything but the pointer; fragments of one just taken
+    // fly in front of that.
+    elements.extend(state.snip_flight_elements(renderer, output));
+    let before_snip = elements.len();
+    let mut snip = state.snip_elements(renderer, output, &mut chrome.overview, scale.x);
+    elements.append(&mut snip);
+    let snipping = elements.len() > before_snip;
+    let layers_shown = tiling_output && ui > 0.0 && zoomed_out <= 0.0 && !snipping;
     if layers_shown {
         elements.extend(state.layer_elements(
             renderer,
@@ -1970,9 +1977,9 @@ pub fn save_png(
 
 /// Draws `elements` into an offscreen texture and reads it back as opaque RGBA bytes, a row at a
 /// time from the top. `scale` must be the output's.
-pub fn copy_frame(
+pub fn copy_frame<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
     renderer: &mut GlesRenderer,
-    elements: &[OutputElement],
+    elements: &[E],
     size: Size<i32, Physical>,
     scale: f64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

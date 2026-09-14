@@ -1,5 +1,5 @@
-//! Print and Super+Shift+S: the focused screen, or the focused window, saved as a PNG and put on
-//! the clipboard.
+//! Print: the focused screen saved as a PNG and put on the clipboard. Super+Shift+S's snips
+//! (`snip.rs`) are saved the same way.
 //!
 //! A request names the screen it's for, and only that screen's frame serves it. The pixels are
 //! copied just after the frame is drawn, on the render path; cropping, encoding and writing the
@@ -121,7 +121,7 @@ fn folder() -> PathBuf {
 
 /// The part of an RGBA picture `size` big inside `crop`, in its own pixels, clipped to the
 /// picture. `None` if nothing of it is inside.
-fn cropped(
+pub(crate) fn cropped(
     pixels: &[u8],
     size: Size<i32, Physical>,
     crop: Rectangle<i32, Physical>,
@@ -142,7 +142,7 @@ fn cropped(
 }
 
 /// A logical rectangle on a screen at `scale`, in the screen's pixels.
-fn to_pixels(rect: Rectangle<f64, Logical>, scale: f64) -> Rectangle<i32, Physical> {
+pub(crate) fn to_pixels(rect: Rectangle<f64, Logical>, scale: f64) -> Rectangle<i32, Physical> {
     let x0 = (rect.loc.x * scale).round() as i32;
     let y0 = (rect.loc.y * scale).round() as i32;
     let x1 = ((rect.loc.x + rect.size.w) * scale).round() as i32;
@@ -215,35 +215,12 @@ impl Slipstream {
         let Some(output) = self.screens.focused_output() else {
             return;
         };
-        let crop = if window {
-            let Some(focused) = self.focused_window() else {
-                self.show_toast(
-                    "No window to capture",
-                    "Super+Shift+S takes the focused window.",
-                );
-                return;
-            };
-            let drawn = self
-                .fitted
-                .iter()
-                .find(|(fitted, _)| *fitted == focused)
-                .map(|(_, drawn)| *drawn)
-                .or_else(|| {
-                    self.space
-                        .element_geometry(&focused)
-                        .map(|rect| rect.to_f64())
-                });
-            let (Some(drawn), Some(screen)) = (drawn, self.space.output_geometry(&output)) else {
-                self.show_toast(
-                    "No window to capture",
-                    "Super+Shift+S takes the focused window.",
-                );
-                return;
-            };
-            Some(Rectangle::new(drawn.loc - screen.loc.to_f64(), drawn.size))
-        } else {
-            None
-        };
+        // Super+Shift+S snips: a region, a window or the whole screen, chosen on a frozen frame.
+        if window {
+            self.start_snip();
+            return;
+        }
+        let crop = None;
         tracing::info!(window, "screenshot asked for");
         self.screenshot_requests.push(Request {
             output: output.name(),
@@ -266,6 +243,7 @@ impl Slipstream {
             self.screenshot_requests.clear();
             return;
         }
+        self.serve_snip(renderer, output, elements, size, scale);
         if !self
             .screenshot_requests
             .iter()
@@ -290,24 +268,36 @@ impl Slipstream {
         if !self.clock.reduced_motion {
             self.flash = Some((name, self.wall()));
         }
-        let file = file_name(local_now());
         for request in mine {
-            let crop = request.crop.map(|rect| to_pixels(rect, scale));
-            let (pixels, file) = (pixels.clone(), file.clone());
-            let answers = self.screenshot_answers.clone();
-            std::thread::spawn(move || {
-                // Read here, off the event loop: `user-dirs.dirs` may be on a slow home folder.
-                let folder = folder();
-                let saved = match save(&pixels, size, crop, &folder, &file) {
-                    Ok(png) => Saved::Done {
-                        folder,
-                        png: Arc::new(png),
-                    },
-                    Err(err) => Saved::Failed(err),
-                };
-                let _ = answers.send(saved);
-            });
+            self.save_screenshot(pixels.clone(), size, request.crop, scale);
         }
+    }
+
+    /// Crops, encodes and writes a screenshot on a thread of its own, from a frame's `pixels`
+    /// (`size` of them, at `scale`); `crop` is in logical pixels from the screen's corner. The
+    /// outcome comes back to `screenshot_saved`.
+    pub fn save_screenshot(
+        &self,
+        pixels: Arc<Vec<u8>>,
+        size: Size<i32, Physical>,
+        crop: Option<Rectangle<f64, Logical>>,
+        scale: f64,
+    ) {
+        let crop = crop.map(|rect| to_pixels(rect, scale));
+        let file = file_name(local_now());
+        let answers = self.screenshot_answers.clone();
+        std::thread::spawn(move || {
+            // Read here, off the event loop: `user-dirs.dirs` may be on a slow home folder.
+            let folder = folder();
+            let saved = match save(&pixels, size, crop, &folder, &file) {
+                Ok(png) => Saved::Done {
+                    folder,
+                    png: Arc::new(png),
+                },
+                Err(err) => Saved::Failed(err),
+            };
+            let _ = answers.send(saved);
+        });
     }
 
     /// The flash's opacity on `output` now, while there is one. None for a frame that will serve

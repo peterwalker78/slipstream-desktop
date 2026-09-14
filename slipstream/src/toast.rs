@@ -22,6 +22,8 @@ use crate::{
 // Sizes in the mockup's pixels.
 const WIDTH: f32 = 440.0;
 const TOP: f32 = 58.0;
+/// Where the toast's top edge sits, in logical pixels.
+pub const TOP_LOGICAL: f64 = (TOP * MOCKUP_PX) as f64;
 /// Logical pixels per mockup pixel.
 const MOCKUP_PX: f32 = 0.8;
 const SHOWN: f64 = 2.6;

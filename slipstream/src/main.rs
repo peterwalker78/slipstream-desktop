@@ -66,6 +66,7 @@ mod session;
 mod settings;
 mod share;
 mod sheet;
+mod snip;
 mod sound;
 mod state;
 mod status;
