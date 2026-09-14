@@ -60,7 +60,12 @@ fn meeting(progress: f32, width: f32, height: f32) -> Option<f32> {
     (tilt > 0.0).then(|| (GLASS * DISTANCE * width - push) / tilt.sin() / width.hypot(height))
 }
 
-fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>> {
+/// The uniforms both shaders take; `shake` is how far the view is knocked aside, in logical pixels.
+fn uniforms(
+    logical: Size<i32, Logical>,
+    progress: f32,
+    shake: (f32, f32),
+) -> Vec<Uniform<'static>> {
     let (w, h) = (logical.w as f32, logical.h as f32);
     let (tilt, push) = pose(progress, w);
     let distance = DISTANCE * w;
@@ -72,10 +77,11 @@ fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>>
         Uniform::new("glass", (GLASS * distance, EDGE * distance)),
         Uniform::new("fade", (FADE.0 * distance, FADE.1 * distance)),
         Uniform::new("remaining", remaining(progress)),
+        Uniform::new("shake", shake),
     ]
 }
 
-fn uniform_names() -> [UniformName<'static>; 7] {
+fn uniform_names() -> [UniformName<'static>; 8] {
     [
         UniformName::new("size", UniformType::_2f),
         UniformName::new("tilt", UniformType::_2f),
@@ -84,6 +90,7 @@ fn uniform_names() -> [UniformName<'static>; 7] {
         UniformName::new("glass", UniformType::_2f),
         UniformName::new("fade", UniformType::_2f),
         UniformName::new("remaining", UniformType::_1f),
+        UniformName::new("shake", UniformType::_2f),
     ]
 }
 
@@ -115,7 +122,8 @@ uniform float tint;
 
 // The screen in logical pixels; the sine and cosine of how far the UI's pane has tipped back; how
 // deep its bottom right corner is; the eye's distance; the wallpaper pane's depth, and half the
-// depth the two mix over; the depths the UI fades out between; how much of it is left at the end.
+// depth the two mix over; the depths the UI fades out between; how much of it is left at the end;
+// how far the view is knocked aside as the glass lands coming back.
 uniform vec2 size;
 uniform vec2 tilt;
 uniform float push;
@@ -123,6 +131,7 @@ uniform float distance;
 uniform vec2 glass;
 uniform vec2 fade;
 uniform float remaining;
+uniform vec2 shake;
 
 // How far the edge between the two wanders, as a share of the way across the screen, so the two
 // worlds interleave along it rather than meeting on a ruled line.
@@ -134,7 +143,7 @@ const float RIPPLE = 0.05;
 bool seen(vec2 screen, out vec2 at, out float z, out float against) {
     vec2 n = normalize(size);
     vec2 across = vec2(-n.y, n.x);
-    vec2 o = screen - size * 0.5;
+    vec2 o = screen - shake - size * 0.5;
     float sa = dot(o, n);
     float sb = dot(o, across);
     float h = dot(abs(n), size * 0.5);
@@ -290,7 +299,9 @@ impl Glass {
         !self.broken
     }
 
-    /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.
+    /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone
+    /// and knocked `shake` logical pixels aside.
+    #[allow(clippy::too_many_arguments)]
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -299,6 +310,7 @@ impl Glass {
         physical: Size<i32, Physical>,
         scale: f64,
         progress: f32,
+        shake: (f32, f32),
     ) -> Option<TextureShaderElement> {
         if !self.ready(renderer) {
             return None;
@@ -317,7 +329,7 @@ impl Glass {
         Some(TextureShaderElement::new(
             whole_screen(renderer, texture, logical, physical),
             self.program.clone()?,
-            uniforms(logical, progress),
+            uniforms(logical, progress, shake),
         ))
     }
 
@@ -336,7 +348,8 @@ impl Glass {
         progress: f32,
         background: Color32F,
     ) -> Option<TextureShaderElement> {
-        if self.broken {
+        // At the front, nothing is behind the wallpaper's pane.
+        if self.broken || progress <= 0.0 {
             return None;
         }
         let pane = {
@@ -344,7 +357,7 @@ impl Glass {
             TextureShaderElement::new(
                 whole_screen(renderer, texture, logical, physical),
                 self.program.clone()?,
-                uniforms(logical, progress),
+                uniforms(logical, progress, (0.0, 0.0)),
             )
         };
         let elements = [
@@ -370,7 +383,7 @@ impl Glass {
         Some(TextureShaderElement::new(
             drawn?,
             self.through_program.clone()?,
-            uniforms(logical, progress),
+            uniforms(logical, progress, (0.0, 0.0)),
         ))
     }
 }

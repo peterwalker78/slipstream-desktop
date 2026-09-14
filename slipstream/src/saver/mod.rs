@@ -1285,15 +1285,17 @@ impl Saver {
         self.paint(along);
         self.cost.paint += thread_cpu().saturating_sub(started);
         self.cost.report(self.current.id());
-        self.again(renderer, size, alpha)
+        self.again(renderer, size, alpha, (0.0, 0.0))
     }
 
-    /// The picture last painted, as another element at `alpha`, without stepping or painting.
+    /// The picture last painted, as another element at `alpha` moved `by` physical pixels,
+    /// without stepping or painting.
     pub fn again<R>(
         &self,
         renderer: &mut R,
         size: Size<i32, Logical>,
         alpha: f32,
+        by: (f64, f64),
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -1302,7 +1304,7 @@ impl Saver {
         let buffer = self.buffer.as_ref()?;
         MemoryRenderBufferRenderElement::from_buffer(
             renderer,
-            (0.0, 0.0),
+            by,
             buffer,
             Some(alpha),
             Some(Rectangle::from_size(

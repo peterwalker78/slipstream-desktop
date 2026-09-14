@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- Coming back from the living wallpaper, the desktop's glass reaches the front a little sooner and arrives still moving, then the whole view gives a short shake that dies away, as if the glass had landed against the screen. It still takes 0.6 s altogether, and there's no shake with reduced motion.
+
 ## [0.1.0] - 2026-09-14
 
 - The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner as it sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light without pulling the picture aside, so the desktop moves smoothly as the edge passes over it. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Each way takes 0.6 s. Waking runs the same movement in reverse, but starts at full speed and settles, so the desktop shows up as soon as a key is pressed.
