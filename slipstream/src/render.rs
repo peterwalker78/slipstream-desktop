@@ -1556,7 +1556,7 @@ pub fn output_elements(
         );
     }
 
-    // Where the falling pane sits in the list, for the wallpaper to lie over it once it's through.
+    // Where the turning page sits in the list, for the wallpaper to lie over it behind the glass.
     let mut fallen_at = None;
     if glass {
         let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
@@ -1637,7 +1637,7 @@ pub fn output_elements(
                 .element(renderer, output_geo.size, scale.x, now, glow, paused, tween)
                 .map(OutputElement::Memory),
         );
-        // The same wallpaper over the falling pane, mixed in as the pane passes through it.
+        // The same wallpaper over the page, wherever the page has turned behind the glass.
         if let Some(at) = fallen_at {
             let through = saver
                 .again(renderer, output_geo.size, glow)
@@ -1653,7 +1653,7 @@ pub fn output_elements(
                     )
                 });
             if let Some(through) = through {
-                elements.insert(at, OutputElement::Texture(through));
+                elements.insert(at, OutputElement::Shaded(through));
             }
         }
     }
