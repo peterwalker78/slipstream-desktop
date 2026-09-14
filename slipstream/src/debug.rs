@@ -34,7 +34,8 @@
 //! `press:NAME`, `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same
 //! routing as the keyboard, and meaning what they mean in the login session: Super is Super even
 //! nested), `motion` (every animating part's reduced-motion flag, into the log), `lock` (the lock
-//! screen; nested runs only), and `quit`. While locked, only the steps that go through the
+//! screen; nested runs only), `battery:N` (pretend the battery
+//! is at N percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While locked, only the steps that go through the
 //! keyboard's, the pointer's and apps' own paths act.
 //!
 //! Key and click steps for a panel do nothing, and say so in the log, while that panel is closed:
@@ -164,6 +165,8 @@ pub enum Step {
     Keys(Vec<(String, bool)>),
     /// Locks the screen. Nested runs only.
     Lock,
+    /// Pretends the battery is at this charge, and whether it's charging; `None` reads it again.
+    Battery(Option<(u8, bool)>),
     Quit,
 }
 
@@ -195,6 +198,7 @@ impl Step {
                 | Step::Windows
                 | Step::Motion
                 | Step::Lock
+                | Step::Battery(_)
                 | Step::Quit
         )
     }
@@ -396,6 +400,14 @@ impl Script {
                         Step::Keys(key_events(kind, text))
                     }
                     ("lock", None) => Step::Lock,
+                    ("battery", Some("off")) => Step::Battery(None),
+                    ("battery", Some(level)) => {
+                        let charging = level.ends_with('+');
+                        Step::Battery(Some((
+                            level.trim_end_matches('+').trim().parse().ok()?,
+                            charging,
+                        )))
+                    }
                     ("quit", None) => Step::Quit,
                     _ => {
                         tracing::warn!("ignoring debug step {item:?}");

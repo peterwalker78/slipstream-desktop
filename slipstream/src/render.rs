@@ -909,6 +909,17 @@ pub fn output_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // The low battery card, above everything but the lock.
+    if first_output && state.battery.card.is_some() {
+        let mut card = state.battery.card.take();
+        if let Some(card) = card.as_mut() {
+            elements.extend(
+                card.element(renderer, output_geo.size, scale.x, wall)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.battery.card = card;
+    }
     // The offer at login, above everything else it is asking about.
     if first_output && state.offer.is_some() {
         let mut offer = state.offer.take();

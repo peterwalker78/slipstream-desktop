@@ -11,6 +11,7 @@ mod anim;
 mod apps;
 mod auth;
 mod bar;
+mod battery;
 mod bullet;
 mod calc;
 mod calendar;
@@ -394,6 +395,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.tick_record();
         // The lock by itself after idle, and a sleep waiting for the lock to be drawn.
         state.tick_lock();
+        // Low battery: the wallpaper's pace, the warnings and the countdown to sleep.
+        state.tick_battery();
         state.drop_dead_streams();
         state.refresh_pointer_focus();
         // The portal picks windows to share from this list.

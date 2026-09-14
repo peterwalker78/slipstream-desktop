@@ -45,6 +45,8 @@ enum KeyUse {
     Share(Keysym, bool),
     /// A key for the offer at login, likewise.
     Offer(Keysym),
+    /// A key for the low battery card.
+    Battery(Keysym),
     /// A key for the lock screen's password pill.
     Lock(crate::lock::Key),
     /// A key let go while locked.
@@ -218,6 +220,7 @@ impl Slipstream {
             || self.bullet.is_some()
             || self.share.is_some()
             || self.snip.is_some()
+            || self.battery.card.is_some()
             || self.offer.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
     }
@@ -263,6 +266,7 @@ impl Slipstream {
     fn overlay_up(&self) -> crate::screen::Overlay {
         use crate::screen::Overlay;
         if self.share.is_some()
+            || self.battery.card.is_some()
             || self.offer.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.switcher.is_some()
@@ -351,6 +355,7 @@ impl Slipstream {
         pointer.frame(self);
         self.exit_hover(pos);
         self.offer_hover(pos);
+        self.battery_hover(pos);
         self.share_hover(pos);
         self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
@@ -448,6 +453,7 @@ impl Slipstream {
                 self.update_pointer_constraint();
                 self.exit_hover(pos);
                 self.offer_hover(pos);
+                self.battery_hover(pos);
                 self.share_hover(pos);
                 self.snip_pointer_moved(pos);
                 self.bullet_pointer_moved(pos);
@@ -716,6 +722,15 @@ impl Slipstream {
             return;
         }
         // The offer's card takes every click the same way the way out's does.
+        // The low battery card takes every click, as the offer's does.
+        if self.battery.card.is_some() {
+            let screen = self.focused_screen_geometry();
+            if let (ButtonState::Pressed, Some(screen)) = (button_state, screen) {
+                let pos = pointer.current_location() - screen.loc.to_f64();
+                self.battery_click(pos.x, pos.y);
+            }
+            return;
+        }
         if self.offer.is_some() {
             let screen = self.focused_screen_geometry();
             if let (ButtonState::Pressed, Some(screen)) = (button_state, screen) {
@@ -1068,6 +1083,13 @@ impl Slipstream {
                     }
                     // The offer at login takes every key until it is answered: the
                     // desktop it is asking about doesn't exist yet.
+                    // The low battery card takes every key until it's answered.
+                    if pressed && state.battery.card.is_some() {
+                        state.suppressed_keys.push(key);
+                        return FilterResult::Intercept(Some(KeyUse::Battery(
+                            handle.modified_sym(),
+                        )));
+                    }
                     if pressed && state.offer.is_some() {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Offer(handle.modified_sym())));
@@ -1187,6 +1209,7 @@ impl Slipstream {
             Some(Some(KeyUse::Centre(key, shift))) => self.centre_key(key, shift),
             Some(Some(KeyUse::Exit(key))) => self.exit_key(key),
             Some(Some(KeyUse::Offer(key))) => self.offer_key(key),
+            Some(Some(KeyUse::Battery(key))) => self.battery_key(key),
             Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),
             Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),

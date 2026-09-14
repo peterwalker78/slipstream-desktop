@@ -236,6 +236,8 @@ pub struct Slipstream {
     pub centre: crate::centre::Centre,
     /// The shortcut sheet (Super+/).
     pub sheet: crate::sheet::Sheet,
+    /// Low battery's warnings and its countdown card (`battery.rs`).
+    pub battery: crate::battery::Battery,
     /// The clipboard history (Super+V).
     pub history: crate::history::History,
     /// Where copies read for the history come back from their threads.
@@ -547,6 +549,7 @@ impl Slipstream {
             screenshot_requests: Vec::new(),
             snip: None,
             history: Default::default(),
+            battery: Default::default(),
             clip_answers,
             snip_flights: Vec::new(),
             screenshot_answers,
@@ -3978,6 +3981,7 @@ impl Slipstream {
             || self.offer.is_some()
             || self.share.is_some()
             || self.snip.is_some()
+            || self.battery.card.is_some()
             || self.history.is_open()
             || self.restoring.is_some()
             || self.lock.is_some()
@@ -4663,6 +4667,7 @@ impl Slipstream {
                 debug::Step::Lock => {
                     self.lock_now();
                 }
+                debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
                 // Key steps act only on an open panel. A closed one keeps its last selection, and a
                 // mistimed step would otherwise press it.

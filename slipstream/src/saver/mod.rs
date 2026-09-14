@@ -1053,6 +1053,12 @@ pub struct Saver {
     readings: Readings,
     utc_offset: Option<i64>,
     pub reduced_motion: bool,
+    /// How fast the wallpaper runs against the animation clock: 1 normally, less to save power.
+    pub pace: f64,
+    /// How far the wallpaper's own clock has fallen behind the animation clock while slowed.
+    lag: f64,
+    /// The animation clock when it was last drawn, for the lag.
+    last_drawn: Option<f64>,
 }
 
 impl Saver {
@@ -1089,12 +1095,28 @@ impl Saver {
             readings: Readings::default(),
             utc_offset: None,
             reduced_motion,
+            pace: 1.0,
+            lag: 0.0,
+            last_drawn: None,
         }
+    }
+
+    /// The wallpaper's own clock for animation-clock time `now`: behind it by however much it has
+    /// been slowed, so a slowed wallpaper steps and moves at its pace without jumping when the
+    /// pace changes.
+    fn paced(&mut self, now: f64) -> f64 {
+        if let Some(last) = self.last_drawn {
+            let dt = (now - last).clamp(0.0, 0.1);
+            self.lag += dt * (1.0 - self.pace.clamp(0.0, 1.0));
+        }
+        self.last_drawn = Some(now);
+        now - self.lag
     }
 
     /// The settings changed. Ticking a variation on shows it at once, so the picture behind the
     /// Settings window is the preview; anything else just changes what comes next.
     pub fn set_wallpaper(&mut self, wallpaper: &slipstream_config::Wallpaper, now: f64) {
+        let now = now - self.lag;
         self.change_every = wallpaper.change_every_mins as f64 * 60.0;
         let chosen = ids(wallpaper);
         if chosen == self.chosen {
@@ -1121,6 +1143,7 @@ impl Saver {
 
     /// Shows one variation now, whatever the settings say (the `wallpaper:` debug step).
     pub fn show(&mut self, id: &str, now: f64) -> bool {
+        let now = now - self.lag;
         let Some(id) = make(id).map(|variation| variation.id()) else {
             return false;
         };
@@ -1229,6 +1252,7 @@ impl Saver {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let now = self.paced(now);
         let device = (
             (size.w as f64 * scale).round() as usize,
             (size.h as f64 * scale).round() as usize,
@@ -1436,6 +1460,22 @@ impl Saver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_slowed_wallpaper_falls_behind_smoothly_and_keeps_its_place_at_full_pace() {
+        let mut saver = Saver::new(true, &slipstream_config::Wallpaper::default());
+        saver.pace = 0.5;
+        let mut shown = 0.0;
+        for frame in 0..=20 {
+            shown = saver.paced(frame as f64 * 0.05);
+        }
+        assert!((shown - 0.5).abs() < 1e-9, "half of a second: {shown}");
+        saver.pace = 1.0;
+        assert!(
+            (saver.paced(1.05) - 0.55).abs() < 1e-9,
+            "no jump back to the clock"
+        );
+    }
 
     /// One step of `variation` on a blank grid, `elapsed` seconds into its own turn, as the saver
     /// composes one. Variations that carry state between steps need stepping in order instead.
