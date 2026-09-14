@@ -102,6 +102,19 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 Settings → Notifications has the switches.
 
+## Everyday tools, with a twist
+
+The things you'd expect any desktop to do, each done the Slipstream way.
+
+- **Snip, then watch it go.** **Super+Shift+S** freezes the screen: drag out a region, press the letter on a window, or Enter for the whole screen. The snip is saved and copied, and **the part you chose breaks into fragments that turn into rain glyphs and fly into the "saved" toast.**
+- **Clipboard history that decodes.** **Super+V** lists the last 25 things you copied, text and pictures. **As you move through the list, each entry decodes out of rain glyphs into its text.** Enter pastes it into the app you're in. It's kept in memory only and forgotten at logout, and anything a password manager marks as secret is never kept.
+- **An explorer that answers.** Type `12*7`, `15% of 80`, `5 km in miles` or `100f to c` into **Super+Space**, and the answer decodes into place, ready to copy. Type `:fire` and Enter types 🔥 into your app.
+- **Floating windows, the way niri does them.** Dialogs open floating, centred over the window they belong to. Splash screens and picture-in-picture videos float too. **Super+Shift+V** floats or tiles any window, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. Floating windows move with their title bar or Super+drag.
+- **A battery that looks after you.** Unplugged at 20%, **the living wallpaper visibly slows to half speed to save power.** At 5%, a card counts down a minute to sleep so your work survives in memory, and it ignores keys for its first moment, so nothing you're typing can answer it.
+- **Night light that follows the sun,** with no location needed: sunset and sunrise are worked out from your time zone. **The screen warms over half an hour at dusk, the way the light outside does,** rather than all at once.
+- **Caps Lock you can't miss:** an amber chip on the bar, and the Caps Lock arrow in the lock screen's password box.
+- **Games and virtual machines behave.** Games can lock the mouse and virtual machines can take every key. **Super+Esc** always takes them back.
+
 ## Gravity
 
 Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · tiling · centre · wide · spotlight*. One rung per press, always reversible.
@@ -109,11 +122,13 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 ## And everything else a desktop needs
 
 - **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
-- **App explorer** (Super+Space or Super+R): every installed app, Flatpaks included, plus recent files. Type a command that matches no app and Enter runs it, like Windows' Run box.
+- **App explorer** (Super+Space or Super+R): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it, like Windows' Run box.
 - **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.
-- **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light, power mode. Media keys work with any player that speaks MPRIS.
+- **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
 - **Notifications** (Super+N): pop-ups with action buttons, a notification centre, do not disturb.
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
+- **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied.
+- **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
 - **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
@@ -138,9 +153,9 @@ Releases carry ready-built programs for Fedora 44 and the systems built on it. O
 Download the `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then:
 
 ```sh
-sha256sum -c slipstream-0.0.8-fedora44-x86_64.tar.gz.sha256
-tar xf slipstream-0.0.8-fedora44-x86_64.tar.gz
-cd slipstream-0.0.8-fedora44-x86_64
+sha256sum -c slipstream-0.2.0-fedora44-x86_64.tar.gz.sha256
+tar xf slipstream-0.2.0-fedora44-x86_64.tar.gz
+cd slipstream-0.2.0-fedora44-x86_64
 scripts/install-session --check    # what it will do, and what's missing; writes nothing
 scripts/update-session             # puts the programs in ~/.local/bin; no root
 scripts/install-session            # adds Slipstream to the login screen; asks for sudo once
