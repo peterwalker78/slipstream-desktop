@@ -524,7 +524,7 @@ impl Slipstream {
             offer: None,
             restore_looked: false,
             tags: Vec::new(),
-            rain: Rain::new(false, ring_rgb),
+            rain: Rain::new(false, ring_rgb, bullet_rgb),
             idle: Idle::new(false, settings.wallpaper.fade_after_secs),
             concentration: Default::default(),
             way_back: None,
@@ -4063,6 +4063,7 @@ impl Slipstream {
         self.ring_rgb = settings.borders.selected_tile_rgb();
         self.rain.set_ring_colour(self.ring_rgb);
         self.bullet_rgb = settings.borders.bullet_time_rgb();
+        self.rain.set_bullet_colour(self.bullet_rgb);
         if settings.workspaces != self.settings.workspaces {
             let entries = workspace_entries(&settings);
             self.set_workspaces(&entries, self.screens.len());
