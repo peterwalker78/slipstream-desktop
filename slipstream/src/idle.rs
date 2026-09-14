@@ -18,7 +18,8 @@ use smithay::{reexports::wayland_server::protocol::wl_surface::WlSurface, utils:
 use crate::anim::{Easing, Tween};
 
 /// Fading out and back in take the same time, the UI passing through the wallpaper like a pane of
-/// glass either way (`glass.rs`).
+/// glass either way (`glass.rs`). Fading out eases in and out; coming back starts at full speed
+/// and settles, so the UI answers the waking key at once rather than a quarter of a second later.
 const FADE: f64 = 0.8;
 const REDUCED_FADE: f64 = 0.08;
 
@@ -108,7 +109,7 @@ impl Idle {
         self.faded = false;
         let duration = self.duration();
         self.opacity
-            .retarget([1.0], now, duration, Easing::InOutCubic);
+            .retarget([1.0], now, duration, Easing::OutCubic);
     }
 
     /// Whether the UI has stepped aside for the wallpaper, or is on its way out.
@@ -221,15 +222,28 @@ mod tests {
             ..Idle::new(false, 120)
         };
         idle.update(0.0, false);
-        let halfway_out = idle.update(FADE / 2.0, false);
+        assert!(idle.update(FADE - 0.01, false) > 0.0);
+        assert_eq!(idle.update(FADE, false), 0.0);
+        idle.input(FADE);
+        assert!(idle.update(2.0 * FADE - 0.01, true) < 1.0);
+        assert_eq!(idle.update(2.0 * FADE, true), 1.0);
+    }
+
+    #[test]
+    fn coming_back_answers_the_key_at_once() {
+        let mut idle = Idle {
+            timeout: Some(Duration::ZERO),
+            ..Idle::new(false, 120)
+        };
+        idle.update(0.0, false);
+        let early_out = 1.0 - idle.update(FADE / 8.0, false);
         idle.update(FADE, false);
         idle.input(FADE);
-        let halfway_back = idle.update(FADE + FADE / 2.0, true);
+        let early_back = idle.update(FADE + FADE / 8.0, true);
         assert!(
-            (halfway_out + halfway_back - 1.0).abs() < 1e-9,
-            "{halfway_out} out and {halfway_back} back should mirror each other"
+            early_back > 5.0 * early_out,
+            "back {early_back} in the first eighth, against {early_out} out"
         );
-        assert_eq!(idle.update(2.0 * FADE, true), 1.0);
     }
 
     #[test]
