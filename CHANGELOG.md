@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- Games can lock the mouse for mouse look, or keep it inside their window, and hear how far it moved; virtual machines and remote desktops can ask for every key. Only the window you're using gets either, and the first time it takes them a toast says so. **Super+Esc** takes the mouse and keys back, and pressed again gives them back to the window. The volume, brightness and media keys always stay the desktop's.
+- Touchpad swipes, pinches and holds reach apps, so pinching zooms pages and pictures.
 - Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 
 ## [0.1.0] - 2026-09-14

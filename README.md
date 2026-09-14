@@ -213,6 +213,7 @@ Packages you added for it stay, since other things may use them.
 | Super+A, Super+N | Quick settings, notifications |
 | Print, Super+Shift+S | Screenshot of the screen, of the window |
 | Super+L | Lock |
+| Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
 | Caps Lock | Keeps the screensaver off while it's on (the screen still locks) |
 | Super+Shift+Esc | Log out |
 | Super+/ | Every key |
