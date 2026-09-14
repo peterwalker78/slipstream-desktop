@@ -5,7 +5,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use smithay::{
-    backend::input::{InputTime, KeyState},
+    backend::input::{InputTime, KeyState, TabletToolDescriptor},
     desktop::{PopupKind, Window},
     input::{
         Seat,
@@ -16,6 +16,10 @@ use smithay::{
             GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
             GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
             PointerTarget, RelativeMotionEvent,
+        },
+        tablet::{
+            Tablet,
+            tool::{self, TabletToolTarget},
         },
     },
     reexports::wayland_server::{DisplayHandle, protocol::wl_surface::WlSurface},
@@ -149,6 +153,98 @@ impl KeyboardFocus {
             Self::Wayland(surface) => surface,
             Self::X11(surface) => surface,
         }
+    }
+
+    fn tool_target(&self) -> &dyn TabletToolTarget<Slipstream> {
+        match self {
+            Self::Wayland(surface) => surface,
+            Self::X11(surface) => surface,
+        }
+    }
+}
+
+/// Tablet tools go to the same surfaces the pointer does. Nothing drives a tablet yet; the
+/// cursor-shape protocol needs a tool target to be named all the same.
+impl TabletToolTarget<Slipstream> for KeyboardFocus {
+    fn proximity_in(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        tablet: &Tablet,
+        serial: Serial,
+    ) {
+        self.tool_target()
+            .proximity_in(seat, data, tool, tablet, serial)
+    }
+
+    fn proximity_out(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+    ) {
+        self.tool_target().proximity_out(seat, data, tool)
+    }
+
+    fn down(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        event: &tool::DownEvent,
+    ) {
+        self.tool_target().down(seat, data, tool, event)
+    }
+
+    fn up(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        event: &tool::UpEvent,
+    ) {
+        self.tool_target().up(seat, data, tool, event)
+    }
+
+    fn motion(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        event: &tool::MotionEvent,
+    ) {
+        self.tool_target().motion(seat, data, tool, event)
+    }
+
+    fn button(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        event: &tool::ButtonEvent,
+    ) {
+        self.tool_target().button(seat, data, tool, event)
+    }
+
+    fn axis(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        frame: tool::AxisFrame,
+    ) {
+        self.tool_target().axis(seat, data, tool, frame)
+    }
+
+    fn frame(
+        &self,
+        seat: &Seat<Slipstream>,
+        data: &mut Slipstream,
+        tool: &TabletToolDescriptor,
+        time: InputTime,
+    ) {
+        self.tool_target().frame(seat, data, tool, time)
     }
 }
 

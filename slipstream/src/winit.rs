@@ -1,11 +1,17 @@
+use std::time::Duration;
+
 use smithay::{
     backend::{
         renderer::damage::OutputDamageTracker,
         winit::{self, WinitEvent},
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::calloop::EventLoop,
-    utils::{Rectangle, Transform},
+    reexports::{
+        calloop::EventLoop,
+        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
+    },
+    utils::{Clock, Monotonic, Rectangle, Transform},
+    wayland::presentation::Refresh,
 };
 
 use crate::{Slipstream, render};
@@ -78,10 +84,10 @@ pub fn init_winit(
                     let size = backend.window_size();
                     let damage = Rectangle::from_size(size);
 
-                    let elements = {
+                    let (elements, states) = {
                         let (renderer, mut framebuffer) = backend.bind().unwrap();
                         let elements = render::output_elements(state, renderer, &output, None);
-                        damage_tracker
+                        let states = damage_tracker
                             .render_output(
                                 renderer,
                                 &mut framebuffer,
@@ -89,10 +95,25 @@ pub fn init_winit(
                                 &elements,
                                 render::BACKGROUND,
                             )
-                            .unwrap();
-                        elements
+                            .unwrap()
+                            .states;
+                        (elements, states)
                     };
                     backend.submit(Some(&[damage])).unwrap();
+                    // Nested, the host's swap is as close to the screen as can be known.
+                    state.presentation_feedback(&output, &states).presented(
+                        Clock::<Monotonic>::new().now(),
+                        output
+                            .current_mode()
+                            .map(|mode| {
+                                Refresh::fixed(Duration::from_secs_f64(
+                                    1_000.0 / mode.refresh as f64,
+                                ))
+                            })
+                            .unwrap_or(Refresh::Unknown),
+                        0,
+                        wp_presentation_feedback::Kind::Vsync,
+                    );
                     if state.lock.is_some() {
                         state.lock_frame_shown(&output.name());
                     }

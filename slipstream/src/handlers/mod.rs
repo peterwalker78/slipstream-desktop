@@ -256,6 +256,19 @@ impl XdgActivationHandler for Slipstream {
 
 impl OutputHandler for Slipstream {}
 
+/// Needed by the cursor-shape protocol, which lets apps name a cursor from the theme rather than
+/// drawing their own.
+impl smithay::input::tablet::TabletSeatHandler for Slipstream {
+    type ToolFocus = KeyboardFocus;
+}
+
+/// Portal dialogs (a file chooser for a sandboxed app) name the window they belong to.
+impl smithay::wayland::xdg_foreign::XdgForeignHandler for Slipstream {
+    fn xdg_foreign_state(&mut self) -> &mut smithay::wayland::xdg_foreign::XdgForeignState {
+        &mut self.xdg_foreign_state
+    }
+}
+
 impl FractionalScaleHandler for Slipstream {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
         // The scale of the screen its window is on, once it has one; the focused screen, where a

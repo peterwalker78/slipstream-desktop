@@ -6,6 +6,9 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 - Games can lock the mouse for mouse look, or keep it inside their window, and hear how far it moved; virtual machines and remote desktops can ask for every key. Only the window you're using gets either, and the first time it takes them a toast says so. **Super+Esc** takes the mouse and keys back, and pressed again gives them back to the window. The volume, brightness and media keys always stay the desktop's.
 - A minimised app's button above its code rain shows only its icon and its meter, so every button is the same height. The rain still spells the app's name, and an app with no icon shows its initial.
+- Apps can ask for a cursor from your theme by name, so GTK 4, Qt 6 and Chromium apps show the same pointer as everything else, at the right size, instead of drawing their own.
+- Video players and games are told exactly when each frame reached the screen, so they can pace playback smoothly.
+- File choosers and other portal dialogs are attached to the app that opened them.
 - Touchpad swipes, pinches and holds reach apps, so pinching zooms pages and pictures.
 - Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 

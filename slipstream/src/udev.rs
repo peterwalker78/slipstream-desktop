@@ -12,7 +12,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmNode,
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode,
             compositor::FrameFlags,
             exporter::gbm::GbmFramebufferExporter,
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
@@ -24,6 +24,7 @@ use smithay::{
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::{UdevBackend, UdevEvent, primary_gpu},
     },
+    desktop::utils::OutputPresentationFeedback,
     input::keyboard::LedState,
     output::{Mode, Output, PhysicalProperties, Scale},
     reexports::{
@@ -34,11 +35,13 @@ use smithay::{
         drm::control::{Device as _, ModeTypeFlags, connector, crtc},
         input::{self as libinput, DeviceCapability, Libinput},
         rustix::fs::OFlags,
+        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::backend::GlobalId,
     },
-    utils::{DeviceFd, Transform},
-    wayland::dmabuf::{
-        DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
+    utils::{Clock, DeviceFd, Monotonic, Transform},
+    wayland::{
+        dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
+        presentation::Refresh,
     },
 };
 use smithay_drm_extras::{
@@ -69,7 +72,7 @@ pub struct UdevData {
 }
 
 struct Gpu {
-    manager: DrmOutputManager<Allocator, Exporter, (), DrmDeviceFd>,
+    manager: DrmOutputManager<Allocator, Exporter, Option<OutputPresentationFeedback>, DrmDeviceFd>,
     scanner: DrmScanner,
     renderer: GlesRenderer,
     screens: HashMap<crtc::Handle, Screen>,
@@ -82,7 +85,8 @@ struct Screen {
     /// Kept so the screen can be lit again after the lid puts it out.
     connector: connector::Info,
     global: GlobalId,
-    drm_output: DrmOutput<Allocator, Exporter, (), DrmDeviceFd>,
+    /// Each queued frame carries who to tell when it reaches the screen.
+    drm_output: DrmOutput<Allocator, Exporter, Option<OutputPresentationFeedback>, DrmDeviceFd>,
     /// A frame is queued and the display hasn't shown it yet.
     waiting_for_vblank: bool,
     /// A retry is scheduled because the last frame had nothing new.
@@ -286,9 +290,11 @@ impl Slipstream {
             .loop_handle
             .insert_source(
                 notifier,
-                move |event, _: &mut Option<DrmEventMetadata>, state: &mut Slipstream| match event {
-                    DrmEvent::VBlank(crtc) => state.frame_shown(node, crtc),
-                    DrmEvent::Error(err) => tracing::error!(%node, "DRM error: {err:?}"),
+                move |event, metadata: &mut Option<DrmEventMetadata>, state: &mut Slipstream| {
+                    match event {
+                        DrmEvent::VBlank(crtc) => state.frame_shown(node, crtc, metadata.as_ref()),
+                        DrmEvent::Error(err) => tracing::error!(%node, "DRM error: {err:?}"),
+                    }
                 },
             )
             .map_err(|err| err.error)?;
@@ -621,7 +627,12 @@ impl Slipstream {
     }
 
     /// The display showed the last frame: start the next one.
-    fn frame_shown(&mut self, node: DrmNode, crtc: crtc::Handle) {
+    fn frame_shown(
+        &mut self,
+        node: DrmNode,
+        crtc: crtc::Handle,
+        metadata: Option<&DrmEventMetadata>,
+    ) {
         let Some(screen) = self
             .udev
             .as_mut()
@@ -630,8 +641,39 @@ impl Slipstream {
         else {
             return;
         };
-        if let Err(err) = screen.drm_output.frame_submitted() {
-            tracing::warn!("frame wasn't shown: {err:?}");
+        match screen.drm_output.frame_submitted() {
+            Ok(Some(Some(mut feedback))) => {
+                // The kernel's own timestamp when it has one, which is on the monotonic clock
+                // presentation-time was announced with.
+                let hardware = metadata.and_then(|metadata| match metadata.time {
+                    DrmEventTime::Monotonic(time) if !time.is_zero() => Some(time),
+                    _ => None,
+                });
+                let (time, flags) = match hardware {
+                    Some(time) => (
+                        time.into(),
+                        wp_presentation_feedback::Kind::Vsync
+                            | wp_presentation_feedback::Kind::HwClock
+                            | wp_presentation_feedback::Kind::HwCompletion,
+                    ),
+                    None => (
+                        Clock::<Monotonic>::new().now(),
+                        wp_presentation_feedback::Kind::Vsync,
+                    ),
+                };
+                let refresh = screen
+                    .output
+                    .current_mode()
+                    .filter(|mode| mode.refresh > 0)
+                    .map(|mode| {
+                        Refresh::fixed(Duration::from_secs_f64(1_000.0 / mode.refresh as f64))
+                    })
+                    .unwrap_or(Refresh::Unknown);
+                let sequence = metadata.map_or(0, |metadata| metadata.sequence as u64);
+                feedback.presented(time, refresh, sequence, flags);
+            }
+            Ok(_) => {}
+            Err(err) => tracing::warn!("frame wasn't shown: {err:?}"),
         }
         screen.waiting_for_vblank = false;
         if std::mem::take(&mut screen.lock_frame_queued) {
@@ -678,7 +720,8 @@ impl Slipstream {
         ) {
             Ok(frame) => {
                 if !frame.is_empty {
-                    match screen.drm_output.queue_frame(()) {
+                    let feedback = self.presentation_feedback(&output, &frame.states);
+                    match screen.drm_output.queue_frame(Some(feedback)) {
                         Ok(()) => {
                             screen.waiting_for_vblank = true;
                             screen.lock_frame_queued = locked;

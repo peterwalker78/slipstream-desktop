@@ -29,9 +29,10 @@ use smithay::{
             protocol::wl_surface::WlSurface,
         },
     },
-    utils::{IsAlive, Logical, Point, Rectangle, SERIAL_COUNTER},
+    utils::{Clock, IsAlive, Logical, Monotonic, Point, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState, with_states},
+        cursor_shape::CursorShapeManagerState,
         dmabuf::{DmabufGlobal, DmabufState},
         foreign_toplevel_list::ForeignToplevelListState,
         fractional_scale::FractionalScaleManagerState,
@@ -44,6 +45,7 @@ use smithay::{
         output::OutputManagerState,
         pointer_constraints::PointerConstraintsState,
         pointer_gestures::PointerGesturesState,
+        presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         selection::{
@@ -55,9 +57,11 @@ use smithay::{
             decoration::XdgDecorationState,
         },
         shm::ShmState,
+        single_pixel_buffer::SinglePixelBufferState,
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
+        xdg_foreign::XdgForeignState,
         xwayland_shell::XWaylandShellState,
     },
     xwayland::{X11Surface, X11Wm},
@@ -120,6 +124,8 @@ pub struct Slipstream {
     pub output_manager_state: OutputManagerState,
     pub fractional_scale_state: FractionalScaleManagerState,
     pub viewporter_state: ViewporterState,
+    /// Portal dialogs parented to the app that opened them.
+    pub xdg_foreign_state: XdgForeignState,
     /// Apps asking for one of their windows to be brought forward, with proof of the click or key
     /// that asked for it (`handlers/mod.rs`).
     pub xdg_activation_state: XdgActivationState,
@@ -356,6 +362,14 @@ impl Slipstream {
         // Sharp text at 1.25× for apps that support it (Qt 6, GTK 4, Firefox).
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
+        // Apps name the cursor they want from the theme (GTK 4, Qt 6, Chromium) instead of
+        // drawing one of their own at the wrong size.
+        CursorShapeManagerState::new::<Self>(&dh);
+        // When each frame reached the screen, so video players and games pace themselves.
+        PresentationState::new::<Self>(&dh, Clock::<Monotonic>::new().id() as u32);
+        // One-colour buffers, which toolkits use for backgrounds and fades.
+        SinglePixelBufferState::new::<Self>(&dh);
+        let xdg_foreign_state = XdgForeignState::new::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
 
         // Clipboard, drag-and-drop, and middle-click paste.
@@ -469,6 +483,7 @@ impl Slipstream {
             output_manager_state,
             fractional_scale_state,
             viewporter_state,
+            xdg_foreign_state,
             xdg_activation_state,
             seat_state,
             data_device_state,

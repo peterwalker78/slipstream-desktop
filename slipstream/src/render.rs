@@ -8,7 +8,7 @@ use smithay::{
             Bind, Color32F, ExportMem, ImportMem, Offscreen, Renderer,
             damage::OutputDamageTracker,
             element::{
-                AsRenderElements, Element, Id, Kind,
+                AsRenderElements, Element, Id, Kind, RenderElementStates,
                 memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
                 solid::{SolidColorBuffer, SolidColorRenderElement},
                 surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
@@ -18,7 +18,10 @@ use smithay::{
             gles::{GlesRenderer, GlesTexture, element::TextureShaderElement},
         },
     },
-    desktop::Window,
+    desktop::{
+        Window,
+        utils::{OutputPresentationFeedback, surface_presentation_feedback_flags_from_states},
+    },
     input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData},
     output::Output,
     utils::{Buffer, IsAlive, Logical, Physical, Point, Rectangle, Scale, Size, Transform},
@@ -532,6 +535,27 @@ impl Slipstream {
     /// Frame callbacks after `output` has drawn: to every window in the space, and to the windows
     /// drawn outside it in that frame, which bullet time shows live. Nothing else hidden gets
     /// them, so windows on workspaces out of sight stay cheap.
+    /// Who wants to hear when this frame reaches `output`: every window on it whose surfaces
+    /// were drawn, per `states`.
+    pub fn presentation_feedback(
+        &self,
+        output: &Output,
+        states: &RenderElementStates,
+    ) -> OutputPresentationFeedback {
+        let mut feedback = OutputPresentationFeedback::new(output);
+        for window in self.space.elements() {
+            if !self.space.outputs_for_element(window).contains(output) {
+                continue;
+            }
+            window.take_presentation_feedback(
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |surface, _| surface_presentation_feedback_flags_from_states(surface, None, states),
+            );
+        }
+        feedback
+    }
+
     pub fn send_frames(&mut self, output: &Output) {
         let now = self.start_time.elapsed();
         let off_space = std::mem::take(&mut self.drawn_off_space);
