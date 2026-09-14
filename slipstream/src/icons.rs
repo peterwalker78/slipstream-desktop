@@ -35,6 +35,8 @@ pub const SUN: &str = r#"<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 
 pub const TICK: &str = r#"<path d="M5 12.5l4.5 4.5L19 7.5"/>"#;
 
 /// A keyboard: the shortcut sheet.
+/// Caps Lock: an arrow pointing up over a bar, as the key is marked.
+pub const CAPS_LOCK: &str = r#"<path d="M12 3.5l7.5 7.5H15v4.5H9V11H4.5z"/><path d="M9 19.5h6"/>"#;
 pub const KEYBOARD: &str = r#"<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.5M9 10h.5M12 10h.5M15 10h.5M18 10h.5M8 14h8"/>"#;
 
 /// Two overlapping frames: bullet time's overview, on the bar.

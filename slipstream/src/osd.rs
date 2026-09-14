@@ -35,12 +35,32 @@ const MOCKUP_PX: f32 = 0.8;
 const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
 const SHOWN: f64 = 1.2;
-/// Caps Lock going on stays up longer, since its card has a note to read as well.
-const SHOWN_CAPS_ON: f64 = 1.7;
+/// Caps Lock and Num Lock stay up longer, since their cards have a note to read as well.
+const SHOWN_LOCK_KEY: f64 = 1.7;
 
-/// The note on Caps Lock's card when it goes on, depending on whether the screen locks by itself.
-pub const CAPS_ON_NOTE: &str = "Screensaver paused";
-pub const CAPS_ON_NOTE_LOCKING: &str = "Screensaver paused · lock still on";
+/// What Caps Lock's card says under its title: on the desktop, what it does to the screensaver;
+/// at the lock screen, how the password is being typed. Every way it can go has a note, so on
+/// and off read alike.
+pub fn caps_lock_note(on: bool, locked: bool, fades: bool, locks_by_itself: bool) -> &'static str {
+    match (on, locked, fades, locks_by_itself) {
+        (true, true, ..) => "Typing in capitals",
+        (false, true, ..) => "Typing in lower case",
+        (true, false, true, true) => "Screensaver paused · lock still on",
+        (true, false, true, false) => "Screensaver paused",
+        (false, false, true, _) => "Screensaver back on",
+        (true, false, false, _) => "Typing in capitals",
+        (false, false, false, _) => "Typing in lower case",
+    }
+}
+
+/// What Num Lock's card says under its title.
+pub fn num_lock_note(on: bool) -> &'static str {
+    if on {
+        "Number pad types numbers"
+    } else {
+        "Number pad moves the cursor"
+    }
+}
 const FADE: f64 = 0.18;
 
 /// What the keys changed. Each carries what the card should say about it.
@@ -72,7 +92,7 @@ impl Kind {
     /// How long its card stays up after the last press.
     fn shown(self) -> f64 {
         match self {
-            Kind::CapsLock { on: true } => SHOWN_CAPS_ON,
+            Kind::CapsLock { .. } | Kind::NumLock { .. } => SHOWN_LOCK_KEY,
             _ => SHOWN,
         }
     }
@@ -343,17 +363,43 @@ mod tests {
     }
 
     #[test]
-    fn caps_lock_going_on_stays_up_half_a_second_longer() {
-        assert_eq!(Kind::CapsLock { on: true }.shown(), SHOWN + 0.5);
-        assert_eq!(Kind::CapsLock { on: false }.shown(), SHOWN);
+    fn the_lock_keys_stay_up_the_same_time_either_way() {
+        for on in [true, false] {
+            assert_eq!(Kind::CapsLock { on }.shown(), SHOWN_LOCK_KEY);
+            assert_eq!(Kind::NumLock { on }.shown(), SHOWN_LOCK_KEY);
+        }
+        assert_eq!(Kind::Brightness.shown(), SHOWN);
     }
 
     #[test]
-    fn caps_locks_notes_fit_the_card() {
+    fn every_lock_key_note_fits_the_card() {
         let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
-        for note in [CAPS_ON_NOTE, CAPS_ON_NOTE_LOCKING] {
+        let bools = [true, false];
+        for on in bools {
+            for locked in bools {
+                for fades in bools {
+                    for locking in bools {
+                        let note = caps_lock_note(on, locked, fades, locking);
+                        assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
+                    }
+                }
+            }
+            let note = num_lock_note(on);
             assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
         }
+    }
+
+    #[test]
+    fn caps_lock_going_off_says_so_as_going_on_does() {
+        assert_eq!(
+            caps_lock_note(true, false, true, false),
+            "Screensaver paused"
+        );
+        assert_eq!(
+            caps_lock_note(false, false, true, false),
+            "Screensaver back on"
+        );
+        assert_eq!(caps_lock_note(true, true, true, true), "Typing in capitals");
     }
 
     #[test]

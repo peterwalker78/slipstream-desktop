@@ -52,6 +52,8 @@ pub struct Content {
     pub unread: usize,
     /// Something on the desktop is being captured: the red dot shows, and a click on it stops it.
     pub sharing: bool,
+    /// Caps Lock is on: a chip beside the tray says so.
+    pub caps_lock: bool,
 }
 
 /// Where each button is, in logical pixels from the screen's top-left corner.
@@ -343,6 +345,22 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.text(percent, item_x, 20.0, style);
     }
 
+    // Left of the tray while Caps Lock is on: the key's arrow and the word, on a faint amber pill,
+    // the way the red one says something is shared.
+    if content.caps_lock {
+        let style = Style {
+            tracking: 0.06,
+            ..Style::new(Face::MonoBold, 12.0, AMBER)
+        };
+        let word = "CAPS";
+        let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
+        right -= 8.0 + w;
+        p.fill(right, 8.0, w, 24.0, 12.0, 0xffb54722);
+        p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0xffb54770);
+        p.icon(icons::CAPS_LOCK, right + 10.0, 13.0, 14.0, Some(AMBER));
+        p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
+    }
+
     // Left of the tray while anything is shared: a red dot and the word, on a faint red pill,
     // which stops every share when clicked.
     if content.sharing {
@@ -385,6 +403,7 @@ mod tests {
             do_not_disturb: false,
             unread: 0,
             sharing: false,
+            caps_lock: false,
         }
     }
 

@@ -1050,6 +1050,10 @@ pub fn output_elements(
             do_not_disturb: state.settings.notifications.do_not_disturb,
             unread: state.notices.unread(),
             sharing: state.captures.sharing(),
+            caps_lock: state
+                .seat
+                .get_keyboard()
+                .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         };
         elements.extend(
             chrome

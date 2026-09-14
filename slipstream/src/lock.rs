@@ -661,8 +661,8 @@ impl Card {
         let dots = view.dots.min(DOTS_SHOWN);
         keep(
             &mut self.pill,
-            format!("{s}|{dots}|{}", view.caret),
-            |key| paint_pill(key, dots, view.caret, scale),
+            format!("{s}|{dots}|{}|{}", view.caret, facts.caps_lock),
+            |key| paint_pill(key, dots, view.caret, facts.caps_lock, scale),
         );
         keep(
             &mut self.hint,
@@ -761,7 +761,11 @@ fn paint_user(key: String, user: &str, scale: f64) -> Option<Piece> {
     })
 }
 
-fn paint_pill(key: String, dots: usize, caret: bool, scale: f64) -> Option<Piece> {
+/// The password pill. With Caps Lock on, the key's arrow sits at its right end, in amber, as
+/// Windows marks its password box.
+fn paint_pill(key: String, dots: usize, caret: bool, caps_lock: bool, scale: f64) -> Option<Piece> {
+    const CAPS_ICON: f32 = 22.0;
+    const CAPS_INSET: f32 = 20.0;
     let (label, style) = if dots == 0 {
         (
             "Password".to_string(),
@@ -778,10 +782,20 @@ fn paint_pill(key: String, dots: usize, caret: bool, scale: f64) -> Option<Piece
     };
     let label_w = text::width(&label, &style);
     let caret_w = 5.0;
-    let w = PILL_MIN.max(label_w + caret_w + 48.0);
+    // Room for the arrow on both sides, so the dots stay in the middle.
+    let caps_room = if caps_lock {
+        2.0 * (CAPS_ICON + CAPS_INSET)
+    } else {
+        0.0
+    };
+    let w = PILL_MIN.max(label_w + caret_w + 48.0 + caps_room);
     Piece::paint(key, w, PILL_H, scale, |p| {
         p.fill(0.0, 0.0, w, PILL_H, 30.0, 0xffffff1f);
         p.border(0.0, 0.0, w, PILL_H, 30.0, 1.0, 0xffffff30);
+        if caps_lock {
+            let (x, y) = (w - CAPS_INSET - CAPS_ICON, (PILL_H - CAPS_ICON) / 2.0);
+            p.icon(icons::CAPS_LOCK, x, y, CAPS_ICON, Some(AMBER));
+        }
         let x = (w - label_w - caret_w) / 2.0;
         p.text(&label, x, PILL_H / 2.0, &style);
         if caret {

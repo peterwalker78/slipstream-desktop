@@ -968,22 +968,19 @@ impl Slipstream {
                     if !pressed && matches!(key, Keysym::Caps_Lock | Keysym::Num_Lock) {
                         if key == Keysym::Caps_Lock {
                             let on = modifiers.caps_lock;
-                            let kind = crate::osd::Kind::CapsLock { on };
                             // It holds off the wallpaper fade, not the lock; at the lock screen
-                            // there's no fade to hold off.
-                            if on && state.lock.is_none() {
-                                let note = if state.idle.locks_by_itself() {
-                                    crate::osd::CAPS_ON_NOTE_LOCKING
-                                } else {
-                                    crate::osd::CAPS_ON_NOTE
-                                };
-                                state.show_osd_with(kind, note);
-                            } else {
-                                state.show_osd(kind, 0);
-                            }
+                            // there's no fade to hold off, and the note is about the password.
+                            let note = crate::osd::caps_lock_note(
+                                on,
+                                state.lock.is_some(),
+                                state.idle.fades(),
+                                state.idle.locks_by_itself(),
+                            );
+                            state.show_osd_with(crate::osd::Kind::CapsLock { on }, note);
                         } else {
                             let on = modifiers.num_lock;
-                            state.show_osd(crate::osd::Kind::NumLock { on }, 0);
+                            let note = crate::osd::num_lock_note(on);
+                            state.show_osd_with(crate::osd::Kind::NumLock { on }, note);
                         }
                     }
                     // Every key passes here, the ones panels and cards take included, so any of

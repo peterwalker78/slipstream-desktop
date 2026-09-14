@@ -88,6 +88,11 @@ impl Idle {
         self.lock_idle_since = now;
     }
 
+    /// Whether the UI fades to the wallpaper at all.
+    pub fn fades(&self) -> bool {
+        self.timeout.is_some()
+    }
+
     /// A new wait from the settings, counted from the last input; 0 never fades.
     pub fn set_fade_after(&mut self, secs: u64) {
         self.timeout = timeout(secs);
