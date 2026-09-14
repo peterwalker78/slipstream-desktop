@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## [0.0.6] - 2026-09-14
 
 - The code rain spells out each app's name again as it falls, as well as writing it on the stream's header.
 
