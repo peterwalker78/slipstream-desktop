@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## [0.0.8] - 2026-09-14
 
 - Typing now ends after 15 seconds without a key press instead of four, so notifications and windows from other apps wait through the short breaks while you think.
 - The bar no longer shows "Back to *app* · Alt+Tab" after a notification or another app takes you to a window. Alt+Tab still goes back.
