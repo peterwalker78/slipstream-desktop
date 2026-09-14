@@ -480,7 +480,7 @@ fn notifications(store: &Store) -> gtk::Widget {
         &typing,
         "Wait until I pause",
         Some(
-            "Pop-ups that arrive while you're typing wait for a pause of a few seconds, then show \
+            "Pop-ups that arrive while you're typing wait until you stop typing for 15 seconds, then show \
              as one card. The bell counts them straight away, and Super+N shows them at any time. \
              Critical notifications never wait. Only the timing of key presses is used, never \
              which keys.",

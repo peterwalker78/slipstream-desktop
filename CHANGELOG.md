@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- Typing now ends after 15 seconds without a key press instead of four, so notifications and windows from other apps wait through the short breaks while you think.
+
 ## [0.0.7] - 2026-09-14
 
 - The bar's buttons take clicks the bar's whole height, right up to the top edge of the screen, and the apps button and the bell reach out to the screen's corners, so a pointer pushed against the edge still clicks what's under it.

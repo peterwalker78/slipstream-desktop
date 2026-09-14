@@ -11,7 +11,7 @@ use std::{
 };
 
 /// How long after the last key you still count as typing. A pause this long is a break.
-pub const PAUSE: Duration = Duration::from_secs(4);
+pub const PAUSE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Default)]
 pub struct Concentration {
@@ -105,7 +105,7 @@ mod tests {
         let mut c = Concentration::default();
         assert!(!c.typing(start));
         c.key(start, false);
-        assert!(c.typing(start + Duration::from_secs(3)));
+        assert!(c.typing(start + Duration::from_secs(14)));
         assert!(!c.typing(start + PAUSE));
     }
 
