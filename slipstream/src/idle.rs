@@ -18,20 +18,14 @@ use smithay::{reexports::wayland_server::protocol::wl_surface::WlSurface, utils:
 
 use crate::anim::{Easing, Tween};
 
-/// Fading out and back in take the same time, the UI passing through the wallpaper like a pane of
-/// glass either way (`glass.rs`). Fading out eases in and out. Coming back, the glass sets off at
-/// once and reaches the front in `TRAVEL`, still moving, and the rest of the time is the view
-/// shaking as it lands against the screen.
+/// The UI passes through the wallpaper like a pane of glass either way (`glass.rs`). Fading out
+/// eases in and out, but the UI has gone before it slows, so what shows is the pane speeding
+/// away. Coming back mirrors that: it speeds up all the way into place, after hurrying through
+/// the first stretch where nothing of the UI can be seen yet, so the waking key is answered at
+/// once.
 const FADE: f64 = 0.6;
+const RETURN: f64 = 0.5;
 const REDUCED_FADE: f64 = 0.08;
-/// Coming back, how long the glass takes to reach the front.
-const TRAVEL: f64 = 0.38;
-/// Quick from the first frame, and still moving when it gets there.
-const ARRIVE: Easing = Easing::Bezier(0.2, 0.4, 0.6, 0.8);
-/// How far the view is knocked as the glass lands, in logical pixels, and how quickly the shake
-/// dies away, in seconds.
-const SHAKE: f64 = 5.0;
-const SHAKE_DECAY: f64 = 0.055;
 
 pub struct Idle {
     last_input: Instant,
@@ -48,10 +42,6 @@ pub struct Idle {
     lock_after: Option<Duration>,
     /// The UI's opacity held for a debug step, whatever the fade is doing.
     pub pinned: Option<f64>,
-    /// When the glass coming back lands against the screen, on the animation clock.
-    landed: Option<f64>,
-    /// The shake held for a debug step, in logical pixels.
-    pub pinned_shake: Option<(f64, f64)>,
 }
 
 impl Idle {
@@ -67,8 +57,6 @@ impl Idle {
             lock_idle_since: Instant::now(),
             lock_after: None,
             pinned: None,
-            landed: None,
-            pinned_shake: None,
         }
     }
 
@@ -129,33 +117,11 @@ impl Idle {
     fn show(&mut self, now: f64) {
         self.faded = false;
         if self.reduced_motion {
-            self.landed = None;
             self.opacity
                 .retarget([1.0], now, REDUCED_FADE, Easing::OutCubic);
         } else {
-            self.landed = Some(now + TRAVEL);
-            self.opacity.retarget([1.0], now, TRAVEL, ARRIVE);
+            self.opacity.retarget([1.0], now, RETURN, Easing::Arrive);
         }
-    }
-
-    /// How far the view is knocked aside at `now`, in logical pixels, while it shakes from the
-    /// glass landing; `None` the rest of the time. A quick jolt that rings down to nothing by the
-    /// time the fade's time is up.
-    pub fn shake(&self, now: f64) -> Option<(f64, f64)> {
-        if self.pinned_shake.is_some() {
-            return self.pinned_shake;
-        }
-        let t = now - self.landed?;
-        let window = FADE - TRAVEL;
-        if self.faded || self.pinned.is_some() || !(0.0..window).contains(&t) {
-            return None;
-        }
-        let strength = SHAKE * (-t / SHAKE_DECAY).exp() * (1.0 - t / window).powi(2);
-        let turn = std::f64::consts::TAU * t;
-        Some((
-            strength * (turn * 19.0).sin(),
-            0.7 * strength * (turn * 23.0 + 1.3).sin(),
-        ))
     }
 
     /// Whether the UI has stepped aside for the wallpaper, or is on its way out.
@@ -262,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn fading_out_and_back_in_take_the_same_time() {
+    fn fading_out_takes_its_time_and_coming_back_a_little_less() {
         let mut idle = Idle {
             timeout: Some(Duration::ZERO),
             ..Idle::new(false, 120)
@@ -271,45 +237,8 @@ mod tests {
         assert!(idle.update(FADE - 0.01, false) > 0.0);
         assert_eq!(idle.update(FADE, false), 0.0);
         idle.input(FADE);
-        assert!(idle.update(FADE + TRAVEL - 0.01, true) < 1.0);
-        assert_eq!(
-            idle.update(FADE + TRAVEL, true),
-            1.0,
-            "the glass is at the front"
-        );
-        assert!(
-            idle.shake(FADE + TRAVEL + 0.01).is_some(),
-            "and shakes as it lands"
-        );
-        assert_eq!(idle.shake(2.0 * FADE), None, "until the fade's time is up");
-    }
-
-    #[test]
-    fn the_shake_rings_down_to_nothing() {
-        let mut idle = Idle::new(false, 120);
-        idle.fade(0.0);
-        idle.input(1.0);
-        let landed = 1.0 + TRAVEL;
-        let size = |t: f64| idle.shake(landed + t).map_or(0.0, |(x, y)| x.hypot(y));
-        let window = FADE - TRAVEL;
-        let early = (0..10).map(|i| size(i as f64 * 0.004)).fold(0.0, f64::max);
-        let late = (0..10)
-            .map(|i| size(window * 0.8 + i as f64 * 0.004))
-            .fold(0.0, f64::max);
-        assert!(
-            early > 2.0 && early <= SHAKE * 1.25,
-            "a knock you can see: {early}"
-        );
-        assert!(late < 0.05, "gone by the end: {late}");
-
-        let mut calm = Idle::new(true, 120);
-        calm.fade(0.0);
-        calm.input(1.0);
-        assert_eq!(
-            calm.shake(1.0 + TRAVEL + 0.01),
-            None,
-            "no shake with reduced motion"
-        );
+        assert!(idle.update(FADE + RETURN - 0.01, true) < 1.0);
+        assert_eq!(idle.update(FADE + RETURN, true), 1.0);
     }
 
     #[test]

@@ -738,13 +738,9 @@ pub fn output_elements(
     // Fading between the UI and the wallpaper, everything from here down to the wallpaper is drawn
     // at full strength into a pane of glass that passes through the wallpaper (`glass.rs`). The
     // pointer, already added, stays in front. Reduced motion keeps a plain fade.
-    // The view shaking as the glass lands coming back: the UI is still drawn as the pane for that.
-    let shake = tiling_output
-        .then(|| state.idle.shake(now))
-        .flatten()
-        .map(|(x, y)| (x as f32, y as f32));
     let glass = tiling_output
-        && ((ui > 0.0 && ui < 1.0) || shake.is_some())
+        && ui > 0.0
+        && ui < 1.0
         && !state.clock.reduced_motion
         && chrome.glass.ready(renderer);
     let ui_alpha = if glass { 1.0 } else { ui };
@@ -1572,7 +1568,6 @@ pub fn output_elements(
             physical,
             scale.x,
             1.0 - ui,
-            shake.unwrap_or((0.0, 0.0)),
         ) {
             Some(element) => {
                 fallen_at = Some(elements.len());
@@ -1638,22 +1633,15 @@ pub fn output_elements(
             }
         };
         saver.set_readings(&readings);
-        let wallpaper = saver.element(renderer, output_geo.size, scale.x, now, glow, paused, tween);
-        // Shaking, the wallpaper is knocked aside with the UI, as if the whole view were.
-        let wallpaper = match (wallpaper, shake) {
-            (Some(_), Some((x, y))) => saver.again(
-                renderer,
-                output_geo.size,
-                glow,
-                (x as f64 * scale.x, y as f64 * scale.y),
-            ),
-            (wallpaper, _) => wallpaper,
-        };
-        elements.extend(wallpaper.map(OutputElement::Memory));
+        elements.extend(
+            saver
+                .element(renderer, output_geo.size, scale.x, now, glow, paused, tween)
+                .map(OutputElement::Memory),
+        );
         // The same wallpaper over the page, wherever the page has turned behind the glass.
         if let Some(at) = fallen_at {
             let through = saver
-                .again(renderer, output_geo.size, glow, (0.0, 0.0))
+                .again(renderer, output_geo.size, glow)
                 .and_then(|wallpaper| {
                     chrome.glass.through(
                         renderer,

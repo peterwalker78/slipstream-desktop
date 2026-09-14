@@ -177,6 +177,9 @@ pub enum Easing {
     Linear,
     OutCubic,
     InOutCubic,
+    /// Speeding up all the way into place, after a quick start over the first tenth: for the UI
+    /// coming back from the wallpaper, whose first stretch can't be seen anyway.
+    Arrive,
     /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve, as the mockup's transitions use.
     Bezier(f64, f64, f64, f64),
 }
@@ -196,8 +199,26 @@ impl Easing {
             Easing::Linear => t,
             Easing::OutCubic => 1.0 - (1.0 - t).powi(3),
             Easing::InOutCubic => ease_in_out_cubic(t),
+            Easing::Arrive => arrive(t),
             Easing::Bezier(x1, y1, x2, y2) => bezier(x1, y1, x2, y2, t),
         }
+    }
+}
+
+/// `Easing::Arrive`: two stretches of steady change in speed that meet without a jump. The first
+/// tenth of the time covers the first seventh of the way, slowing down; the rest speeds up from
+/// there to the end, finishing nearly four times as fast as it started.
+fn arrive(t: f64) -> f64 {
+    const QUICK_TIME: f64 = 0.1;
+    const QUICK_WAY: f64 = 0.14;
+    const SLOWEST: f64 = 0.4;
+    let first = 2.0 * QUICK_WAY / QUICK_TIME - SLOWEST;
+    let last = 2.0 * (1.0 - QUICK_WAY) / (1.0 - QUICK_TIME) - SLOWEST;
+    if t < QUICK_TIME {
+        first * t + 0.5 * (SLOWEST - first) / QUICK_TIME * t * t
+    } else {
+        let s = t - QUICK_TIME;
+        QUICK_WAY + SLOWEST * s + 0.5 * (last - SLOWEST) / (1.0 - QUICK_TIME) * s * s
     }
 }
 
@@ -286,6 +307,28 @@ mod tests {
     use super::*;
 
     const FRAME: f64 = 1.0 / 60.0;
+
+    #[test]
+    fn arriving_ends_where_it_should_and_speeds_up_into_place() {
+        let at = |t: f64| Easing::Arrive.at(t);
+        assert_eq!(at(0.0), 0.0);
+        assert!((at(1.0) - 1.0).abs() < 1e-9);
+        let speed = |t: f64| (at(t + 1e-4) - at(t)) / 1e-4;
+        assert!(
+            (speed(0.1 - 2e-4) - speed(0.1 + 1e-4)).abs() < 0.01,
+            "no jump in speed"
+        );
+        let mut last = speed(0.1);
+        for i in 3..=19 {
+            let now = speed(i as f64 * 0.05);
+            assert!(now > last, "faster at {}", i as f64 * 0.05);
+            last = now;
+        }
+        assert!(
+            speed(0.0) > speed(0.1),
+            "the unseen first stretch goes by quickly"
+        );
+    }
 
     /// Bullet time held for `held` seconds, then released; returns the clock and the wall time
     /// catch-up finished at, checking the rate as it goes.

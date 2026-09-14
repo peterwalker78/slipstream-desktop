@@ -130,8 +130,6 @@ pub enum Step {
     /// The fade to the wallpaper held this far along, 0 (the UI) to 1 (the wallpaper), so its
     /// frames can be looked at one by one.
     Fade(f32),
-    /// The view held knocked this far aside, in logical pixels, as the glass landing shakes it.
-    Shake(f64, f64),
     /// The volume or brightness display, as a keypress would put it up. It only draws the card:
     /// nothing is muted and no level is changed, so a nested run can't touch the real machine.
     Osd(String),
@@ -189,7 +187,6 @@ impl Step {
                 | Step::Wallpaper(_)
                 | Step::Demand(_)
                 | Step::Fade(_)
-                | Step::Shake(..)
                 | Step::SharePicker(_)
                 | Step::AddScreen(..)
                 | Step::DropScreen(_)
@@ -363,10 +360,6 @@ impl Script {
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
                     ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),
-                    ("shake", Some(by)) => {
-                        let (x, y) = by.trim().split_once(',')?;
-                        Step::Shake(x.trim().parse().ok()?, y.trim().parse().ok()?)
-                    }
                     ("osd", Some(what)) => Step::Osd(what.trim().to_string()),
                     ("screen", Some(size)) => {
                         let (w, h) = size.trim().split_once('x')?;

@@ -4466,7 +4466,6 @@ impl Slipstream {
                     }
                 }
                 debug::Step::Demand(value) => self.rain.pin_demand(Some(value)),
-                debug::Step::Shake(x, y) => self.idle.pinned_shake = Some((x, y)),
                 debug::Step::Fade(value) => {
                     self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
                 }

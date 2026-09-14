@@ -4,7 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
-- Coming back from the living wallpaper, the desktop's glass reaches the front a little sooner and arrives still moving, then the whole view gives a short shake that dies away, as if the glass had landed against the screen. It still takes 0.6 s altogether, and there's no shake with reduced motion.
+- Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 
 ## [0.1.0] - 2026-09-14
 
