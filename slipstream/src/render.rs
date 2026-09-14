@@ -883,6 +883,16 @@ pub fn output_elements(
                 .map(OutputElement::Memory),
         );
     }
+    if first_output && state.history.is_open() {
+        let ring = state.panel_ring();
+        let now = state.wall();
+        elements.extend(
+            state
+                .history
+                .element(renderer, output_geo.size, scale.x, now, ring)
+                .map(OutputElement::Memory),
+        );
+    }
     if first_output && state.sheet.is_open() {
         elements.extend(
             state

@@ -22,6 +22,9 @@
 //! [sound]
 //! volume-blip = true
 //!
+//! [clipboard]
+//! history = true
+//!
 //! [session]
 //! remember = false
 //! reopen-without-asking = false
@@ -75,6 +78,7 @@ pub struct Settings {
     pub session: Session,
     pub lock: Lock,
     pub sound: Sound,
+    pub clipboard: Clipboard,
     pub workspaces: Workspaces,
 }
 
@@ -442,6 +446,22 @@ pub struct Session {
     /// Put the layout back at the next login without offering first. Only means anything with
     /// `remember` on, since with it off there is nothing recorded to put back.
     pub reopen_without_asking: bool,
+}
+
+/// The clipboard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Clipboard {
+    /// Keep the last things copied, text and pictures, for Super+V to paste again. In memory
+    /// only, forgotten at logout, and never what a password manager marks as secret. Turning it
+    /// off forgets everything kept.
+    pub history: bool,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { history: true }
+    }
 }
 
 /// The lock screen.
@@ -1015,6 +1035,7 @@ mod tests {
                 bullet_time: "#ffcf5c".into(),
             },
             sound: Sound { volume_blip: false },
+            clipboard: Clipboard { history: false },
             workspaces: Workspaces {
                 list: vec![
                     WorkspaceEntry {
@@ -1037,6 +1058,7 @@ mod tests {
         assert!(text.contains("change-every-mins = 5"), "{text}");
         assert!(text.contains("night-light = true"), "{text}");
         assert!(text.contains("do-not-disturb = true"), "{text}");
+        assert!(text.contains("history = false"), "{text}");
         assert!(text.contains(r##"selected-tile = "#b794ff""##), "{text}");
         assert_eq!(parse(&format!("{HEADER}{text}")).unwrap(), settings);
     }

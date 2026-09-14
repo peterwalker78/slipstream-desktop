@@ -211,6 +211,7 @@ Packages you added for it stay, since other things may use them.
 | Super+Shift+1–9, Super+Shift+← → | Move the window to a workspace |
 | Super+P, Super+Shift+P | Next screen, move the window there |
 | Super+A, Super+N | Quick settings, notifications |
+| Super+V | Clipboard history |
 | Print, Super+Shift+S | Screenshot of the screen; snip a region or a window |
 | Super+L | Lock |
 | Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |

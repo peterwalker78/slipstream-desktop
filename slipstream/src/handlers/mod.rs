@@ -119,6 +119,13 @@ impl SelectionHandler for Slipstream {
         source: Option<SelectionSource>,
         _seat: Seat<Self>,
     ) {
+        // A copy an app made is read for the clipboard history once the selection is in place.
+        if ty == SelectionTarget::Clipboard {
+            if let Some(types) = source.as_ref().map(|source| source.mime_types()) {
+                self.loop_handle
+                    .insert_idle(move |state| state.clipboard_changed(types, false));
+            }
+        }
         if let Some(xwm) = self.xwm.as_mut() {
             if let Err(err) = xwm.new_selection(ty, source.map(|source| source.mime_types())) {
                 tracing::warn!(?err, ?ty, "couldn't offer the selection to X11 apps");
@@ -134,11 +141,21 @@ impl SelectionHandler for Slipstream {
         _seat: Seat<Self>,
         user_data: &crate::screenshot::Selection,
     ) {
-        if let crate::screenshot::Selection::Image(png) = user_data {
-            if mime_type == crate::screenshot::PNG {
-                crate::screenshot::send_image(png.clone(), fd);
+        match user_data {
+            crate::screenshot::Selection::Image(png) => {
+                if mime_type == crate::screenshot::PNG {
+                    crate::screenshot::send_image(png.clone(), fd);
+                }
+                return;
             }
-            return;
+            crate::screenshot::Selection::Text(text) => {
+                if crate::history::TEXT_TYPES.contains(&mime_type.as_str()) {
+                    let text = text.clone();
+                    crate::screenshot::send_bytes(move || text.as_bytes().to_vec(), fd);
+                }
+                return;
+            }
+            crate::screenshot::Selection::X11 => {}
         }
         if let Some(xwm) = self.xwm.as_mut() {
             if let Err(err) = xwm.send_selection(ty, mime_type, fd) {

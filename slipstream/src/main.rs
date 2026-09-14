@@ -31,6 +31,7 @@ mod glmatrix;
 mod grabs;
 mod gravity;
 mod handlers;
+mod history;
 mod icons;
 mod idle;
 mod ime;

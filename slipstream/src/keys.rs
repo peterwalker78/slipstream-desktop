@@ -77,6 +77,8 @@ pub enum Action {
     Media(crate::media::Transport),
     /// Take the pointer and the keyboard shortcuts back from the app holding them.
     TakeBack,
+    /// Open or close the clipboard history.
+    ClipboardHistory,
 }
 
 /// The shortcut sheet's groups, in the order it shows them.
@@ -148,6 +150,7 @@ impl Action {
             Action::Lock => "lock the screen",
             Action::Media(_) => "play, pause, next, previous",
             Action::TakeBack => "take the mouse and keys back from an app",
+            Action::ClipboardHistory => "clipboard history",
         }
     }
 
@@ -185,7 +188,8 @@ impl Action {
             | Action::ShortcutSheet
             | Action::Lock
             | Action::Media(_)
-            | Action::TakeBack => Group::PanelsAndSystem,
+            | Action::TakeBack
+            | Action::ClipboardHistory => Group::PanelsAndSystem,
         }
     }
 }
@@ -397,6 +401,8 @@ pub fn defaults() -> Vec<Binding> {
         // Windows' show-desktop key: an empty workspace, and back.
         bind(mod_, Keysym::d, Action::ShowDesktop),
         bind(mod_, Keysym::l, Action::Lock),
+        // Windows' clipboard history key.
+        bind(mod_, Keysym::v, Action::ClipboardHistory),
         bind(mod_, Keysym::n, Action::NotificationCentre),
         // Every key, one keystroke away.
         bind(mod_, Keysym::slash, Action::ShortcutSheet),

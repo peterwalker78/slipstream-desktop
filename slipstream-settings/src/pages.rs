@@ -766,6 +766,25 @@ fn session(store: &Store) -> gtk::Widget {
         &before_sleep,
     );
 
+    let clipboard = group(&page, "Clipboard");
+    let history = gtk::Switch::new();
+    history.set_active(store.get().clipboard.history);
+    let history_store = store.clone();
+    history.connect_active_notify(move |switch| {
+        let on = switch.is_active();
+        history_store.change(move |settings| settings.clipboard.history = on);
+    });
+    row(
+        &clipboard,
+        "Clipboard history",
+        Some(
+            "Super+V lists the last 25 things you copied, text and pictures, to paste any of \
+             them again. Kept in memory only and forgotten when you log out; anything a password \
+             manager marks as secret is never kept. Turning this off forgets them all.",
+        ),
+        &history,
+    );
+
     let note = group(&page, "What it brings back");
     // Said here as well as on the card: the gap between "my windows came back" and "my work came
     // back" is where the disappointment lives.

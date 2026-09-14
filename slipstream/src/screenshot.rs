@@ -54,6 +54,8 @@ pub enum Saved {
 pub enum Selection {
     X11,
     Image(Arc<Vec<u8>>),
+    /// Text pasted back from the clipboard history.
+    Text(Arc<str>),
 }
 
 /// `Screenshot_YYYY-MM-DD_HH-MM-SS.png`, from a local date and time.
@@ -188,6 +190,11 @@ fn save(
 /// Hands a screenshot's PNG to a client pasting it, on a thread of its own so a slow reader can't
 /// hold up the event loop.
 pub fn send_image(png: Arc<Vec<u8>>, fd: OwnedFd) {
+    send_bytes(move || png.as_slice().to_vec(), fd);
+}
+
+/// Hands a clip's bytes to a client pasting it, on a thread of its own.
+pub fn send_bytes(bytes: impl FnOnce() -> Vec<u8> + Send + 'static, fd: OwnedFd) {
     std::thread::spawn(move || {
         // Written in one go: a reader's pipe may have come non-blocking.
         // SAFETY: the flags of a descriptor this thread owns are read and set, nothing else.
@@ -198,7 +205,7 @@ pub fn send_image(png: Arc<Vec<u8>>, fd: OwnedFd) {
                 libc::fcntl(raw, libc::F_SETFL, flags & !libc::O_NONBLOCK);
             }
         }
-        if let Err(err) = fs::File::from(fd).write_all(&png) {
+        if let Err(err) = fs::File::from(fd).write_all(&bytes()) {
             tracing::debug!("a paste stopped reading the screenshot: {err}");
         }
     });
@@ -341,8 +348,16 @@ impl Slipstream {
             &self.display_handle,
             &self.seat,
             vec![PNG.to_string()],
-            Selection::Image(png),
+            Selection::Image(png.clone()),
         );
+        if self.settings.clipboard.history {
+            let (png, answers) = (png.clone(), self.clip_answers.clone());
+            std::thread::spawn(move || {
+                if let Some(clip) = crate::history::image_clip(png) {
+                    let _ = answers.send(clip);
+                }
+            });
+        }
         // X11 apps are told too; their request comes back through the window manager.
         if let Some(xwm) = self.xwm.as_mut()
             && let Err(err) = xwm.new_selection(SelectionTarget::Clipboard, Some(vec![PNG.into()]))

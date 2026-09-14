@@ -247,19 +247,28 @@ impl XwmHandler for Slipstream {
     ) {
         // A screenshot the compositor put on the clipboard is written out here, not asked of a
         // client.
-        let image = match selection {
+        let ours = match selection {
             SelectionTarget::Clipboard => current_data_device_selection_userdata(&self.seat)
                 .and_then(|selection| match &*selection {
-                    Selection::Image(png) => Some(png.clone()),
                     Selection::X11 => None,
+                    other => Some(other.clone()),
                 }),
             SelectionTarget::Primary => None,
         };
-        if let Some(png) = image {
-            if mime_type == crate::screenshot::PNG {
-                crate::screenshot::send_image(png, fd);
+        match ours {
+            Some(Selection::Image(png)) => {
+                if mime_type == crate::screenshot::PNG {
+                    crate::screenshot::send_image(png, fd);
+                }
+                return;
             }
-            return;
+            Some(Selection::Text(text)) => {
+                if crate::history::TEXT_TYPES.contains(&mime_type.as_str()) {
+                    crate::screenshot::send_bytes(move || text.as_bytes().to_vec(), fd);
+                }
+                return;
+            }
+            _ => {}
         }
         let failed = match selection {
             SelectionTarget::Clipboard => {
@@ -276,12 +285,16 @@ impl XwmHandler for Slipstream {
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
         match selection {
-            SelectionTarget::Clipboard => set_data_device_selection(
-                &self.display_handle,
-                &self.seat,
-                mime_types,
-                Selection::X11,
-            ),
+            SelectionTarget::Clipboard => {
+                set_data_device_selection(
+                    &self.display_handle,
+                    &self.seat,
+                    mime_types.clone(),
+                    Selection::X11,
+                );
+                self.loop_handle
+                    .insert_idle(move |state| state.clipboard_changed(mime_types, true));
+            }
             SelectionTarget::Primary => {
                 set_primary_selection(&self.display_handle, &self.seat, mime_types, Selection::X11)
             }

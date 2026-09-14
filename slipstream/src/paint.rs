@@ -620,7 +620,7 @@ pub fn load_image(path: &Path, px: u32) -> Option<Pixmap> {
 }
 
 /// Any PNG as premultiplied RGBA.
-fn decode_png(data: &[u8]) -> Option<Pixmap> {
+pub(crate) fn decode_png(data: &[u8]) -> Option<Pixmap> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder.read_info().ok()?;

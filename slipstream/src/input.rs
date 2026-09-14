@@ -57,6 +57,8 @@ enum KeyUse {
     Sheet(Keysym, Option<char>),
     /// A key while a snip is being chosen.
     Snip(Keysym),
+    /// A key for the clipboard history.
+    History(Keysym),
 }
 
 impl Slipstream {
@@ -107,6 +109,7 @@ impl Slipstream {
             Action::NotificationCentre => self.toggle_notification_centre(),
             Action::Maximise => self.toggle_maximise(),
             Action::TakeBack => self.take_back(),
+            Action::ClipboardHistory => self.toggle_history(),
         }
     }
 
@@ -116,7 +119,8 @@ impl Slipstream {
         let panel_open = self.explorer.is_open()
             || self.quick.is_open()
             || self.centre.is_open()
-            || self.sheet.is_open();
+            || self.sheet.is_open()
+            || self.history.is_open();
         if action == Action::Close && panel_open {
             self.close_panels();
             return;
@@ -141,6 +145,9 @@ impl Slipstream {
         }
         if self.sheet.is_open() && !media && action != Action::ShortcutSheet {
             self.sheet.close();
+        }
+        if self.history.is_open() && !media && action != Action::ClipboardHistory {
+            self.history.close();
         }
         self.run_action(action)
     }
@@ -205,6 +212,7 @@ impl Slipstream {
             || self.switcher.is_some()
             || self.explorer.is_open()
             || self.sheet.is_open()
+            || self.history.is_open()
             || self.quick.is_open()
             || self.centre.is_open()
             || self.bullet.is_some()
@@ -231,7 +239,7 @@ impl Slipstream {
     /// each notch (`notch` of scroll) moves the selection a row, as ↓ and ↑ do, and the list
     /// follows it. A touchpad's small movements add up to a notch first.
     fn overlay_wheel(&mut self, amount: f64, notch: f64) {
-        let list = self.explorer.is_open() || self.centre.is_open();
+        let list = self.explorer.is_open() || self.centre.is_open() || self.history.is_open();
         if !list {
             self.wheel_rest = 0.0;
             return;
@@ -241,7 +249,9 @@ impl Slipstream {
             let down = self.wheel_rest > 0.0;
             self.wheel_rest -= notch.copysign(self.wheel_rest);
             let key = if down { Keysym::Down } else { Keysym::Up };
-            if self.explorer.is_open() {
+            if self.history.is_open() {
+                self.history_key(key);
+            } else if self.explorer.is_open() {
                 self.explorer_key(key, None, Mods::default());
             } else if self.centre.is_open() {
                 self.centre_key(key, false);
@@ -263,6 +273,7 @@ impl Slipstream {
             || self.quick.is_open()
             || self.centre.is_open()
             || self.sheet.is_open()
+            || self.history.is_open()
         {
             Overlay::Panel
         } else {
@@ -763,6 +774,16 @@ impl Slipstream {
             return;
         }
 
+        // The clipboard history: a row pastes, a click outside closes it.
+        if self.history.is_open() {
+            let screen = self.focused_screen_geometry();
+            if let (ButtonState::Pressed, Some(screen)) = (button_state, screen) {
+                let pos = pointer.current_location() - screen.loc.to_f64();
+                self.history_click(pos);
+            }
+            return;
+        }
+
         // So does the shortcut sheet: a click outside it closes it.
         if self.sheet.is_open() {
             let screen = self.focused_screen_geometry();
@@ -1074,6 +1095,16 @@ impl Slipstream {
                     }
                     // The shortcut sheet takes every key as well: typing filters it, and bindings
                     // close it and run.
+                    // The clipboard history takes every key; bindings close it and run.
+                    if pressed && state.history.is_open() {
+                        state.suppressed_keys.push(key);
+                        if let Some(action) = keys::action_for(&state.bindings, mods, key) {
+                            return FilterResult::Intercept(Some(KeyUse::Action(action)));
+                        }
+                        return FilterResult::Intercept(Some(KeyUse::History(
+                            handle.modified_sym(),
+                        )));
+                    }
                     if pressed && state.sheet.is_open() {
                         state.suppressed_keys.push(key);
                         if let Some(action) = keys::action_for(&state.bindings, mods, key) {
@@ -1162,6 +1193,7 @@ impl Slipstream {
             Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
             Some(Some(KeyUse::Sheet(sym, ch))) => self.sheet_key(sym, ch),
             Some(Some(KeyUse::Snip(sym))) => self.snip_key(sym),
+            Some(Some(KeyUse::History(sym))) => self.history_key(sym),
             // Smithay tells the next focus which forwarded keys are still held. A key held as the
             // lock went up and let go under it would be announced as held at unlock, and the app
             // would repeat it, so the release is recorded here, with no focus to send it to.

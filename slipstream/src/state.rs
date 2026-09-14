@@ -236,6 +236,10 @@ pub struct Slipstream {
     pub centre: crate::centre::Centre,
     /// The shortcut sheet (Super+/).
     pub sheet: crate::sheet::Sheet,
+    /// The clipboard history (Super+V).
+    pub history: crate::history::History,
+    /// Where copies read for the history come back from their threads.
+    pub clip_answers: channel::Sender<crate::history::Clip>,
     /// Notifications apps have sent, and their pop-ups.
     pub notices: crate::notices::Notices,
     /// Messages near the top of the screen.
@@ -440,6 +444,17 @@ impl Slipstream {
             })
             .expect("a channel source always inserts");
 
+        // Copies read for the clipboard history, from their threads.
+        let (clip_answers, clips) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(clips, |event, _, state| {
+                if let channel::Event::Msg(clip) = event {
+                    state.clip_read(clip);
+                }
+            })
+            .expect("a channel source always inserts");
+
         // Screenshots, from the threads that wrote them.
         let (screenshot_answers, saved) = channel::channel();
         event_loop
@@ -531,6 +546,8 @@ impl Slipstream {
             screenshots: Vec::new(),
             screenshot_requests: Vec::new(),
             snip: None,
+            history: Default::default(),
+            clip_answers,
             snip_flights: Vec::new(),
             screenshot_answers,
             flash: None,
@@ -617,6 +634,7 @@ impl Slipstream {
         self.clock.reduced_motion = on;
         self.motion.reduced_motion = on;
         self.explorer.reduced_motion = on;
+        self.history.reduced_motion = on;
         self.toast.reduced_motion = on;
         self.osd.reduced_motion = on;
         self.rain.reduced_motion = on;
@@ -3960,6 +3978,7 @@ impl Slipstream {
             || self.offer.is_some()
             || self.share.is_some()
             || self.snip.is_some()
+            || self.history.is_open()
             || self.restoring.is_some()
             || self.lock.is_some()
             || self.unlocking.is_some();
@@ -4113,6 +4132,10 @@ impl Slipstream {
         if settings.workspaces != self.settings.workspaces {
             let entries = workspace_entries(&settings);
             self.set_workspaces(&entries, self.screens.len());
+        }
+        if !settings.clipboard.history && self.settings.clipboard.history {
+            self.history.close();
+            self.history.clear();
         }
         if settings.session.remember != self.settings.session.remember {
             if settings.session.remember {

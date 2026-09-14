@@ -131,6 +131,7 @@ impl Slipstream {
         self.quick.close();
         self.centre.close();
         self.sheet.close();
+        self.history.close();
     }
 }
 
