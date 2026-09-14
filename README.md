@@ -15,7 +15,7 @@ Bullet time slows the whole desktop down. Pop-ups wait until you stop typing.
 
 </div>
 
-Slipstream is a whole desktop session: its own compositor, bar, notifications, lock screen and Settings app, written in Rust on [Smithay](https://github.com/Smithay/smithay). It tiles, it's built for the keyboard, and the keys follow Windows wherever that doesn't fight a keyboard-first design, so Windows habits carry straight over. It installs next to your current desktop, so you can pick it at the login screen and go back whenever you like.
+Slipstream is a whole desktop session: its own compositor, bar, notifications, lock screen and Settings app, written in Rust on [Smithay](https://github.com/Smithay/smithay). It tiles, it's built for the keyboard and uses common shortcut key combos so you don't have to fight muscle memory from other Operating Systems. It installs next to your current desktop, so you can pick it at the login screen and go back whenever you like.
 
 ## The wallpaper *is* the screensaver
 
