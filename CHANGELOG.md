@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- The app name the code rain spells out is lit in the focus ring's colour, like the name on the stream's header, instead of the rain's own.
+
 ## [0.0.6] - 2026-09-14
 
 - The code rain spells out each app's name again as it falls, as well as writing it on the stream's header.

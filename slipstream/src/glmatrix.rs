@@ -215,6 +215,8 @@ pub struct Band {
     frames: f64,
     target: Look,
     colour: [f32; 3],
+    /// What the app's name is lit in, whatever the load's colour.
+    name_colour: [f32; 3],
     speed: f32,
     strips: Vec<Strip>,
     rng: Rng,
@@ -233,6 +235,7 @@ impl Band {
             // A new stream starts at the machine's present look rather than easing in from
             // nothing.
             colour: look.colour,
+            name_colour: look.colour,
             speed: look.speed,
             strips: (0..COLUMNS).map(|_| Strip::empty()).collect(),
             rng: Rng(seed | 1),
@@ -251,6 +254,14 @@ impl Band {
 
     pub fn set_look(&mut self, look: Look) {
         self.target = look;
+    }
+
+    /// Lights the app's name in `rgb` rather than the load's colour. Returns whether it changed,
+    /// so the caller knows to draw again.
+    pub fn set_name_colour(&mut self, rgb: [f32; 3]) -> bool {
+        let changed = self.name_colour != rgb;
+        self.name_colour = rgb;
+        changed
     }
 
     /// Holds the band still at `demand`, for reduced motion: nothing falls, spins or eases, and
@@ -443,6 +454,7 @@ impl Band {
                 h,
                 clip,
                 colour: self.colour,
+                name_colour: self.name_colour,
             };
             for cell in 0..self.rows {
                 let glyph = s.glyphs[cell];
@@ -491,6 +503,8 @@ struct Target<'a> {
     clip: (i32, i32),
     /// What the rain is lit in, from the machine's demand.
     colour: [f32; 3],
+    /// What the app's name is lit in.
+    name_colour: [f32; 3],
 }
 
 impl Target<'_> {
@@ -530,7 +544,12 @@ impl Target<'_> {
             return;
         };
         // Coverage is cached uncoloured, so one cached glyph serves every colour the rain takes.
-        let k = self.colour.map(|channel| (alpha * channel * 256.0) as u32);
+        let colour = if highlight {
+            self.name_colour
+        } else {
+            self.colour
+        };
+        let k = colour.map(|channel| (alpha * channel * 256.0) as u32);
         for row in 0..size.1 {
             let py = y + row as i32;
             if py < 0 || py >= self.h as i32 {
@@ -708,6 +727,28 @@ mod tests {
             spelled(&band)
         });
         assert!(found, "no strip spelled KONSOLE in five minutes of rain");
+    }
+
+    #[test]
+    fn the_name_is_lit_in_its_own_colour() {
+        let mut glyphs = Glyphs::load().expect("the font loads");
+        let (w, h) = (100, 1000);
+        let mut band = Band::new("KONSOLE", LOOK, 60.0, h as f32, 11);
+        assert!(band.set_name_colour([1.0, 0.0, 0.0]));
+        assert!(
+            !band.set_name_colour([1.0, 0.0, 0.0]),
+            "the same colour again is no change"
+        );
+        // The rain's own green always carries green, so pure red can only be the name.
+        let red = (0..600).any(|_| {
+            band.step(0.5);
+            let mut pixels = vec![0u8; w * h * 4];
+            band.draw(&mut pixels, w, h, 50.0, &mut glyphs);
+            pixels
+                .chunks_exact(4)
+                .any(|pixel| pixel[0] > 128 && pixel[1] == 0 && pixel[2] == 0)
+        });
+        assert!(red, "no name lit in red in five minutes of rain");
     }
 
     #[test]
