@@ -9,6 +9,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - Apps can ask for a cursor from your theme by name, so GTK 4, Qt 6 and Chromium apps show the same pointer as everything else, at the right size, instead of drawing their own.
 - Video players and games are told exactly when each frame reached the screen, so they can pace playback smoothly.
 - File choosers and other portal dialogs are attached to the app that opened them.
+- Input methods work in Wayland apps: IBus and fcitx5 can type Chinese, Japanese, Korean and other scripts, with their candidate pop-up beside the text, and on-screen keyboards can type. Only programs outside a sandbox can act as an input method or keyboard, since either sees or sends every key.
 - Touchpad swipes, pinches and holds reach apps, so pinching zooms pages and pictures.
 - Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 

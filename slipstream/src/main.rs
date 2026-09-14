@@ -33,6 +33,7 @@ mod gravity;
 mod handlers;
 mod icons;
 mod idle;
+mod ime;
 mod inhibit;
 
 mod input;

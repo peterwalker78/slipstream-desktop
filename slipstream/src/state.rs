@@ -370,6 +370,8 @@ impl Slipstream {
         // One-colour buffers, which toolkits use for backgrounds and fades.
         SinglePixelBufferState::new::<Self>(&dh);
         let xdg_foreign_state = XdgForeignState::new::<Self>(&dh);
+        // Typing other scripts through IBus or fcitx5, and on-screen keyboards.
+        crate::ime::init(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
 
         // Clipboard, drag-and-drop, and middle-click paste.
@@ -4923,6 +4925,9 @@ pub struct ClientState {
     /// Whether the client may see the data-control globals, worked out once when it connects
     /// (`clipboard::client_may_control`): any client proven to be outside a sandbox.
     pub may_control_clipboard: bool,
+    /// Whether the client may be an input method or a virtual keyboard (`ime::client_may_type`):
+    /// likewise, any client proven to be outside a sandbox.
+    pub may_type: bool,
 }
 
 impl ClientState {
@@ -4933,6 +4938,7 @@ impl ClientState {
         Self {
             may_capture: capture::client_may_capture(peer.as_ref()),
             may_control_clipboard: clipboard::client_may_control(peer.as_ref()),
+            may_type: crate::ime::client_may_type(peer.as_ref()),
             ..Self::default()
         }
     }
