@@ -19,7 +19,7 @@ use crate::anim::{Easing, Tween};
 
 /// Fading out and back in take the same time, the UI passing through the wallpaper like a pane of
 /// glass either way (`glass.rs`).
-const FADE: f64 = 0.8;
+const FADE: f64 = 1.0;
 const REDUCED_FADE: f64 = 0.08;
 
 pub struct Idle {
