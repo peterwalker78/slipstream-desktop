@@ -759,7 +759,7 @@ pub fn output_elements(
     let active_dx = (active as f64 - camera) * step;
     let focused = state.focused_window();
     let used: Vec<bool> = (0..state.workspaces.count())
-        .map(|i| !state.workspaces.get(i).layout.is_empty())
+        .map(|i| !state.workspaces.get(i).is_empty())
         .collect();
 
     // Every screen tiles windows, draws a bar and runs the wallpaper; the code rain stays on
@@ -1189,8 +1189,14 @@ pub fn output_elements(
         let dx = (index as f64 - camera) * step;
         // Zoomed out, neighbouring workspaces come into view.
         if dx.abs() * zoom < step {
-            let layout = &state.workspaces.get(index).layout;
-            windows.extend(layout.windows().into_iter().map(|window| (window, dx)));
+            // Front to back: the floating windows, front-most first, then the tiles.
+            let ws = state.workspaces.get(index);
+            let floating = ws.floating.windows().into_iter().rev();
+            windows.extend(
+                floating
+                    .chain(ws.layout.windows())
+                    .map(|window| (window, dx)),
+            );
         }
     }
     // Windows just minimised, still pouring into their streams.
@@ -1318,10 +1324,14 @@ pub fn output_elements(
                     labels.iter().find(|(target, _)| *target.window() == window)
                 {
                     let name = state.window_name(&window);
-                    let flat = (
-                        shown.loc.x + shown.size.w / 2.0,
-                        shown.loc.y + shown.size.h / 2.0,
-                    );
+                    // A floating window's letter sits just above it, so a dialog centred over its
+                    // parent doesn't cover the parent's.
+                    let down = if state.workspaces.is_floating(&window) {
+                        -30.0
+                    } else {
+                        shown.size.h / 2.0
+                    };
+                    let flat = (shown.loc.x + shown.size.w / 2.0, shown.loc.y + down);
                     let middle = Point::from(tilt.project(flat).unwrap_or(flat));
                     front.extend(
                         chrome
@@ -1522,7 +1532,7 @@ pub fn output_elements(
                     .into_iter()
                     .map(OutputElement::Solid),
             );
-            let count = state.workspaces.get(index).layout.len();
+            let count = state.workspaces.get(index).len();
             let mut caption = bullet::window_count(count);
             if home == Some(index) {
                 caption.push_str(" · you started here");

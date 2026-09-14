@@ -99,6 +99,18 @@ use crate::{
     workspace::{Workspace, Workspaces},
 };
 
+/// Whether `window` is being moved or resized by the pointer, so it follows it without gliding.
+fn space_placed_now(drag: &Option<crate::grabs::Drag>, window: &Window) -> bool {
+    matches!(
+        drag,
+        Some(crate::grabs::Drag::Move { window: dragged, .. } | crate::grabs::Drag::Resize { window: dragged, .. })
+            if dragged == window
+    )
+}
+
+/// A floating window where it goes, and the size the keys asked of it, if any.
+type PlacedFloat = (Window, Rect, Option<(i32, i32)>);
+
 /// How long the recorded layout waits for the desktop entries to be read before giving up on
 /// this login. The scan takes a fraction of a second; this is only a backstop.
 const CATALOGUE_WAIT: f64 = 10.0;
@@ -185,6 +197,13 @@ pub struct Slipstream {
     pub switcher: Option<crate::switcher::Switcher<Window>>,
     /// The window filling the screen at its own request (F11, video, games).
     pub fullscreen: Option<Window>,
+    /// Floating windows that opened before knowing their size, and their parents, to centre once
+    /// they do.
+    pub centre_when_sized: Vec<(Window, Option<Window>)>,
+    /// The size each floating window on screen had when it was last placed.
+    pub floating_sizes: Vec<(Window, (i32, i32))>,
+    /// Floating windows tiled while they fill the screen, and where they float again after.
+    pub refloat: Vec<(Window, crate::floating::Float<Window>)>,
     /// `shot:` debug steps waiting for the next frame.
     pub screenshots: Vec<String>,
     /// Super+Shift+S while it's being chosen (`snip.rs`).
@@ -547,6 +566,9 @@ impl Slipstream {
             focus_history: Vec::new(),
             switcher: None,
             fullscreen: None,
+            refloat: Vec::new(),
+            floating_sizes: Vec::new(),
+            centre_when_sized: Vec::new(),
             screenshots: Vec::new(),
             screenshot_requests: Vec::new(),
             snip: None,
@@ -741,6 +763,24 @@ impl Slipstream {
     }
 
     /// Retiles when a window's client has changed its minimum size since it was last tiled.
+    /// A floating window drew itself at a new size: it's placed again, so it stays inside its area
+    /// and its drawing matches.
+    pub fn retile_if_floating_resized(&mut self, window: &Window) {
+        if !self.workspaces.is_floating(window) {
+            return;
+        }
+        self.centre_now_sized(window);
+        let size = crate::floating::own_size(window);
+        let placed = self
+            .floating_sizes
+            .iter()
+            .find(|(w, _)| w == window)
+            .map(|(_, placed)| *placed);
+        if placed != Some(size) {
+            self.retile();
+        }
+    }
+
     pub fn retile_if_min_changed(&mut self, window: &Window) {
         let changed = self
             .tiled_mins
@@ -1002,21 +1042,33 @@ impl Slipstream {
         // Every screen lays its own workspace out in its own area, so a window's tile depends on
         // which screen is looking at it.
         let mut rects: Vec<(Window, Rect)> = Vec::new();
+        // Floating windows, back to front, each with the size the keys asked for, if any.
+        let mut floats: Vec<PlacedFloat> = Vec::new();
         for (index, workspace) in &shown {
             let Some(area) = self.screen_area(*index) else {
                 continue;
             };
-            rects.extend(
-                self.workspaces
-                    .get_mut(*workspace)
-                    .rects_within(area, &min_size),
+            let ws = self.workspaces.get_mut(*workspace);
+            rects.extend(ws.rects_within(area, &min_size));
+            floats.extend(
+                ws.floating
+                    .rects(area, &crate::floating::own_size)
+                    .into_iter()
+                    .map(|(window, rect)| {
+                        let asked = ws.floating.get(&window).and_then(|float| float.asked);
+                        (window, rect, asked)
+                    }),
             );
         }
         let offscreen: Vec<Window> = self
             .space
             .elements()
             // X11 menus and tooltips aren't tiled; they go when their app unmaps them.
-            .filter(|w| !is_override_redirect(w) && !rects.iter().any(|(on, _)| on == *w))
+            .filter(|w| {
+                !is_override_redirect(w)
+                    && !rects.iter().any(|(on, _)| on == *w)
+                    && !floats.iter().any(|(on, ..)| on == *w)
+            })
             .cloned()
             .collect();
         for window in offscreen {
@@ -1068,6 +1120,23 @@ impl Slipstream {
                 self.space.map_element(window, (r.x, r.y), false);
             }
         }
+        self.floating_sizes = floats
+            .iter()
+            .map(|(window, ..)| (window.clone(), crate::floating::own_size(window)))
+            .collect();
+        for (window, r, asked) in floats {
+            crate::floating::configure_floating(&window, asked, r);
+            self.motion.place(&window, r, now);
+            // Under the pointer it keeps up with the pointer.
+            if space_placed_now(&self.drag, &window) {
+                self.motion.jump(&window, r);
+            }
+            if self.space.element_location(&window).is_some() {
+                self.space.relocate_element(&window, (r.x, r.y));
+            } else {
+                self.space.map_element(window, (r.x, r.y), false);
+            }
+        }
         // The focused window above its neighbours, so its popups are drawn over them and found
         // first by the pointer.
         if let Some(focused) = self.focused_window()
@@ -1076,11 +1145,12 @@ impl Slipstream {
             self.space.raise_element(&focused, false);
         }
         // A maximised window is above its neighbours, so it's drawn over them and the pointer
-        // finds it first; a fullscreen one is above that.
+        // finds it first; floating windows are above that, and a fullscreen one above everything.
         for (_, workspace) in &shown {
             if let Some(window) = self.workspaces.get(*workspace).maximised.clone() {
                 self.space.raise_element(&window, false);
             }
+            self.restack_floating(*workspace);
         }
         if let Some(window) = fullscreen {
             self.space.raise_element(&window, false);
@@ -1258,6 +1328,16 @@ impl Slipstream {
     /// Where `window` will be, and whether fullscreen: its tile if it has one, or the tile it would
     /// get beside the focused window on the workspace on screen.
     fn expected_place(&self, window: &Window) -> Option<(Rect, bool)> {
+        // A window that will float chooses its own size.
+        let fullscreen_asked =
+            self.fullscreen_on_map.contains(window) || self.fullscreen.as_ref() == Some(window);
+        if !fullscreen_asked
+            && (self.workspaces.is_floating(window)
+                || (self.workspaces.find(window).is_none()
+                    && crate::floating::opens_floating(window)))
+        {
+            return None;
+        }
         if self.fullscreen_on_map.contains(window) || self.fullscreen.as_ref() == Some(window) {
             let workspace = self
                 .workspaces
@@ -1300,6 +1380,11 @@ impl Slipstream {
             self.pour_new(window);
             return;
         }
+        // Dialogs and fixed-height windows float, unless they're about to fill the screen.
+        if crate::floating::opens_floating(&window) && !self.fullscreen_on_map.contains(&window) {
+            self.add_floating(window);
+            return;
+        }
         // Split the focused window, so new windows appear next to what you're working on.
         let beside = self.focused_window();
         let active = self.active_workspace();
@@ -1317,7 +1402,7 @@ impl Slipstream {
                 self.next_in_line(&window);
                 tracing::info!(
                     workspace = active + 1,
-                    windows = self.current_workspace().layout.len(),
+                    windows = self.current_workspace().len(),
                     x11 = window.x11_surface().is_some(),
                     "new window tiled behind the fullscreen one"
                 );
@@ -1338,7 +1423,7 @@ impl Slipstream {
         }
         tracing::info!(
             workspace = active + 1,
-            windows = self.current_workspace().layout.len(),
+            windows = self.current_workspace().len(),
             x11 = window.x11_surface().is_some(),
             min = ?min_size(&window),
             focused = self.focused_window().as_ref() == Some(&window),
@@ -1347,7 +1432,7 @@ impl Slipstream {
     }
 
     /// Next in line after the focused window, so Alt+Tab reaches it first.
-    fn next_in_line(&mut self, window: &Window) {
+    pub(crate) fn next_in_line(&mut self, window: &Window) {
         self.focus_history.retain(|w| w != window);
         let at = self.focus_history.len().min(1);
         self.focus_history.insert(at, window.clone());
@@ -1357,7 +1442,7 @@ impl Slipstream {
     /// in may move it: to a dialog of its own, a window of the same process, or one from a program
     /// it started, such as a command run in a terminal. `asked_by` is the client that asked for an
     /// activation, which counts when it is the app being typed in.
-    fn may_take_keyboard(&self, window: &Window, asked_by: Option<&ClientId>) -> bool {
+    pub(crate) fn may_take_keyboard(&self, window: &Window, asked_by: Option<&ClientId>) -> bool {
         if !self.concentration.typing(std::time::Instant::now()) {
             return true;
         }
@@ -1502,6 +1587,9 @@ impl Slipstream {
         if self.fullscreen.as_ref() == Some(window) {
             self.fullscreen = None;
         }
+        self.refloat.retain(|(held, _)| held != window);
+        self.floating_sizes.retain(|(held, _)| held != window);
+        self.centre_when_sized.retain(|(held, _)| held != window);
         self.focus_history.retain(|w| w != window);
         if let Some(plan) = self.restoring.as_mut() {
             plan.release(window);
@@ -1536,7 +1624,7 @@ impl Slipstream {
             self.restore_focus();
         }
         tracing::info!(
-            windows = self.current_workspace().layout.len(),
+            windows = self.current_workspace().len(),
             "window closed; re-tiled"
         );
     }
@@ -1597,6 +1685,14 @@ impl Slipstream {
             self.pending_focus = Some(window.clone());
         }
         self.space.raise_element(window, true);
+        // Floating windows stay above the tiles, and the one chosen, with its dialogs, above them.
+        if let Some(index) = self.workspaces.find(window) {
+            self.workspaces
+                .get_mut(index)
+                .floating
+                .raise(window, is_child_of);
+            self.restack_floating(index);
+        }
         if let (Some(xwm), Some(surface)) = (self.xwm.as_mut(), window.x11_surface()) {
             let _ = xwm.raise_window(surface);
         }
@@ -1644,7 +1740,7 @@ impl Slipstream {
 
     pub fn restore_focus(&mut self) {
         let ws = self.current_workspace();
-        let here = ws.layout.windows();
+        let here = ws.windows();
         // A fullscreen window here keeps the keyboard: a window closing behind it doesn't end it.
         // Nor does it end a maximise.
         let fullscreen = self
@@ -1657,6 +1753,13 @@ impl Slipstream {
                 ws.last_focus
                     .clone()
                     .filter(|window| window.alive() && here.contains(window))
+            })
+            // A dialog closing gives the keyboard back to what was used before it.
+            .or_else(|| {
+                self.focus_history
+                    .iter()
+                    .find(|window| window.alive() && here.contains(window))
+                    .cloned()
             })
             .or_else(|| here.last().cloned());
         match next {
@@ -1675,6 +1778,11 @@ impl Slipstream {
         let (Some(area), Some(current)) = (self.output_area(), self.focused_window()) else {
             return;
         };
+        // From a floating window, the keys go between floating windows.
+        if self.workspaces.is_floating(&current) {
+            self.focus_floating_direction(&current, direction);
+            return;
+        }
         let active = self.screens.workspace();
         // Neighbours by their own tiles, even under a maximised window.
         let rects = self
@@ -1784,6 +1892,10 @@ impl Slipstream {
         let (Some(area), Some(current)) = (self.output_area(), self.focused_window()) else {
             return;
         };
+        if self.workspaces.is_floating(&current) {
+            self.move_floating(&current, direction);
+            return;
+        }
         // Gravity places windows by weight, so swapping two of them would be undone by the next
         // retile. Point at the keys that do move a window there.
         if self.current_workspace().gravity.is_on() {
@@ -1815,6 +1927,10 @@ impl Slipstream {
         let (Some(area), Some(window)) = (self.output_area(), self.focused_window()) else {
             return;
         };
+        if self.workspaces.is_floating(&window) {
+            self.resize_floating(&window, how);
+            return;
+        }
         let ws = self.current_workspace();
         // A window filling the screen or the tiling area has no neighbour to give room to.
         if self.fullscreen.as_ref() == Some(&window) || ws.maximised.as_ref() == Some(&window) {
@@ -1897,14 +2013,14 @@ impl Slipstream {
         let active = self.active_workspace();
         if let Some((from, to)) = self.desktop_return.take()
             && to == active
-            && self.workspaces.get(active).layout.is_empty()
+            && self.workspaces.get(active).is_empty()
         {
             tracing::info!(workspace = from + 1, "back from the empty workspace");
             self.go_to_workspace(from);
             return;
         }
         let empty: Vec<bool> = (0..self.workspaces.count())
-            .map(|index| self.workspaces.get(index).layout.is_empty())
+            .map(|index| self.workspaces.get(index).is_empty())
             .collect();
         let shown: Vec<usize> = self.screens.iter().map(|screen| screen.workspace).collect();
         match crate::workspace::lowest_empty(&empty, &shown) {
@@ -2222,10 +2338,17 @@ impl Slipstream {
         if from == index {
             return;
         }
+        // A floating window floats on where it goes, in the same part of the screen.
+        let float = self.workspaces.get(from).floating.get(window).cloned();
         self.take_off_workspace(window);
-        let beside = self.workspaces.get(index).last_focus.clone();
-        self.workspaces
-            .insert(index, window.clone(), beside.as_ref(), area);
+        match float {
+            Some(float) => self.workspaces.get_mut(index).floating.put(float),
+            None => {
+                let beside = self.workspaces.get(index).last_focus.clone();
+                self.workspaces
+                    .insert(index, window.clone(), beside.as_ref(), area);
+            }
+        }
         // The window rides across to its new workspace, then settles into its tile.
         let now = self.clock.tick();
         let step = (area.w + motion::WORKSPACE_GAP) as f64;
@@ -2293,6 +2416,15 @@ impl Slipstream {
                 size_for_tile(r, min_size(&window))
             };
             configure(&window, asked, full);
+            self.motion.place(&window, r, now);
+        }
+        let Some(area) = self.area_for_workspace(index) else {
+            return;
+        };
+        let floating = self.workspaces.get(index).floating.clone();
+        for (window, r) in floating.rects(area, &crate::floating::own_size) {
+            let asked = floating.get(&window).and_then(|float| float.asked);
+            crate::floating::configure_floating(&window, asked, r);
             self.motion.place(&window, r, now);
         }
     }
@@ -2401,9 +2533,24 @@ impl Slipstream {
     /// An app asked to fill the screen, or to stop.
     pub fn set_fullscreen(&mut self, window: &Window, fullscreen: bool) {
         if fullscreen {
+            // A floating window fills the screen from the tiling, and floats again after.
+            if let Some(index) = self.workspaces.find(window)
+                && let Some(float) = self.workspaces.get_mut(index).floating.remove(window)
+                && let Some(area) = self.area_for_workspace(index)
+            {
+                self.workspaces.insert(index, window.clone(), None, area);
+                self.refloat.push((window.clone(), float));
+            }
             self.fullscreen = Some(window.clone());
         } else if self.fullscreen.as_ref() == Some(window) {
             self.fullscreen = None;
+            if let Some(at) = self.refloat.iter().position(|(held, _)| held == window) {
+                let (_, float) = self.refloat.remove(at);
+                if let Some(index) = self.workspaces.find(window) {
+                    self.take_off_workspace(window);
+                    self.workspaces.get_mut(index).floating.put(float);
+                }
+            }
         } else {
             return;
         }
@@ -3255,6 +3402,13 @@ impl Slipstream {
         let Some(index) = self.workspaces.find(&window) else {
             return;
         };
+        if self.workspaces.is_floating(&window) {
+            self.show_toast(
+                "Floating windows keep their size",
+                "Super+Shift+V puts it back in the tiling, where Super+F fills the space.",
+            );
+            return;
+        }
         let ws = self.workspaces.get_mut(index);
         // Gravity sizes windows by weight, which a maximise would fight.
         if ws.gravity.is_on() {
@@ -3329,7 +3483,7 @@ impl Slipstream {
     /// Takes `window` off its workspace (closed, minimised or moved) and returns which workspace
     /// it was on. A window that inherits gravity's centre gets the centre tag, so the amber ring
     /// moving to it has a visible cause.
-    fn take_off_workspace(&mut self, window: &Window) -> Option<usize> {
+    pub(crate) fn take_off_workspace(&mut self, window: &Window) -> Option<usize> {
         let history = &self.focus_history;
         let removed = self.workspaces.remove(window, |w| recency(history, w))?;
         if let Some(centre) = removed.new_centre {
@@ -3385,7 +3539,7 @@ impl Slipstream {
 
     /// Windows of workspace `index`, most recently used first.
     fn windows_by_recency(&self, index: usize) -> Vec<Window> {
-        let mut windows = self.workspaces.get(index).layout.windows();
+        let mut windows = self.workspaces.get(index).windows();
         windows.sort_by_key(|window| recency(&self.focus_history, window));
         windows
     }
@@ -3393,7 +3547,7 @@ impl Slipstream {
     fn bullet_targets(&self, home: usize) -> Vec<Target<Window>> {
         let mut others: Vec<Window> = (0..self.workspaces.count())
             .filter(|&index| index != home)
-            .flat_map(|index| self.workspaces.get(index).layout.windows())
+            .flat_map(|index| self.workspaces.get(index).windows())
             .collect();
         others.sort_by_key(|window| recency(&self.focus_history, window));
         let streams = self
@@ -3705,7 +3859,7 @@ impl Slipstream {
                 .map(|(name, minimised)| (name.as_str(), *minimised)),
             &self.workspaces.label(view),
             view,
-            self.workspaces.get(view).layout.len(),
+            self.workspaces.get(view).len(),
         )
     }
 
@@ -4533,10 +4687,18 @@ impl Slipstream {
         self.motion
             .jump(window, Rain::column(index, screen, bar::HEIGHT));
         self.motion.fade(window, 1.0, now, 0.26);
-        let beside = self.focused_window();
         let active = self.active_workspace();
-        self.workspaces
-            .insert(active, window.clone(), beside.as_ref(), area);
+        if crate::floating::opens_floating(window) {
+            let size = crate::floating::own_size(window);
+            self.workspaces
+                .get_mut(active)
+                .floating
+                .add(window.clone(), size, None, area);
+        } else {
+            let beside = self.focused_window();
+            self.workspaces
+                .insert(active, window.clone(), beside.as_ref(), area);
+        }
         self.retile();
         self.focus_window(window);
         tracing::info!(window = logged_app(window), "restored from code rain");
@@ -4937,7 +5099,7 @@ pub(crate) fn deactivate(window: &Window) {
 
 /// Whether `window` is `parent`'s own: an xdg toplevel whose parent is its surface, or an X11
 /// window transient for it.
-fn is_child_of(window: &Window, parent: &Window) -> bool {
+pub(crate) fn is_child_of(window: &Window, parent: &Window) -> bool {
     if let (Some(child), Some(parent)) = (window.toplevel(), parent.wl_surface()) {
         return child.parent().as_ref() == Some(&*parent);
     }

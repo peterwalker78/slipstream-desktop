@@ -27,6 +27,7 @@ mod exit;
 mod explorer;
 mod fallback;
 mod files;
+mod floating;
 mod focus;
 mod ghost;
 mod glass;

@@ -79,6 +79,10 @@ pub enum Action {
     TakeBack,
     /// Open or close the clipboard history.
     ClipboardHistory,
+    /// Float the focused window, or put it back into the tiling.
+    ToggleFloating,
+    /// Move the keyboard between the floating windows and the tiles.
+    SwitchFloatingFocus,
 }
 
 /// The shortcut sheet's groups, in the order it shows them.
@@ -151,6 +155,8 @@ impl Action {
             Action::Media(_) => "play, pause, next, previous",
             Action::TakeBack => "take the mouse and keys back from an app",
             Action::ClipboardHistory => "clipboard history",
+            Action::ToggleFloating => "float the window, or tile it",
+            Action::SwitchFloatingFocus => "between floating and tiled windows",
         }
     }
 
@@ -165,7 +171,9 @@ impl Action {
             | Action::Explorer
             | Action::Minimise
             | Action::Restore
-            | Action::Maximise => Group::AppsAndWindows,
+            | Action::Maximise
+            | Action::ToggleFloating
+            | Action::SwitchFloatingFocus => Group::AppsAndWindows,
             Action::Resize(_)
             | Action::Workspace(_)
             | Action::WorkspaceBy(_)
@@ -403,6 +411,10 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::l, Action::Lock),
         // Windows' clipboard history key.
         bind(mod_, Keysym::v, Action::ClipboardHistory),
+        // niri's floating keys are Mod+V and Mod+Shift+V; V is the clipboard's here, so they move
+        // up a modifier.
+        bind(mod_shift, Keysym::v, Action::ToggleFloating),
+        bind(mod_ctrl, Keysym::v, Action::SwitchFloatingFocus),
         bind(mod_, Keysym::n, Action::NotificationCentre),
         // Every key, one keystroke away.
         bind(mod_, Keysym::slash, Action::ShortcutSheet),

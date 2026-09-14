@@ -9,6 +9,7 @@
 //! Generic over the window type so it's unit-tested without Wayland.
 
 use crate::{
+    floating::{Float, Floating},
     gravity::Gravity,
     layout::{Dwindle, Rect},
 };
@@ -19,8 +20,10 @@ pub struct Workspace<T> {
     pub id: u32,
     /// Empty when it goes by its number.
     pub name: String,
-    /// Which windows are here, and where they tile.
+    /// Which windows tile here, and where.
     pub layout: Dwindle<T>,
+    /// The windows floating above the tiling (`floating.rs`).
+    pub floating: Floating<T>,
     /// Where they go instead while gravity is on.
     pub gravity: Gravity<T>,
     /// The window to focus when you come back to this workspace.
@@ -32,6 +35,25 @@ pub struct Workspace<T> {
 }
 
 impl<T: Clone + PartialEq> Workspace<T> {
+    /// Every window here: the tiled ones, then the floating ones back to front.
+    pub fn windows(&self) -> Vec<T> {
+        let mut windows = self.layout.windows();
+        windows.extend(self.floating.windows());
+        windows
+    }
+
+    pub fn len(&self) -> usize {
+        self.layout.len() + self.floating.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layout.is_empty() && self.floating.is_empty()
+    }
+
+    pub fn contains(&self, window: &T) -> bool {
+        self.floating.contains(window) || self.layout.windows().contains(window)
+    }
+
     /// Where each window goes in `area`: by gravity when it's on, otherwise tiled.
     pub fn rects(&mut self, area: Rect) -> Vec<(T, Rect)> {
         self.rects_within(area, &|_| (0, 0))
@@ -82,11 +104,13 @@ impl<T: Clone + PartialEq> Workspace<T> {
     }
 }
 
-/// Where a removed window was, and the window that took over as gravity's centre, if any.
+/// Where a removed window was, the window that took over as gravity's centre, if any, and its
+/// floating place if it was floating.
 #[derive(Debug, PartialEq)]
 pub struct Removed<T> {
     pub workspace: usize,
     pub new_centre: Option<T>,
+    pub floated: Option<Float<T>>,
 }
 
 #[derive(Debug)]
@@ -119,6 +143,7 @@ impl<T: Clone + PartialEq> Workspaces<T> {
             id,
             name,
             layout: Dwindle::new(self.outer_gap, self.inner_gap),
+            floating: Floating::default(),
             gravity: Gravity::default(),
             last_focus: None,
             maximised: None,
@@ -198,6 +223,11 @@ impl<T: Clone + PartialEq> Workspaces<T> {
                 for window in gone.layout.windows() {
                     self.list[to].layout.insert(window, None, area);
                 }
+                for window in gone.floating.windows() {
+                    if let Some(float) = gone.floating.get(&window) {
+                        self.list[to].floating.put(float.clone());
+                    }
+                }
             }
         }
         map
@@ -213,14 +243,17 @@ impl<T: Clone + PartialEq> Workspaces<T> {
 
     /// Every window on every workspace.
     pub fn all_windows(&self) -> Vec<T> {
-        self.list.iter().flat_map(|w| w.layout.windows()).collect()
+        self.list.iter().flat_map(|w| w.windows()).collect()
     }
 
     /// Which workspace holds `id`.
     pub fn find(&self, id: &T) -> Option<usize> {
-        self.list
-            .iter()
-            .position(|w| w.layout.windows().contains(id))
+        self.list.iter().position(|w| w.contains(id))
+    }
+
+    /// Whether `id` floats on its workspace.
+    pub fn is_floating(&self, id: &T) -> bool {
+        self.list.iter().any(|w| w.floating.contains(id))
     }
 
     /// Adds `id` to workspace `index`, splitting `beside` if it's there. A window maximised there
@@ -238,6 +271,10 @@ impl<T: Clone + PartialEq> Workspaces<T> {
             return false;
         };
         let ws = &mut self.list[index];
+        // A floating window is above a maximised one, so wanting it ends nothing.
+        if ws.floating.contains(window) {
+            return false;
+        }
         if ws.maximised.as_ref().is_some_and(|max| max != window) {
             ws.maximised = None;
             return true;
@@ -251,6 +288,16 @@ impl<T: Clone + PartialEq> Workspaces<T> {
     pub fn remove(&mut self, id: &T, recency: impl Fn(&T) -> usize) -> Option<Removed<T>> {
         let index = self.find(id)?;
         let ws = &mut self.list[index];
+        if let Some(floated) = ws.floating.remove(id) {
+            if ws.last_focus.as_ref() == Some(id) {
+                ws.last_focus = ws.windows().last().cloned();
+            }
+            return Some(Removed {
+                workspace: index,
+                new_centre: None,
+                floated: Some(floated),
+            });
+        }
         ws.layout.remove(id);
         let mut remaining = ws.layout.windows();
         remaining.sort_by_key(|w| recency(w));
@@ -259,11 +306,12 @@ impl<T: Clone + PartialEq> Workspaces<T> {
             ws.maximised = None;
         }
         if ws.last_focus.as_ref() == Some(id) {
-            ws.last_focus = ws.layout.windows().last().cloned();
+            ws.last_focus = ws.windows().last().cloned();
         }
         Some(Removed {
             workspace: index,
             new_centre,
+            floated: None,
         })
     }
 }
@@ -384,7 +432,8 @@ mod tests {
             ws.remove(&"b", |_| 0),
             Some(Removed {
                 workspace: 2,
-                new_centre: None
+                new_centre: None,
+                floated: None,
             })
         );
         assert_eq!(ws.find(&"b"), None);
@@ -485,5 +534,30 @@ mod tests {
         ws.get_mut(0).gravity.off();
         let back = ws.get_mut(0).rects(AREA);
         assert_eq!(back, ws.get(0).layout.rects(AREA));
+    }
+
+    #[test]
+    fn a_floating_window_belongs_to_its_workspace_but_not_to_its_tiling() {
+        let mut ws = Workspaces::new(&five(), 16, 10);
+        ws.insert(1, "tiled", None, AREA);
+        ws.get_mut(1).floating.add("dialog", (200, 100), None, AREA);
+        assert_eq!(ws.find(&"dialog"), Some(1));
+        assert!(ws.is_floating(&"dialog") && !ws.is_floating(&"tiled"));
+        assert_eq!(ws.get(1).layout.len(), 1);
+        assert_eq!(ws.get(1).len(), 2);
+        let removed = ws.remove(&"dialog", |_| 0).unwrap();
+        assert!(removed.floated.is_some());
+        assert_eq!(ws.get(1).windows(), vec!["tiled"]);
+    }
+
+    #[test]
+    fn a_deleted_workspace_s_floating_windows_float_on_where_its_tiles_go() {
+        let mut ws = Workspaces::new(&five(), 16, 10);
+        ws.get_mut(2).floating.add("dialog", (200, 100), None, AREA);
+        let entries: Vec<(u32, String)> =
+            [1, 2, 4, 5].iter().map(|id| (*id, String::new())).collect();
+        ws.reconcile(&entries, 1, AREA);
+        assert_eq!(ws.find(&"dialog"), Some(1));
+        assert!(ws.is_floating(&"dialog"));
     }
 }

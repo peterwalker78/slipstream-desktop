@@ -207,16 +207,34 @@ impl XwmHandler for Slipstream {
     }
 
     // Tiled windows aren't dragged or resized by their title bars.
-    fn resize_request(
-        &mut self,
-        _xwm: XwmId,
-        _surface: X11Surface,
-        _button: u32,
-        _edges: ResizeEdge,
-    ) {
+    /// An X11 app's own title bar or edge, on a floating window: it moves or resizes with the
+    /// pointer, as a Wayland app's does.
+    fn resize_request(&mut self, _xwm: XwmId, surface: X11Surface, button: u32, edges: ResizeEdge) {
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge as Edge;
+        let Some((window, location)) = self.x11_floating_press(&surface) else {
+            return;
+        };
+        let edges = match edges {
+            ResizeEdge::Top => Edge::Top,
+            ResizeEdge::Bottom => Edge::Bottom,
+            ResizeEdge::Left => Edge::Left,
+            ResizeEdge::TopLeft => Edge::TopLeft,
+            ResizeEdge::BottomLeft => Edge::BottomLeft,
+            ResizeEdge::Right => Edge::Right,
+            ResizeEdge::TopRight => Edge::TopRight,
+            ResizeEdge::BottomRight => Edge::BottomRight,
+        };
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        self.start_floating_resize(window, edges, location, button, serial);
     }
 
-    fn move_request(&mut self, _xwm: XwmId, _surface: X11Surface, _button: u32) {}
+    fn move_request(&mut self, _xwm: XwmId, surface: X11Surface, button: u32) {
+        let Some((window, location)) = self.x11_floating_press(&surface) else {
+            return;
+        };
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        self.start_floating_move(window, location, button, serial);
+    }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(window) = self.x11_window(&surface) {
@@ -324,5 +342,30 @@ impl XwmHandler for Slipstream {
     fn disconnected(&mut self, _xwm: XwmId) {
         tracing::warn!("XWayland's window manager disconnected");
         self.xwm = None;
+    }
+}
+
+impl Slipstream {
+    /// For an X11 app's move or resize: its floating window and where the pointer is, while a
+    /// button is held and nothing else has the pointer.
+    fn x11_floating_press(
+        &self,
+        surface: &X11Surface,
+    ) -> Option<(
+        smithay::desktop::Window,
+        smithay::utils::Point<f64, smithay::utils::Logical>,
+    )> {
+        let window = self.x11_window(surface)?;
+        if !self.workspaces.is_floating(&window) || self.lock.is_some() {
+            return None;
+        }
+        let pointer = self.seat.get_pointer()?;
+        if pointer.is_grabbed() {
+            // Its click grab is the only one expected; a drag of ours is already under way.
+            if self.drag.is_some() {
+                return None;
+            }
+        }
+        Some((window, pointer.current_location()))
     }
 }

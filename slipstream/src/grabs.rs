@@ -1,5 +1,6 @@
-//! Arranging tiles with the pointer: dragging the gap between two tiles resizes them, and
-//! Super+drag swaps two windows.
+//! Arranging windows with the pointer: dragging the gap between two tiles resizes them,
+//! Super+drag swaps two windows, and a floating window is moved by Super+drag or its own title
+//! bar, and resized by its own edges.
 //!
 //! Both are pointer grabs. While one is held no client has the pointer, so the press, the motion
 //! and the release never reach an app. A grab always ends: on the release, on Esc, when the
@@ -20,7 +21,14 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER, Serial},
 };
 
-use crate::{Slipstream, focus::KeyboardFocus, layout::Divider, state::min_size};
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+
+use crate::{
+    Slipstream,
+    focus::KeyboardFocus,
+    layout::{Divider, Rect},
+    state::min_size,
+};
 
 /// A drag under way.
 #[derive(Debug)]
@@ -37,6 +45,19 @@ pub enum Drag {
         window: Window,
         over: Option<Window>,
         cancelled: bool,
+    },
+    /// A floating window being moved, from where it and the pointer started.
+    Move {
+        window: Window,
+        from: Point<i32, Logical>,
+        pointer: Point<f64, Logical>,
+    },
+    /// A floating window being resized by `edges`, from its place and the pointer's at the start.
+    Resize {
+        window: Window,
+        edges: xdg_toplevel::ResizeEdge,
+        from: Rect,
+        pointer: Point<f64, Logical>,
     },
 }
 
@@ -138,6 +159,9 @@ impl Slipstream {
         let Some((window, _)) = self.window_under(pos) else {
             return false;
         };
+        if self.workspaces.is_floating(&window) {
+            return self.start_floating_move(window, pos, button, serial);
+        }
         let Some(workspace) = self.workspaces.find(&window) else {
             return false;
         };
@@ -161,6 +185,133 @@ impl Slipstream {
         self.set_cursor_override(Some(CursorIcon::Grabbing));
         pointer.set_grab(self, SwapGrab { start }, serial, Focus::Clear);
         true
+    }
+
+    /// Takes the pointer to move floating `window`, from `pos`. Whether it did.
+    pub fn start_floating_move(
+        &mut self,
+        window: Window,
+        pos: Point<f64, Logical>,
+        button: u32,
+        serial: Serial,
+    ) -> bool {
+        let Some(geo) = self.space.element_geometry(&window) else {
+            return false;
+        };
+        let pointer = self.seat.get_pointer().unwrap();
+        let start = GrabStartData {
+            focus: None,
+            button,
+            location: pos,
+        };
+        tracing::info!("moving a floating window");
+        self.focus_window(&window);
+        self.drag = Some(Drag::Move {
+            window,
+            from: geo.loc,
+            pointer: pos,
+        });
+        self.set_cursor_override(Some(CursorIcon::Grabbing));
+        pointer.set_grab(self, FloatGrab { start }, serial, Focus::Clear);
+        true
+    }
+
+    /// Takes the pointer to resize floating `window` by `edges`, from `pos`. Whether it did.
+    pub fn start_floating_resize(
+        &mut self,
+        window: Window,
+        edges: xdg_toplevel::ResizeEdge,
+        pos: Point<f64, Logical>,
+        button: u32,
+        serial: Serial,
+    ) -> bool {
+        let Some(geo) = self.space.element_geometry(&window) else {
+            return false;
+        };
+        let pointer = self.seat.get_pointer().unwrap();
+        let start = GrabStartData {
+            focus: None,
+            button,
+            location: pos,
+        };
+        tracing::info!(?edges, "resizing a floating window");
+        self.drag = Some(Drag::Resize {
+            window,
+            edges,
+            from: Rect {
+                x: geo.loc.x,
+                y: geo.loc.y,
+                w: geo.size.w,
+                h: geo.size.h,
+            },
+            pointer: pos,
+        });
+        pointer.set_grab(self, FloatGrab { start }, serial, Focus::Clear);
+        true
+    }
+
+    /// The pointer is at `at` while a floating window is moved or resized.
+    fn drag_floating(&mut self, at: Point<f64, Logical>) {
+        let (window, place, size) = match &self.drag {
+            Some(Drag::Move {
+                window,
+                from,
+                pointer,
+            }) => {
+                let delta = at - *pointer;
+                let place = (
+                    from.x + delta.x.round() as i32,
+                    from.y + delta.y.round() as i32,
+                );
+                (window.clone(), place, None)
+            }
+            Some(Drag::Resize {
+                window,
+                edges,
+                from,
+                pointer,
+            }) => {
+                use xdg_toplevel::ResizeEdge as Edge;
+                let (dx, dy) = ((at.x - pointer.x) as i32, (at.y - pointer.y) as i32);
+                let (min_w, min_h) = min_size(window);
+                let (min_w, min_h) = (min_w.max(100), min_h.max(60));
+                let left = matches!(edges, Edge::Left | Edge::TopLeft | Edge::BottomLeft);
+                let right = matches!(edges, Edge::Right | Edge::TopRight | Edge::BottomRight);
+                let top = matches!(edges, Edge::Top | Edge::TopLeft | Edge::TopRight);
+                let bottom = matches!(edges, Edge::Bottom | Edge::BottomLeft | Edge::BottomRight);
+                let w = if left {
+                    (from.w - dx).max(min_w)
+                } else if right {
+                    (from.w + dx).max(min_w)
+                } else {
+                    from.w
+                };
+                let h = if top {
+                    (from.h - dy).max(min_h)
+                } else if bottom {
+                    (from.h + dy).max(min_h)
+                } else {
+                    from.h
+                };
+                // Pulling a left or top edge moves the corner with it.
+                let x = if left { from.x + from.w - w } else { from.x };
+                let y = if top { from.y + from.h - h } else { from.y };
+                (window.clone(), (x, y), Some((w, h)))
+            }
+            _ => return,
+        };
+        let Some(index) = self.workspaces.find(&window) else {
+            return;
+        };
+        let Some(area) = self.area_for_workspace(index) else {
+            return;
+        };
+        let floating = &mut self.workspaces.get_mut(index).floating;
+        floating.move_to(&window, place, area);
+        if let Some(size) = size {
+            floating.ask(&window, size);
+        }
+        self.drag_retile_due = true;
     }
 
     /// The gap being dragged, with the pointer `at` along its axis: its split takes that ratio
@@ -234,6 +385,11 @@ impl Slipstream {
                 self.retile();
             }
             Some(Drag::Swap { .. }) => tracing::info!("window drag ended"),
+            Some(Drag::Move { .. } | Drag::Resize { .. }) => {
+                self.drag_retile_due = false;
+                tracing::info!("floating window drag ended");
+                self.retile();
+            }
             None => {}
         }
         self.set_cursor_override(None);
@@ -254,6 +410,8 @@ impl Slipstream {
                     .set_ratio(&path, from);
             }
             Some(Drag::Swap { cancelled, .. }) => *cancelled = true,
+            // A floating window stays where the drag has got it to.
+            Some(Drag::Move { .. } | Drag::Resize { .. }) => {}
             None => return,
         }
         tracing::info!("drag called off");
@@ -295,6 +453,11 @@ pub struct GapGrab {
 
 /// Dragging a window onto another tile with Super held.
 pub struct SwapGrab {
+    start: GrabStartData<Slipstream>,
+}
+
+/// Moving or resizing a floating window.
+pub struct FloatGrab {
     start: GrabStartData<Slipstream>,
 }
 
@@ -494,3 +657,9 @@ mod tests {
         assert_eq!(divider.ratio_at(2000.0), layout::MAX_RATIO);
     }
 }
+
+pointer_grab!(
+    FloatGrab,
+    motion: |_, data, at| data.drag_floating(at),
+    released: |_| {}
+);

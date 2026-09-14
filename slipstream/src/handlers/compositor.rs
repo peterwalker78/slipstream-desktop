@@ -47,6 +47,7 @@ impl CompositorHandler for Slipstream {
             if let Some(window) = window {
                 window.on_commit();
                 self.retile_if_min_changed(&window);
+                self.retile_if_floating_resized(&window);
             }
         };
 

@@ -112,6 +112,8 @@ impl Slipstream {
             Action::Maximise => self.toggle_maximise(),
             Action::TakeBack => self.take_back(),
             Action::ClipboardHistory => self.toggle_history(),
+            Action::ToggleFloating => self.toggle_floating(),
+            Action::SwitchFloatingFocus => self.switch_floating_focus(),
         }
     }
 

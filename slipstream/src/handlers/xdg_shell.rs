@@ -90,18 +90,28 @@ impl XdgShellHandler for Slipstream {
         surface.send_repositioned(token);
     }
 
-    // Tiled windows ignore drag-to-move and drag-to-resize from their title bars. Floating
-    // windows will bring these back (smallvil's grabs are in git history).
-    fn move_request(&mut self, _surface: ToplevelSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
+    // Tiled windows ignore drag-to-move and drag-to-resize from their title bars; floating ones
+    // move and resize, for a press the app really has.
+    fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
+        match self.pressed_on_floating(&surface, &seat, serial) {
+            Some((window, location, button)) => {
+                self.start_floating_move(window, location, button, serial);
+            }
+            None => tracing::debug!("a move was asked for without a press on a floating window"),
+        }
     }
 
     fn resize_request(
         &mut self,
-        _surface: ToplevelSurface,
-        _seat: wl_seat::WlSeat,
-        _serial: Serial,
-        _edges: xdg_toplevel::ResizeEdge,
+        surface: ToplevelSurface,
+        seat: wl_seat::WlSeat,
+        serial: Serial,
+        edges: xdg_toplevel::ResizeEdge,
     ) {
+        if let Some((window, location, button)) = self.pressed_on_floating(&surface, &seat, serial)
+        {
+            self.start_floating_resize(window, edges, location, button, serial);
+        }
     }
 
     /// A menu asks to take the keyboard and pointer until it's dismissed, so arrows and Esc
@@ -190,6 +200,40 @@ pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
 }
 
 impl Slipstream {
+    /// For a move or resize an app asks for: its floating window, and where and with which button
+    /// the pointer was pressed, when `serial` is a press on that window still held.
+    fn pressed_on_floating(
+        &self,
+        surface: &ToplevelSurface,
+        seat: &wl_seat::WlSeat,
+        serial: Serial,
+    ) -> Option<(
+        Window,
+        smithay::utils::Point<f64, smithay::utils::Logical>,
+        u32,
+    )> {
+        use smithay::wayland::seat::WaylandFocus;
+        let window = self.toplevel_window(surface)?;
+        if !self.workspaces.is_floating(&window) || self.lock.is_some() {
+            return None;
+        }
+        let pointer = Seat::<Slipstream>::from_resource(seat)?.get_pointer()?;
+        if !pointer.has_grab(serial) {
+            return None;
+        }
+        let start = pointer.grab_start_data()?;
+        let pressed_on = start
+            .focus
+            .as_ref()
+            .and_then(|(focus, _)| focus.wl_surface())
+            .map(|pressed| crate::takeback::root_of(&pressed));
+        (pressed_on.as_ref() == Some(surface.wl_surface())).then_some((
+            window,
+            start.location,
+            start.button,
+        ))
+    }
+
     /// The window for a toplevel, on any workspace or minimised into the code rain. A window closed
     /// while minimised has to be found here too, or its stream outlives it.
     fn toplevel_window(&self, surface: &ToplevelSurface) -> Option<Window> {
