@@ -25,23 +25,31 @@ use crate::{render::OutputElement, tilt};
 /// How far the eye is from the screen, in screen widths.
 const DISTANCE: f32 = 1.25;
 /// How far behind the UI's pane the wallpaper's is, in the eye's distances.
-const GLASS: f32 = 0.25;
+const GLASS: f32 = 0.15;
 /// How far the UI's pane has tipped back by the end, in radians (35 degrees).
 const TILT: f32 = 0.61;
-/// How far its corner has sunk back by the end, in the eye's distances.
-const PUSH: f32 = 0.6;
+/// How far its corner has sunk back by the end, in the eye's distances: it ends at five sixths
+/// of its size there.
+const PUSH: f32 = 0.2;
 /// Half the depth over which the two panes mix where they meet, in the eye's distances. It's
 /// deep: across the screen the two worlds should mix over a wide band, not meet on a line.
-const EDGE: f32 = 0.12;
+const EDGE: f32 = 0.08;
 /// The depths between which the UI fades out, in the eye's distances.
-const FADE: (f32, f32) = (0.4, 0.6);
+const FADE: (f32, f32) = (0.25, 0.45);
+/// The last stretch of the fade, over which whatever is left of the UI goes out.
+const LAST: f32 = 0.8;
 
 /// How far the UI's pane has tipped back and how deep its corner is, in logical pixels,
-/// `progress` of the way through the fade. It tips early and sinks late, which carries the line
-/// where it meets the wallpaper's pane across the screen at a nearly even pace.
+/// `progress` of the way through the fade. Tipping and sinking go together, as one movement.
 fn pose(progress: f32, width: f32) -> (f32, f32) {
     let p = progress.clamp(0.0, 1.0);
-    (TILT * p.sqrt(), PUSH * DISTANCE * width * p * p * p)
+    (TILT * p, PUSH * DISTANCE * width * p)
+}
+
+/// How much of the UI is left over the last stretch of the fade, `progress` of the way through.
+fn remaining(progress: f32) -> f32 {
+    let t = ((progress - LAST) / (1.0 - LAST)).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
 }
 
 /// Where the two panes meet, as a share of the way from the UI pane's bottom right corner (0) to
@@ -63,10 +71,11 @@ fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>>
         Uniform::new("distance", distance),
         Uniform::new("glass", (GLASS * distance, EDGE * distance)),
         Uniform::new("fade", (FADE.0 * distance, FADE.1 * distance)),
+        Uniform::new("remaining", remaining(progress)),
     ]
 }
 
-fn uniform_names() -> [UniformName<'static>; 6] {
+fn uniform_names() -> [UniformName<'static>; 7] {
     [
         UniformName::new("size", UniformType::_2f),
         UniformName::new("tilt", UniformType::_2f),
@@ -74,6 +83,7 @@ fn uniform_names() -> [UniformName<'static>; 6] {
         UniformName::new("distance", UniformType::_1f),
         UniformName::new("glass", UniformType::_2f),
         UniformName::new("fade", UniformType::_2f),
+        UniformName::new("remaining", UniformType::_1f),
     ]
 }
 
@@ -105,13 +115,14 @@ uniform float tint;
 
 // The screen in logical pixels; the sine and cosine of how far the UI's pane has tipped back; how
 // deep its bottom right corner is; the eye's distance; the wallpaper pane's depth, and half the
-// depth the two mix over; the depths the UI fades out between.
+// depth the two mix over; the depths the UI fades out between; how much of it is left at the end.
 uniform vec2 size;
 uniform vec2 tilt;
 uniform float push;
 uniform float distance;
 uniform vec2 glass;
 uniform vec2 fade;
+uniform float remaining;
 
 // How far the edge between the two wanders, as a share of the way across the screen, so the two
 // worlds interleave along it rather than meeting on a ruled line.
@@ -188,7 +199,7 @@ void main() {
         color /= 24.0;
         color.rgb += vec3(0.85, 0.95, 1.0) * LIGHT * edge * color.a;
         color.rgb *= 1.0 - FOG * far;
-        color *= 1.0 - smoothstep(fade.x, fade.y, z);
+        color *= (1.0 - smoothstep(fade.x, fade.y, z)) * remaining;
     }
 
 #if defined(NO_ALPHA)
@@ -418,7 +429,16 @@ mod tests {
 
     #[test]
     fn the_whole_pane_has_faded_by_the_end() {
-        let (_, push) = pose(1.0, W);
-        assert!(push >= FADE.1 * DISTANCE * W);
+        assert_eq!(remaining(0.5), 1.0);
+        assert_eq!(remaining(1.0), 0.0);
+    }
+
+    #[test]
+    fn tipping_and_sinking_keep_pace() {
+        let (tilt_end, push_end) = pose(1.0, W);
+        for p in [0.1, 0.25, 0.5, 0.75] {
+            let (tilt, push) = pose(p, W);
+            assert!((tilt / tilt_end - push / push_end).abs() < 1e-4);
+        }
     }
 }
