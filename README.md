@@ -1,34 +1,107 @@
-# Slipstream Desktop
+<div align="center">
 
-A keyboard-first Wayland desktop for Linux: its own compositor, bar, notifications, lock screen and Settings app. Windows are places you fly to (bullet time), weight by importance (gravity) and park at the edge of the screen while they keep running (code rain). The keys follow Windows wherever they don't fight a keyboard-first design, so Windows habits carry over.
+# Slipstream
 
-It's built to protect your concentration: windows that open while you type don't take the keyboard, and notifications wait for a natural pause.
+**A keyboard-first Wayland desktop for Linux that looks like nothing else and gets out of your way.**
 
-**Status: beta.** It's developed and used on Bazzite (Fedora Atomic). Expect rough edges, and changes between versions. See [CHANGELOG.md](CHANGELOG.md).
+Your wallpaper is a screensaver. Minimised windows turn into digital rain.<br>
+Bullet time slows the whole desktop down. Pop-ups wait until you stop typing.
 
-## What it does
+[![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
+[![licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 
-- **Tiling** across named workspaces (up to 20), with several screens, fullscreen, and X11 apps through XWayland.
-- **Gravity** (Super+T): weight windows from distant to tiled with Super+PgUp and PgDn.
-- **Bullet time** (Super+Tab): a 3D overview of every workspace, with letter hints to jump anywhere. Everything the compositor draws slows down while it's open.
-- **Code rain** (Super+M): minimised windows become streams down the edge of the screen, showing each app's CPU and memory as they run.
-- **App explorer** (Super+Space or Super+R): apps, files, and commands to run.
-- **Living wallpaper**: when you step away, the desktop fades to one of twenty animated variations.
-- **Concentration first**: see [below](#concentration-first).
-- **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light, power mode. Media keys work with any player that speaks MPRIS.
-- **Notifications** (Super+N): pop-ups with actions, a notification centre, do not disturb.
-- **Lock screen** (Super+L), before sleep and optionally after a while idle.
-- **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own chooser for a screen or a single window. It works end to end in testing, but is still new with real apps.
-- **Session**: logging out asks apps to close and waits for them; your layout can be remembered and reopened at login.
-- **Settings** (Super+I): applied as soon as you change them, and saved in `~/.config/slipstream/settings.toml`.
+[**Install**](#installing) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
+
+</div>
+
+Slipstream is a whole desktop session: its own compositor, bar, notifications, lock screen and Settings app, written in Rust on [Smithay](https://github.com/Smithay/smithay). It tiles, it's built for the keyboard, and the keys follow Windows wherever that doesn't fight a keyboard-first design, so Windows habits carry straight over. It installs next to your current desktop, so you can pick it at the login screen and go back whenever you like.
+
+## The wallpaper *is* the screensaver
+
+There's no separate screensaver to wait for. A living wallpaper runs behind your windows all the time, and when you step away, the windows and the bar fade out through a glass transition and leave it the whole screen. Touch a key and everything comes back the same way. That key only wakes the desktop, so nothing gets typed blind.
+
+There are **twenty** of them, and many aren't canned animations at all but real simulations seeded from the logo: strange attractors, colliding galaxies, slime mould, reaction–diffusion, flocking starlings, growing frost. A few favourites:
+
+- **Attractor:** the logo unravels into a strange attractor drawn in fine dots, which slowly changes shape and winds back into letters.
+- **Galaxies:** the logo's two halves wind up into spiral galaxies that collide and merge, then the collision runs backwards.
+- **Life:** Conway's Game of Life seeded with the logo, glowing and swirling to a beat.
+- **Physarum:** a slime mould creeps out of the letters and spreads over the screen as a network of veins.
+- **Murmuration:** the logo takes off as a flock of starlings, scatters from a falcon, and lands back in the letters.
+- **Frost:** frost grows out of the letters in branching ferns, glitters, and melts back the way it came.
+
+<details>
+<summary><b>All twenty wallpapers</b></summary>
+
+| | |
+|---|---|
+| **Slipstream** | The logo arrives letter by letter, holds, and peels away downwind in smoke. |
+| **Vortex** | The logo sits in the eye of a turning tunnel of light, and rings on the minute. |
+| **Departures** | A split-flap board with the time, date, workspace and battery, turning as they change. |
+| **Prompt** | A command is typed at a terminal, and prints the logo as a banner. |
+| **Circuit** | Tracks are routed in from the edges, and pulses run along them to the logo. |
+| **Life** | Conway's Game of Life, seeded with the logo, with a spark dropped in when it settles. |
+| **Sonar** | A beam sweeps round, and everything it touches answers and fades behind it. |
+| **Tide** | Swell crosses the screen in shaded bands, and the logo surfaces out of it. |
+| **Warp** | A steering tunnel of streaks, and the logo comes up out of its vanishing point. |
+| **Glitch** | The picture smears like a broken video stream, then swirls away. |
+| **Contours** | A pressure map of the air round the logo, with a weather system drifting across. |
+| **Contrails** | Aircraft leave trails that light up the logo, and now and then skywrite the time. |
+| **Coral** | The letters seed a chemical reaction that grows over the screen in stripes and spots, then dies back. |
+| **Attractor** | The logo unravels into a strange attractor that slowly changes shape, then winds back into letters. |
+| **Murmuration** | The logo takes off as a flock of starlings that wheels round the screen, scatters from a falcon, and lands back in the letters. |
+| **Maze** | A walk through a maze, seen first hand, to the logo on the wall at its end. |
+| **Physarum** | A slime mould creeps out of the letters, spreads over the screen as a network of veins, then draws back into the logo. |
+| **Galaxies** | The two halves of the logo wind up into spiral galaxies that collide and merge, then the collision runs backwards into letters. |
+| **Chladni** | The logo is sand on a ringing plate: each note shakes it into a new figure, and then it walks home. |
+| **Frost** | Frost grows out of the letters in branching ferns, glitters, and melts back the way it came. |
+
+</details>
+
+Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. The fade waits while Caps Lock is on, while something is fullscreen, or while a video player asks it to. The lock screen uses the living wallpaper too.
+
+## Minimise into the Matrix
+
+Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
+
+The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
+
+It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
+
+## Bullet time
+
+**Super+Tab** tilts the whole desktop back into 3D, with every workspace laid out side by side and a letter on each window. Press the letter and you're there. Or move windows between workspaces, weigh them, minimise or close them from the overview.
+
+While it's open, **everything the compositor draws drops to a quarter speed**: window animations, the rain, the wallpaper. When you leave, the clock catches back up to where it would have been, smoothly and with no jump.
 
 ## Concentration first
 
-- **Typing** is judged from when keys reach an app, never from which keys. It ends at a pause of 15 seconds, a shortcut, a click, or a change of focus.
-- **Windows** you didn't ask for, such as an app opening one by itself or a window from another app while you type, pour into the code rain with a toast instead of taking the screen and the keyboard. Windows you open yourself, dialogs of the app you're in, programs started from it, and anything that appears just after a click still come straight to you.
-- **Notifications** that arrive while you type wait for the pause, then show as one card. The bell counts them straight away and Super+N shows them at any time. Critical ones never wait, and nothing waits more than 15 minutes.
+Most desktops let any app break your train of thought at any moment. Slipstream doesn't.
+
+- **Notifications that arrive while you type wait for a natural pause**, then come up as one card. The bell counts them straight away, and Super+N shows them any time. Critical ones never wait, and nothing waits more than 15 minutes.
+- **Windows you didn't ask for don't take the screen or the keyboard.** An app opening a window by itself, or a window from another app while you type, pours into the code rain with a toast instead. Windows you open yourself, dialogs of the app you're in, and anything that appears just after a click still come straight to you.
+- **Typing is judged from when keys reach an app, never from which keys.** It ends at a pause of 15 seconds, a shortcut, a click, or a change of focus.
 
 Settings → Notifications has the switches.
+
+## Gravity
+
+Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · tiling · centre · wide · spotlight*. One rung per press, always reversible.
+
+## And everything else a desktop needs
+
+- **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
+- **App explorer** (Super+Space or Super+R): every installed app, Flatpaks included, plus recent files. Type a command that matches no app and Enter runs it, like Windows' Run box.
+- **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.
+- **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light, power mode. Media keys work with any player that speaks MPRIS.
+- **Notifications** (Super+N): pop-ups with action buttons, a notification centre, do not disturb.
+- **Lock screen** (Super+L), before sleep and optionally after a while idle.
+- **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
+- **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
+- **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
+- **Every effect has a reduced-motion version**, switched live from Settings.
+
+**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic). Expect rough edges, and changes between versions.
 
 ## Requirements
 
@@ -47,9 +120,9 @@ Releases carry ready-built programs for Fedora 44 and the systems built on it. O
 Download the `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then:
 
 ```sh
-sha256sum -c slipstream-0.0.3-fedora44-x86_64.tar.gz.sha256
-tar xf slipstream-0.0.3-fedora44-x86_64.tar.gz
-cd slipstream-0.0.3-fedora44-x86_64
+sha256sum -c slipstream-0.0.8-fedora44-x86_64.tar.gz.sha256
+tar xf slipstream-0.0.8-fedora44-x86_64.tar.gz
+cd slipstream-0.0.8-fedora44-x86_64
 scripts/install-session --check    # what it will do, and what's missing; writes nothing
 scripts/update-session             # puts the programs in ~/.local/bin; no root
 scripts/install-session            # adds Slipstream to the login screen; asks for sudo once
