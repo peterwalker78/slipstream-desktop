@@ -55,6 +55,7 @@ impl CompositorHandler for Slipstream {
         self.send_initial_configure(surface);
 
         xdg_shell::handle_commit(&mut self.popups, &self.space, surface);
+        self.layer_commit(surface);
 
         // A toplevel with its first buffer is a window worth a tile. Before that it may never be
         // shown at all, so it waits in `unmapped`.

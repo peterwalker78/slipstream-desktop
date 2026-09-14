@@ -553,6 +553,13 @@ impl Slipstream {
                 |surface, _| surface_presentation_feedback_flags_from_states(surface, None, states),
             );
         }
+        for layer in smithay::desktop::layer_map_for_output(output).layers() {
+            layer.take_presentation_feedback(
+                &mut feedback,
+                |_, _| Some(output.clone()),
+                |surface, _| surface_presentation_feedback_flags_from_states(surface, None, states),
+            );
+        }
         feedback
     }
 
@@ -569,6 +576,7 @@ impl Slipstream {
             });
             sent.push(window);
         }
+        self.send_layer_frames(output, now);
     }
 }
 
@@ -769,6 +777,19 @@ pub fn output_elements(
         && chrome.glass.ready(renderer);
     let ui_alpha = if glass { 1.0 } else { ui };
     let pane_start = elements.len();
+    // Other programs' launchers, pickers and panels in front of everything of the desktop's, and
+    // their docks and wallpapers behind the windows, all inside the pane that fades. Not in
+    // bullet time, which is the desktop's own.
+    let layers_shown = tiling_output && ui > 0.0 && zoomed_out <= 0.0;
+    if layers_shown {
+        elements.extend(state.layer_elements(
+            renderer,
+            output,
+            &crate::layers::FRONT,
+            scale,
+            ui_alpha,
+        ));
+    }
 
     // Bullet time leans the overview back like a floor, further than the mockup's 9° and in a
     // nearer perspective, and turns it a little while gliding between workspaces.
@@ -1579,6 +1600,16 @@ pub fn output_elements(
                 .hint(renderer, output_geo.size, active_dx, scale, ui_alpha, below)
                 .map(OutputElement::Memory),
         );
+    }
+
+    if layers_shown {
+        elements.extend(state.layer_elements(
+            renderer,
+            output,
+            &crate::layers::BACK,
+            scale,
+            ui_alpha,
+        ));
     }
 
     // Where the turning page sits in the list, for the wallpaper to lie over it behind the glass.

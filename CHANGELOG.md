@@ -10,6 +10,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - Video players and games are told exactly when each frame reached the screen, so they can pace playback smoothly.
 - File choosers and other portal dialogs are attached to the app that opened them.
 - Input methods work in Wayland apps: IBus and fcitx5 can type Chinese, Japanese, Korean and other scripts, with their candidate pop-up beside the text, and on-screen keyboards can type. Only programs outside a sandbox can act as an input method or keyboard, since either sees or sends every key.
+- Other programs' launchers, pickers, docks and overlays work (layer shell): fuzzel, wofi, slurp, colour pickers, on-screen displays and wallpaper setters. Launchers that want the keyboard get it while they're up and hand it back when they close, docks along an edge take that strip out of the tiling, a window filling the screen covers all but overlays, and they fade with the rest of the desktop. Only programs outside a sandbox can draw them.
 - Touchpad swipes, pinches and holds reach apps, so pinching zooms pages and pictures.
 - Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 

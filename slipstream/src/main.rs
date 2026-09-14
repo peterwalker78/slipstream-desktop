@@ -39,6 +39,7 @@ mod inhibit;
 mod input;
 mod keys;
 mod launch;
+mod layers;
 mod layout;
 mod live;
 mod lock;

@@ -126,6 +126,10 @@ pub struct Slipstream {
     pub viewporter_state: ViewporterState,
     /// Portal dialogs parented to the app that opened them.
     pub xdg_foreign_state: XdgForeignState,
+    /// Other programs' panels, launchers and overlays (`layers.rs`).
+    pub layer_shell_state: smithay::wayland::shell::wlr_layer::WlrLayerShellState,
+    /// What each screen's layer surfaces leave for tiling, as last tiled.
+    pub layer_zones: Vec<(String, Rectangle<i32, Logical>)>,
     /// Apps asking for one of their windows to be brought forward, with proof of the click or key
     /// that asked for it (`handlers/mod.rs`).
     pub xdg_activation_state: XdgActivationState,
@@ -372,6 +376,7 @@ impl Slipstream {
         let xdg_foreign_state = XdgForeignState::new::<Self>(&dh);
         // Typing other scripts through IBus or fcitx5, and on-screen keyboards.
         crate::ime::init(&dh);
+        let layer_shell_state = crate::layers::state(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
 
         // Clipboard, drag-and-drop, and middle-click paste.
@@ -486,6 +491,8 @@ impl Slipstream {
             fractional_scale_state,
             viewporter_state,
             xdg_foreign_state,
+            layer_shell_state,
+            layer_zones: Vec::new(),
             xdg_activation_state,
             seat_state,
             data_device_state,
@@ -726,10 +733,15 @@ impl Slipstream {
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(KeyboardFocus, Point<f64, Logical>)> {
-        let (window, local) = self.window_under(pos)?;
-        window
-            .surface_under(local, WindowSurfaceType::ALL)
-            .map(|(s, p)| (KeyboardFocus::Wayland(s), pos - (local - p.to_f64())))
+        if let Some(under) = self.layer_surface_under(pos, &crate::layers::FRONT) {
+            return Some(under);
+        }
+        if let Some((window, local)) = self.window_under(pos) {
+            return window
+                .surface_under(local, WindowSurfaceType::ALL)
+                .map(|(s, p)| (KeyboardFocus::Wayland(s), pos - (local - p.to_f64())));
+        }
+        self.layer_surface_under(pos, &crate::layers::BACK)
     }
 
     /// The window drawn at `pos`, topmost first, and the point in the window's own coordinates
@@ -859,11 +871,21 @@ impl Slipstream {
     pub fn screen_area(&self, index: usize) -> Option<Rect> {
         let screen = self.screen_rect(index)?;
         let reserve = if index == 0 { self.rain.reserve() } else { 0 };
-        Some(Rect {
+        let area = Rect {
             y: screen.y + bar::HEIGHT,
             w: (screen.w - reserve).max(1),
             h: (screen.h - bar::HEIGHT).max(1),
             ..screen
+        };
+        // Less whatever docks and panels along the edges have reserved.
+        let zone = self.screens.get(index).map(|screen| {
+            smithay::desktop::layer_map_for_output(&screen.output).non_exclusive_zone()
+        });
+        Some(match zone {
+            Some(zone) if zone.size.w > 0 && zone.size.h > 0 => {
+                crate::layers::within_zone(area, screen, zone)
+            }
+            _ => area,
         })
     }
 
@@ -936,6 +958,10 @@ impl Slipstream {
     pub fn retile(&mut self) {
         if self.screens.is_empty() {
             return;
+        }
+        // A screen that changed size moves its layer surfaces first, and so what they reserve.
+        for output in self.space.outputs() {
+            smithay::desktop::layer_map_for_output(output).arrange();
         }
         let shown: Vec<(usize, usize)> = self
             .screens
@@ -1949,6 +1975,14 @@ impl Slipstream {
             return;
         };
         self.screen_order.retain(|name| *name != output.name());
+        // Layer surfaces on it have nowhere to be drawn: they're asked to close.
+        {
+            let mut map = smithay::desktop::layer_map_for_output(output);
+            for layer in map.layers().cloned().collect::<Vec<_>>() {
+                layer.layer_surface().send_close();
+                map.unmap_layer(&layer);
+            }
+        }
         self.arrange_screens();
         self.motion.forget_camera(&output.name());
         self.forget_screen_drawing(&output.name());
@@ -3892,6 +3926,8 @@ impl Slipstream {
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock);
         let keep_up = caps_lock
             || self.fullscreen_on_screen()
+            // A launcher or picker drawn by another program, while it has the keyboard.
+            || self.keyboard_layer().is_some()
             || self.explorer.is_open()
             || self.quick.is_open()
             || self.centre.is_open()
@@ -4817,7 +4853,7 @@ pub(crate) fn window_title(window: &Window) -> String {
 /// Tells a window the size of `r`, its tile or (`full`) the whole screen, and which of its edges
 /// are tiled.
 /// Tells a window it isn't the active one any more, and sends that to its client.
-fn deactivate(window: &Window) {
+pub(crate) fn deactivate(window: &Window) {
     window.set_activated(false);
     if let Some(toplevel) = window.toplevel()
         && toplevel.is_initial_configure_sent()
@@ -4928,6 +4964,8 @@ pub struct ClientState {
     /// Whether the client may be an input method or a virtual keyboard (`ime::client_may_type`):
     /// likewise, any client proven to be outside a sandbox.
     pub may_type: bool,
+    /// Whether the client may draw layer surfaces (`layers::client_may_draw`): likewise.
+    pub may_draw_layers: bool,
 }
 
 impl ClientState {
@@ -4939,6 +4977,7 @@ impl ClientState {
             may_capture: capture::client_may_capture(peer.as_ref()),
             may_control_clipboard: clipboard::client_may_control(peer.as_ref()),
             may_type: crate::ime::client_may_type(peer.as_ref()),
+            may_draw_layers: crate::layers::client_may_draw(peer.as_ref()),
             ..Self::default()
         }
     }

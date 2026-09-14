@@ -852,7 +852,10 @@ impl Slipstream {
         }
 
         if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
-            if let Some((window, _)) = self.window_under(pointer.current_location()) {
+            if self.layer_clicked(pointer.current_location()) {
+                // A panel or launcher of another program's: the press goes to it, and it took
+                // the keyboard if it wanted it.
+            } else if let Some((window, _)) = self.window_under(pointer.current_location()) {
                 self.focus_window(&window);
             } else {
                 self.space.elements().for_each(|window| {
