@@ -68,7 +68,7 @@ There are **twenty** of them, and many aren't canned animations at all but real 
 
 </details>
 
-Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. The fade waits while Caps Lock is on, while something is fullscreen, or while a video player asks it to. The lock screen uses the living wallpaper too.
+Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. **Caps Lock turns the screensaver off:** while it's on, the desktop stays up, and so it does while something is fullscreen or a video player asks. Caps Lock doesn't hold off the screen lock, so a desktop left with it on still locks on time. The lock screen uses the living wallpaper too.
 
 ## Minimise into the Matrix
 
@@ -213,6 +213,7 @@ Packages you added for it stay, since other things may use them.
 | Super+A, Super+N | Quick settings, notifications |
 | Print, Super+Shift+S | Screenshot of the screen, of the window |
 | Super+L | Lock |
+| Caps Lock | Keeps the screensaver off while it's on (the screen still locks) |
 | Super+Shift+Esc | Log out |
 | Super+/ | Every key |
 

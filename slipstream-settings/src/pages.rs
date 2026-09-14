@@ -748,7 +748,7 @@ fn session(store: &Store) -> gtk::Widget {
         &lock,
         "Lock after",
         Some(
-            "Time with no keyboard or mouse input. Caps Lock, a fullscreen window or a playing video holds it off. Super+L or the lock in quick settings locks at any time.",
+            "Time with no keyboard or mouse input. A fullscreen window or a playing video holds it off; Caps Lock doesn't. Super+L or the lock in quick settings locks at any time.",
         ),
         &after,
     );

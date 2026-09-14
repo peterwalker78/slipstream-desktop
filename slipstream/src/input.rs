@@ -809,9 +809,15 @@ impl Slipstream {
                         if key == Keysym::Caps_Lock {
                             let on = modifiers.caps_lock;
                             let kind = crate::osd::Kind::CapsLock { on };
-                            // At the lock screen there's no wallpaper fade or lock to hold off.
+                            // It holds off the wallpaper fade, not the lock; at the lock screen
+                            // there's no fade to hold off.
                             if on && state.lock.is_none() {
-                                state.show_osd_with(kind, "Screensaver and screen lock paused");
+                                let note = if state.idle.locks_by_itself() {
+                                    crate::osd::CAPS_ON_NOTE_LOCKING
+                                } else {
+                                    crate::osd::CAPS_ON_NOTE
+                                };
+                                state.show_osd_with(kind, note);
                             } else {
                                 state.show_osd(kind, 0);
                             }

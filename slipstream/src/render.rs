@@ -225,6 +225,7 @@ const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
         (&["Super+Alt+← → ↑ ↓"], "move the window"),
         (&["Super+P", "Super+Shift+P"], "next screen, send there"),
         (&["Alt+F4"], "close window"),
+        (&["Caps Lock"], "screensaver off"),
     ],
     &[
         (&["Super+1–9"], "go to a workspace"),

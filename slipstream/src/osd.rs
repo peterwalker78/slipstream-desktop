@@ -35,6 +35,12 @@ const MOCKUP_PX: f32 = 0.8;
 const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
 const SHOWN: f64 = 1.2;
+/// Caps Lock going on stays up longer, since its card has a note to read as well.
+const SHOWN_CAPS_ON: f64 = 1.7;
+
+/// The note on Caps Lock's card when it goes on, depending on whether the screen locks by itself.
+pub const CAPS_ON_NOTE: &str = "Screensaver paused";
+pub const CAPS_ON_NOTE_LOCKING: &str = "Screensaver paused · lock still on";
 const FADE: f64 = 0.18;
 
 /// What the keys changed. Each carries what the card should say about it.
@@ -63,6 +69,14 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// How long its card stays up after the last press.
+    fn shown(self) -> f64 {
+        match self {
+            Kind::CapsLock { on: true } => SHOWN_CAPS_ON,
+            _ => SHOWN,
+        }
+    }
+
     fn icon(self) -> &'static str {
         match self {
             Kind::Volume { muted: false } => icons::VOLUME,
@@ -156,7 +170,8 @@ impl Osd {
     {
         let (kind, level, at) = *self.showing.as_ref()?;
         let age = now - at;
-        if !(0.0..SHOWN).contains(&age) {
+        let shown = kind.shown();
+        if !(0.0..shown).contains(&age) {
             self.showing = None;
             self.painted = None;
             return None;
@@ -175,7 +190,7 @@ impl Osd {
         let alpha = if fade <= 0.0 {
             1.0
         } else {
-            (age / fade).min((SHOWN - age) / fade).clamp(0.0, 1.0)
+            (age / fade).min((shown - age) / fade).clamp(0.0, 1.0)
         };
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
@@ -325,6 +340,20 @@ mod tests {
         // A second press while it's up holds it there rather than starting a second card.
         osd.show(Kind::Brightness, 45, 11.0);
         assert_eq!(osd.showing.unwrap().2, 11.0);
+    }
+
+    #[test]
+    fn caps_lock_going_on_stays_up_half_a_second_longer() {
+        assert_eq!(Kind::CapsLock { on: true }.shown(), SHOWN + 0.5);
+        assert_eq!(Kind::CapsLock { on: false }.shown(), SHOWN);
+    }
+
+    #[test]
+    fn caps_locks_notes_fit_the_card() {
+        let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
+        for note in [CAPS_ON_NOTE, CAPS_ON_NOTE_LOCKING] {
+            assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
+        }
     }
 
     #[test]

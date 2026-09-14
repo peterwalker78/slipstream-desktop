@@ -8,8 +8,9 @@
 //!
 //! The same input also counts towards locking the screen by itself (`[lock] after-idle-mins`, off by
 //! default). That wait is wall time since the last input, so bullet time can't stretch it, and
-//! only Caps Lock, a fullscreen window or an app asking for the screen to stay awake holds it off:
-//! an open panel or card doesn't, since it's no sign anyone is there.
+//! only a fullscreen window or an app asking for the screen to stay awake holds it off. Caps Lock
+//! doesn't, since anyone can leave it on, and nor does an open panel or card, since neither is a
+//! sign anyone is there.
 
 use std::time::{Duration, Instant};
 
@@ -20,7 +21,7 @@ use crate::anim::{Easing, Tween};
 /// Fading out and back in take the same time, the UI passing through the wallpaper like a pane of
 /// glass either way (`glass.rs`). Fading out eases in and out; coming back starts at full speed
 /// and settles, so the UI answers the waking key at once rather than a quarter of a second later.
-const FADE: f64 = 0.8;
+const FADE: f64 = 0.6;
 const REDUCED_FADE: f64 = 0.08;
 
 pub struct Idle {
@@ -61,9 +62,14 @@ impl Idle {
         self.lock_after = (mins > 0).then(|| Duration::from_secs(mins.saturating_mul(60)));
     }
 
+    /// Whether the screen locks by itself after a while idle.
+    pub fn locks_by_itself(&self) -> bool {
+        self.lock_after.is_some()
+    }
+
     /// Whether the screen should lock by itself at `now`: its wait has passed with no input,
-    /// and nothing has held it off in that time — `held` (Caps Lock or a fullscreen window) or an
-    /// app asking for the screen to stay awake.
+    /// and nothing has held it off in that time — `held` (a fullscreen window) or an app asking
+    /// for the screen to stay awake.
     pub fn lock_due(&mut self, now: Instant, held: bool) -> bool {
         self.inhibitors.retain(|surface| surface.alive());
         if held || !self.inhibitors.is_empty() {
@@ -175,7 +181,7 @@ mod tests {
         );
         assert!(
             !idle.lock_due(later(11), true),
-            "Caps Lock or a fullscreen window holds it off"
+            "a fullscreen window holds it off"
         );
         assert!(
             !idle.lock_due(later(15), false),

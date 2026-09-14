@@ -1010,11 +1010,9 @@ impl Slipstream {
     /// sleep waiting on the lock is let go once every screen has drawn it.
     pub fn tick_lock(&mut self) {
         let now = std::time::Instant::now();
-        let caps_lock = self
-            .seat
-            .get_keyboard()
-            .is_some_and(|keyboard| keyboard.modifier_state().caps_lock);
-        let held = self.fullscreen_on_screen() || caps_lock;
+        // Caps Lock keeps the wallpaper from fading but never holds off the lock: it's a key
+        // anyone can leave on, so it mustn't leave an unattended desktop unlocked.
+        let held = self.fullscreen_on_screen();
         if self.lock.is_none() && self.idle.lock_due(now, held) {
             tracing::info!("idle long enough to lock");
             self.idle.restart_lock_wait(now);
