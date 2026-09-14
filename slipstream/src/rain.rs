@@ -202,9 +202,8 @@ pub struct Rain {
     /// The names on the headers are in the focus ring's colour: the app's own colour can be close
     /// enough to the rain's green to vanish into it, and the ring's is chosen to stand off it.
     name_colour: u32,
-    /// The names the rain spells are in bullet time's colour, so they stand off both the rain
-    /// and the headers.
-    spelled_rgb: [f32; 3],
+    /// The same colour as channels, for the names the rain spells.
+    ring_rgb: [f32; 3],
 }
 
 impl Rain {
@@ -215,30 +214,25 @@ impl Rain {
         }
     }
 
-    pub fn new(reduced_motion: bool, ring_rgb: [f32; 3], bullet_rgb: [f32; 3]) -> Self {
+    pub fn new(reduced_motion: bool, ring_rgb: [f32; 3]) -> Self {
         Self {
             streams: Vec::new(),
             glyphs: Glyphs::load(),
             reduced_motion,
             pinned: None,
             name_colour: rgb_colour(ring_rgb),
-            spelled_rgb: bullet_rgb,
+            ring_rgb,
         }
     }
 
     /// Writes the names in `ring_rgb` from the next frame, when the ring's colour changes.
     pub fn set_ring_colour(&mut self, ring_rgb: [f32; 3]) {
         let colour = rgb_colour(ring_rgb);
+        self.ring_rgb = ring_rgb;
         if colour != self.name_colour {
             self.name_colour = colour;
             self.forget_painted_text();
         }
-    }
-
-    /// Spells the names in the rain in `bullet_rgb` from the next frame, when bullet time's colour
-    /// changes.
-    pub fn set_bullet_colour(&mut self, bullet_rgb: [f32; 3]) {
-        self.spelled_rgb = bullet_rgb;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -391,7 +385,7 @@ impl Rain {
             pinned,
             reduced_motion,
             name_colour,
-            spelled_rgb,
+            ring_rgb,
         } = self;
         let Some(glyphs) = glyphs.as_mut() else {
             return elements;
@@ -455,7 +449,7 @@ impl Rain {
             // Its own band, at its own speed and colour. A quiet app's rain steps a few times a
             // second and a busy one's thirty, so what a stream costs to paint is what its app is
             // doing — the same thing the rain is there to say. Now and then the rain spells out
-            // the app's name, lit in bullet time's colour.
+            // the app's name, lit in the ring's colour like the header's.
             let band = stream.band.get_or_insert_with(|| {
                 Band::new(
                     &stream.name.to_uppercase(),
@@ -465,7 +459,7 @@ impl Rain {
                     stream.seed,
                 )
             });
-            let recoloured = band.set_name_colour(*spelled_rgb);
+            let recoloured = band.set_name_colour(*ring_rgb);
             let changed = if *reduced_motion {
                 // Reduced motion holds the rain still: nothing falls, and the glyphs where they
                 // stand are repainted in the load's colour and brightness only when it moves a
