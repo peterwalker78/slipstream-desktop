@@ -286,7 +286,7 @@ pub struct Mods {
 
 impl Mods {
     /// Nested inside another desktop, that desktop keeps Super for itself (KDE binds
-    /// Super+Shift+Esc, for one), so Alt stands in for Super, as niri does.
+    /// Super+Shift+Esc, for one), so Alt stands in for Super.
     pub fn from_state(m: &ModifiersState, nested: bool) -> Self {
         let mut mods = Self {
             ctrl: m.ctrl,
@@ -411,8 +411,7 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::l, Action::Lock),
         // Windows' clipboard history key.
         bind(mod_, Keysym::v, Action::ClipboardHistory),
-        // niri's floating keys are Mod+V and Mod+Shift+V; V is the clipboard's here, so they move
-        // up a modifier.
+        // Floating: Super+V is the clipboard history, so these take the V with a modifier.
         bind(mod_shift, Keysym::v, Action::ToggleFloating),
         bind(mod_ctrl, Keysym::v, Action::SwitchFloatingFocus),
         bind(mod_, Keysym::n, Action::NotificationCentre),

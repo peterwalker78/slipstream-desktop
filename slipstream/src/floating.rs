@@ -1,5 +1,4 @@
-//! Floating windows: the ones that sit above a workspace's tiling rather than in it, as niri has
-//! them.
+//! Floating windows: the ones that sit above a workspace's tiling rather than in it.
 //!
 //! A new window floats when it has a parent (a dialog) or its height is fixed (a splash screen, a
 //! picture-in-picture player). A dialog opens centred over its parent; anything else keeps the
@@ -226,7 +225,7 @@ impl<T: Clone + PartialEq> Floating<T> {
     }
 
     /// The floating window to focus from `from` going `direction`: the nearest by its centre along
-    /// that way, as niri picks it.
+    /// that way.
     pub fn neighbour(
         &self,
         from: &T,
@@ -281,9 +280,8 @@ pub fn max_size(window: &Window) -> (i32, i32) {
     })
 }
 
-/// Whether a new window opens floating, as niri decides it: one with a parent (a dialog), or one
-/// whose height is fixed (a splash screen). Firefox's picture-in-picture player floats too, as
-/// niri's own default rules have it.
+/// Whether a new window opens floating: one with a parent (a dialog), or one whose height is
+/// fixed (a splash screen). Firefox's picture-in-picture player floats too.
 pub fn opens_floating(window: &Window) -> bool {
     let picture_in_picture = window_app_id(window).is_some_and(|id| id.ends_with("firefox"))
         && window_title(window) == "Picture-in-Picture";
