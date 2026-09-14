@@ -254,6 +254,24 @@ pub const VARIATIONS: &[Variation] = &[
         blurb: "A slime mould creeps out of the letters, spreads over the screen as a network of \
                 veins, then draws back into the logo.",
     },
+    Variation {
+        id: "galaxies",
+        title: "Galaxies",
+        blurb: "The two halves of the logo wind up into spiral galaxies that collide and merge, \
+                then the collision runs backwards into letters.",
+    },
+    Variation {
+        id: "chladni",
+        title: "Chladni",
+        blurb: "The logo is sand on a ringing plate: each note shakes it into a new figure, and \
+                then it walks home.",
+    },
+    Variation {
+        id: "frost",
+        title: "Frost",
+        blurb: "Frost grows out of the letters in branching ferns, glitters, and melts back the \
+                way it came.",
+    },
 ];
 
 /// The most workspaces there can be. The bar has to find room for every one of them.

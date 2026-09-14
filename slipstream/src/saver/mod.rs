@@ -11,11 +11,14 @@
 //! agree.
 
 mod attractor;
+mod chladni;
 mod circuit;
 mod contours;
 mod contrails;
 mod coral;
 mod departures;
+mod frost;
+mod galaxies;
 mod glitch;
 mod life;
 mod maze;
@@ -218,6 +221,9 @@ fn make(id: &str) -> Option<Box<dyn Variation>> {
         "murmuration" => Box::<murmuration::Murmuration>::default(),
         "maze" => Box::<maze::Maze>::default(),
         "physarum" => Box::<physarum::Physarum>::default(),
+        "galaxies" => Box::<galaxies::Galaxies>::default(),
+        "chladni" => Box::<chladni::Chladni>::default(),
+        "frost" => Box::<frost::Frost>::default(),
         _ => return None,
     })
 }
@@ -878,6 +884,133 @@ fn braille(dots: u8) -> char {
         }
     }
     char::from_u32(0x2800 + bits).unwrap_or(' ')
+}
+
+/// One Braille dot of the logo: where it is, in dots across and down the screen, and how far
+/// across the logo it sits, 0 to 1.
+#[derive(Debug, Clone, Copy)]
+struct LogoDot {
+    x: usize,
+    y: usize,
+    across: f32,
+}
+
+/// Every Braille dot the logo's letters cover, with half blocks covering half their cell.
+fn logo_dots(layout: &Layout) -> Vec<LogoDot> {
+    let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
+    let mut dots = Vec::new();
+    for letter in &layout.letters {
+        if letter.col < 0 || letter.row < 0 {
+            continue;
+        }
+        let across = (letter.col - lx) as f32 / lw as f32;
+        for down in 0..4 {
+            for side in 0..2 {
+                let on = match letter.ch {
+                    '▀' => down < 2,
+                    '▄' => down >= 2,
+                    '▌' => side == 0,
+                    '▐' => side == 1,
+                    _ => true,
+                };
+                if on {
+                    dots.push(LogoDot {
+                        x: letter.col as usize * 2 + side,
+                        y: letter.row as usize * 4 + down,
+                        across,
+                    });
+                }
+            }
+        }
+    }
+    dots
+}
+
+/// Draws the logo's letters in their own blocks, `fade` of the way in.
+fn draw_letters(layout: &Layout, grid: &mut Grid, fade: f32) {
+    let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
+    for letter in &layout.letters {
+        let across = (letter.col - lx) as f32 / lw as f32;
+        grid.put(
+            letter.col as f32,
+            letter.row as f32,
+            letter.ch,
+            mix(BG, gradient(across), fade),
+        );
+    }
+}
+
+/// Many small things gathered into Braille cells: each lights its dot and adds its colour to its
+/// cell, and a cell is drawn in the mean of its colours, brighter and whiter the more it holds.
+#[derive(Default)]
+struct Stipple {
+    cols: usize,
+    rows: usize,
+    dots: Vec<u8>,
+    /// Red, green and blue summed, and how many were added, a cell.
+    ink: Vec<[f32; 4]>,
+}
+
+impl Stipple {
+    fn clear(&mut self, cols: usize, rows: usize) {
+        self.cols = cols;
+        self.rows = rows;
+        self.dots.clear();
+        self.dots.resize(cols * rows, 0);
+        self.ink.clear();
+        self.ink.resize(cols * rows, [0.0; 4]);
+    }
+
+    /// Adds one at (`x`, `y`) in dots, `weight` strong.
+    fn add(&mut self, x: f32, y: f32, rgb: [f32; 3], weight: f32) {
+        if !(x >= 0.0 && y >= 0.0) {
+            return;
+        }
+        let (x, y) = (x as usize, y as usize);
+        let (col, row) = (x / 2, y / 4);
+        if col >= self.cols || row >= self.rows {
+            return;
+        }
+        let cell = row * self.cols + col;
+        self.dots[cell] |= 1 << ((y % 4) * 2 + x % 2);
+        let ink = &mut self.ink[cell];
+        for (sum, channel) in ink.iter_mut().zip(rgb) {
+            *sum += channel * weight;
+        }
+        ink[3] += weight;
+    }
+
+    /// Draws every cell holding anything. `full` is how much a cell holds to be drawn at full
+    /// brightness; `white` how far past that its colour runs towards white.
+    fn draw(&self, grid: &mut Grid, full: f32, white: f32, fade: f32) {
+        for row in 0..self.rows.min(grid.rows.max(0) as usize) {
+            for col in 0..self.cols.min(grid.cols.max(0) as usize) {
+                let cell = row * self.cols + col;
+                let dots = self.dots[cell];
+                let ink = self.ink[cell];
+                if dots == 0 || ink[3] <= 0.0 {
+                    continue;
+                }
+                let rgb = [ink[0] / ink[3], ink[1] / ink[3], ink[2] / ink[3]];
+                let level = (0.35 + 0.65 * (ink[3] / full).sqrt()).min(1.0);
+                let whiter = ((ink[3] / full - 1.0) * white).clamp(0.0, 0.75);
+                grid.put(
+                    col as f32,
+                    row as f32,
+                    braille(dots),
+                    mix(BG, mix(rgb, WHITE, whiter), level * fade),
+                );
+            }
+        }
+    }
+}
+
+/// xorshift64*: cheap, and the same every run for the same seed. Never seed it with 0.
+fn xorshift(state: &mut u64) -> f32 {
+    *state ^= *state >> 12;
+    *state ^= *state << 25;
+    *state ^= *state >> 27;
+    (state.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 40) as f32 / (1u64 << 24) as f32
 }
 
 pub struct Saver {

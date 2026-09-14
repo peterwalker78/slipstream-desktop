@@ -13,7 +13,7 @@ It's built to protect your concentration: windows that open while you type don't
 - **Bullet time** (Super+Tab): a 3D overview of every workspace, with letter hints to jump anywhere. Everything the compositor draws slows down while it's open.
 - **Code rain** (Super+M): minimised windows become streams down the edge of the screen, showing each app's CPU and memory as they run.
 - **App explorer** (Super+Space or Super+R): apps, files, and commands to run.
-- **Living wallpaper**: when you step away, the desktop fades to one of seventeen animated variations.
+- **Living wallpaper**: when you step away, the desktop fades to one of twenty animated variations.
 - **Concentration first**: see [below](#concentration-first).
 - **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light, power mode. Media keys work with any player that speaks MPRIS.
 - **Notifications** (Super+N): pop-ups with actions, a notification centre, do not disturb.

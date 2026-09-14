@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- Three new living wallpapers, making twenty. **Galaxies:** the two halves of the logo wind up into spiral galaxies that collide and merge, and then the collision runs backwards until the letters are whole again. **Chladni:** the logo's dots are sand on a ringing plate, shaken into a new figure by each note, and they walk home when the plate falls quiet. **Frost:** frost grows out of the letters in branching ferns, glitters, and melts back the way it came.
+
 ## [0.0.4] - 2026-09-14
 
 - **Windows you didn't ask for go to the code rain.** A new window tiles and takes the keyboard only when you asked for it: a dialog or window of the app you're using, a program started from it (a command in a terminal), something launched from the desktop, or a window that appears within a few seconds of a click or key press. Anything else, such as an app opening a window by itself, pours into the code rain with a toast naming it; Super+Shift+M or a click on its stream brings it in. While you type in one app, a window from another goes to the rain too, so the window you're typing in never changes size.
