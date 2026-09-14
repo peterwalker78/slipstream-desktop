@@ -449,10 +449,10 @@ impl Rain {
             // Its own band, at its own speed and colour. A quiet app's rain steps a few times a
             // second and a busy one's thirty, so what a stream costs to paint is what its app is
             // doing — the same thing the rain is there to say. Now and then the rain spells out
-            // the app's name in CamelCase, lit in the ring's colour like the header's.
+            // the app's name, vowels small and the rest in capitals, lit in the ring's colour like the header's.
             let band = stream.band.get_or_insert_with(|| {
                 Band::new(
-                    &camel_case(&stream.name),
+                    &rain_case(&stream.name),
                     Look::for_demand(load),
                     card.inner.0 as f32,
                     card.inner.1 as f32,
@@ -676,20 +676,18 @@ fn name_colour(name: &str) -> u32 {
     COLOURS[hash as usize % COLOURS.len()]
 }
 
-/// `name` in CamelCase, as the rain spells it: each word starts with a capital and the words run
-/// together, so a name is one unbroken run of glyphs. Letters already capitalised inside a word
-/// keep their case.
-fn camel_case(name: &str) -> String {
-    name.split(|c: char| !c.is_alphanumeric())
-        .flat_map(|word| {
-            let mut chars = word.chars();
-            chars
-                .next()
-                .into_iter()
-                .flat_map(char::to_uppercase)
-                .chain(chars)
-        })
-        .collect()
+/// `name` as the rain spells it: vowels in lower case and everything else in capitals, so
+/// "Visual Studio Code" is "ViSuaL STuDio CoDe".
+fn rain_case(name: &str) -> String {
+    let mut spelled = String::with_capacity(name.len());
+    for c in name.chars() {
+        if matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u') {
+            spelled.extend(c.to_lowercase());
+        } else {
+            spelled.extend(c.to_uppercase());
+        }
+    }
+    spelled
 }
 
 /// Which of `count` streams is under (`x`, `y`), in the space's coordinates, with the rain drawn
@@ -712,12 +710,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_rain_spells_names_in_camel_case() {
-        assert_eq!(camel_case("konsole"), "Konsole");
-        assert_eq!(camel_case("Visual Studio Code"), "VisualStudioCode");
-        assert_eq!(camel_case("kde-connect_app"), "KdeConnectApp");
-        assert_eq!(camel_case("KeePassXC"), "KeePassXC");
-        assert_eq!(camel_case(""), "");
+    fn the_rain_spells_vowels_small_and_the_rest_in_capitals() {
+        assert_eq!(rain_case("konsole"), "KoNSoLe");
+        assert_eq!(rain_case("Visual Studio Code"), "ViSuaL STuDio CoDe");
+        assert_eq!(rain_case("KeePassXC"), "KeePaSSXC");
+        assert_eq!(rain_case("kde-connect 2"), "KDe-CoNNeCT 2");
+        assert_eq!(rain_case(""), "");
     }
 
     #[test]

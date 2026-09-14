@@ -4,7 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
-- The app name the code rain spells out is lit in the focus ring's colour, like the name on the stream's header, instead of the rain's own, and in CamelCase rather than capitals.
+- The app name the code rain spells out is lit in the focus ring's colour, like the name on the stream's header, instead of the rain's own, with its vowels in lower case and the rest in capitals ("KoNSoLe").
 
 ## [0.0.6] - 2026-09-14
 
