@@ -4,7 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
-- The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner as it sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Waking runs the same movement in reverse over the same 0.8 s, but starts at full speed and settles, so the desktop shows up as soon as a key is pressed.
+- The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner as it sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light without pulling the picture aside, so the desktop moves smoothly as the edge passes over it. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Waking runs the same movement in reverse over the same 0.8 s, but starts at full speed and settles, so the desktop shows up as soon as a key is pressed.
 
 ## [0.0.8] - 2026-09-14
 
