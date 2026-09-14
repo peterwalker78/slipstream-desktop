@@ -443,10 +443,11 @@ impl Rain {
 
             // Its own band, at its own speed and colour. A quiet app's rain steps a few times a
             // second and a busy one's thirty, so what a stream costs to paint is what its app is
-            // doing — the same thing the rain is there to say.
+            // doing — the same thing the rain is there to say. Now and then the rain spells out
+            // the app's name.
             let band = stream.band.get_or_insert_with(|| {
                 Band::new(
-                    "SLIPSTREAM",
+                    &stream.name.to_uppercase(),
                     Look::for_demand(load),
                     card.inner.0 as f32,
                     card.inner.1 as f32,

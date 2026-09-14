@@ -688,6 +688,29 @@ mod tests {
     }
 
     #[test]
+    fn the_rain_spells_out_its_name() {
+        let mut band = Band::new("KONSOLE", LOOK, 60.0, 1000.0, 11);
+        let spelled = |band: &Band| {
+            band.strips.iter().any(|strip| {
+                let name: Vec<i16> = b"KONSOLE".iter().map(|&b| (b - 32 + 1) as i16).collect();
+                (0..band.rows).any(|at| {
+                    strip.highlight[at..band.rows]
+                        .iter()
+                        .zip(&strip.glyphs[at..band.rows])
+                        .take(name.len())
+                        .map(|(&lit, &glyph)| if lit { glyph.abs() } else { 0 })
+                        .eq(name.iter().copied())
+                })
+            })
+        };
+        let found = (0..600).any(|_| {
+            band.step(0.5);
+            spelled(&band)
+        });
+        assert!(found, "no strip spelled KONSOLE in five minutes of rain");
+    }
+
+    #[test]
     fn a_held_band_stays_put_and_lights_by_its_demand() {
         let mut glyphs = Glyphs::load().expect("the font loads");
         let (w, h) = (100, 600);
