@@ -1,10 +1,10 @@
 //! The code rain on the right of the screen, where minimised windows go. Each window becomes a
-//! stream of GLMatrix rain (`glmatrix.rs`) under a header with its icon, its name and a meter. The
+//! stream of GLMatrix rain (`glmatrix.rs`) under a header with its icon and a meter. The
 //! tiling area gives up the width.
 //!
 //! **A stream is about its app, top to bottom.** How hard that app is working is one figure, and
 //! the whole column says it: the meter's length in the header, and the colour and the speed of
-//! its own rain. A column headed by an app's icon and name can't show a number the whole machine
+//! its own rain. A column headed by an app's icon can't show a number the whole machine
 //! shares — a file manager doing nothing under fast green rain is a lie about the file manager,
 //! whatever the rain is actually measuring.
 //!
@@ -13,7 +13,7 @@
 //! app is doing — six idle streams and six flat out measure the same as the one shared band they
 //! replaced.
 
-use resvg::tiny_skia::{Pixmap, PixmapPaint, Transform};
+use resvg::tiny_skia::Pixmap;
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
@@ -175,7 +175,7 @@ pub struct Stream {
     /// When it was minimised, on the animation clock.
     since: f64,
     header: Option<Painted>,
-    /// The header card's height in mockup pixels, which the name's length sets.
+    /// The header card's height in mockup pixels.
     button_h: f32,
     card: Option<Card>,
     /// How hard this app is working, 0 to 1, and what the painted header and the band's look are
@@ -528,9 +528,9 @@ fn compose(band: &mut Band, glyphs: &mut Glyphs, card: &Card) -> Pixmap {
     out
 }
 
-/// The mockup's stream header: a dark card edged and lit in the app's colour, with its icon, its
-/// name written top to bottom in `name_colour`, and the app's own meter (`load`, 0 to 1) along the
-/// foot of it.
+/// A stream's header: a dark card edged and lit in the app's colour, with its icon and the app's
+/// own meter (`load`, 0 to 1) along the foot of it. Every header is the same height: the rain
+/// spells the app's name already. An app with no icon gets its initial in `name_colour` instead.
 fn paint_header(
     name: &str,
     colour: u32,
@@ -539,13 +539,7 @@ fn paint_header(
     load: f32,
     scale: f64,
 ) -> Option<(Painted, f32)> {
-    let style = Style {
-        tracking: 0.06,
-        ..Style::new(Face::MonoBold, 15.0, name_colour)
-    };
-    let label = text::ellipsize(name, &style, 168.0);
-    let label_w = text::width(&label, &style).min(168.0);
-    let (w, h) = (BUTTON_W, 7.0 + 40.0 + 9.0 + label_w + 9.0 + METER_H + 9.0);
+    let (w, h) = (BUTTON_W, 7.0 + 40.0 + 9.0 + METER_H + 9.0);
     let logical = Size::<i32, Logical>::from((
         ((w + 2.0 * GLOW) * MOCKUP_PX * HEADER).ceil() as i32,
         ((h + 2.0 * GLOW) * MOCKUP_PX * HEADER).ceil() as i32,
@@ -574,24 +568,12 @@ fn paint_header(
     p.border(x, y, w, h, RADIUS, 1.0, colour);
     if let Some(icon) = icon {
         p.image(icon, x + 9.0, y + 7.0);
+    } else if let Some(initial) = name.chars().find(|c| c.is_alphanumeric()) {
+        let style = Style::new(Face::MonoBold, 26.0, name_colour);
+        let letter: String = initial.to_uppercase().collect();
+        let letter_w = text::width(&letter, &style);
+        p.text(&letter, x + (w - letter_w) / 2.0, y + 7.0 + 20.0, &style);
     }
-    // The name, rotated to read top to bottom as the mockup's vertical writing does.
-    let line = 20.0;
-    let mut strip = Painter::new(
-        ((label_w + 4.0) * f).ceil() as u32,
-        (line * f).ceil() as u32,
-        f,
-    )?;
-    strip.text(&label, 0.0, line / 2.0, &style);
-    let (tx, ty) = ((x + w / 2.0 + line / 2.0) * f, (y + 7.0 + 40.0 + 9.0) * f);
-    p.pixmap.draw_pixmap(
-        0,
-        0,
-        strip.pixmap.as_ref(),
-        &PixmapPaint::default(),
-        Transform::from_row(0.0, 1.0, -1.0, 0.0, tx, ty),
-        None,
-    );
     // The app's own meter along the foot: a dark groove the width of the icon, filled from the
     // left in the same grey-to-green the rain runs through, so a quiet app under a busy machine
     // reads as exactly that.
