@@ -4,7 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
-- The fade to the living wallpaper is now a page turn through glass. A crease sweeps across the screen from the top right, with a sheen ahead of it and a glint along the bend, and past it the desktop bends back into the screen, darkening and going out of focus. The wallpaper lies on the glass, so its light is over whatever part of the page has turned behind it. Each way takes one second. Waking turns the page back in the same way.
+- The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner and sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Each way takes one second, and waking runs the same fall in reverse.
 
 ## [0.0.8] - 2026-09-14
 

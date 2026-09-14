@@ -1,10 +1,10 @@
-//! The glass fade. While the UI fades to the living wallpaper, or back, it's drawn whole into a
-//! texture and turned away like a page: a crease sweeps diagonally across the screen from the top
-//! right, and past it the page bends back through the screen's glass and falls away into the
-//! distance, darkening and going out of focus. Light glints along the crease, with a sheen on the
-//! flat page just ahead of it. The wallpaper lies on the glass itself, so wherever the page has
-//! bent behind the glass the wallpaper's light is over it, and where it's still flat the page is in
-//! front. Coming back, the page turns in again the same way.
+//! The glass fade. The UI and the living wallpaper are two panes of glass, the wallpaper's a little
+//! way behind. While the UI fades to the wallpaper, or back, it's drawn whole into a texture and
+//! shown as its pane tipping back, rigidly, about its bottom right corner, and sinking away. Where
+//! it passes through the wallpaper's pane the two meet along a line, and that line sweeps
+//! diagonally across the screen from the top left: along it the glass blurs, bends the picture
+//! and catches the light, and past it the UI is behind the wallpaper, darkening and falling away
+//! under the wallpaper's light. Coming back, the same fall runs in reverse.
 
 use smithay::{
     backend::renderer::{
@@ -22,98 +22,64 @@ use smithay::{
 
 use crate::{render::OutputElement, tilt};
 
-/// The way across the screen the page turns, towards the corner that goes first: right and up.
-const DIRECTION: (f32, f32) = (0.9439, -0.3304);
 /// How far the eye is from the screen, in screen widths.
 const DISTANCE: f32 = 1.25;
-/// The crease's radius, in screen widths.
-const RADIUS: f32 = 0.11;
-/// How far past upright the page turns back into the screen, in radians (about 72 degrees).
-const TURN: f32 = 1.25;
-/// How far the whole page sinks back as it turns, in the eye's distances.
-const PUSH: f32 = 0.12;
-/// The depths, in the eye's distances, over which the turned page fades out.
-const FADE: (f32, f32) = (0.04, 0.2);
-/// How far ahead of the crease the sheen reaches on the flat page, in screen widths.
-const SHEEN: f32 = 0.3;
+/// How far behind the UI's pane the wallpaper's is, in the eye's distances.
+const GLASS: f32 = 0.25;
+/// How far the UI's pane has tipped back by the end, in radians (35 degrees).
+const TILT: f32 = 0.61;
+/// How far its corner has sunk back by the end, in the eye's distances.
+const PUSH: f32 = 0.6;
+/// Half the depth over which the two panes mix where they meet, in the eye's distances. It's
+/// deep: across the screen the two worlds should mix over a wide band, not meet on a line.
+const EDGE: f32 = 0.12;
+/// The depths between which the UI fades out, in the eye's distances.
+const FADE: (f32, f32) = (0.4, 0.6);
 
-/// Where the crease is, `progress` of the way through the turn: its distance from the screen's
-/// centre along `DIRECTION`, in logical pixels, and how far the whole page has sunk back.
-fn crease(progress: f32, width: f32, height: f32) -> (f32, f32) {
-    let reach = reach(width, height);
-    let distance = DISTANCE * width;
-    // Before: the sheen hasn't reached the page. After: every part of it has turned deep enough
-    // to have faded out.
-    let before = reach + SHEEN * width;
-    let after = -reach - RADIUS * width * TURN - FADE.1 * distance / TURN.sin();
-    (
-        before + (after - before) * progress,
-        PUSH * distance * progress,
-    )
+/// How far the UI's pane has tipped back and how deep its corner is, in logical pixels,
+/// `progress` of the way through the fade. It tips early and sinks late, which carries the line
+/// where it meets the wallpaper's pane across the screen at a nearly even pace.
+fn pose(progress: f32, width: f32) -> (f32, f32) {
+    let p = progress.clamp(0.0, 1.0);
+    (TILT * p.sqrt(), PUSH * DISTANCE * width * p * p * p)
 }
 
-/// How far the page reaches from the screen's centre along `DIRECTION`.
-fn reach(width: f32, height: f32) -> f32 {
-    DIRECTION.0.abs() * width / 2.0 + DIRECTION.1.abs() * height / 2.0
-}
-
-/// A point `along` the turn's direction from the screen's centre, bent round a crease at `at`:
-/// where it is along the same line, how deep behind the glass, and at what angle. Mirrors `bend`
-/// in the shader.
+/// Where the two panes meet, as a share of the way from the UI pane's bottom right corner (0) to
+/// its top left (1), `progress` of the way through; `None` before it tips at all.
 #[cfg(test)]
-fn bend(along: f32, at: f32, width: f32) -> (f32, f32, f32) {
-    let r = RADIUS * width;
-    let s = along - at;
-    if s <= 0.0 {
-        return (along, 0.0, 0.0);
-    }
-    let arc = r * TURN;
-    if s <= arc {
-        let angle = s / r;
-        return (at + r * angle.sin(), r * (1.0 - angle.cos()), angle);
-    }
-    let t = s - arc;
-    (
-        at + r * TURN.sin() + t * TURN.cos(),
-        r * (1.0 - TURN.cos()) + t * TURN.sin(),
-        TURN,
-    )
+fn meeting(progress: f32, width: f32, height: f32) -> Option<f32> {
+    let (tilt, push) = pose(progress, width);
+    (tilt > 0.0).then(|| (GLASS * DISTANCE * width - push) / tilt.sin() / width.hypot(height))
 }
 
-/// The uniforms both shaders take.
 fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>> {
     let (w, h) = (logical.w as f32, logical.h as f32);
-    let (at, push) = crease(progress, w, h);
+    let (tilt, push) = pose(progress, w);
     let distance = DISTANCE * w;
     vec![
         Uniform::new("size", (w, h)),
-        Uniform::new("fold", at),
+        Uniform::new("tilt", (tilt.sin(), tilt.cos())),
         Uniform::new("push", push),
-        Uniform::new("direction", DIRECTION),
         Uniform::new("distance", distance),
-        Uniform::new(
-            "shape",
-            (RADIUS * w, TURN, FADE.0 * distance, FADE.1 * distance),
-        ),
-        Uniform::new("sheen", SHEEN * w),
+        Uniform::new("glass", (GLASS * distance, EDGE * distance)),
+        Uniform::new("fade", (FADE.0 * distance, FADE.1 * distance)),
     ]
 }
 
-fn uniform_names() -> [UniformName<'static>; 7] {
+fn uniform_names() -> [UniformName<'static>; 6] {
     [
         UniformName::new("size", UniformType::_2f),
-        UniformName::new("fold", UniformType::_1f),
+        UniformName::new("tilt", UniformType::_2f),
         UniformName::new("push", UniformType::_1f),
-        UniformName::new("direction", UniformType::_2f),
         UniformName::new("distance", UniformType::_1f),
-        UniformName::new("shape", UniformType::_4f),
-        UniformName::new("sheen", UniformType::_1f),
+        UniformName::new("glass", UniformType::_2f),
+        UniformName::new("fade", UniformType::_2f),
     ]
 }
 
-/// Smithay's texture shader's preamble, and the page's shape: which point of the flat page is seen
-/// at a point on the screen.
-macro_rules! page_shader {
+/// Smithay's texture shader's preamble, and the pane's pose: which point of the UI is seen at a
+/// point on the screen, and how deep it is.
+macro_rules! pane_shader {
     () => {
         r#"#version 100
 
@@ -137,120 +103,62 @@ varying vec2 v_coords;
 uniform float tint;
 #endif
 
-// The screen in logical pixels; the crease's distance from the centre along the turn's direction;
-// how far the page has sunk back; the eye's distance; the crease's radius, the turn's angle, and
-// the depths the turned page fades out between; how far the sheen reaches ahead of the crease.
+// The screen in logical pixels; the sine and cosine of how far the UI's pane has tipped back; how
+// deep its bottom right corner is; the eye's distance; the wallpaper pane's depth, and half the
+// depth the two mix over; the depths the UI fades out between.
 uniform vec2 size;
-uniform float fold;
+uniform vec2 tilt;
 uniform float push;
-uniform vec2 direction;
 uniform float distance;
-uniform vec4 shape;
-uniform float sheen;
+uniform vec2 glass;
+uniform vec2 fade;
 
-// A point `a` along the turn from the centre, bent round the crease: where it is along the same
-// line, how deep behind the glass, and at what angle.
-void bend(float a, out float x, out float z, out float th) {
-    float r = shape.x;
-    float turn = shape.y;
-    float s = a - fold;
-    if (s <= 0.0) {
-        x = a;
-        z = 0.0;
-        th = 0.0;
-        return;
-    }
-    float arc = r * turn;
-    if (s <= arc) {
-        th = s / r;
-        x = fold + r * sin(th);
-        z = r * (1.0 - cos(th));
-        return;
-    }
-    float t = s - arc;
-    th = turn;
-    x = fold + r * sin(turn) + t * cos(turn);
-    z = r * (1.0 - cos(turn)) + t * sin(turn);
-}
+// How far the edge between the two wanders, as a share of the way across the screen, so the two
+// worlds interleave along it rather than meeting on a ruled line.
+const float RIPPLE = 0.05;
 
-// How much smaller something `z` behind the glass looks, the whole page having sunk `push`.
-float lens(float z) {
-    return distance / (distance + push + z);
-}
-
-// The point of the flat page seen at `screen`, with its depth, its angle, and how far along the
-// turn it is. The flat part is in front of everything, so it's tried first; past the crease, the
-// bent page is walked from the crease outwards and the first part found there is the nearest.
-bool seen(vec2 screen, out vec2 at, out float z, out float th, out float a) {
-    vec2 across = vec2(-direction.y, direction.x);
+// The point of the UI seen at `screen`, how deep it is, and how deep it counts as against the
+// wallpaper's pane, ripple and all. The pane turns about the line through its bottom right corner
+// square to the diagonal; each ray from the eye meets it once, so this is solved outright.
+bool seen(vec2 screen, out vec2 at, out float z, out float against) {
+    vec2 n = normalize(size);
+    vec2 across = vec2(-n.y, n.x);
     vec2 o = screen - size * 0.5;
-    float sa = dot(o, direction);
+    float sa = dot(o, n);
     float sb = dot(o, across);
-    float reach = abs(direction.x) * size.x * 0.5 + abs(direction.y) * size.y * 0.5;
-    float x;
-    float k = lens(0.0);
-    a = sa / k;
-    z = 0.0;
-    th = 0.0;
-    if (a > fold) {
-        float lo = max(fold, -reach);
-        if (lo >= reach) {
-            return false;
-        }
-        bend(lo, x, z, th);
-        if (x * lens(z) - sa >= 0.0) {
-            return false;
-        }
-        float step = (reach - lo) / 24.0;
-        float hi = lo;
-        bool hit = false;
-        for (int i = 1; i <= 24; i++) {
-            hi = lo + step * float(i);
-            bend(hi, x, z, th);
-            if (x * lens(z) - sa >= 0.0) {
-                hit = true;
-                break;
-            }
-        }
-        if (!hit) {
-            return false;
-        }
-        float low = hi - step;
-        for (int j = 0; j < 8; j++) {
-            float mid = 0.5 * (low + hi);
-            bend(mid, x, z, th);
-            if (x * lens(z) - sa >= 0.0) {
-                hi = mid;
-            } else {
-                low = mid;
-            }
-        }
-        a = 0.5 * (low + hi);
-        bend(a, x, z, th);
-        k = lens(z);
+    float h = dot(abs(n), size * 0.5);
+    float den = sa * tilt.x + distance * tilt.y;
+    if (den <= 0.0) {
+        return false;
     }
-    at = size * 0.5 + a * direction + (sb / k) * across;
+    // How far the point is from the corner's line, along the diagonal.
+    float u = (h * distance - sa * (distance + push)) / den;
+    z = push + u * tilt.x;
+    float b = sb * (distance + z) / distance;
+    at = size * 0.5 + (h - u) * n + b * across;
+    float span = 2.0 * h;
+    float wave = RIPPLE * span * (sin(b / span * 7.3) * 0.6 + sin(b / span * 17.9 + 1.7) * 0.4);
+    against = z + wave * tilt.x;
     return at.x >= 0.0 && at.y >= 0.0 && at.x <= size.x && at.y <= size.y;
 }
 "#
     };
 }
 
-/// The turning page.
+/// The UI's pane.
 const SHADER: &str = concat!(
-    page_shader!(),
+    pane_shader!(),
     r#"
-// Blur at the crease and in the distance, in logical pixels on the screen.
-const float BLUR_BEND = 10.0;
-const float BLUR_DEEP = 8.0;
-// How much darker the page is turned away, and in the distance.
-const float SHADE = 0.45;
-const float FOG = 0.5;
-// The light: the glint along the crease and the sheen ahead of it.
-const float GLINT = 0.3;
-const float SHEEN = 0.08;
+// Where the panes meet: the blur's radius, and how far the picture is pulled, in logical pixels.
+const float BLUR = 14.0;
+const float BEND = 22.0;
+// How much light catches there.
+const float LIGHT = 0.2;
+// Blur and darkening in the distance.
+const float BLUR_DEEP = 6.0;
+const float FOG = 0.45;
 
-vec4 page_at(vec2 at) {
+vec4 pane_at(vec2 at) {
     vec2 uv = at / size;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return vec4(0.0);
@@ -261,28 +169,26 @@ vec4 page_at(vec2 at) {
 void main() {
     vec2 at;
     float z;
-    float th;
-    float a;
+    float against;
     vec4 color = vec4(0.0);
-    if (seen(v_coords * size, at, z, th, a)) {
-        float far = smoothstep(0.0, shape.w, z);
-        float radius = (BLUR_BEND * sin(th) + BLUR_DEEP * far) / lens(z);
-        // Samples spread over a disc, a golden angle apart.
-        for (int i = 0; i < 12; i++) {
+    if (seen(v_coords * size, at, z, against)) {
+        float edge = clamp(1.0 - abs(against - glass.x) / glass.y, 0.0, 1.0);
+        edge = edge * edge * (3.0 - 2.0 * edge);
+        float far = smoothstep(glass.x, fade.y, z);
+        vec2 bent = at - normalize(size) * BEND * edge * edge;
+        float radius = BLUR * edge + BLUR_DEEP * far;
+        // Samples spread over a disc, a golden angle apart: enough that thin lines blur rather
+        // than double.
+        for (int i = 0; i < 24; i++) {
             float f = float(i);
-            float r = radius * sqrt((f + 0.5) / 12.0);
-            float g = f * 2.39996;
-            color += page_at(at + vec2(cos(g), sin(g)) * r);
+            float r = radius * sqrt((f + 0.5) / 24.0);
+            float a = f * 2.39996;
+            color += pane_at(bent + vec2(cos(a), sin(a)) * r);
         }
-        color /= 12.0;
-        color.rgb *= (1.0 - SHADE * (1.0 - cos(th))) * (1.0 - FOG * far);
-        float s = a - fold;
-        // Brightest where the bend has turned the glass a third of the way; nothing on the flat.
-        float glint = smoothstep(0.0, 0.5, th) * (1.0 - smoothstep(0.5, 1.1, th));
-        float ahead = (1.0 - smoothstep(0.0, sheen, max(-s, 0.0)))
-            * (1.0 - smoothstep(0.0, shape.x * shape.y, max(s, 0.0)));
-        color.rgb += vec3(0.85, 0.95, 1.0) * (GLINT * glint + SHEEN * ahead) * color.a;
-        color *= 1.0 - smoothstep(shape.z, shape.w, z);
+        color /= 24.0;
+        color.rgb += vec3(0.85, 0.95, 1.0) * LIGHT * edge * color.a;
+        color.rgb *= 1.0 - FOG * far;
+        color *= 1.0 - smoothstep(fade.x, fade.y, z);
     }
 
 #if defined(NO_ALPHA)
@@ -301,19 +207,18 @@ void main() {
 "#
 );
 
-/// The screen with the wallpaper over the page, kept only where the page has gone behind the glass.
+/// The screen with the wallpaper over the UI, kept only where the UI has gone behind its pane.
 const THROUGH_SHADER: &str = concat!(
-    page_shader!(),
+    pane_shader!(),
     r#"
 void main() {
     vec2 at;
     float z;
-    float th;
-    float a;
-    // Off the page both orders look the same, so either will do.
+    float against;
+    // Off the UI's pane both orders look the same, so either will do.
     float behind = 1.0;
-    if (seen(v_coords * size, at, z, th, a)) {
-        behind = smoothstep(0.0, shape.z, z);
+    if (seen(v_coords * size, at, z, against)) {
+        behind = smoothstep(glass.x - glass.y, glass.x + glass.y, against);
     }
     vec4 color = texture2D(tex, v_coords) * behind;
 
@@ -333,7 +238,7 @@ void main() {
 "#
 );
 
-/// Draws the UI into a texture and turns it away as the page.
+/// Draws the UI into a texture and shows it as its pane of glass.
 #[derive(Default)]
 pub struct Glass {
     program: Option<GlesTexProgram>,
@@ -342,26 +247,26 @@ pub struct Glass {
     broken: bool,
     /// The UI, flat.
     texture: Option<(GlesTexture, Size<i32, Physical>)>,
-    /// The screen with the wallpaper over the page.
+    /// The screen with the wallpaper over the UI.
     through: Option<(GlesTexture, Size<i32, Physical>)>,
 }
 
 impl Glass {
-    /// Whether the page can be drawn, compiling the shaders the first time.
+    /// Whether the pane can be drawn, compiling the shaders the first time.
     pub fn ready(&mut self, renderer: &mut GlesRenderer) -> bool {
         if self.broken || self.program.is_some() {
             return !self.broken;
         }
         let compiled = renderer
             .compile_custom_texture_shader(SHADER, &uniform_names())
-            .and_then(|page| {
+            .and_then(|pane| {
                 renderer
                     .compile_custom_texture_shader(THROUGH_SHADER, &uniform_names())
-                    .map(|through| (page, through))
+                    .map(|through| (pane, through))
             });
         match compiled {
-            Ok((page, through)) => {
-                self.program = Some(page);
+            Ok((pane, through)) => {
+                self.program = Some(pane);
                 self.through_program = Some(through);
             }
             Err(err) => {
@@ -374,7 +279,7 @@ impl Glass {
         !self.broken
     }
 
-    /// `elements`, the UI drawn at full strength, shown as the page `progress` of the way turned.
+    /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -405,10 +310,10 @@ impl Glass {
         ))
     }
 
-    /// The whole screen again with the wallpaper lying over the page instead of behind it, kept
-    /// only where the page has turned behind the glass, to be shown over the page drawn by
-    /// `element`. Both are drawn onto `background`, so where there's no page the two agree.
-    /// `None` while no part of the page has reached the glass yet, or if it can't be drawn.
+    /// The whole screen again with the wallpaper lying over the UI instead of behind it, kept only
+    /// where the UI has gone behind the wallpaper's pane, to be shown over the pane drawn by
+    /// `element`. Both are drawn onto `background`, so where there's no UI the two agree.
+    /// `None` if it can't be drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn through(
         &mut self,
@@ -420,11 +325,10 @@ impl Glass {
         progress: f32,
         background: Color32F,
     ) -> Option<TextureShaderElement> {
-        let (w, h) = (logical.w as f32, logical.h as f32);
-        if self.broken || crease(progress, w, h).0 >= reach(w, h) {
+        if self.broken {
             return None;
         }
-        let page = {
+        let pane = {
             let (texture, _) = self.texture.as_ref()?;
             TextureShaderElement::new(
                 whole_screen(renderer, texture, logical, physical),
@@ -434,7 +338,7 @@ impl Glass {
         };
         let elements = [
             OutputElement::Memory(wallpaper),
-            OutputElement::Shaded(page),
+            OutputElement::Shaded(pane),
         ];
         let mut broken = false;
         let drawn = tilt::draw_offscreen_over(
@@ -492,32 +396,29 @@ mod tests {
     const H: f32 = 960.0;
 
     #[test]
-    fn nothing_turns_or_shines_before_the_turn_starts() {
-        let (at, push) = crease(0.0, W, H);
-        assert_eq!(push, 0.0);
-        assert!(at - SHEEN * W >= reach(W, H) - 0.01);
-        let (_, depth, angle) = bend(reach(W, H), at, W);
-        assert_eq!((depth, angle), (0.0, 0.0));
+    fn the_pane_starts_flat_where_the_ui_is() {
+        assert_eq!(pose(0.0, W), (0.0, 0.0));
+        assert_eq!(meeting(0.0, W, H), None);
     }
 
     #[test]
-    fn every_part_of_the_page_has_faded_by_the_end() {
-        let (at, _) = crease(1.0, W, H);
-        let far = FADE.1 * DISTANCE * W;
-        for along in [-reach(W, H), 0.0, reach(W, H)] {
-            let (_, depth, _) = bend(along, at, W);
-            assert!(depth >= far - 0.5, "{along} is only {depth} deep");
+    fn the_meeting_line_crosses_the_screen_in_the_middle_of_the_fade() {
+        let crossing = |p: f32| meeting(p, W, H).unwrap();
+        assert!(crossing(0.1) > 1.0, "not on the screen yet");
+        assert!(crossing(0.3) < 1.0 && crossing(0.3) > 0.5);
+        assert!(crossing(0.5) < 0.5 && crossing(0.5) > 0.0);
+        assert!(crossing(0.8) < 0.0, "gone past the corner");
+        let mut last = crossing(0.05);
+        for i in 2..=20 {
+            let now = crossing(i as f32 * 0.05);
+            assert!(now < last, "it only ever moves one way");
+            last = now;
         }
     }
 
     #[test]
-    fn the_page_bends_smoothly_through_the_crease() {
-        let at = 100.0;
-        let r = RADIUS * W;
-        for s in [0.0, r * TURN] {
-            let (x0, z0, a0) = bend(at + s - 0.01, at, W);
-            let (x1, z1, a1) = bend(at + s + 0.01, at, W);
-            assert!((x1 - x0).abs() < 0.05 && (z1 - z0).abs() < 0.05 && (a1 - a0).abs() < 0.01);
-        }
+    fn the_whole_pane_has_faded_by_the_end() {
+        let (_, push) = pose(1.0, W);
+        assert!(push >= FADE.1 * DISTANCE * W);
     }
 }
