@@ -449,10 +449,10 @@ impl Rain {
             // Its own band, at its own speed and colour. A quiet app's rain steps a few times a
             // second and a busy one's thirty, so what a stream costs to paint is what its app is
             // doing — the same thing the rain is there to say. Now and then the rain spells out
-            // the app's name, lit in the ring's colour like the header's.
+            // the app's name in CamelCase, lit in the ring's colour like the header's.
             let band = stream.band.get_or_insert_with(|| {
                 Band::new(
-                    &stream.name.to_uppercase(),
+                    &camel_case(&stream.name),
                     Look::for_demand(load),
                     card.inner.0 as f32,
                     card.inner.1 as f32,
@@ -676,6 +676,22 @@ fn name_colour(name: &str) -> u32 {
     COLOURS[hash as usize % COLOURS.len()]
 }
 
+/// `name` in CamelCase, as the rain spells it: each word starts with a capital and the words run
+/// together, so a name is one unbroken run of glyphs. Letters already capitalised inside a word
+/// keep their case.
+fn camel_case(name: &str) -> String {
+    name.split(|c: char| !c.is_alphanumeric())
+        .flat_map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .into_iter()
+                .flat_map(char::to_uppercase)
+                .chain(chars)
+        })
+        .collect()
+}
+
 /// Which of `count` streams is under (`x`, `y`), in the space's coordinates, with the rain drawn
 /// on `screen`. Nothing on another screen is a stream.
 pub fn stream_hit(count: usize, x: f64, y: f64, screen: Rect, top: i32) -> Option<usize> {
@@ -694,6 +710,15 @@ pub fn stream_hit(count: usize, x: f64, y: f64, screen: Rect, top: i32) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rain_spells_names_in_camel_case() {
+        assert_eq!(camel_case("konsole"), "Konsole");
+        assert_eq!(camel_case("Visual Studio Code"), "VisualStudioCode");
+        assert_eq!(camel_case("kde-connect_app"), "KdeConnectApp");
+        assert_eq!(camel_case("KeePassXC"), "KeePassXC");
+        assert_eq!(camel_case(""), "");
+    }
 
     #[test]
     fn streams_stack_leftwards_from_the_right_edge() {
