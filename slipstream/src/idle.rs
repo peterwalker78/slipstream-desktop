@@ -35,6 +35,8 @@ pub struct Idle {
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
     lock_after: Option<Duration>,
+    /// The UI's opacity held for a debug step, whatever the fade is doing.
+    pub pinned: Option<f64>,
 }
 
 impl Idle {
@@ -49,6 +51,7 @@ impl Idle {
             inhibitors: Vec::new(),
             lock_idle_since: Instant::now(),
             lock_after: None,
+            pinned: None,
         }
     }
 
@@ -138,7 +141,9 @@ impl Idle {
         {
             self.fade(now);
         }
-        self.opacity.value(now)[0].clamp(0.0, 1.0)
+        self.pinned
+            .unwrap_or_else(|| self.opacity.value(now)[0])
+            .clamp(0.0, 1.0)
     }
 }
 

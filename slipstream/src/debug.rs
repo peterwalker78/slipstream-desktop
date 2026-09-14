@@ -127,6 +127,9 @@ pub enum Step {
     /// Every minimised app's load, pinned, so a stream's two ends can be looked at without
     /// finding an app that is really working that hard.
     Demand(f32),
+    /// The fade to the wallpaper held this far along, 0 (the UI) to 1 (the wallpaper), so its
+    /// frames can be looked at one by one.
+    Fade(f32),
     /// The volume or brightness display, as a keypress would put it up. It only draws the card:
     /// nothing is muted and no level is changed, so a nested run can't touch the real machine.
     Osd(String),
@@ -183,6 +186,7 @@ impl Step {
                 | Step::Osd(_)
                 | Step::Wallpaper(_)
                 | Step::Demand(_)
+                | Step::Fade(_)
                 | Step::SharePicker(_)
                 | Step::AddScreen(..)
                 | Step::DropScreen(_)
@@ -355,6 +359,7 @@ impl Script {
                     }
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
+                    ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),
                     ("osd", Some(what)) => Step::Osd(what.trim().to_string()),
                     ("screen", Some(size)) => {
                         let (w, h) = size.trim().split_once('x')?;

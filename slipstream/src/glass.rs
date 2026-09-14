@@ -1,20 +1,27 @@
 //! The glass fade. While the UI fades to the living wallpaper, or back, it's drawn whole into a
-//! texture and shown as a pane of glass passing through the wallpaper's, the way a foldable
-//! phone's two screens dissolve through each other. A soft edge sweeps diagonally across the
-//! screen: along it the pane blurs, bends and catches the light, and behind it the pane is gone.
-//! The whole pane drifts a little towards you as it goes.
+//! texture and shown as a pane of glass falling away into the screen, in perspective, tipping back
+//! a little, darkening and going out of focus with distance. The wallpaper stays on the glass at
+//! the front, so the two pass through each other: at first the UI is in front of the wallpaper,
+//! and as it falls the wallpaper's light comes to lie over it instead. Nothing is drawn over the
+//! crossing itself. Coming back, the same fall runs in reverse.
 
 use smithay::{
-    backend::renderer::gles::{
-        GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
-        element::TextureShaderElement,
+    backend::renderer::{
+        Color32F, Renderer,
+        element::{
+            Id, Kind, memory::MemoryRenderBufferRenderElement, texture::TextureRenderElement,
+        },
+        gles::{
+            GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
+            element::TextureShaderElement,
+        },
     },
-    utils::{Logical, Physical, Size},
+    utils::{Logical, Physical, Rectangle, Size, Transform},
 };
 
 use crate::{render::OutputElement, tilt};
 
-/// Smithay's texture shader with the sampling replaced by the pane's.
+/// Smithay's texture shader with the sampling replaced by the falling pane's.
 const SHADER: &str = r#"#version 100
 
 //_DEFINES_
@@ -37,21 +44,20 @@ varying vec2 v_coords;
 uniform float tint;
 #endif
 
-// The screen in logical pixels, and how far the pane has gone: 0 whole, 1 gone.
+// The screen in logical pixels, and how far the pane has gone: 0 at the front, 1 gone.
 uniform vec2 size;
 uniform float progress;
 
-// Half the soft edge's width, as a share of the way across the screen. It's wide: the two
-// worlds should be mixed across a third of the screen as the pane passes, not divided by a line.
-const float EDGE = 0.34;
-// How far the edge wanders off its diagonal, in the same share of the screen, so the two worlds
-// interleave along it rather than meeting on a ruled line.
-const float RIPPLE = 0.055;
-// At the edge: the blur's radius, and how far the picture is pulled along, in logical pixels.
-const float BLUR = 14.0;
-const float BEND = 22.0;
-// How much bigger the pane has grown by the time it's gone.
-const float DRIFT = 0.035;
+// How far the eye is from the screen, in screen widths.
+const float DISTANCE = 1.25;
+// How far back the pane falls, in the eye's distances: at 0.9 it ends a little over half size.
+const float PUSH = 0.9;
+// How far it tips back as it falls, top away, in radians (about 12 degrees).
+const float PITCH = 0.21;
+// Out of focus by the time it's gone: the blur's radius on the screen, in logical pixels.
+const float BLUR = 9.0;
+// How much darker it is at the back.
+const float FOG = 0.6;
 
 vec4 pane_at(vec2 uv) {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
@@ -60,34 +66,36 @@ vec4 pane_at(vec2 uv) {
     return texture2D(tex, uv);
 }
 
-void main() {
-    // How far across the screen this point is, from its top left corner to its bottom right.
-    vec2 diagonal = normalize(size);
-    float across = dot(v_coords * size, diagonal) / dot(size, diagonal);
-    // Along the edge, not across it: two waves out of step, so the boundary is ragged rather
-    // than ruled.
-    float along = dot(v_coords * size, vec2(-diagonal.y, diagonal.x)) / dot(size, diagonal);
-    across += RIPPLE * (sin(along * 7.3) * 0.6 + sin(along * 17.9 + 1.7) * 0.4);
-    float front = mix(-EDGE, 1.0 + EDGE, progress);
-    float edge = clamp(1.0 - abs(across - front) / EDGE, 0.0, 1.0);
-    edge = edge * edge * (3.0 - 2.0 * edge);
-    float remaining = smoothstep(front - EDGE, front + EDGE, across);
+// The point of the flat pane seen at `offset` from the screen's centre, once it has fallen
+// `depth` eye distances back and tipped `tip` radians: a plane pushed back and turned about its
+// middle row, seen in perspective.
+vec2 flat_at(vec2 offset, vec2 centre, float d, float depth, float tip) {
+    float w = (1.0 + depth) / (1.0 + offset.y * tan(tip) / d);
+    return (centre + vec2(offset.x * w, offset.y * w / cos(tip))) / size;
+}
 
-    vec2 uv = (v_coords - 0.5) / (1.0 + DRIFT * progress) + 0.5;
-    uv -= diagonal * BEND * edge * edge / size;
-    float radius = BLUR * edge + 4.0 * progress;
+void main() {
+    vec2 centre = size * 0.5;
+    float d = DISTANCE * size.x;
+    float depth = PUSH * progress;
+    float tip = PITCH * progress;
+    vec2 offset = v_coords * size - centre;
+
+    // Samples spread over a disc on the screen, a golden angle apart, each followed back onto the
+    // pane: the blur grows with distance, and a fraction of a pixel of it smooths the shrunken
+    // text and the slanted edges from the start.
+    float radius = BLUR * progress + 0.45 * min(progress * 12.0, 1.0);
     vec4 color = vec4(0.0);
-    // Samples spread over a disc, a golden angle apart: enough that thin lines blur rather than double.
-    for (int i = 0; i < 24; i++) {
+    for (int i = 0; i < 16; i++) {
         float f = float(i);
-        float r = radius * sqrt((f + 0.5) / 24.0);
+        float r = radius * sqrt((f + 0.5) / 16.0);
         float a = f * 2.39996;
-        color += pane_at(uv + vec2(cos(a), sin(a)) * r / size);
+        color += pane_at(flat_at(offset + vec2(cos(a), sin(a)) * r, centre, d, depth, tip));
     }
-    color /= 24.0;
-    // The light caught along the edge, on the glass only.
-    color.rgb += vec3(0.85, 0.95, 1.0) * 0.12 * edge * color.a;
-    color *= remaining;
+    color /= 16.0;
+    color.rgb *= 1.0 - FOG * progress;
+    // It goes out as it reaches the back, not before.
+    color *= 1.0 - smoothstep(0.45, 1.0, progress);
 
 #if defined(NO_ALPHA)
     color = vec4(color.rgb, 1.0) * alpha;
@@ -104,13 +112,23 @@ void main() {
 }
 "#;
 
-/// Draws the UI into a texture and shows it as the glass pane.
+/// How far through the wallpaper the pane has fallen, 0 in front of it to 1 behind it, `progress`
+/// of the way gone. The crossing comes early, once the fall is clearly under way.
+pub fn behind(progress: f32) -> f32 {
+    let t = ((progress - 0.08) / (0.45 - 0.08)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Draws the UI into a texture and shows it as the falling pane.
 #[derive(Default)]
 pub struct Glass {
     program: Option<GlesTexProgram>,
     /// The shader or texture failed, so the UI fades plainly instead.
     broken: bool,
+    /// The UI, flat.
     texture: Option<(GlesTexture, Size<i32, Physical>)>,
+    /// The wallpaper lying over the fallen pane.
+    through: Option<(GlesTexture, Size<i32, Physical>)>,
 }
 
 impl Glass {
@@ -148,7 +166,7 @@ impl Glass {
         if !self.ready(renderer) {
             return None;
         }
-        let inner = tilt::draw_offscreen(
+        tilt::draw_offscreen(
             renderer,
             &mut self.texture,
             &mut self.broken,
@@ -158,6 +176,33 @@ impl Glass {
             scale,
             "the glass fade",
         )?;
+        self.pane(renderer, logical, physical, progress)
+    }
+
+    /// The pane as last drawn by `element`, fallen `progress` of the way.
+    fn pane(
+        &self,
+        renderer: &GlesRenderer,
+        logical: Size<i32, Logical>,
+        physical: Size<i32, Physical>,
+        progress: f32,
+    ) -> Option<TextureShaderElement> {
+        let (texture, _) = self.texture.as_ref()?;
+        let inner = TextureRenderElement::from_static_texture(
+            Id::new(),
+            renderer.context_id(),
+            (0.0, 0.0),
+            texture.clone(),
+            1,
+            Transform::Normal,
+            None,
+            Some(Rectangle::from_size(
+                (physical.w as f64, physical.h as f64).into(),
+            )),
+            Some(logical),
+            None,
+            Kind::Unspecified,
+        );
         let uniforms = vec![
             Uniform::new("size", (logical.w as f32, logical.h as f32)),
             Uniform::new("progress", progress),
@@ -167,5 +212,62 @@ impl Glass {
             self.program.clone()?,
             uniforms,
         ))
+    }
+
+    /// The whole screen with the wallpaper lying over the fallen pane rather than behind it, to be
+    /// shown over the pane drawn by `element` at `behind(progress)`, so the screen mixes from one
+    /// order to the other. Both are drawn onto `background`, so where there's no pane the two
+    /// agree and nothing changes. `None` before the crossing starts, or if it can't be drawn.
+    #[allow(clippy::too_many_arguments)]
+    pub fn through(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        wallpaper: MemoryRenderBufferRenderElement<GlesRenderer>,
+        logical: Size<i32, Logical>,
+        physical: Size<i32, Physical>,
+        scale: f64,
+        progress: f32,
+        background: Color32F,
+    ) -> Option<TextureRenderElement<GlesTexture>> {
+        let mix = behind(progress);
+        if self.broken || mix <= 0.0 {
+            return None;
+        }
+        let pane = self.pane(renderer, logical, physical, progress)?;
+        let elements = [
+            OutputElement::Memory(wallpaper),
+            OutputElement::Shaded(pane),
+        ];
+        let mut broken = false;
+        let element = tilt::draw_offscreen_over(
+            renderer,
+            &mut self.through,
+            &mut broken,
+            &elements,
+            logical,
+            physical,
+            scale,
+            "the glass fade's crossing",
+            background,
+            Some(mix),
+        );
+        if broken {
+            self.through = None;
+        }
+        element
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pane_crosses_the_wallpaper_early_in_the_fall() {
+        assert_eq!(behind(0.0), 0.0);
+        assert_eq!(behind(0.08), 0.0);
+        assert!((behind(0.265) - 0.5).abs() < 1e-3);
+        assert_eq!(behind(0.45), 1.0);
+        assert_eq!(behind(1.0), 1.0);
     }
 }

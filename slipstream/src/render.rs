@@ -1556,6 +1556,8 @@ pub fn output_elements(
         );
     }
 
+    // Where the falling pane sits in the list, for the wallpaper to lie over it once it's through.
+    let mut fallen_at = None;
     if glass {
         let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
         match chrome.glass.element(
@@ -1566,7 +1568,10 @@ pub fn output_elements(
             scale.x,
             1.0 - ui,
         ) {
-            Some(element) => elements.push(OutputElement::Shaded(element)),
+            Some(element) => {
+                fallen_at = Some(elements.len());
+                elements.push(OutputElement::Shaded(element));
+            }
             // Drawn plainly this once; a glass that's broken stays off from now on.
             None => elements.extend(pane),
         }
@@ -1632,6 +1637,25 @@ pub fn output_elements(
                 .element(renderer, output_geo.size, scale.x, now, glow, paused, tween)
                 .map(OutputElement::Memory),
         );
+        // The same wallpaper over the falling pane, mixed in as the pane passes through it.
+        if let Some(at) = fallen_at {
+            let through = saver
+                .again(renderer, output_geo.size, glow)
+                .and_then(|wallpaper| {
+                    chrome.glass.through(
+                        renderer,
+                        wallpaper,
+                        output_geo.size,
+                        physical,
+                        scale.x,
+                        1.0 - ui,
+                        BACKGROUND,
+                    )
+                });
+            if let Some(through) = through {
+                elements.insert(at, OutputElement::Texture(through));
+            }
+        }
     }
     // A screenshot's flash, over the whole screen it was taken of.
     if let Some(alpha) = state.flash_alpha(&name) {

@@ -353,6 +353,34 @@ pub fn draw_offscreen(
     scale: f64,
     what: &str,
 ) -> Option<TextureRenderElement<GlesTexture>> {
+    draw_offscreen_over(
+        renderer,
+        texture,
+        broken,
+        elements,
+        logical,
+        physical,
+        scale,
+        what,
+        Color32F::new(0.0, 0.0, 0.0, 0.0),
+        None,
+    )
+}
+
+/// `draw_offscreen` onto `clear` rather than nothing, the result shown at `alpha`.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_offscreen_over(
+    renderer: &mut GlesRenderer,
+    texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
+    broken: &mut bool,
+    elements: &[OutputElement],
+    logical: Size<i32, Logical>,
+    physical: Size<i32, Physical>,
+    scale: f64,
+    what: &str,
+    clear: Color32F,
+    alpha: Option<f32>,
+) -> Option<TextureRenderElement<GlesTexture>> {
     if texture.as_ref().is_none_or(|(_, size)| *size != physical) {
         let size = Size::<i32, Buffer>::from((physical.w, physical.h));
         match renderer.create_buffer(Fourcc::Abgr8888, size) {
@@ -368,7 +396,6 @@ pub fn draw_offscreen(
     {
         let mut target = renderer.bind(texture).ok()?;
         let mut damage = OutputDamageTracker::new(physical, scale, Transform::Normal);
-        let clear = Color32F::new(0.0, 0.0, 0.0, 0.0);
         if let Err(err) = damage.render_output(renderer, &mut target, 0, elements, clear) {
             tracing::warn!("couldn't draw {what}: {err:?}");
             return None;
@@ -381,7 +408,7 @@ pub fn draw_offscreen(
         texture.clone(),
         1,
         Transform::Normal,
-        None,
+        alpha,
         // The whole texture, which is drawn at the output's scale.
         Some(Rectangle::from_size(
             (physical.w as f64, physical.h as f64).into(),

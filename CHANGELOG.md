@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- The fade to the living wallpaper is now a fall through glass. The desktop, bar and windows fall back into the screen in perspective, tipping away at the top and going dark and out of focus with distance, while the wallpaper stays on the front glass and its light comes to lie over them as they pass through. The sweeping edge and its light are gone. Waking runs the same fall in reverse.
+
 ## [0.0.8] - 2026-09-14
 
 - Typing now ends after 15 seconds without a key press instead of four, so notifications and windows from other apps wait through the short breaks while you think.

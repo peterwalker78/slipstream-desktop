@@ -4466,6 +4466,9 @@ impl Slipstream {
                     }
                 }
                 debug::Step::Demand(value) => self.rain.pin_demand(Some(value)),
+                debug::Step::Fade(value) => {
+                    self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
+                }
                 debug::Step::AddScreen(w, h) => self.add_made_up_screen(w, h),
                 debug::Step::DropScreen(name) => self.drop_made_up_screen(&name),
                 debug::Step::Lid(closed) => self.lid_switched(closed),
