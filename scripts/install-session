@@ -164,17 +164,49 @@ case $dm in
     ly-dm | ly@*) dm=ly ;;
 esac
 
+# `ini_value SECTION KEY FILE...`: the value of the last `Key=` line inside [SECTION] (anywhere, when
+# SECTION is empty) across the files, later files winning.
+ini_value() {
+    iv_section=$1
+    iv_key=$2
+    shift 2
+    for iv_file in "$@"; do
+        [ -r "$iv_file" ] || continue
+        awk -v section="$iv_section" -v key="$iv_key" '
+            /^[[:space:]]*\[/ {
+                current = $0
+                gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", current)
+                next
+            }
+            (section == "" || current == section) && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+                value = $0
+                sub(/^[^=]*=[[:space:]]*/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                last = value
+            }
+            END { if (last != "") print last }' "$iv_file"
+    done | tail -n1
+}
+
 # The first directory in a `Key=a,b` line of a display manager's config files, if one is set.
 config_dir() {
-    key=$1
-    shift
-    for file in "$@"; do
-        [ -r "$file" ] || continue
-        value=$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | tail -n1)
-        if [ -n "$value" ]; then
-            printf '%s\n' "$value"
-        fi
-    done | tail -n1 | tr ',:' '\n' | head -n1
+    ini_value "$@" | tr ',:' '\n' | head -n1
+}
+
+# The file in which GDM last turns Wayland off, if it does. The runtime file, which GDM's udev rules
+# write for hardware its Wayland greeter can't use, overrides custom.conf. gdm3 is Debian's name.
+gdm_wayland_off() {
+    gwo_found=
+    for gwo_file in "$root"/etc/gdm3/custom.conf "$root"/etc/gdm/custom.conf \
+        "$root"/run/gdm3/custom.conf "$root"/run/gdm/custom.conf; do
+        case $(ini_value daemon WaylandEnable "$gwo_file") in
+            false | False | FALSE | 0) gwo_found=$gwo_file ;;
+            true | True | TRUE | 1) gwo_found= ;;
+        esac
+    done
+    if [ -n "$gwo_found" ]; then
+        printf '%s\n' "$gwo_found"
+    fi
 }
 
 # Where that display manager looks for Wayland sessions. `/usr/local/share/wayland-sessions`
@@ -182,17 +214,43 @@ config_dir() {
 session_dir=
 session_note=
 lightdm_dropin=
+wayland_off=
 case $dm in
     sddm | plasmalogin)
-        # SDDM 0.20 and later read /usr/local/share/wayland-sessions before /usr/share; a
-        # SessionDir set in its config wins.
-        set -- /usr/lib/"$dm"/"$dm".conf.d/*.conf /etc/"$dm".conf /etc/"$dm".conf.d/*.conf
-        configured=$(config_dir SessionDir "$@")
-        session_dir=${configured:-/usr/local/share/wayland-sessions}
+        # A [Wayland] SessionDir in its config wins; sddm.conf is read after the conf.d files.
+        # Otherwise every version reads /usr/share/wayland-sessions, but only 0.20 and later also
+        # read /usr/local (0.19 is still Ubuntu 22.04's and Debian 12's), so /usr/local is used
+        # only where /usr can't be written, and SDDM there is new enough.
+        set -- "$root"/usr/lib/"$dm"/"$dm".conf.d/*.conf "$root"/etc/"$dm".conf.d/*.conf "$root"/etc/"$dm".conf
+        configured=$(config_dir Wayland SessionDir "$@")
+        if [ -n "$configured" ]; then
+            session_dir=$configured
+        elif [ "$atomic" = yes ]; then
+            session_dir=/usr/local/share/wayland-sessions
+        else
+            session_dir=/usr/share/wayland-sessions
+        fi
         ;;
     gdm | cosmic-greeter)
         # Both read wayland-sessions under every XDG data directory, /usr/local/share first.
         session_dir=/usr/local/share/wayland-sessions
+        # GDM leaves Wayland sessions off its list altogether while its own Wayland is turned off.
+        if [ "$dm" = gdm ]; then
+            wayland_off=$(gdm_wayland_off)
+            case $wayland_off in
+                "$root"/run/*)
+                    session_note="GDM has turned Wayland off for this hardware ($wayland_off), and
+  while it's off it lists no Wayland session, Slipstream included. It does that for NVIDIA's
+  driver without nvidia-drm.modeset=1 on the kernel command line, for nomodeset, and for some
+  virtual machines' graphics. Once GDM runs on Wayland, Slipstream is on the list."
+                    ;;
+                ?*)
+                    session_note="GDM has Wayland turned off in $wayland_off (WaylandEnable=false), and
+  while it's off it lists no Wayland session, Slipstream included. Remove that line and restart
+  GDM (or reboot) for Slipstream to be on the list."
+                    ;;
+            esac
+        fi
         ;;
     lightdm)
         # LightDM's sessions-directory doesn't include /usr/local. On a writable /usr the file
@@ -205,7 +263,7 @@ case $dm in
         fi
         ;;
     ly)
-        configured=$(config_dir waylandsessions /etc/ly/config.ini)
+        configured=$(config_dir "" waylandsessions "$root"/etc/ly/config.ini)
         session_dir=${configured:-/usr/share/wayland-sessions}
         ;;
     greetd)
@@ -740,7 +798,9 @@ if ! [ -x "$root$session_launcher" ]; then
 fi
 
 echo
-if [ -x "$HOME/.local/bin/slipstream" ]; then
+if [ -n "$wayland_off" ]; then
+    echo "Slipstream is installed, but GDM won't list it until its Wayland is on (see the note above)."
+elif [ -x "$HOME/.local/bin/slipstream" ]; then
     echo "Slipstream is on the login screen's session list."
 else
     echo "Slipstream is on the login screen's session list. Now run scripts/update-session to"

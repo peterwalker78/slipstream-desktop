@@ -57,7 +57,8 @@ expect_status() {
 
 mode_of() { stat -c %a "$1"; }
 r=$work/root
-entry=$r/usr/local/share/wayland-sessions/slipstream.desktop
+# The default case is Plasma Login on a writable /usr, where the entry goes in /usr/share.
+entry=$r/usr/share/wayland-sessions/slipstream.desktop
 launcher=$r/usr/local/bin/slipstream-session
 pam=$r/etc/pam.d/slipstream
 manifest=$r/usr/local/share/slipstream/installed
@@ -71,7 +72,7 @@ if expect_status 0; then
     done
     [ "$(mode_of "$launcher")" = 755 ] || fail "$case_name: launcher mode $(mode_of "$launcher")"
     [ "$(mode_of "$entry")" = 644 ] || fail "$case_name: entry mode $(mode_of "$entry")"
-    [ "$(mode_of "$r/usr/local/share/wayland-sessions")" = 755 ] || fail "$case_name: session folder mode"
+    [ "$(mode_of "$r/usr/share/wayland-sessions")" = 755 ] || fail "$case_name: session folder mode"
     grep -q "auth       include      password-auth" "$pam" || fail "$case_name: PAM stack"
     [ "$(grep -c . "$manifest")" = 4 ] || fail "$case_name: manifest has $(grep -c . "$manifest") lines"
     leftovers && fail "$case_name: staged files left behind"
@@ -140,6 +141,50 @@ case_name="no display manager found still installs, with a note"
 fresh
 DM="" expect_status 0 || true
 grep -q "No display manager was found" "$work/out" || fail "$case_name: no note"
+
+case_name="SDDM on a writable /usr uses /usr/share, which 0.19 reads, and moves an older entry"
+fresh
+OSTREE=$work/os-release DM=sddm expect_status 0 || true
+local_entry=$r/usr/local/share/wayland-sessions/slipstream.desktop
+[ -f "$local_entry" ] || fail "$case_name: atomic install didn't use /usr/local"
+DM=sddm expect_status 0 || true
+[ -f "$entry" ] || fail "$case_name: no entry in /usr/share"
+[ -e "$local_entry" ] && fail "$case_name: /usr/local entry still there"
+grep -q "^/usr/share/wayland-sessions/slipstream.desktop$" "$manifest" || fail "$case_name: manifest"
+
+case_name="SDDM's [Wayland] SessionDir is used, not [X11]'s, and sddm.conf wins over conf.d"
+fresh
+mkdir -p "$r/etc/sddm.conf.d"
+printf '[Wayland]\nSessionDir=/opt/from-conf-d\n' >"$r/etc/sddm.conf.d/10-site.conf"
+printf '[Wayland]\nSessionDir=/opt/wayland,/usr/share/wayland-sessions\n\n[X11]\nSessionDir=/opt/x11\n' \
+    >"$r/etc/sddm.conf"
+DM=sddm expect_status 0 || true
+[ -f "$r/opt/wayland/slipstream.desktop" ] || fail "$case_name: $(grep 'session entry' "$work/out")"
+
+case_name="GDM with Wayland turned off by its udev rules installs, and says why it won't be listed"
+fresh
+mkdir -p "$r/run/gdm3" "$r/etc/gdm3"
+printf '[daemon]\n# Uncomment to force the login screen to use Xorg\n#WaylandEnable=false\n' >"$r/etc/gdm3/custom.conf"
+printf '[daemon]\nWaylandEnable=false\n' >"$r/run/gdm3/custom.conf"
+DM=gdm expect_status 0 || true
+grep -q "turned Wayland off for this hardware" "$work/out" || fail "$case_name: no note"
+grep -q "won't list it" "$work/out" || fail "$case_name: still claims it's listed"
+[ -f "$local_entry" ] || fail "$case_name: no entry"
+
+case_name="GDM with Wayland turned off in custom.conf names the file"
+fresh
+mkdir -p "$r/etc/gdm"
+printf '[security]\nWaylandEnable=true\n[daemon]\nWaylandEnable=false\n' >"$r/etc/gdm/custom.conf"
+DM=gdm expect_status 0 || true
+grep -q "turned off in $r/etc/gdm/custom.conf" "$work/out" || fail "$case_name: no note"
+
+case_name="GDM with a commented-out WaylandEnable says nothing about it"
+fresh
+mkdir -p "$r/etc/gdm3"
+printf '[daemon]\n#WaylandEnable=false\n' >"$r/etc/gdm3/custom.conf"
+DM=gdm expect_status 0 || true
+grep -q "Wayland off\|Wayland turned off" "$work/out" && fail "$case_name: noted anyway"
+grep -q "is on the login screen's session list" "$work/out" || fail "$case_name: no success line"
 
 case_name="uninstall removes what it wrote, and only that"
 fresh

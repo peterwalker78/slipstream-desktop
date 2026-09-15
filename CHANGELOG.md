@@ -4,6 +4,9 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Slipstream shows up on SDDM's login screen on Ubuntu 22.04, Kubuntu, Debian 12 and other systems with SDDM 0.19.** That version only reads sessions from `/usr/share/wayland-sessions`, so on a system whose `/usr` can be written, `install-session` now puts the entry there for SDDM and Plasma Login (atomic systems keep `/usr/local`), and moves an entry an earlier install left in `/usr/local`. A `SessionDir` is only taken from the `[Wayland]` section of SDDM's configuration, and `sddm.conf` wins over `sddm.conf.d`, as in SDDM itself.
+- `install-session` says when GDM has Wayland turned off (in `custom.conf`, or by its own rules for NVIDIA's driver without `nvidia-drm.modeset=1`, `nomodeset` and some virtual machines), since GDM then lists no Wayland session at all, and no longer claims Slipstream is on the list.
+
 ## [0.4.1] - 2026-09-15
 
 - **The browser that comes with Slipstream is now called Glimmerwood.** Another web browser already goes by Wisp, so it has a name of its own; its companion is still the wisp. `extras/glimmerwood.conf` installs it from [Glimmerwood's releases](https://github.com/peterwalker78/glimmerwood/releases) under its new app ID, `io.github.peterwalker78.Glimmerwood`, beside any Wisp 0.1.0 already installed, which `flatpak uninstall --user io.github.peterwalker78.Wisp` removes. A `~/.config/slipstream/extras/wisp.conf` of your own no longer replaces the shipped entry: rename it to `glimmerwood.conf`.
