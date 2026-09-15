@@ -82,8 +82,11 @@ if ! id "$user" >/dev/null 2>&1; then
     useradd --create-home --shell /bin/sh "$user"
 fi
 home=$(eval echo "~$user")
-echo "$user ALL=(ALL) NOPASSWD: ALL" >/etc/sudoers.d/slipstream-test
-chmod 440 /etc/sudoers.d/slipstream-test
+# Appended to the end of sudoers rather than dropped in sudoers.d: the last rule that matches is
+# the one sudo uses, and some distributions (openSUSE) carry a blanket rule and `Defaults targetpw`
+# after their includedir, which would otherwise ask this user for root's password.
+sed -i 's/^\([[:space:]]*Defaults[[:space:]]\+targetpw\)/# \1/' /etc/sudoers
+printf '\n%s ALL=(ALL) NOPASSWD: ALL\n' "$user" >>/etc/sudoers
 
 as_user() {
     # A login-ish environment, with the test's own hints for what a container can't have.
