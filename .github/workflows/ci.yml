@@ -4,8 +4,8 @@ name: build
 # runners for nothing, so there's no reason to be sparing with it.
 on:
   push:
-    # Tags are the release workflow's job.
-    tags-ignore: ["**"]
+    # Every branch; tags are the release workflow's job.
+    branches: ["**"]
   workflow_dispatch:
 
 concurrency:
