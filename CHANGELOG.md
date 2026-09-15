@@ -4,6 +4,10 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-15
+
+- **Slipstream comes with Wisp**, a calm web browser with a living companion that reflects how your time online feels, from [its own project](https://github.com/peterwalker78/wisp). `update-session` installs it from Wisp's latest release as a Flatpak, checks it against the release's SHA-256, and updates it when a new release comes out. It isn't made the default browser. A file of your own in `~/.config/slipstream/extras/` with the same name replaces the shipped one, and `install=no` on its own leaves Wisp out. Release packages carry the shipped `extras/`.
+- The README says why Slipstream exists: a desktop that's private by design, builds healthy habits in, and keeps distractions out.
 - **A meter of your own on the bar.** `[meter] command` runs any command that prints a small JSON report of how much of something is used (a quota, a plan's limits, a disk), every `every-secs`. The bar shows a gauge for each section beside quick settings, amber at 75% and orange at 90%, and clicking it opens quick settings, which lists every meter with the time left until it starts over. Numbers the report marks old, or that a failing command couldn't refresh, stay on show dimmed. See the README.
 - **Settings has a Meter page** for the meter's command and how often it runs, with **Run it now**, which shows what the bar would show or why the command doesn't work: its exit code and the last thing it said, a report that isn't readable, or a command too slow to answer.
 - `install-extras` installs an app's bundle when building it from its checkout fails and the app isn't installed yet, so a broken build never leaves it missing. An app that's already installed keeps its own build.
