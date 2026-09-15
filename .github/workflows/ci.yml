@@ -29,10 +29,13 @@ jobs:
       - name: Scripts
         run: |
           shellcheck -s sh scripts/install-session scripts/update-session scripts/package-release \
-            scripts/test-install-session session/slipstream-session
+            scripts/test-install-session scripts/install-extras scripts/test-install-extras \
+            session/slipstream-session
           shellcheck scripts/nested scripts/stubborn
           scripts/test-install-session
           SHELL_UNDER_TEST=dash scripts/test-install-session
+          scripts/test-install-extras
+          SHELL_UNDER_TEST=dash scripts/test-install-extras
 
       - uses: actions/cache@v6
         with:

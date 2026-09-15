@@ -191,6 +191,21 @@ Log out, choose **Slipstream** in the login screen's session menu, and log in. S
 - **It leaves other files alone.** It never replaces or removes a file it didn't write.
 - **Updates can't leave a broken program.** `update-session` checks the new programs run on your system before swapping them in.
 
+### Apps of your own alongside it
+
+Apps that go with your desktop but are projects of their own can be installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Describe each in a file in `~/.config/slipstream/extras/`, say `browser.conf`:
+
+```sh
+app_id=org.example.Browser
+checkout=~/Projects/browser      # built with its own command whenever the checkout has new commits
+build=scripts/flatpak
+bundle_url=https://example.org/browser.flatpak       # used when there's no checkout
+bundle_sha256_url=https://example.org/browser.flatpak.sha256
+default_browser=yes              # set once, so choosing another browser later sticks
+```
+
+`scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
+
 ## Updating
 
 Pull or download the new version, run `scripts/update-session`, and log back in. Run `scripts/install-session` again too when the changelog mentions the installer or the session files; it's safe to run any time.

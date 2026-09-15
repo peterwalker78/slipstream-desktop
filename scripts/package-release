@@ -39,7 +39,8 @@ trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/$name/bin" "$stage/$name/scripts" "$stage/$name/session" \
     "$stage/$name/slipstream-settings" "$stage/$name/licences"
 cp "$from/slipstream" "$from/slipstream-settings" "$stage/$name/bin/"
-cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$stage/$name/scripts/"
+cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$repo/scripts/install-extras" \
+    "$stage/$name/scripts/"
 cp "$repo"/session/* "$stage/$name/session/"
 cp "$repo/slipstream-settings/io.github.peterwalker78.SlipstreamSettings.desktop" \
     "$stage/$name/slipstream-settings/"

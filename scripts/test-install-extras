@@ -1,0 +1,238 @@
+#!/bin/sh
+# Tests for install-extras, with a scratch home, a stand-in flatpak and xdg-settings that only
+# record what they're asked, a scratch git checkout, and bundles fetched from file:// URLs.
+#
+#   scripts/test-install-extras          with sh
+#   SHELL_UNDER_TEST=dash scripts/test-install-extras
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+shell=${SHELL_UNDER_TEST:-sh}
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+failures=0
+passed=0
+
+fail() {
+    echo "FAIL: $*" >&2
+    failures=$((failures + 1))
+}
+ok() { passed=$((passed + 1)); }
+
+app=org.example.Browser
+stubs=$work/stubs
+mkdir -p "$stubs"
+# flatpak: `info --user ID` succeeds once ID is installed; `install ... --bundle FILE` installs the
+# app ID written in FILE.
+cat >"$stubs/flatpak" <<'EOF'
+#!/bin/sh
+echo "flatpak $*" >>"$STUB_LOG"
+case $1 in
+    info) [ -e "$STUB_INSTALLED/$3" ] ;;
+    install)
+        for last in "$@"; do :; done
+        mkdir -p "$STUB_INSTALLED"
+        : >"$STUB_INSTALLED/$(head -n 1 "$last")"
+        ;;
+esac
+EOF
+cat >"$stubs/xdg-settings" <<'EOF'
+#!/bin/sh
+echo "xdg-settings $*" >>"$STUB_LOG"
+EOF
+chmod +x "$stubs/flatpak" "$stubs/xdg-settings"
+
+# A fresh home, log and checkout for each case.
+fresh() {
+    rm -rf "${work:?}/home" "${work:?}/installed" "${work:?}/checkout" "${work:?}/bundles"
+    mkdir -p "$work/home/.config/slipstream/extras" "$work/installed" "$work/bundles"
+    : >"$work/log"
+    mkdir -p "$work/checkout"
+    # The checkout's build installs the app, as a real Flatpak build script would.
+    # shellcheck disable=SC2016 # expanded when the build script runs
+    printf '#!/bin/sh\necho built >>"$STUB_LOG"\n: >"$STUB_INSTALLED/%s"\n' "$app" \
+        >"$work/checkout/build.sh"
+    chmod +x "$work/checkout/build.sh"
+    git -C "$work/checkout" init -q
+    commit_checkout "first"
+}
+
+commit_checkout() {
+    echo "$1" >"$work/checkout/version"
+    git -C "$work/checkout" add -A
+    git -C "$work/checkout" -c user.name=Test -c user.email=test@example.org commit -q -m "$1"
+}
+
+conf() { cat >"$work/home/.config/slipstream/extras/browser.conf"; }
+
+run() {
+    env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+        HOME="$work/home" \
+        PATH="$stubs:$PATH" \
+        STUB_LOG="$work/log" \
+        STUB_INSTALLED="$work/installed" \
+        SLIPSTREAM_TEST_EXTRAS=yes \
+        "$shell" "$repo/scripts/install-extras" "$@" >"$work/out" 2>&1
+}
+
+expect_status() {
+    want=$1
+    shift
+    status=0
+    run "$@" || status=$?
+    if [ "$status" -ne "$want" ]; then
+        fail "$case_name: exit $status, wanted $want"
+        sed 's/^/    | /' "$work/out" >&2
+        return 1
+    fi
+    ok
+}
+
+count() { grep -c "$1" "$work/log" || true; }
+
+expect_count() {
+    got=$(count "$1")
+    if [ "$got" -ne "$2" ]; then
+        fail "$case_name: '$1' $got times, wanted $2"
+        sed 's/^/    | /' "$work/log" >&2
+    else
+        ok
+    fi
+}
+
+case_name="nothing described, nothing done"
+fresh
+rm -rf "$work/home/.config/slipstream/extras"
+expect_status 0
+if [ -s "$work/out" ]; then fail "$case_name: said something"; else ok; fi
+
+case_name="a checkout is built when missing, then only when its commit changes"
+fresh
+conf <<EOF
+# A browser from a local checkout.
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+EOF
+expect_status 0
+expect_count '^built' 1
+expect_status 0
+expect_count '^built' 1
+commit_checkout "second"
+expect_status 0
+expect_count '^built' 2
+
+case_name="an app removed by hand is built again"
+rm -f "$work/installed/$app"
+expect_status 0
+expect_count '^built' 3
+
+case_name="a failed build fails and records nothing"
+fresh
+printf '#!/bin/sh\nexit 3\n' >"$work/checkout/build.sh"
+commit_checkout "broken"
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+EOF
+expect_status 1
+if [ -e "$work/home/.local/state/slipstream/extras/browser" ]; then
+    fail "$case_name: recorded a build"
+else
+    ok
+fi
+
+case_name="--check changes nothing"
+fresh
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+default_browser=yes
+EOF
+expect_status 0 --check
+expect_count '^built' 0
+grep -q "would build" "$work/out" || fail "$case_name: didn't say what it would do"
+if [ -e "$work/home/.local/state/slipstream" ]; then fail "$case_name: wrote state"; else ok; fi
+
+case_name="without the checkout, a bundle with the right checksum is installed once"
+fresh
+echo "$app" >"$work/bundles/browser.flatpak"
+sha=$(sha256sum "$work/bundles/browser.flatpak" | cut -d ' ' -f 1)
+conf <<EOF
+app_id=$app
+checkout=$work/no-such-checkout
+build=./build.sh
+bundle_url=file://$work/bundles/browser.flatpak
+bundle_sha256=$sha
+EOF
+expect_status 0
+expect_count 'flatpak install' 1
+expect_status 0
+expect_count 'flatpak install' 1
+[ -e "$work/home/.cache/slipstream/extras/browser.flatpak" ] || fail "$case_name: not in the cache"
+
+case_name="a checksum fetched beside the bundle works too"
+fresh
+echo "$app" >"$work/bundles/browser.flatpak"
+(cd "$work/bundles" && sha256sum browser.flatpak >browser.flatpak.sha256)
+conf <<EOF
+app_id=$app
+bundle_url=file://$work/bundles/browser.flatpak
+bundle_sha256_url=file://$work/bundles/browser.flatpak.sha256
+EOF
+expect_status 0
+expect_count 'flatpak install' 1
+
+case_name="a bundle with the wrong checksum isn't installed"
+fresh
+echo "$app" >"$work/bundles/browser.flatpak"
+conf <<EOF
+app_id=$app
+bundle_url=file://$work/bundles/browser.flatpak
+bundle_sha256=0000000000000000000000000000000000000000000000000000000000000000
+EOF
+expect_status 1
+expect_count 'flatpak install' 0
+if [ -e "$work/installed/$app" ]; then fail "$case_name: installed"; else ok; fi
+
+case_name="a bundle without any checksum isn't downloaded"
+fresh
+conf <<EOF
+app_id=$app
+bundle_url=file://$work/bundles/browser.flatpak
+EOF
+expect_status 1
+expect_count 'flatpak install' 0
+
+case_name="the default browser is set once, so another choice afterwards sticks"
+fresh
+conf <<EOF
+app_id = $app
+checkout = ~/../checkout   # beside the home
+build = ./build.sh
+default_browser = yes # once
+EOF
+expect_status 0
+expect_count "xdg-settings set default-web-browser $app.desktop" 1
+commit_checkout "later"
+expect_status 0
+expect_count '^built' 2
+expect_count 'xdg-settings set' 1
+
+case_name="a file without an app ID fails, and the others still install"
+fresh
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+EOF
+printf 'checkout=%s\nnonsense line\n' "$work/checkout" \
+    >"$work/home/.config/slipstream/extras/broken.conf"
+expect_status 1
+expect_count '^built' 1
+grep -q "broken: no app_id" "$work/out" || fail "$case_name: didn't name the broken file"
+grep -q "not KEY=value" "$work/out" || fail "$case_name: didn't flag the bad line"
+
+echo "$passed passed, $failures failed ($shell)"
+[ "$failures" -eq 0 ]
