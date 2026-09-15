@@ -50,8 +50,6 @@ pub const PAUSE: &str = r#"<path d="M8.5 5.5v13M15.5 5.5v13"/>"#;
 pub const CLOSE: &str = r#"<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>"#;
 /// A chevron pointing right (›): more behind this, such as a tile's settings page.
 pub const CHEVRON: &str = r#"<path d="M9.5 6l6 6-6 6"/>"#;
-/// The mockup's avatar: a circle shading from amber to orange. Brings its own fill.
-pub const AVATAR: &str = r##"<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb547"/><stop offset="1" stop-color="#e0673a"/></linearGradient></defs><circle cx="12" cy="12" r="12" fill="url(#g)"/>"##;
 /// Two chevrons, amber and mint. Brings its own fills: draw it without ink.
 pub const LOGO: &str = r##"<path d="M2.5 5.5h9l5.5 6.5-5.5 6.5h-9L8 12z" fill="#ffb547"/><path d="M14 5.5h2.5l5.5 6.5-5.5 6.5H14l5.5-6.5z" fill="#3cf0c0"/>"##;
 
@@ -132,7 +130,6 @@ mod tests {
             assert!(coverage(body, Some(0xdfe4ecff)) > 20, "{body}");
         }
         assert!(coverage(LOGO, None) > 200);
-        assert!(coverage(AVATAR, None) > 1000, "a filled circle");
         assert!(coverage(&battery(50, false), Some(0xdfe4ecff)) > 20);
     }
 

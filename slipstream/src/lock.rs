@@ -603,10 +603,10 @@ const BOTTOM: f32 = 56.0;
 const CLOCK_PX: f32 = 220.0;
 const DATE_PX: f32 = 34.0;
 const TOP_H: f32 = CLOCK_PX + 6.0 + DATE_PX * 1.2;
-const AVATAR: f32 = 112.0;
-const RING: f32 = 6.0;
-const NAME_PX: f32 = 26.0;
-const USER_H: f32 = AVATAR + 14.0 + NAME_PX * 1.2;
+/// The name is a quiet label over the pill, nearer to it than the column's gaps.
+const NAME_PX: f32 = 18.0;
+const USER_H: f32 = NAME_PX * 1.2;
+const NAME_GAP: f32 = 8.0;
 const PILL_H: f32 = 14.0 * 2.0 + 22.0 * 1.2 + 2.0;
 const PILL_MIN: f32 = 380.0;
 const HINT_PX: f32 = 16.0;
@@ -677,18 +677,17 @@ impl Card {
 
         let px = MOCKUP_PX as f64;
         let height = size.h as f64 / px;
-        let middle_h = (USER_H + GAP + PILL_H + GAP + HINT_H) as f64;
+        let middle_h = (USER_H + NAME_GAP + PILL_H + GAP + HINT_H) as f64;
         let top_end = (TOP + TOP_H) as f64;
         let status_y = height - (BOTTOM + STATUS_H) as f64;
         let gap = ((status_y - top_end - middle_h) / 2.0).max(0.0);
         let user_y = top_end + gap;
-        let pill_y = user_y + (USER_H + GAP) as f64;
+        let pill_y = user_y + (USER_H + NAME_GAP) as f64;
         let hint_y = pill_y + (PILL_H + GAP) as f64;
         let centre = (size.w as f64 / 2.0, size.h as f64 / 2.0);
         let place = [
             (&self.top, TOP as f64, 0.0),
-            // The avatar's ring reaches outside the column's box.
-            (&self.user, user_y - RING as f64, 0.0),
+            (&self.user, user_y, 0.0),
             (&self.pill, pill_y, dx),
             (&self.hint, hint_y, 0.0),
             (&self.status, status_y, 0.0),
@@ -725,39 +724,10 @@ fn paint_top(key: String, time: &str, date: &str, scale: f64) -> Option<Piece> {
 }
 
 fn paint_user(key: String, user: &str, scale: f64) -> Option<Piece> {
-    let name = Style::new(Face::BodyBold, NAME_PX, 0xf3f5f9ff);
-    let name_w = text::width(user, &name);
-    let w = (AVATAR + 2.0 * RING).max(name_w + 8.0);
-    Piece::paint(key, w, USER_H + RING, scale, |p| {
-        let left = (w - AVATAR) / 2.0;
-        p.fill(
-            left - RING,
-            0.0,
-            AVATAR + 2.0 * RING,
-            AVATAR + 2.0 * RING,
-            AVATAR / 2.0 + RING,
-            0xffffff18,
-        );
-        p.icon(icons::AVATAR, left, RING, AVATAR, None);
-        let initial: String = user
-            .chars()
-            .next()
-            .map(|ch| ch.to_uppercase().collect())
-            .unwrap_or_default();
-        let letter = Style::new(Face::Display, 46.0, crate::panel::DARK);
-        let letter_w = text::width(&initial, &letter);
-        p.text(
-            &initial,
-            left + (AVATAR - letter_w) / 2.0,
-            RING + AVATAR / 2.0,
-            &letter,
-        );
-        p.text(
-            user,
-            (w - name_w) / 2.0,
-            RING + AVATAR + 14.0 + NAME_PX * 0.6,
-            &name,
-        );
+    let name = Style::new(Face::Body, NAME_PX, 0xb3bbc8ff);
+    let w = text::width(user, &name).max(1.0) + 8.0;
+    Piece::paint(key, w, USER_H, scale, |p| {
+        p.text(user, 4.0, USER_H / 2.0, &name);
     })
 }
 

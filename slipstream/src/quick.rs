@@ -498,37 +498,22 @@ impl QuickSettings {
             // Each control's box (x, y, w, h and corner radius), for the keyboard's ring.
             let mut shapes: Vec<(Control, [f32; 5])> = Vec::new();
 
-            // The avatar, the name and the battery, then the power button.
-            p.icon(icons::AVATAR, x0, y, HEAD_H, None);
-            let initial: String = facts
-                .user
-                .chars()
-                .next()
-                .map(|ch| ch.to_uppercase().collect())
-                .unwrap_or_default();
-            let initial_style = Style::new(Face::Display, 18.0, DARK);
-            let initial_w = text::width(&initial, &initial_style);
-            p.text(
-                &initial,
-                x0 + (HEAD_H - initial_w) / 2.0,
-                y + HEAD_H / 2.0,
-                &initial_style,
-            );
+            // The battery and, quietly beneath it, who is logged in; then the lock and power
+            // buttons.
             let power_x = x0 + inner - 40.0;
             let lock_x = power_x - 8.0 - 40.0;
-            let text_x = x0 + HEAD_H + 12.0;
-            let room = lock_x - 12.0 - text_x;
-            let name = Style::new(Face::BodyBold, 16.0, INK);
+            let room = lock_x - 12.0 - x0;
+            let battery = Style::new(Face::Body, 16.0, INK);
             p.text(
-                &text::ellipsize(&facts.user, &name, room),
-                text_x,
+                &text::ellipsize(&battery_line(status), &battery, room),
+                x0,
                 y + 12.0,
-                &name,
+                &battery,
             );
             let small = Style::new(Face::Body, 13.0, 0x8f98a8ff);
             p.text(
-                &text::ellipsize(&battery_line(status), &small, room),
-                text_x,
+                &text::ellipsize(&facts.user, &small, room),
+                x0,
                 y + 31.0,
                 &small,
             );
