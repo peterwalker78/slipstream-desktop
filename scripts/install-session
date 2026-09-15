@@ -1067,7 +1067,10 @@ if [ -n "$root" ]; then
     bold "Installing under $root"
 else
     bold "Installing (sudo asks for your password)"
-    if ! sudo -v; then
+    # `sudo -v` asks once, up front, so a password prompt doesn't land between two writes. Some
+    # systems' sudo rules let a command through but not a bare validation, so a real command is
+    # the second opinion before giving up.
+    if ! sudo -v && ! sudo true; then
         echo
         echo "sudo didn't let this through, so nothing was written."
         exit 1

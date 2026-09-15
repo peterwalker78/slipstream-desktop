@@ -90,6 +90,10 @@ mkdir -p /etc/sudoers.d
 printf 'Defaults:%s !targetpw\n%s ALL=(ALL) NOPASSWD: ALL\n' "$user" "$user" \
     >/etc/sudoers.d/slipstream-test
 chmod 440 /etc/sudoers.d/slipstream-test
+# openSUSE keeps its stock sudoers in /usr/etc and expects a copy in /etc once it is changed.
+if [ ! -f /etc/sudoers ] && [ -f /usr/etc/sudoers ]; then
+    cp /usr/etc/sudoers /etc/sudoers
+fi
 if [ -f /etc/sudoers ]; then
     printf '\nDefaults:%s !targetpw\n%s ALL=(ALL) NOPASSWD: ALL\n' "$user" "$user" >>/etc/sudoers
 fi
