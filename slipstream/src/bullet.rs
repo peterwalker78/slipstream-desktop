@@ -325,9 +325,11 @@ pub fn bar_click(target: bar::Target) -> BarClick {
         bar::Target::Workspace(index) => BarClick::Look(index),
         bar::Target::Sharing => BarClick::Stay,
         bar::Target::Overview => BarClick::Back,
-        bar::Target::Apps | bar::Target::Clock | bar::Target::Tray | bar::Target::Bell => {
-            BarClick::Leave
-        }
+        bar::Target::Apps
+        | bar::Target::Clock
+        | bar::Target::Tray
+        | bar::Target::Meter
+        | bar::Target::Bell => BarClick::Leave,
     }
 }
 
@@ -636,6 +638,7 @@ mod tests {
             bar::Target::Apps,
             bar::Target::Clock,
             bar::Target::Tray,
+            bar::Target::Meter,
             bar::Target::Bell,
         ] {
             assert_eq!(bar_click(panel), BarClick::Leave, "{panel:?}");

@@ -132,6 +132,7 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
 - **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
+- **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. See below.
 - **Every effect has a reduced-motion version**, switched live from Settings.
 
 **Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic). Expect rough edges, and changes between versions.
@@ -205,6 +206,27 @@ default_browser=yes              # set once, so choosing another browser later s
 ```
 
 `scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
+
+### A meter of your own
+
+The bar can show how much of something is used, from any command that prints a small JSON report. Set it in `~/.config/slipstream/settings.toml`:
+
+```toml
+[meter]
+command = "quota-report --json"   # run with sh -c
+every-secs = 60
+```
+
+The report has sections, each with meters:
+
+```json
+{"sections": [{"name": "Storage", "detail": "Pro",
+               "meters": [{"label": "Daily", "percent": 42, "resets": 1790000000},
+                          {"label": "Weekly", "percent": 18}],
+               "note": null, "stale": false}]}
+```
+
+The bar shows a small gauge for each section: its first meter as the thick bar, with the percentage beside it, and its second as the thin bar underneath. The gauge turns amber at 75% and orange at 90%. Quick settings lists every meter, with the time left until each starts over (`resets` is in seconds since the Unix epoch). `detail`, `note`, `stale` and `resets` are optional. A section marked `stale` is dimmed, and so is everything if the command fails, times out after 30 seconds, or prints something unreadable. The last good report stays on show in the meantime.
 
 ## Updating
 

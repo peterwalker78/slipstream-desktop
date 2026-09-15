@@ -82,6 +82,7 @@ use crate::{
     keys::{self, Mods},
     launch,
     layout::{self, Direction, Rect},
+    meter,
     motion::{self, Motion},
     offer::{self, Offer},
     osd,
@@ -351,6 +352,8 @@ pub struct Slipstream {
     pub chromes: HashMap<String, Chrome>,
     /// Clock and battery readings, refreshed off the main thread.
     pub status: Arc<Mutex<status::Reading>>,
+    /// What the bar's meter shows, from its command; `None` without one.
+    pub meter: Arc<Mutex<Option<meter::Reading>>>,
     pub debug: debug::Script,
     /// The settings as applied: the file's, with any environment overrides.
     pub settings: slipstream_config::Settings,
@@ -512,6 +515,7 @@ impl Slipstream {
             .expect("a channel source always inserts");
 
         let settings = crate::settings::startup();
+        meter::configure(&settings.meter);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();
 
@@ -636,6 +640,7 @@ impl Slipstream {
             overview_tilt: Tilt::default(),
             chromes: HashMap::new(),
             status: status::start(),
+            meter: meter::start(),
             debug: debug::Script::default(),
             settings,
             ring_rgb,
@@ -1033,7 +1038,7 @@ impl Slipstream {
         match target {
             bar::Target::Workspace(index) => self.switch_workspace(index),
             bar::Target::Apps => self.toggle_explorer(),
-            bar::Target::Tray => self.toggle_quick_settings(),
+            bar::Target::Tray | bar::Target::Meter => self.toggle_quick_settings(),
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
             bar::Target::Sharing => {
@@ -4409,6 +4414,7 @@ impl Slipstream {
             self.night.schedule_changed();
         }
         self.set_reduced_motion(settings.motion.reduced);
+        meter::configure(&settings.meter);
         let now = self.clock.tick();
         self.wallpaper = settings.wallpaper.clone();
         for saver in self.savers.values_mut() {

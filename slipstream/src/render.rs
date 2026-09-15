@@ -1102,6 +1102,7 @@ pub fn output_elements(
                 .seat
                 .get_keyboard()
                 .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
+            meter: state.meter.lock().unwrap().clone(),
         };
         elements.extend(
             chrome

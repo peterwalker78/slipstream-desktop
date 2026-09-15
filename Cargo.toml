@@ -36,6 +36,8 @@ serde = { version = "1", features = ["derive"] }
 # The lock screen's password is wiped from memory whenever it is let go.
 zeroize = "1"
 toml = "1.1"
+# The bar's meter reads the JSON report its command prints.
+serde_json = "1"
 # slipstream-settings: GTK4, the plan's toolkit for Slipstream's own apps (AT-SPI accessibility).
 # Pango 1.56 loads the mockup's fonts from files without installing them.
 gtk4 = { version = "0.11", features = ["v4_14"] }

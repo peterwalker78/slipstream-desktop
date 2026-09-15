@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **A meter of your own on the bar.** `[meter] command` runs any command that prints a small JSON report of how much of something is used (a quota, a plan's limits, a disk), every `every-secs`. The bar shows a gauge for each section beside quick settings, amber at 75% and orange at 90%, and clicking it opens quick settings, which lists every meter with the time left until it starts over. Numbers the report marks old, or that a failing command couldn't refresh, stay on show dimmed. See the README.
+
 ## [0.3.0] - 2026-09-15
 
 - **More than one screen behaves predictably.** Super+1–9 to a workspace another screen is already showing now moves the keyboard to that screen, and neither screen changes what it shows. Before, the two screens traded workspaces. Trading is now its own key, **Super+Ctrl+P**, which swaps workspaces with the next screen, windows and all. Super+Ctrl+←/→ passes over workspaces another screen is showing, and bar clicks and bullet time follow the same rule.

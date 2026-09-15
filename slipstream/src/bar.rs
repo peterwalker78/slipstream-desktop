@@ -18,7 +18,7 @@ use smithay::{
 };
 
 use crate::{
-    icons,
+    icons, meter,
     paint::{self, Painter},
     status::Reading,
     text::{self, Face, Style},
@@ -60,6 +60,8 @@ pub struct Content {
     pub sharing: bool,
     /// Caps Lock is on: a chip beside the tray says so.
     pub caps_lock: bool,
+    /// What the meter's command last reported, when there is a meter.
+    pub meter: Option<meter::Reading>,
 }
 
 /// Where each button is, in logical pixels from the screen's top-left corner.
@@ -77,6 +79,8 @@ pub enum Target {
     Sharing,
     /// Beside the workspaces: bullet time, as Windows' Task View button.
     Overview,
+    /// The meter beside the tray, whose details are in quick settings.
+    Meter,
 }
 
 /// The overview button's width, and the gap before it, in the bar's units.
@@ -364,6 +368,39 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.text(percent, item_x, 20.0, style);
     }
 
+    // Left of the tray: the meter, a gauge for each section with its first meter's percentage.
+    // The gauge's thick bar is that meter and the thin one under it the next.
+    if let Some(w) = meter_width(content) {
+        right -= 8.0 + w;
+        let mut x = right + 4.0;
+        for section in bar_sections(content) {
+            let first = &section.gauges[0];
+            let shade = |rgba: u32| {
+                if section.stale {
+                    meter::dim(rgba)
+                } else {
+                    rgba
+                }
+            };
+            let mut bar = |y: f32, h: f32, percent: u8| {
+                p.fill(x, y, GAUGE_W, h, h / 2.0, shade(0xffffff26));
+                let filled = GAUGE_W * percent as f32 / 100.0;
+                if filled > 0.0 {
+                    p.fill(x, y, filled.max(h), h, h / 2.0, shade(meter::ink(percent)));
+                }
+            };
+            bar(14.0, 6.0, first.percent);
+            if let Some(second) = section.gauges.get(1) {
+                bar(23.0, 3.0, second.percent);
+            }
+            let style = meter_style(section);
+            let label = format!("{}%", first.percent);
+            let label_w = p.text(&label, x + GAUGE_W + 6.0, 20.0, &style);
+            x += GAUGE_W + 6.0 + label_w + 12.0;
+        }
+        target(Target::Meter, right, w);
+    }
+
     // Left of the tray while Caps Lock is on: the key's arrow and the word, on a faint amber pill,
     // the way the red one says something is shared.
     if content.caps_lock {
@@ -400,6 +437,42 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     Some((p.pixmap, targets))
 }
 
+/// A meter gauge's width in the bar's units.
+const GAUGE_W: f32 = 18.0;
+
+/// The sections the bar shows a gauge for: those with numbers, up to the bar's limit.
+fn bar_sections(content: &Content) -> impl Iterator<Item = &meter::Section> {
+    content
+        .meter
+        .iter()
+        .flat_map(|reading| &reading.sections)
+        .filter(|section| !section.gauges.is_empty())
+        .take(meter::BAR_SECTIONS)
+}
+
+fn meter_style(section: &meter::Section) -> Style {
+    let ink = match section.gauges[0].percent {
+        75.. => meter::ink(section.gauges[0].percent),
+        _ => INK,
+    };
+    let ink = if section.stale { meter::dim(ink) } else { ink };
+    Style {
+        tabular: true,
+        ..Style::new(Face::Body, 14.0, ink)
+    }
+}
+
+/// The meter's width in the bar's units, if it shows at all.
+fn meter_width(content: &Content) -> Option<f32> {
+    let widths: Vec<f32> = bar_sections(content)
+        .map(|section| {
+            let label = format!("{}%", section.gauges[0].percent);
+            GAUGE_W + 6.0 + text::width(&label, &meter_style(section)) + 12.0
+        })
+        .collect();
+    (!widths.is_empty()).then(|| 4.0 + widths.iter().sum::<f32>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,6 +498,7 @@ mod tests {
             unread: 0,
             sharing: false,
             caps_lock: false,
+            meter: None,
         }
     }
 
@@ -471,6 +545,58 @@ mod tests {
         assert!(
             dot.loc.x + dot.size.w <= tray.loc.x,
             "left of the tray, not over it"
+        );
+    }
+
+    #[test]
+    fn the_meter_sits_left_of_the_tray_and_only_with_numbers_to_show() {
+        let area = |content: &Content, wanted: Target| {
+            let (_, targets) = paint(content, 1536, 1.25).unwrap();
+            targets
+                .iter()
+                .find(|(target, _)| *target == wanted)
+                .map(|(_, area)| *area)
+        };
+        assert_eq!(area(&content(), Target::Meter), None, "no meter set up");
+        let section = |name: &str, percents: &[u8]| meter::Section {
+            name: name.into(),
+            detail: None,
+            gauges: percents
+                .iter()
+                .map(|percent| meter::Gauge {
+                    label: "Daily".into(),
+                    percent: *percent,
+                    resets_in: None,
+                })
+                .collect(),
+            note: None,
+            stale: false,
+        };
+        let empty = Content {
+            meter: Some(meter::Reading {
+                sections: vec![section("Mail", &[])],
+            }),
+            ..content()
+        };
+        assert_eq!(area(&empty, Target::Meter), None, "nothing to show yet");
+        let one = Content {
+            meter: Some(meter::Reading {
+                sections: vec![section("Storage", &[42, 7])],
+            }),
+            ..content()
+        };
+        let meter = area(&one, Target::Meter).expect("a meter to click");
+        let tray = area(&one, Target::Tray).unwrap();
+        assert!(meter.loc.x + meter.size.w <= tray.loc.x);
+        let two = Content {
+            meter: Some(meter::Reading {
+                sections: vec![section("Storage", &[42, 7]), section("Mail", &[3])],
+            }),
+            ..content()
+        };
+        assert!(
+            area(&two, Target::Meter).unwrap().size.w > meter.size.w,
+            "a gauge for each section"
         );
     }
 

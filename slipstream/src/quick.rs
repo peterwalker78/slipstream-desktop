@@ -16,7 +16,7 @@ use crate::{
     exit::Intent,
     icons,
     keys::App,
-    launch,
+    launch, meter,
     paint::Painted,
     panel::{self, DARK, GAP, INK, MOCKUP_PX, PADDING},
     status::{self, Reading},
@@ -34,6 +34,13 @@ const SLIDER_H: f32 = 30.0;
 const FOOT_H: f32 = 31.0;
 /// The chevron's zone at the right of a tile that has one.
 const CHEVRON_W: f32 = 36.0;
+/// The meter's block: the line above it and the space under that, a section's name, each of its
+/// gauges, its note, and the gap after it.
+const METER_TOP: f32 = 13.0;
+const METER_HEAD_H: f32 = 24.0;
+const METER_ROW_H: f32 = 26.0;
+const METER_NOTE_H: f32 = 20.0;
+const METER_GAP: f32 = 8.0;
 
 /// Something in quick settings the keyboard can move to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -138,6 +145,8 @@ pub struct Facts {
     pub night_light: bool,
     pub reduced_motion: bool,
     pub user: String,
+    /// The bar meter's report, shown in full under the sliders.
+    pub meter: Option<meter::Reading>,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
 }
@@ -150,6 +159,7 @@ impl Default for Facts {
             night_light: false,
             reduced_motion: false,
             user: String::new(),
+            meter: None,
             ring: crate::panel::FOCUS,
         }
     }
@@ -462,6 +472,28 @@ impl QuickSettings {
             sliders.push((Control::Brightness, icons::SUN, level));
         }
         let menu_h = if look.power_menu { MENU_H + GAP } else { 0.0 };
+        let sections: &[meter::Section] = facts
+            .meter
+            .as_ref()
+            .map_or(&[], |reading| reading.sections.as_slice());
+        let meter_h = if sections.is_empty() {
+            0.0
+        } else {
+            METER_TOP
+                + sections
+                    .iter()
+                    .map(|section| {
+                        METER_HEAD_H
+                            + section.gauges.len() as f32 * METER_ROW_H
+                            + if section.note.is_some() {
+                                METER_NOTE_H
+                            } else {
+                                0.0
+                            }
+                            + METER_GAP
+                    })
+                    .sum::<f32>()
+        };
         let height = PADDING
             + HEAD_H
             + GAP
@@ -470,6 +502,7 @@ impl QuickSettings {
             + 2.0 * TILE_GAP
             + GAP
             + sliders.len() as f32 * (SLIDER_H + GAP)
+            + meter_h
             + FOOT_H
             + PADDING;
         let (fx, fy) = (panel::MARGIN, panel::MARGIN);
@@ -663,6 +696,103 @@ impl QuickSettings {
                 y += SLIDER_H + GAP;
             }
 
+            // The meter's report: each section's name, its gauges with the time until each starts
+            // over, and its note. Old numbers are dimmed.
+            if !sections.is_empty() {
+                p.fill(x0, y, inner, 1.0, 0.0, 0xffffff12);
+                y += METER_TOP;
+                for section in sections {
+                    let shade = |rgba: u32| {
+                        if section.stale {
+                            meter::dim(rgba)
+                        } else {
+                            rgba
+                        }
+                    };
+                    let centre = y + METER_HEAD_H / 2.0;
+                    let name = Style::new(Face::BodyBold, 14.0, shade(INK));
+                    let name_w = p.text(
+                        &text::ellipsize(&section.name, &name, inner / 2.0),
+                        x0,
+                        centre,
+                        &name,
+                    );
+                    let quiet = Style::new(Face::Body, 12.5, shade(0x8f98a8ff));
+                    if let Some(detail) = &section.detail {
+                        p.text(
+                            &text::ellipsize(detail, &quiet, inner / 2.0 - 10.0),
+                            x0 + name_w + 10.0,
+                            centre,
+                            &quiet,
+                        );
+                    }
+                    if section.stale && section.note.is_none() {
+                        let old = Style::new(Face::Body, 12.5, 0x8f98a8ff);
+                        let word = "Not up to date";
+                        p.text(word, x0 + inner - text::width(word, &old), centre, &old);
+                    }
+                    y += METER_HEAD_H;
+                    for gauge in &section.gauges {
+                        let centre = y + METER_ROW_H / 2.0;
+                        let label = Style::new(Face::Body, 13.0, shade(0xaab2c0ff));
+                        p.text(
+                            &text::ellipsize(&gauge.label, &label, 124.0),
+                            x0,
+                            centre,
+                            &label,
+                        );
+                        let percent = format!("{}%", gauge.percent);
+                        let number = Style {
+                            tabular: true,
+                            ..Style::new(Face::Mono, 13.0, shade(0xaab2c0ff))
+                        };
+                        p.text(
+                            &percent,
+                            x0 + inner - text::width(&percent, &number),
+                            centre,
+                            &number,
+                        );
+                        let resets_right = x0 + inner - 46.0;
+                        let track_x = x0 + 132.0;
+                        let track_w = resets_right - 104.0 - track_x;
+                        p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, shade(0x3a3f4bff));
+                        let filled = track_w * gauge.percent as f32 / 100.0;
+                        if filled > 0.0 {
+                            p.fill(
+                                track_x,
+                                centre - 3.0,
+                                filled.max(6.0),
+                                6.0,
+                                3.0,
+                                shade(meter::ink(gauge.percent)),
+                            );
+                        }
+                        if let Some(left) = &gauge.resets_in {
+                            let small = Style::new(Face::Body, 12.0, shade(0x8f98a8ff));
+                            let left = text::ellipsize(left, &small, 96.0);
+                            p.text(
+                                &left,
+                                resets_right - text::width(&left, &small),
+                                centre,
+                                &small,
+                            );
+                        }
+                        y += METER_ROW_H;
+                    }
+                    if let Some(note) = &section.note {
+                        let style = Style::new(Face::Body, 12.5, 0xd9b27aff);
+                        p.text(
+                            &text::ellipsize(note, &style, inner),
+                            x0,
+                            y + METER_NOTE_H / 2.0 - 2.0,
+                            &style,
+                        );
+                        y += METER_NOTE_H;
+                    }
+                    y += METER_GAP;
+                }
+            }
+
             // The footer: the way into the Settings app, and the keys.
             p.fill(x0, y, inner, 1.0, 0.0, 0xffffff12);
             let centre = y + FOOT_H - 9.0;
@@ -792,6 +922,7 @@ impl Slipstream {
             night_light: self.settings.display.night_light,
             reduced_motion: self.quick.reduced_motion,
             user: self.user.clone(),
+            meter: self.meter.lock().unwrap().clone(),
             ring: self.panel_ring(),
         }
     }
@@ -811,7 +942,9 @@ impl Slipstream {
                 let target = (!self.fullscreen_on_screen())
                     .then(|| self.focused_bar_target(x, y))
                     .flatten();
-                if let Some(target) = target.filter(|target| *target != bar::Target::Tray) {
+                if let Some(target) = target
+                    .filter(|target| !matches!(target, bar::Target::Tray | bar::Target::Meter))
+                {
                     self.bar_clicked(target);
                 }
             }

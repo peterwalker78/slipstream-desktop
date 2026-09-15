@@ -30,6 +30,10 @@
 //! [clipboard]
 //! history = true
 //!
+//! [meter]
+//! command = ""
+//! every-secs = 60
+//!
 //! [session]
 //! remember = false
 //! reopen-without-asking = false
@@ -87,6 +91,7 @@ pub struct Settings {
     pub lock: Lock,
     pub sound: Sound,
     pub clipboard: Clipboard,
+    pub meter: Meter,
     pub workspaces: Workspaces,
 }
 
@@ -510,6 +515,42 @@ pub struct Sound {
 impl Default for Sound {
     fn default() -> Self {
         Self { volume_blip: true }
+    }
+}
+
+/// A meter on the bar, beside quick settings, showing how much of some allowance a command reports
+/// used: a quota, a plan's limits, a disk. The command prints a JSON report, which quick settings
+/// shows in full:
+///
+/// ```json
+/// {"sections": [{"name": "Storage", "detail": "Pro", "note": null, "stale": false,
+///                "meters": [{"label": "Daily", "percent": 42, "resets": 1790000000}]}]}
+/// ```
+///
+/// `resets` is when that allowance starts over, in seconds since the Unix epoch. `detail`, `note`,
+/// `stale` and `resets` are optional; `stale` dims a section whose numbers are old.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Meter {
+    /// Run with `sh -c`. Empty means no meter.
+    pub command: String,
+    /// How often the command runs, in seconds. At least 10.
+    pub every_secs: u64,
+}
+
+impl Default for Meter {
+    fn default() -> Self {
+        Self {
+            command: String::new(),
+            every_secs: 60,
+        }
+    }
+}
+
+impl Meter {
+    /// `every_secs`, never under 10 s.
+    pub fn every(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.every_secs.max(10))
     }
 }
 
@@ -1123,6 +1164,10 @@ mod tests {
             },
             sound: Sound { volume_blip: false },
             clipboard: Clipboard { history: false },
+            meter: Meter {
+                command: "df --output=pcent /home | report".into(),
+                every_secs: 300,
+            },
             workspaces: Workspaces {
                 list: vec![
                     WorkspaceEntry {
