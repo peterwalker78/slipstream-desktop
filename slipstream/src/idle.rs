@@ -129,6 +129,22 @@ impl Idle {
         }
     }
 
+    /// Brings the UI back for something that needs to be seen, a critical notification, and
+    /// starts the wait before it fades again. Unlike input it isn't a sign anyone is there, so
+    /// the wait before locking carries on: a stream of notifications can't keep an empty desk
+    /// unlocked.
+    pub fn wake(&mut self, now: f64) {
+        self.last_input = Instant::now();
+        if self.faded {
+            self.show(now);
+        }
+    }
+
+    /// How long since the last input.
+    pub fn since_input(&self) -> Duration {
+        self.last_input.elapsed()
+    }
+
     /// Whether the UI has stepped aside for the wallpaper, or is on its way out.
     pub fn is_faded(&self) -> bool {
         self.faded
@@ -205,6 +221,26 @@ mod tests {
         assert!(idle.lock_due(later(16), false));
         idle.set_lock_after(0);
         assert!(!idle.lock_due(later(100), false), "0 is never");
+    }
+
+    #[test]
+    fn a_wake_shows_the_ui_but_doesnt_hold_off_the_lock() {
+        let start = Instant::now();
+        let mut idle = Idle {
+            timeout: Some(Duration::ZERO),
+            ..Idle::new(false, 120)
+        };
+        idle.set_lock_after(5);
+        idle.lock_idle_since = start;
+        idle.update(0.0, false);
+        assert_eq!(idle.update(FADE, false), 0.0);
+        idle.wake(FADE);
+        assert!(!idle.is_faded());
+        assert_eq!(idle.update(FADE + RETURN, true), 1.0);
+        assert!(
+            idle.lock_due(start + Duration::from_secs(5 * 60), false),
+            "the lock's wait went on counting"
+        );
     }
 
     #[test]

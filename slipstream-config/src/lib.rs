@@ -21,6 +21,8 @@
 //! do-not-disturb = false
 //! wait-while-typing = true
 //! longest-wait-mins = 15
+//! sounds = true
+//! sound-theme = "ocean"
 //!
 //! [sound]
 //! volume-blip = true
@@ -467,6 +469,13 @@ pub struct Notifications {
     /// The longest a pop-up waits for a pause, in minutes. Urgent messages tend to reach a phone
     /// first, so a quarter of an hour of unbroken typing is left alone. At least 1.
     pub longest_wait_mins: u64,
+    /// Plays the sound a notification asks for, by file or by name from the sound theme. Not
+    /// while you're looking at the window it came from, and under do not disturb only for
+    /// critical ones.
+    pub sounds: bool,
+    /// The freedesktop sound theme sound names are looked up in, falling back through the
+    /// themes it inherits from to `freedesktop`.
+    pub sound_theme: String,
 }
 
 impl Default for Notifications {
@@ -475,6 +484,8 @@ impl Default for Notifications {
             do_not_disturb: false,
             wait_while_typing: true,
             longest_wait_mins: 15,
+            sounds: true,
+            sound_theme: "ocean".into(),
         }
     }
 }
@@ -771,6 +782,8 @@ mod tests {
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);
         assert_eq!(settings.notifications.longest_wait_mins, 15);
+        assert!(settings.notifications.sounds);
+        assert_eq!(settings.notifications.sound_theme, "ocean");
         assert!(!settings.session.remember);
         assert!(!settings.session.reopen_without_asking);
         assert_eq!(
@@ -1100,6 +1113,8 @@ mod tests {
                 do_not_disturb: true,
                 wait_while_typing: false,
                 longest_wait_mins: 30,
+                sounds: false,
+                sound_theme: "freedesktop".into(),
             },
             borders: Borders {
                 selected_tile: "#b794ff".into(),

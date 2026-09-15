@@ -125,7 +125,7 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 - **App explorer** (Super+Space or Super+R): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it, like Windows' Run box.
 - **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.
 - **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
-- **Notifications** (Super+N): pop-ups with action buttons, a notification centre, do not disturb.
+- **Notifications** (Super+N): pop-ups with action buttons, sounds from your sound theme, a notification centre, do not disturb. Each notification knows the window it came from, even `notify-send` in a terminal, and opening it takes you there.
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
 - **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied.
 - **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.

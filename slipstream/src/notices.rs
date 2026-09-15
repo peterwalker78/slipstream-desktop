@@ -42,6 +42,10 @@ const REDUCED_FADE: f64 = 0.08;
 pub const POPUP_SHOWN: f64 = 4.8;
 /// At most this many at once; a new one pushes the oldest off.
 const POPUPS: usize = 2;
+/// You count as watching a window when it has the keyboard and there has been input this recently.
+/// Reading a long page can take a while without a keypress, but past this a sound is more use
+/// than not.
+const PRESENT: std::time::Duration = std::time::Duration::from_secs(60);
 /// A pop-up held back while the UI was faded shows when it comes back, unless it has waited this
 /// long, in wall seconds: by then it's news for the centre, not a ping. One waiting for a pause in
 /// typing was waited for with the desktop in front of you, so it's never too old.
@@ -57,6 +61,9 @@ pub struct Notice {
     pub app: String,
     /// The app's ID, lowercased, to find its window.
     pub app_id: Option<String>,
+    /// The process whose window it came from, found through the process that sent it. Tried
+    /// before `app_id`, since it names the very window rather than any of the app's.
+    pub origin: Option<u32>,
     /// Drawn `ICON` mockup pixels square at the screen's scale.
     pub icon: Option<Pixmap>,
     pub summary: String,
@@ -744,7 +751,36 @@ impl Slipstream {
             .clone()
             .or_else(|| named(&incoming.app_name))
             .map(|id| id.to_lowercase());
-        let critical = incoming.urgency >= 2;
+        // Where it came from: the window of the nearest process up the sender's tree that has one.
+        let origin = self.window_for_pids(&incoming.origin);
+        let origin_pid = origin.as_ref().and_then(|window| self.window_pid(window));
+        // Attention isn't demanded from someone already giving it: while you're at the window a
+        // notification came from, it makes no sound, doesn't wake anything, and a critical one
+        // passes like any other rather than staying until dismissed.
+        let watching = origin.is_some()
+            && origin == self.focused_window()
+            && self.lock.is_none()
+            && !self.idle.is_faded()
+            && self.idle.since_input() < PRESENT;
+        let critical = incoming.urgency >= 2 && !watching;
+        // A critical notification brings the faded UI back to show itself, though not the lock's
+        // screen, which shows nothing of what arrives.
+        if critical && self.lock.is_none() && self.idle.is_faded() {
+            let now = self.clock.tick();
+            self.idle.wake(now);
+        }
+        let settings = &self.settings.notifications;
+        if let Some(sound) = incoming.sound.clone()
+            && crate::alert::wanted(
+                settings.sounds,
+                incoming.suppress_sound,
+                watching,
+                critical,
+                settings.do_not_disturb,
+            )
+        {
+            crate::alert::play(sound, &settings.sound_theme);
+        }
         let pop = Pop::for_arrival(
             critical,
             incoming.transient,
@@ -760,6 +796,7 @@ impl Slipstream {
             id: incoming.id,
             app,
             app_id,
+            origin: origin_pid,
             icon,
             summary: notify::plain(&incoming.summary),
             body: notify::plain(&incoming.body),
@@ -771,7 +808,14 @@ impl Slipstream {
             version: 0,
             digest: false,
         };
-        tracing::info!(id = notice.id, app = notice.app, ?pop, "notification");
+        tracing::info!(
+            id = notice.id,
+            app = notice.app,
+            ?pop,
+            origin = ?origin.as_ref().map(crate::state::logged_app),
+            watching,
+            "notification"
+        );
         let now = self.clock.tick();
         let wall = self.wall();
         let unread = !self.centre.is_open();
@@ -878,6 +922,7 @@ impl Slipstream {
             id: notify::next_id(),
             app: "Slipstream".into(),
             app_id: None,
+            origin: None,
             icon,
             summary: format!("{} {reason}", due.len()),
             body: lines.join("\n"),
@@ -909,9 +954,14 @@ impl Slipstream {
             notify::invoked(id, "default");
         }
         let window = notice
-            .app_id
-            .as_deref()
-            .and_then(|app| self.window_for_app(app));
+            .origin
+            .and_then(|pid| self.window_for_pids(&[pid]))
+            .or_else(|| {
+                notice
+                    .app_id
+                    .as_deref()
+                    .and_then(|app| self.window_for_app(app))
+            });
         if let Some(window) = window {
             self.activate_window(&window);
         }
@@ -976,6 +1026,7 @@ mod tests {
             id,
             app: "Mail".into(),
             app_id: None,
+            origin: None,
             icon: None,
             summary: format!("Message {id}"),
             body: "Are we still on for the walk at 10 tomorrow?".into(),

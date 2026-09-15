@@ -2,6 +2,12 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## [Unreleased]
+
+- **Notifications can make a sound.** Slipstream plays the sound a notification asks for (the spec's `sound-file`, `sound-name` and `suppress-sound` hints), looking names up in your sound theme the way the XDG Sound Theme spec describes: the theme, the themes it inherits from, then `freedesktop`, trying shorter names (`message-new-instant`, then `message-new`, then `message`) so a theme without the exact sound still has something close. They play with PipeWire's Notification role, one at a time. Under do not disturb only critical notifications sound. Settings → Notifications has the switch, and `[notifications] sound-theme` picks the theme.
+- **Notifications know which window they came from.** Slipstream asks the bus which process sent a notification, pins it with a pidfd, and follows its parents up to the first one with a window, so `notify-send` from a script in a terminal belongs to that terminal. Opening the notification brings that exact window forward, even with several windows of the same app open. While you're working in that window, its notifications make no sound, don't wake anything, and a critical one comes and goes like any other instead of staying until dismissed.
+- **A critical notification brings the desktop back** from the living wallpaper, so it can be seen from across the room. It doesn't count as you being there, so the screen still locks on time, and nothing shows over the lock screen.
+
 ## [0.2.0] - 2026-09-14
 
 - **Floating windows.** Dialogs and fixed-height windows (splash screens, Firefox's picture-in-picture) open floating above the tiling: a dialog centred over the window it belongs to, anything else centred on the screen at the size it asks for. They stay above the tiles with dialogs above their parents, move with their workspace, and keep their place when a screen changes size. **Super+Shift+V** floats a window or tiles it again, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. While a floating window has the keyboard, Super+arrows go between floating windows, Super+Alt+arrows move it and Super+[ ] resize it; Super+drag or its own title bar moves it and its edges resize it. A floating window asking for fullscreen fills the screen from the tiling and floats again afterwards.

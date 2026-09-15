@@ -7,6 +7,7 @@
 
 #![allow(irrefutable_let_patterns)]
 
+mod alert;
 mod anim;
 mod apps;
 mod auth;

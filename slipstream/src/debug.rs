@@ -23,7 +23,8 @@
 //! in quick settings, by xkb name with optional `shift+`), `qclick:X,Y` (a click while quick
 //! settings is open, in logical pixels on the screen), `centre`, `ckey:NAME` and `cclick:X,Y`
 //! (the same for the notification centre, Super+N), `notify:APP|TITLE|BODY` (a notification, as
-//! if an app had sent one), `wallpaper:ID` (show one living-wallpaper variation now, by its id in
+//! if an app had sent one), `critical:APP|TITLE|BODY` (a critical one, which wakes the faded UI),
+//! `wallpaper:ID` (show one living-wallpaper variation now, by its id in
 //! the settings file), `logout`, `restart` and `shutdown` (the way out's overlay, as
 //! Super+Shift+Esc and quick settings open it) with `xkey:NAME` for a key in it and `xclick:X,Y`
 //! for a click on one of its buttons, `drag:X1,Y1 X2,Y2` (a press, a drag and a release, as
@@ -123,6 +124,8 @@ pub enum Step {
     CentreClick(f64, f64),
     /// App, title, body, and action buttons as identifier and label.
     Notify(String, String, String, Vec<(String, String)>),
+    /// A critical notification: app, title, body.
+    NotifyCritical(String, String, String),
     /// A living-wallpaper variation, by id.
     Wallpaper(String),
     /// Every minimised app's load, pinned, so a stream's two ends can be looked at without
@@ -186,6 +189,7 @@ impl Step {
                 | Step::Idle
                 | Step::Wake
                 | Step::Notify(..)
+                | Step::NotifyCritical(..)
                 | Step::Osd(_)
                 | Step::Wallpaper(_)
                 | Step::Demand(_)
@@ -360,6 +364,13 @@ impl Script {
                             .map(|(id, label)| (id.trim().to_string(), label.trim().to_string()))
                             .collect();
                         Step::Notify(app, title, body, actions)
+                    }
+                    ("critical", Some(text)) => {
+                        let mut fields = text.splitn(3, '|');
+                        let app = fields.next()?.to_string();
+                        let title = fields.next().unwrap_or_default().to_string();
+                        let body = fields.next().unwrap_or_default().to_string();
+                        Step::NotifyCritical(app, title, body)
                     }
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),

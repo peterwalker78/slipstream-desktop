@@ -659,6 +659,25 @@ fn notifications(store: &Store) -> gtk::Widget {
         &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );
 
+    let heard = group(&page, "Sounds");
+    let sounds = gtk::Switch::new();
+    sounds.set_active(store.get().notifications.sounds);
+    let sounds_store = store.clone();
+    sounds.connect_active_notify(move |sounds| {
+        let on = sounds.is_active();
+        sounds_store.change(move |settings| settings.notifications.sounds = on);
+    });
+    row(
+        &heard,
+        "Play notification sounds",
+        Some(
+            "The sound an app asks for, from your sound theme. Never while you're working in the \
+             window it came from, and under do not disturb only for critical notifications, \
+             which also bring the desktop back from the wallpaper.",
+        ),
+        &sounds,
+    );
+
     let quiet = group(&page, "Do not disturb");
     let dnd = gtk::Switch::new();
     dnd.set_active(store.get().notifications.do_not_disturb);

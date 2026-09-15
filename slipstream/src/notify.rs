@@ -3,9 +3,16 @@
 //! the main loop, which pops it up and keeps it for the notification centre (`notices.rs`).
 //!
 //! zbus serves the bus from its own thread, so a slow client never holds up a frame.
+//!
+//! Each notification also carries where it came from: the sending process and the processes it
+//! was started under, read from the kernel while the sender is still waiting for its reply. That
+//! is how a notification from `notify-send` in a terminal finds the terminal's window, which an
+//! app ID alone never could.
 
 use std::{
     collections::HashMap,
+    os::fd::AsFd,
+    path::Path,
     sync::{
         Mutex, OnceLock,
         atomic::{AtomicU32, Ordering},
@@ -15,8 +22,12 @@ use std::{
 use smithay::reexports::calloop::channel::Sender;
 use zbus::{
     interface,
+    message::Header,
+    names::BusName,
     zvariant::{OwnedValue, Value},
 };
+
+use crate::alert::{self, Sound};
 
 const NAME: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -57,6 +68,13 @@ pub struct Incoming {
     pub resident: bool,
     /// Milliseconds: -1 for the server's choice, 0 for never.
     pub expire_timeout: i32,
+    /// The `sound-file` or `sound-name` hint.
+    pub sound: Option<Sound>,
+    /// The `suppress-sound` hint.
+    pub suppress_sound: bool,
+    /// The process that sent it, then its parent, and so on up: nearest first. Empty when that
+    /// couldn't be told for certain.
+    pub origin: Vec<u32>,
 }
 
 /// A picture sent as pixels: straight RGBA, 8 bits per channel.
@@ -95,7 +113,7 @@ impl Server {
 #[interface(name = "org.freedesktop.Notifications")]
 impl Server {
     async fn get_capabilities(&self) -> Vec<String> {
-        ["actions", "body", "icon-static", "persistence"]
+        ["actions", "body", "icon-static", "persistence", "sound"]
             .map(String::from)
             .to_vec()
     }
@@ -103,6 +121,8 @@ impl Server {
     #[allow(clippy::too_many_arguments)]
     async fn notify(
         &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
         app_name: String,
         replaces_id: u32,
         app_icon: String,
@@ -147,6 +167,13 @@ impl Server {
             transient: flag("transient"),
             resident: flag("resident"),
             expire_timeout,
+            sound: text("sound-file")
+                .as_deref()
+                .and_then(alert::file_hint)
+                .map(Sound::File)
+                .or_else(|| text("sound-name").map(Sound::Name)),
+            suppress_sound: flag("suppress-sound"),
+            origin: origin(connection, &header).await,
         };
         self.send(Event::Notify(Box::new(incoming)));
         id
@@ -188,6 +215,77 @@ pub fn serve(events: Sender<Event>) {
             ),
         }
     });
+}
+
+/// The process behind a message's sender and its ancestors, nearest first. The bus names the
+/// process and pins it with a pidfd; the ancestry is read from `/proc` and kept only if that same
+/// process is still running afterwards, so no pid in it can have been handed to another process in
+/// the meantime. The sender is normally still there, since it's waiting for this call's reply.
+async fn origin(connection: &zbus::Connection, header: &Header<'_>) -> Vec<u32> {
+    let Some(sender) = header.sender() else {
+        return Vec::new();
+    };
+    let Ok(bus) = zbus::fdo::DBusProxy::new(connection).await else {
+        return Vec::new();
+    };
+    let Ok(credentials) = bus
+        .get_connection_credentials(BusName::Unique(sender.clone()))
+        .await
+    else {
+        return Vec::new();
+    };
+    let Some(pid) = credentials.process_id() else {
+        return Vec::new();
+    };
+    // A bus without ProcessFD (dbus-daemon before 1.15.2) still names the pid; a pidfd opened
+    // from it now pins whatever has that pid now, which the sender, waiting on its reply, still
+    // does.
+    let opened = match credentials.process_fd() {
+        Some(_) => None,
+        None => crate::capture::pidfd_open(pid),
+    };
+    let pidfd = match (credentials.process_fd(), &opened) {
+        (Some(fd), _) => fd.as_fd(),
+        (None, Some(fd)) => fd.as_fd(),
+        (None, None) => return Vec::new(),
+    };
+    let chain = lineage(Path::new("/proc"), pid);
+    if !crate::capture::still_running(pidfd) {
+        return Vec::new();
+    }
+    chain
+}
+
+/// How far up the process tree to look. Terminals, shells and the tools they run nest a handful
+/// deep; this is plenty, and a bound however `/proc` reads.
+const LINEAGE: usize = 32;
+
+/// `pid`, its parent, and so on up to (not including) init, from `proc` (normally `/proc`). Empty
+/// when `pid` itself isn't there.
+pub fn lineage(proc: &Path, pid: u32) -> Vec<u32> {
+    let mut chain = Vec::new();
+    let mut next = pid;
+    while next > 1 && chain.len() < LINEAGE && !chain.contains(&next) {
+        // Only a process still there to read counts: one that has gone takes the chain with it.
+        let Ok(stat) = std::fs::read_to_string(proc.join(next.to_string()).join("stat")) else {
+            break;
+        };
+        chain.push(next);
+        let Some(parent) = parent_of(&stat) else {
+            break;
+        };
+        next = parent;
+    }
+    chain
+}
+
+/// The parent pid from a `/proc/<pid>/stat` line: `pid (comm) state ppid …`. The command name is
+/// whatever the program called itself, spaces and parentheses included, so the fields are counted
+/// from its last closing parenthesis.
+fn parent_of(stat: &str) -> Option<u32> {
+    let mut fields = stat[stat.rfind(')')? + 1..].split_whitespace();
+    fields.next()?;
+    fields.next()?.parse().ok()
 }
 
 /// Tells apps their notifications closed. Sent from a thread of its own, so the main loop never
@@ -496,6 +594,43 @@ mod tests {
         assert_eq!(urgency(Some(&value(Value::from(-3i32)))), 0);
         assert_eq!(urgency(Some(&value(Value::from("high")))), 1);
         assert_eq!(urgency(None), 1);
+    }
+
+    #[test]
+    fn stat_lines_with_awkward_command_names() {
+        assert_eq!(parent_of("4242 (sh) S 4100 4242 4100 0 -1"), Some(4100));
+        assert_eq!(
+            parent_of("77 (a) b (c) R 12 77 12 0"),
+            Some(12),
+            "parentheses and spaces in the name"
+        );
+        assert_eq!(parent_of("77 (cut short"), None);
+        assert_eq!(parent_of("77 (x) S"), None);
+    }
+
+    #[test]
+    fn lineage_walks_up_to_init_and_stops_at_a_loop_or_a_gap() {
+        let proc = std::env::temp_dir().join(format!("slipstream-lineage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proc);
+        let process = |pid: u32, parent: u32| {
+            let dir = proc.join(pid.to_string());
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("stat"), format!("{pid} (tool) S {parent} 1 1 0")).unwrap();
+        };
+        // notify-send, a shell, a terminal, the session, init.
+        process(300, 200);
+        process(200, 100);
+        process(100, 10);
+        process(10, 1);
+        assert_eq!(lineage(&proc, 300), [300, 200, 100, 10]);
+        // A parent that has gone ends the chain where it is.
+        process(400, 399);
+        assert_eq!(lineage(&proc, 400), [400]);
+        // Two that claim each other can't go round for ever.
+        process(501, 502);
+        process(502, 501);
+        assert_eq!(lineage(&proc, 501), [501, 502]);
+        std::fs::remove_dir_all(proc).unwrap();
     }
 
     #[test]

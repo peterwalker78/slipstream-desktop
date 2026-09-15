@@ -301,20 +301,25 @@ fn peer_pidfd(stream: &UnixStream, pid: i32) -> Option<OwnedFd> {
     if std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOPROTOOPT) {
         return None;
     }
+    pidfd_open(pid as u32)
+}
+
+/// A pidfd for whatever process has `pid` now.
+pub fn pidfd_open(pid: u32) -> Option<OwnedFd> {
     // SAFETY: pidfd_open takes a pid and flags and returns a new descriptor or -1.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
     // SAFETY: as above, a descriptor that is ours to own.
     (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) })
 }
 
 /// Whether the process behind `pidfd` still exists: signal 0 is only the permission and
 /// existence check, and nothing is delivered.
-fn still_running(pidfd: &OwnedFd) -> bool {
+pub fn still_running(pidfd: impl std::os::fd::AsFd) -> bool {
     // SAFETY: a valid pidfd, signal 0, no siginfo, no flags.
     unsafe {
         libc::syscall(
             libc::SYS_pidfd_send_signal,
-            pidfd.as_raw_fd(),
+            pidfd.as_fd().as_raw_fd(),
             0,
             std::ptr::null::<libc::siginfo_t>(),
             0,

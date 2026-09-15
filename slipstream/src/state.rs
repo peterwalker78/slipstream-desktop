@@ -1004,6 +1004,30 @@ impl Slipstream {
             .find(|window| window.alive() && window_app_id(window).as_deref() == Some(app))
     }
 
+    /// The window a process tree belongs to: of `pids`, nearest first, the first that has an open
+    /// window. When that process has several, the focused one, else the one focused most recently.
+    pub fn window_for_pids(&self, pids: &[u32]) -> Option<Window> {
+        let windows: Vec<(Window, u32)> = self
+            .all_open_windows()
+            .into_iter()
+            .filter(|window| window.alive())
+            .filter_map(|window| Some((window.clone(), self.window_pid(&window)?)))
+            .collect();
+        let pid = pids
+            .iter()
+            .find(|pid| windows.iter().any(|(_, owner)| owner == *pid))?;
+        let mine: Vec<&Window> = windows
+            .iter()
+            .filter(|(_, owner)| owner == pid)
+            .map(|(window, _)| window)
+            .collect();
+        self.focus_history
+            .iter()
+            .find(|recent| mine.contains(recent))
+            .or(mine.first().copied())
+            .cloned()
+    }
+
     /// A click on the bar.
     pub fn bar_clicked(&mut self, target: bar::Target) {
         match target {
@@ -4720,7 +4744,7 @@ impl Slipstream {
     /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
     /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
     /// Its app's meter is read from there (`usage::Meter`).
-    fn window_pid(&self, window: &Window) -> Option<u32> {
+    pub fn window_pid(&self, window: &Window) -> Option<u32> {
         if let Some(surface) = window.x11_surface() {
             return surface.pid();
         }
@@ -4976,6 +5000,17 @@ impl Slipstream {
                         default_action: true,
                         actions,
                         urgency: 1,
+                        expire_timeout: -1,
+                        ..Default::default()
+                    });
+                }
+                debug::Step::NotifyCritical(app, summary, body) => {
+                    self.notification_arrived(crate::notify::Incoming {
+                        id: crate::notify::next_id(),
+                        app_name: app,
+                        summary,
+                        body,
+                        urgency: 2,
                         expire_timeout: -1,
                         ..Default::default()
                     });

@@ -678,6 +678,7 @@ mod tests {
             id,
             app: "Mail".into(),
             app_id: None,
+            origin: None,
             icon: None,
             summary: format!("Message {id}"),
             body: body.into(),
