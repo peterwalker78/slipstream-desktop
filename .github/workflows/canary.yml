@@ -1,0 +1,59 @@
+name: canary
+
+# Installs the newest release on the distributions that keep moving, once a week, so that a
+# change in how they are put together shows up here rather than in somebody's first login.
+# GitHub stops scheduled runs after 60 days without a commit; a push starts them again.
+on:
+  schedule:
+    - cron: "19 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  distributions:
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - docker.io/library/debian:testing
+          - docker.io/library/ubuntu:rolling
+          - registry.fedoraproject.org/fedora:rawhide
+          - docker.io/library/archlinux:latest
+          - registry.opensuse.org/opensuse/tumbleweed:latest
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the newest release and check it runs
+        run: sh scripts/test-on-distro --release latest
+
+  # One issue for a week's failures, and a comment on it if it's still open next week.
+  report:
+    needs: distributions
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Say so in an issue
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label canary --state open \
+            --limit 1 --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Still failing this week: $RUN"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --label canary \
+              --title "A distribution's weekly check failed" \
+              --body "The newest release no longer installs cleanly on at least one distribution.
+
+          Which one, and why, is in the run: $RUN
+
+          This runs weekly against the distributions that keep moving, so this is usually a change
+          in how that distribution is put together rather than a change here."
+          fi

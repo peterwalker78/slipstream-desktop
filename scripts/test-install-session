@@ -39,6 +39,9 @@ run() {
         SLIPSTREAM_TEST_DM="${DM-plasmalogin}" \
         SLIPSTREAM_TEST_SEAT=yes \
         ${FAIL_AT:+SLIPSTREAM_TEST_FAIL_AT=$FAIL_AT} \
+        ${PORTAL_DIR:+SLIPSTREAM_TEST_PORTAL_DIR=$PORTAL_DIR} \
+        ${XDPW:+SLIPSTREAM_TEST_XDPW_VERSION=$XDPW} \
+        ${PKG_LOG:+SLIPSTREAM_TEST_PKG_LOG=$PKG_LOG} \
         "$shell" "${SCRIPT:-$repo/scripts/install-session}" "$@" >"$work/out" 2>&1
 }
 
@@ -245,6 +248,111 @@ fresh
 rm "$work/copy with spaces/session/slipstream.desktop"
 SCRIPT="$work/copy with spaces/scripts/install-session" expect_status 1 || true
 [ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote files"
+
+
+# ---------------------------------------------------------------------------------------------
+# A download carries the programs in bin/, and installs them for everyone on the machine.
+
+download=$work/download
+settings_entry_name=io.github.peterwalker78.SlipstreamSettings.desktop
+make_download() {
+    rm -rf "$download"
+    mkdir -p "$download/bin" "$download/scripts" "$download/session" "$download/slipstream-settings"
+    cp "$repo/scripts/install-session" "$download/scripts/"
+    cp "$repo"/session/* "$download/session/"
+    cp "$repo/slipstream-settings/$settings_entry_name" "$download/slipstream-settings/"
+    printf '#!/bin/sh\necho "slipstream 9.9.9"\n' >"$download/bin/slipstream"
+    printf '#!/bin/sh\n' >"$download/bin/slipstream-settings"
+    chmod 755 "$download/bin/slipstream" "$download/bin/slipstream-settings"
+}
+# A machine with a screen-sharing backend new enough, and one desktop's backend beside it.
+make_portals() {
+    rm -rf "$work/portals"
+    mkdir -p "$work/portals"
+    for portal in "$@"; do
+        : >"$work/portals/$portal.portal"
+    done
+}
+installed_bin=$r/usr/local/bin/slipstream
+installed_settings=$r/usr/local/bin/slipstream-settings
+portals_conf=$r/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
+wlr_conf=$r/etc/xdg/xdg-desktop-portal-wlr/Slipstream
+unit=$r/usr/local/lib/systemd/user/slipstream-session.target
+
+case_name="a download installs the programs where everyone can run them"
+fresh
+make_download
+make_portals wlr kde gtk
+PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+[ "$(mode_of "$installed_bin")" = 755 ] || fail "$case_name: the program isn't installed 755"
+[ -f "$installed_settings" ] || fail "$case_name: no Settings program"
+[ -f "$r/usr/local/share/applications/$settings_entry_name" ] || fail "$case_name: no Settings entry"
+[ -f "$unit" ] || fail "$case_name: no session unit"
+grep -q "^default=kde;gtk$" "$portals_conf" || fail "$case_name: portals default is $(grep '^default' "$portals_conf")"
+grep -q "^chooser_cmd=/usr/local/bin/slipstream --choose-share$" "$wlr_conf" \
+    || fail "$case_name: the sharing picker isn't the installed program"
+grep -q "^/usr/local/bin/slipstream$" "$manifest" || fail "$case_name: the manifest doesn't list the program"
+
+case_name="uninstalling a download takes the programs with it"
+PORTAL_DIR=$work/portals SCRIPT=$download/scripts/install-session \
+    expect_status 0 --uninstall --yes || true
+for f in "$installed_bin" "$installed_settings" "$unit" "$portals_conf" "$wlr_conf"; do
+    if [ -e "$f" ]; then
+        fail "$case_name: $f still there"
+    fi
+done
+
+case_name="with no desktop backend installed, whatever turns up answers the rest"
+fresh
+make_download
+make_portals wlr
+PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+grep -q "^default=\*$" "$portals_conf" || fail "$case_name: $(grep '^default' "$portals_conf")"
+
+case_name="an old screen-sharing portal is explained, not installed over"
+fresh
+make_download
+make_portals wlr gtk
+PORTAL_DIR=$work/portals XDPW=0.7.1 PKG_LOG=$work/packages \
+    SCRIPT=$download/scripts/install-session expect_status 0 --yes || true
+grep -q "0.8 or newer" "$work/out" || fail "$case_name: nothing said about the version"
+if [ -e "$work/packages" ] && grep -q xdg-desktop-portal-wlr "$work/packages"; then
+    fail "$case_name: installed a package that wouldn't have helped"
+fi
+
+case_name="a machine that logs in by itself is told how to reach the session list"
+fresh
+mkdir -p "$r/etc/sddm.conf.d"
+printf '[Autologin]\nUser=sam\nSession=hyprland.desktop\n' >"$r/etc/sddm.conf.d/00-autologin.conf"
+DM=sddm expect_status 0 || true
+grep -q "logs in automatically" "$work/out" || fail "$case_name: autologin not noticed"
+grep -q "sam, straight into hyprland.desktop" "$work/out" || fail "$case_name: $(grep -i autologin "$work/out")"
+
+case_name="missing packages are installed when told to"
+fresh
+make_download
+make_portals gtk
+rm -f "$work/packages"
+PORTAL_DIR=$work/portals PKG_LOG=$work/packages SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+grep -q "^sudo dnf install -y .*xdg-desktop-portal-wlr" "$work/packages" \
+    || fail "$case_name: $(cat "$work/packages" 2>/dev/null)"
+
+case_name="nothing is installed without being asked when there's no terminal"
+fresh
+make_download
+make_portals gtk
+rm -f "$work/packages"
+status=0
+PORTAL_DIR=$work/portals PKG_LOG=$work/packages SCRIPT=$download/scripts/install-session \
+    run </dev/null || status=$?
+[ "$status" = 0 ] || fail "$case_name: exit $status"
+if [ -s "$work/packages" ]; then
+    fail "$case_name: installed packages anyway: $(cat "$work/packages")"
+fi
+[ -f "$installed_bin" ] || fail "$case_name: didn't install the files it could"
 
 echo "install-session ($shell): $passed checks passed, $failures failed"
 [ "$failures" -eq 0 ]

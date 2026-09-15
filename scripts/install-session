@@ -8,17 +8,25 @@
 #
 # Run it as yourself, not with sudo: it needs to know whose desktop this is, and asks for root
 # only for the files outside your home. Everything is checked before anything is written, and the
-# files are written all or nothing, so a refusal or a failure leaves the system as it was. It never
-# installs packages: when something is missing it names the package and the command for this
-# system, and leaves the decision to you.
+# files are written all or nothing, so a refusal or a failure leaves the system as it was.
 #
-# The per-user half (the compositor in ~/.local/bin, its systemd units and portal settings) is
-# scripts/update-session, which needs no root and is what a rebuild runs.
+# Run from an unpacked download, it installs the programs too, in /usr/local, where everyone with
+# an account on the machine can use them. It offers to install missing packages with this system's
+# own package manager, and never installs anything without being told to.
+#
+# In a source checkout there are no programs to install: scripts/update-session builds them into
+# your own home, which is also how to keep a build of your own alongside an installed release.
 set -eu
 # Files written as root have to be readable by the login screen, whatever umask you keep.
 umask 022
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
+
+# An unpacked download carries the programs ready-built in bin/; a source checkout doesn't.
+programs=
+if [ -x "$repo/bin/slipstream" ] && [ -x "$repo/bin/slipstream-settings" ]; then
+    programs=$repo/bin
+fi
 
 # Tests: SLIPSTREAM_TEST_ROOT puts every system file under a folder and writes them without sudo;
 # the other SLIPSTREAM_TEST_ variables stand in for what the system would say about itself.
@@ -27,6 +35,8 @@ os_release=${SLIPSTREAM_TEST_OS_RELEASE:-/etc/os-release}
 [ -r "$os_release" ] || os_release=/usr/lib/os-release
 manifest_dir=/usr/local/share/slipstream
 manifest=$manifest_dir/installed
+# Where portal backends say what they implement. Tests point this at a folder of their own.
+portal_dirs=${SLIPSTREAM_TEST_PORTAL_DIR:-/usr/share/xdg-desktop-portal/portals /usr/local/share/xdg-desktop-portal/portals}
 
 mode=install
 purge=no
@@ -294,12 +304,25 @@ esac
 # nothing outside this list is ever removed, whatever a manifest says.
 session_launcher=/usr/local/bin/slipstream-session
 session_entry=$session_dir/slipstream.desktop
+# The programs and the per-session files that go with them, for everyone on the machine. A user
+# manager reads units from /usr/local/lib/systemd/user, and the portal reads its configuration
+# from /usr/local/share and /etc/xdg, so none of this needs a copy in anybody's home.
+installed_bin=/usr/local/bin/slipstream
+installed_settings=/usr/local/bin/slipstream-settings
+settings_entry_name=io.github.peterwalker78.SlipstreamSettings.desktop
+settings_entry=/usr/local/share/applications/$settings_entry_name
+session_target=/usr/local/lib/systemd/user/slipstream-session.target
+shutdown_target=/usr/local/lib/systemd/user/slipstream-shutdown.target
+portals_conf=/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
+wlr_conf=/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 
 ours() {
     case $1 in
         "$session_launcher" | */wayland-sessions/slipstream.desktop | "$pam_file" \
             | /etc/lightdm/lightdm.conf.d/50-slipstream.conf | "$manifest" \
-            | /usr/local/share/xdg-desktop-portal/slipstream-portals.conf) return 0 ;;
+            | "$installed_bin" | "$installed_settings" | "$settings_entry" \
+            | "$session_target" | "$shutdown_target" \
+            | "$portals_conf" | "$wlr_conf") return 0 ;;
     esac
     return 1
 }
@@ -358,11 +381,159 @@ install_command() {
     esac
 }
 
+# The same command without questions, for when this script installs the packages itself. Empty
+# where it won't: on atomic systems, where installing rewrites the system image and wants a
+# reboot, and on families whose package manager this script doesn't know.
+install_now_command() {
+    case $family:$atomic in
+        fedora:no) echo "sudo dnf install -y" ;;
+        debian:*) echo "sudo apt-get install -y" ;;
+        arch:*) echo "sudo pacman -S --needed --noconfirm" ;;
+        suse:no) echo "sudo zypper --non-interactive install" ;;
+        *) echo "" ;;
+    esac
+}
+
+# `install_packages PACKAGE...`, once you've been asked. Tests point SLIPSTREAM_TEST_PKG_LOG at a
+# file and nothing is really installed.
+install_packages() {
+    ip_command=$(install_now_command)
+    if [ -z "$ip_command" ]; then
+        return 1
+    fi
+    if [ -n "${SLIPSTREAM_TEST_PKG_LOG:-}" ]; then
+        printf '%s %s\n' "$ip_command" "$*" >>"$SLIPSTREAM_TEST_PKG_LOG"
+        return 0
+    fi
+    # Debian's package lists can be older than the packages on the mirrors, and apt then refuses
+    # to fetch anything at all.
+    if [ "$family" = debian ]; then
+        sudo apt-get update || return 1
+    fi
+    # shellcheck disable=SC2086 # the command is several words
+    $ip_command "$@"
+}
+
+# Which package carries a shared library, per family. Everything the Settings app needs beyond
+# GTK comes with GTK itself.
+library_package() {
+    case $1 in
+        libseat.so.1) echo "libseat libseat1 seatd libseat1" ;;
+        libinput.so.10) echo "libinput libinput10 libinput libinput10" ;;
+        libxkbcommon.so.0) echo "libxkbcommon libxkbcommon0 libxkbcommon libxkbcommon0" ;;
+        libgbm.so.1) echo "mesa-libgbm libgbm1 mesa libgbm1" ;;
+        libudev.so.1) echo "systemd-libs libudev1 systemd-libs libudev1" ;;
+        libdrm.so.2) echo "libdrm libdrm2 libdrm libdrm2" ;;
+        libEGL.so.1) echo "libglvnd-egl libegl1 libglvnd libglvnd" ;;
+        libgtk-4.so.1 | libpango* | libcairo* | libgdk_pixbuf* | libgraphene* | libgio* \
+            | libgobject* | libglib* | libgmodule* | libharfbuzz* | libepoxy*)
+            echo "gtk4 libgtk-4-1 gtk4 libgtk-4-1"
+            ;;
+        *) echo "" ;;
+    esac | awk -v family="$family" '{
+        if (family == "fedora") print $1;
+        else if (family == "debian") print $2;
+        else if (family == "arch") print $3;
+        else if (family == "suse") print $4;
+    }'
+}
+
+# The libraries the programs to be installed can't find here, one per line.
+missing_libraries() {
+    for ml_program in "$@"; do
+        ldd "$ml_program" 2>/dev/null | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p'
+    done | sed '/^$/d' | sort -u
+}
+
+# What version of xdg-desktop-portal-wlr is installed, if this system can say.
+xdpw_version() {
+    if [ -n "${SLIPSTREAM_TEST_XDPW_VERSION+set}" ]; then
+        printf '%s\n' "$SLIPSTREAM_TEST_XDPW_VERSION"
+        return 0
+    fi
+    if have rpm; then
+        rpm -q --qf '%{VERSION}\n' xdg-desktop-portal-wlr 2>/dev/null | head -n1
+    elif have dpkg-query; then
+        dpkg-query -W -f '${Version}\n' xdg-desktop-portal-wlr 2>/dev/null \
+            | head -n1 | sed 's/^[0-9]*://; s/[-+].*//'
+    elif have pacman; then
+        pacman -Q xdg-desktop-portal-wlr 2>/dev/null | awk '{ print $2 }' | sed 's/-[0-9]*$//'
+    fi
+}
+
+# `at_least WANT HAVE`: true when version HAVE is WANT or newer.
+at_least() {
+    [ -n "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]
+}
+
+# Whether this system logs someone straight in, and how to get a session list back. Screen sharing
+# and the session entry are both useless if the login screen never appears.
+autologin=
+autologin_note=
+find_autologin() {
+    case $dm in
+        sddm | plasmalogin)
+            set -- "$root"/usr/lib/"$dm"/"$dm".conf.d/*.conf "$root"/etc/"$dm".conf.d/*.conf \
+                "$root"/etc/"$dm".conf
+            fa_user=$(ini_value Autologin User "$@")
+            fa_session=$(ini_value Autologin Session "$@")
+            if [ -n "$fa_user" ]; then
+                autologin="$fa_user, straight into ${fa_session:-its default session}"
+                autologin_note="Set Session=slipstream.desktop in $dm's [Autologin] section to log
+    straight into Slipstream instead, or remove the [Autologin] section to get the list back."
+            fi
+            ;;
+        gdm)
+            fa_files="$root/etc/gdm3/custom.conf $root/etc/gdm/custom.conf"
+            # shellcheck disable=SC2086 # one file per word
+            case $(ini_value daemon AutomaticLoginEnable $fa_files) in
+                true | True | TRUE | 1)
+                    # shellcheck disable=SC2086 # one file per word
+                    autologin="$(ini_value daemon AutomaticLogin $fa_files), straight into their last session"
+                    autologin_note="Remove AutomaticLoginEnable from GDM's custom.conf to get the
+    login screen back, then pick Slipstream there."
+                    ;;
+            esac
+            ;;
+        lightdm)
+            fa_user=$(ini_value "" autologin-user "$root"/etc/lightdm/lightdm.conf \
+                "$root"/etc/lightdm/lightdm.conf.d/*.conf)
+            if [ -n "$fa_user" ]; then
+                fa_session=$(ini_value "" autologin-session "$root"/etc/lightdm/lightdm.conf \
+                    "$root"/etc/lightdm/lightdm.conf.d/*.conf)
+                autologin="$fa_user, straight into ${fa_session:-its default session}"
+                autologin_note="Set autologin-session=slipstream in LightDM's configuration to log
+    straight into Slipstream, or remove autologin-user to get the list back."
+            fi
+            ;;
+        greetd)
+            if grep -q '^[[:space:]]*\[initial_session\]' "$root"/etc/greetd/config.toml 2>/dev/null; then
+                autologin="someone, through greetd's initial_session"
+                autologin_note="Point greetd's [initial_session] command at 'slipstream --session',
+    or remove that section to be asked at every boot."
+            fi
+            ;;
+    esac
+}
+
+limits=""
 problems=""
 problem() { problems="$problems
   - $*"; }
 missing=""
 missing_packages=""
+# Things without which nothing would start at all, kept apart from the optional ones because a
+# refusal to install these has to stop the installation.
+required=""
+required_packages=""
+needs() {
+    required="$required
+  - $2"
+    case " $required_packages " in
+        *" $1 "*) ;;
+        *) required_packages="$required_packages $1" ;;
+    esac
+}
 lacks() {
     missing="$missing
   - $2"
@@ -428,10 +599,37 @@ check() {
         fi
     done
 
+    # The programs about to be installed have to be able to start here: every library they link,
+    # and libEGL, which they open by name at run time rather than link.
+    if [ -n "$programs" ] && have ldd; then
+        for library in $(missing_libraries "$programs/slipstream" "$programs/slipstream-settings"); do
+            package=$(library_package "$library")
+            if [ -n "$package" ]; then
+                needs "$package" "$library, which Slipstream can't start without ($package)"
+            else
+                problem "no package here provides $library, which Slipstream needs. This system
+    may be too old for this download; building from source would work."
+            fi
+        done
+    fi
+    if have ldconfig && ! ldconfig -p 2>/dev/null | grep -q 'libEGL\.so\.1'; then
+        egl=$(library_package libEGL.so.1)
+        if [ -n "$egl" ]; then
+            needs "$egl" "libEGL: nothing can be drawn on the screen ($egl)"
+        fi
+    fi
+
     # What individual features need. None of these stops the session working.
     have Xwayland || lacks xwayland "Xwayland: X11 apps (Steam, older games) won't open"
-    if ! [ -e /usr/share/xdg-desktop-portal/portals/wlr.portal ]; then
+    if ! portal_backend_installed wlr; then
         lacks portal-wlr "xdg-desktop-portal-wlr: no screen sharing (Discord, Meet, OBS)"
+    elif ! at_least 0.8 "$(xdpw_version)"; then
+        # Screen sharing is done through protocols the portal only learned to speak in 0.8.0
+        # (October 2025). Older ones ask for a protocol Slipstream doesn't serve, and sharing
+        # fails with no useful message; installing them wouldn't help.
+        limits="$limits
+  - screen sharing: this system's xdg-desktop-portal-wlr is $(xdpw_version), and 0.8 or newer is
+    needed. Everything else works. A newer release of $os_name will have it."
     fi
     have wpctl || lacks wpctl "wpctl: the volume keys, the on-screen display and the tray's volume"
     have pactl || lacks pactl "pactl: bullet time can't muffle the sound"
@@ -450,6 +648,8 @@ check() {
         fi
     done
     [ "$terminal" = yes ] || lacks terminal "a terminal: Super+Return opens nothing"
+    find_autologin
+
     # The compositor itself, once installed: every library it links has to be here.
     bin="$HOME/.local/bin/slipstream"
     if [ -x "$bin" ] && have ldd; then
@@ -464,6 +664,11 @@ report() {
     bold "Slipstream on $os_name"
     say "family: $family$([ "$atomic" = yes ] && echo ', atomic (/usr is read-only)')"
     say "display manager: ${dm:-none found}"
+    if [ -n "$programs" ]; then
+        say "programs: $root$installed_bin and $root$installed_settings, for everyone here"
+    else
+        say "programs: none in this folder; scripts/update-session builds them into your home"
+    fi
     say "session entry: $root$session_entry"
     if [ -n "$lightdm_dropin" ]; then
         say "LightDM drop-in: $root$lightdm_dropin (adds /usr/local's sessions)"
@@ -476,6 +681,25 @@ report() {
     if [ -n "$session_note" ]; then
         say "note: $session_note"
     fi
+    if [ -n "$autologin" ]; then
+        echo
+        bold "This machine logs in automatically:"
+        say "$autologin, so no login screen appears to choose Slipstream on."
+        say "$autologin_note"
+    fi
+    if [ -n "$required" ]; then
+        echo
+        bold "These have to be installed first:"
+        printf '%s\n' "$required" | sed '1d'
+        say ""
+        # shellcheck disable=SC2086 # one word per package
+        say "To add them: $(install_command $required_packages)"
+    fi
+    if [ -n "$limits" ]; then
+        echo
+        bold "What this system can't do:"
+        printf '%s\n' "$limits" | sed '1d'
+    fi
     if [ -n "$missing" ]; then
         echo
         bold "It will work, minus these:"
@@ -486,6 +710,14 @@ report() {
         if [ "$atomic" = yes ]; then
             say "(Layering packages and rebooting is your call; this script never does it.)"
         fi
+    fi
+    if [ -n "$programs" ] && [ -x "$HOME/.local/bin/slipstream" ]; then
+        echo
+        bold "Your own copy comes first:"
+        say "$HOME/.local/bin/slipstream is what your sessions will start, not the one being"
+        say "installed. That's on purpose, so a build of your own keeps working. Remove it with"
+        say "  rm -f ~/.local/bin/slipstream ~/.local/bin/slipstream-settings"
+        say "to use this release instead. Other accounts on this machine are unaffected."
     fi
     if [ -e /usr/libexec/ublue-motd ] && ! [ -e "$HOME/.config/no-show-user-motd" ]; then
         echo
@@ -501,6 +733,53 @@ report() {
     fi
 }
 
+# slipstream-portals.conf as installed. Slipstream answers screen sharing itself, through the
+# wlroots backend; everything else (file choosers, secrets, dark mode, app chooser) goes to the
+# portal backends this machine happens to have. They are listed in the order they are found,
+# which is alphabetical and so favours no distribution, except that gtk goes last: it is the
+# generic backend, the one any desktop can fall back to, so anything more specific gets asked
+# first. A backend that can't answer an interface passes it to the next one in the list.
+installed_portal_backends() {
+    # shellcheck disable=SC2231 # portal_dirs is a list of folders
+    for ipb_file in $(for ipb_dir in $portal_dirs; do echo "$ipb_dir"/*.portal; done); do
+        if [ -r "$ipb_file" ]; then
+            ipb_name=${ipb_file##*/}
+            # wlr is named for screen sharing above; it implements nothing else.
+            case ${ipb_name%.portal} in
+                wlr | gtk) continue ;;
+            esac
+            printf '%s\n' "${ipb_name%.portal}"
+        fi
+    done | sort -u | tr '\n' ';' | sed 's/;$//'
+}
+
+write_portals_conf() {
+    cat "$repo/session/slipstream-portals.conf"
+    wpc_backends=$(installed_portal_backends)
+    if portal_backend_installed gtk; then
+        wpc_backends=${wpc_backends:+$wpc_backends;}gtk
+    fi
+    echo
+    if [ -n "$wpc_backends" ]; then
+        echo "# Every other interface goes to the backends installed here, in turn."
+        echo "default=$wpc_backends"
+    else
+        echo "# No portal backend is installed beyond screen sharing's; anything installed later"
+        echo "# answers the rest."
+        echo "default=*"
+    fi
+}
+
+# Whether a portal backend of that name is installed.
+portal_backend_installed() {
+    for pbi_dir in $portal_dirs; do
+        if [ -e "$pbi_dir/$1.portal" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 inside_slipstream() {
     case "${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}" in
         Slipstream* | *:slipstream) return 0 ;;
@@ -509,7 +788,16 @@ inside_slipstream() {
 }
 
 confirm() {
-    [ "$assume_yes" = yes ] && return 0
+    if [ "$assume_yes" = yes ]; then
+        return 0
+    fi
+    # Nothing to answer with when this isn't a terminal (a pipe, a test, a script): take it as no,
+    # so an unattended run never installs or removes something nobody agreed to. --yes is there
+    # for scripts that mean it.
+    if [ ! -t 0 ]; then
+        say "not asking (no terminal): taking that as no. --yes answers yes to everything."
+        return 1
+    fi
     printf '%s [y/N] ' "$1"
     read -r answer || answer=
     case $answer in y | Y | yes) return 0 ;; esac
@@ -621,7 +909,8 @@ if [ "$mode" = uninstall ]; then
         {
             manifest_paths
             printf '%s\n' "$session_launcher" /usr/local/share/wayland-sessions/slipstream.desktop \
-                "$session_entry" "$pam_file" /usr/local/share/xdg-desktop-portal/slipstream-portals.conf \
+                "$session_entry" "$pam_file" "$portals_conf" "$wlr_conf" "$installed_bin" \
+                "$installed_settings" "$settings_entry" "$session_target" "$shutdown_target" \
                 "$manifest"
         } | sed '/^$/d' | sort -u
     )
@@ -701,6 +990,51 @@ if [ "$mode" = check ]; then
     exit 0
 fi
 
+# Packages before files: without the required ones there would be nothing to start, and asking
+# once for everything keeps it to a single decision.
+wanted_packages=$(printf '%s %s' "$required_packages" "$missing_packages" | tr ' ' '\n' \
+    | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ $//')
+if [ -n "$wanted_packages" ]; then
+    echo
+    if [ -z "$(install_now_command)" ]; then
+        bold "Packages to install yourself"
+        # shellcheck disable=SC2086 # one word per package
+        say "$(install_command $wanted_packages)"
+        if [ "$atomic" = yes ]; then
+            say "On $os_name that rewrites the system image and takes effect after a reboot,"
+            say "which is why this script won't do it for you."
+        fi
+        if [ -n "$required_packages" ]; then
+            echo
+            echo "Slipstream can't start without those, so nothing was written."
+            exit 1
+        fi
+    else
+        bold "Missing packages: $wanted_packages"
+        if confirm "Install them with this system's package manager?"; then
+            # shellcheck disable=SC2086 # one word per package
+            if ! install_packages $wanted_packages; then
+                echo
+                echo "Installing the packages failed, so nothing else was written."
+                exit 1
+            fi
+            if [ -n "$programs" ] && have ldd; then
+                still=$(missing_libraries "$programs/slipstream" "$programs/slipstream-settings" | tr '\n' ' ')
+                if [ -n "$still" ]; then
+                    echo
+                    echo "Slipstream still can't find: $still"
+                    echo "Nothing else was written."
+                    exit 1
+                fi
+            fi
+        elif [ -n "$required_packages" ]; then
+            echo
+            echo "Slipstream can't start without those, so nothing was written."
+            exit 1
+        fi
+    fi
+fi
+
 echo
 if [ -n "$root" ]; then
     bold "Installing under $root"
@@ -724,6 +1058,22 @@ put() {
 }
 put 755 "$repo/session/slipstream-session" "$session_launcher"
 put 644 "$repo/session/slipstream.desktop" "$session_entry"
+# From a download, the programs go in too, for everyone with an account here, along with the
+# files that belong with them: the Settings app's entry, the session's systemd units (a user
+# manager reads /usr/local/lib/systemd/user), and the portal settings.
+if [ -n "$programs" ]; then
+    put 755 "$programs/slipstream" "$installed_bin"
+    put 755 "$programs/slipstream-settings" "$installed_settings"
+    put 644 "$repo/slipstream-settings/$settings_entry_name" "$settings_entry"
+    put 644 "$repo/session/slipstream-session.target" "$session_target"
+    put 644 "$repo/session/slipstream-shutdown.target" "$shutdown_target"
+    write_portals_conf >"$scratch/portals.conf"
+    put 644 "$scratch/portals.conf" "$portals_conf"
+    # The picker the screen-sharing portal runs is this installed program.
+    escaped=$(printf '%s\n' "$installed_bin" | sed 's/[\\&|]/\\&/g')
+    sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" >"$scratch/wlr.conf"
+    put 644 "$scratch/wlr.conf" "$wlr_conf"
+fi
 if [ -n "$lightdm_dropin" ]; then
     printf '%s\n' \
         "$pam_marker: LightDM doesn't read /usr/local's sessions," \
@@ -797,11 +1147,18 @@ if ! [ -x "$root$session_launcher" ]; then
     exit 1
 fi
 
+if [ -z "$root" ]; then
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
+
 echo
 if [ -n "$wayland_off" ]; then
     echo "Slipstream is installed, but GDM won't list it until its Wayland is on (see the note above)."
-elif [ -x "$HOME/.local/bin/slipstream" ]; then
-    echo "Slipstream is on the login screen's session list."
+elif [ -n "$autologin" ]; then
+    echo "Slipstream is installed. This machine logs in automatically, so see the note above for"
+    echo "how to reach the session list."
+elif [ -n "$programs" ] || [ -x "$HOME/.local/bin/slipstream" ]; then
+    echo "Slipstream is on the login screen's session list. Log out and choose it there."
 else
     echo "Slipstream is on the login screen's session list. Now run scripts/update-session to"
     echo "put the compositor in ~/.local/bin, which is what that entry starts."

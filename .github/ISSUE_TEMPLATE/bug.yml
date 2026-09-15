@@ -1,0 +1,41 @@
+name: Something is wrong
+description: A crash, a session that won't start, or anything that doesn't work as it should
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Slipstream is in beta and is tested on a small number of machines, so reports from other
+        systems are genuinely useful.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: What this system is
+      description: |
+        The output of `scripts/install-session --check` from the download, which names the
+        distribution, the login screen and anything missing. It writes nothing.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: The session log
+      description: |
+        `~/.local/state/slipstream/slipstream.log` from the session it went wrong in, or
+        `slipstream.log.old` if you have logged in again since. Long logs are fine attached
+        as a file.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What `slipstream --version` says.
+    validations:
+      required: true

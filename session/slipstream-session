@@ -12,7 +12,10 @@ fi
 log="$state_dir/slipstream.log"
 [ -f "$log" ] && mv -f "$log" "$log.old"
 
-export XDG_CURRENT_DESKTOP=Slipstream:KDE
+# Slipstream names only itself: it borrows no other desktop's settings, and apps that ask what
+# they are running under get one answer. Which portal backend answers which interface is written
+# in slipstream-portals.conf when Slipstream is installed, from what is on the machine.
+export XDG_CURRENT_DESKTOP=Slipstream
 export XDG_SESSION_DESKTOP=slipstream
 export XDG_SESSION_TYPE=wayland
 # Wayland everywhere it's optional.
@@ -20,7 +23,36 @@ export QT_QPA_PLATFORM=wayland
 export MOZ_ENABLE_WAYLAND=1
 export ELECTRON_OZONE_PLATFORM_HINT=auto
 export _JAVA_AWT_WM_NONREPARENTING=1
-export XCURSOR_THEME="${XCURSOR_THEME:-breeze_cursors}"
+# The cursor theme this system calls its default, which every distribution sets for itself in
+# icons/default/index.theme. Failing that, any installed theme that has cursors in it; failing
+# that, whatever the toolkit falls back to.
+icon_dirs="$HOME/.icons ${XDG_DATA_HOME:-$HOME/.local/share}/icons /usr/local/share/icons /usr/share/icons"
+if [ -z "${XCURSOR_THEME:-}" ]; then
+    for dir in $icon_dirs; do
+        if [ -r "$dir/default/index.theme" ]; then
+            XCURSOR_THEME=$(sed -n 's/^[[:space:]]*Inherits[[:space:]]*=[[:space:]]*//p' \
+                "$dir/default/index.theme" | head -n1 | tr -d '\r' | cut -d, -f1)
+            if [ -n "$XCURSOR_THEME" ]; then
+                break
+            fi
+        fi
+    done
+fi
+if [ -z "${XCURSOR_THEME:-}" ]; then
+    for dir in $icon_dirs; do
+        for cursors in "$dir"/*/cursors; do
+            if [ -d "$cursors" ]; then
+                theme=${cursors%/cursors}
+                XCURSOR_THEME=${theme##*/}
+                break
+            fi
+        done
+        if [ -n "${XCURSOR_THEME:-}" ]; then
+            break
+        fi
+    done
+fi
+export XCURSOR_THEME="${XCURSOR_THEME:-default}"
 export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
 
 # The keyboard layout set in System Settings or the installer, unless one is already chosen.
@@ -41,9 +73,15 @@ fi
 
 unset DISPLAY WAYLAND_DISPLAY
 
+# A copy in your own home wins, so a build of your own runs instead of the installed release for
+# you alone; everyone else on the machine gets the one in /usr/local.
 bin="$HOME/.local/bin/slipstream"
 if [ ! -x "$bin" ]; then
-    echo "slipstream-session: $bin is missing; run scripts/update-session" >"$log"
+    bin=/usr/local/bin/slipstream
+fi
+if [ ! -x "$bin" ]; then
+    echo "slipstream-session: no slipstream program in ~/.local/bin or /usr/local/bin." >"$log"
+    echo "Install it with scripts/install-session, or build one with scripts/update-session." >>"$log"
     exit 1
 fi
 exec "$bin" --session >"$log" 2>&1

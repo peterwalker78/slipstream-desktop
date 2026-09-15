@@ -4,6 +4,7 @@
 # with the real installer (packages and all), then takes it off again.
 #
 #   scripts/test-on-distro --release vX.Y.Z    fetch that release from GitHub
+#   scripts/test-on-distro --release latest    fetch whichever release is newest
 #   scripts/test-on-distro --tarball FILE      use a download already here
 #
 # It writes to the system it runs on, so run it in a container, never on a desktop.
@@ -92,7 +93,11 @@ say "Installing"
 if [ "$source" = release ]; then
     cp "$repo/install.sh" "$home/install.sh"
     chown "$user" "$home/install.sh"
-    as_user "sh install.sh --version '$tag' --yes"
+    if [ "$tag" = latest ]; then
+        as_user "sh install.sh --yes"
+    else
+        as_user "sh install.sh --version '$tag' --yes"
+    fi
     folder=$(as_user "ls -d \${XDG_CACHE_HOME:-\$HOME/.cache}/slipstream-install/slipstream-*-linux-*" | head -n1)
 else
     cp "$source" "$home/download.tar.gz"
@@ -127,7 +132,7 @@ done
 
 if version=$(as_user "/usr/local/bin/slipstream --version" 2>&1); then
     echo "  $version"
-    if [ -n "$tag" ] && [ "$version" != "slipstream ${tag#v}" ]; then
+    if [ -n "$tag" ] && [ "$tag" != latest ] && [ "$version" != "slipstream ${tag#v}" ]; then
         fail "the installed program says '$version', not ${tag#v}"
     fi
 else

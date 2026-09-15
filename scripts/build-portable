@@ -3,7 +3,7 @@
 # container of the oldest system to support (Debian 13), where every library it links is old
 # enough to be on newer systems too.
 #
-#   scripts/build-portable [--release]
+#   scripts/build-portable [--release | --test]
 #
 # libdisplay-info is built here and linked in, because its soname changes with every release
 # (0.2 is .so.2, 0.3 is .so.3), so a binary built against one can't find it on a system with
@@ -15,12 +15,18 @@ set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 profile=debug
+action=build
 cargo_args="--locked -p slipstream -p slipstream-settings"
 case ${1:-} in
     "") ;;
     --release)
         profile=release
         cargo_args="--release $cargo_args"
+        ;;
+    # The tests need the same libraries as the build, so they run through here too.
+    --test)
+        action="test"
+        cargo_args="--workspace --locked"
         ;;
     -h | --help)
         sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -74,7 +80,9 @@ SYSTEM_DEPS_LIBDISPLAY_INFO_LINK=static
 export PKG_CONFIG_PATH SYSTEM_DEPS_LIBDISPLAY_INFO_LINK
 
 # shellcheck disable=SC2086 # cargo_args is a list of arguments
-(cd "$repo" && cargo build $cargo_args)
+(cd "$repo" && cargo "$action" $cargo_args)
 
-built=${CARGO_TARGET_DIR:-$repo/target}/$profile
-"$repo/scripts/check-portable" "$built/slipstream" "$built/slipstream-settings"
+if [ "$action" = build ]; then
+    built=${CARGO_TARGET_DIR:-$repo/target}/$profile
+    "$repo/scripts/check-portable" "$built/slipstream" "$built/slipstream-settings"
+fi
