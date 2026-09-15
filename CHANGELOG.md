@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Installing works when there's no terminal to type a password into** — run from a file manager, a launcher, or a shell that isn't attached to one. sudo asks through the desktop's graphical helper instead of refusing.
+
 ## [0.5.1] - 2026-09-16
 
 - **Installing works on systems whose sudo asks for the root password** (openSUSE's default). The installer asked sudo to check the password up front, which such a configuration refuses outright even where it would let the install through; it now tries a real command before giving up.

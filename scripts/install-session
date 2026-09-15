@@ -891,11 +891,32 @@ exit 0
 APPLY
 }
 
+# How to become root. With no terminal to type a password into — run from a file manager, a
+# launcher, or a shell that isn't attached to one — sudo can ask through a graphical helper
+# instead, which is what SUDO_ASKPASS is for.
+sudo_run=sudo
+if [ ! -t 0 ] && [ -z "$root" ]; then
+    if [ -z "${SUDO_ASKPASS:-}" ]; then
+        for helper in /usr/bin/ksshaskpass /usr/libexec/openssh/gnome-ssh-askpass \
+            /usr/bin/lxqt-openssh-askpass /usr/bin/x11-ssh-askpass /usr/bin/ssh-askpass; do
+            if [ -x "$helper" ]; then
+                SUDO_ASKPASS=$helper
+                export SUDO_ASKPASS
+                break
+            fi
+        done
+    fi
+    if [ -n "${SUDO_ASKPASS:-}" ]; then
+        sudo_run="sudo -A"
+    fi
+fi
+
 as_root() {
     if [ -n "$root" ]; then
         sh "$@"
     else
-        sudo sh "$@"
+        # shellcheck disable=SC2086 # sudo_run is a command with its options
+        $sudo_run sh "$@"
     fi
 }
 
@@ -1066,11 +1087,16 @@ echo
 if [ -n "$root" ]; then
     bold "Installing under $root"
 else
-    bold "Installing (sudo asks for your password)"
+    if [ "$sudo_run" = sudo ]; then
+        bold "Installing (sudo asks for your password)"
+    else
+        bold "Installing (a window asks for your password, since this isn't a terminal)"
+    fi
     # `sudo -v` asks once, up front, so a password prompt doesn't land between two writes. Some
     # systems' sudo rules let a command through but not a bare validation, so a real command is
     # the second opinion before giving up.
-    if ! sudo -v && ! sudo true; then
+    # shellcheck disable=SC2086 # sudo_run is a command with its options
+    if ! $sudo_run -v && ! $sudo_run true; then
         echo
         echo "sudo didn't let this through, so nothing was written."
         exit 1
