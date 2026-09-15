@@ -142,6 +142,26 @@ else
     ok
 fi
 
+case_name="a failed build falls back to the bundle only while the app isn't installed"
+fresh
+echo "$app" >"$work/bundles/browser.flatpak"
+sha=$(sha256sum "$work/bundles/browser.flatpak" | cut -d ' ' -f 1)
+printf '#!/bin/sh\nexit 3\n' >"$work/checkout/build.sh"
+commit_checkout "broken"
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+bundle_url=file://$work/bundles/browser.flatpak
+bundle_sha256=$sha
+EOF
+expect_status 0
+expect_count 'flatpak install' 1
+grep -q "installing its bundle instead" "$work/out" || fail "$case_name: didn't say so"
+commit_checkout "still broken"
+expect_status 1
+expect_count 'flatpak install' 1
+
 case_name="--check changes nothing"
 fresh
 conf <<EOF

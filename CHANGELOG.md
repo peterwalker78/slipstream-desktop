@@ -5,6 +5,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 ## [Unreleased]
 
 - **A meter of your own on the bar.** `[meter] command` runs any command that prints a small JSON report of how much of something is used (a quota, a plan's limits, a disk), every `every-secs`. The bar shows a gauge for each section beside quick settings, amber at 75% and orange at 90%, and clicking it opens quick settings, which lists every meter with the time left until it starts over. Numbers the report marks old, or that a failing command couldn't refresh, stay on show dimmed. See the README.
+- `install-extras` installs an app's bundle when building it from its checkout fails and the app isn't installed yet, so a broken build never leaves it missing. An app that's already installed keeps its own build.
 
 ## [0.3.0] - 2026-09-15
 

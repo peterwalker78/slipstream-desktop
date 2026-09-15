@@ -200,7 +200,7 @@ Apps that go with your desktop but are projects of their own can be installed an
 app_id=org.example.Browser
 checkout=~/Projects/browser      # built with its own command whenever the checkout has new commits
 build=scripts/flatpak
-bundle_url=https://example.org/browser.flatpak       # used when there's no checkout
+bundle_url=https://example.org/browser.flatpak       # used without a checkout, or if it fails to build before the app is installed
 bundle_sha256_url=https://example.org/browser.flatpak.sha256
 default_browser=yes              # set once, so choosing another browser later sticks
 ```

@@ -17,7 +17,8 @@
 #   default_browser=yes                make it the default web browser, once
 #
 # A checkout is built when the app isn't installed or the checkout's commit has changed since it was
-# last built here (uncommitted changes don't count). A bundle is installed when the app isn't
+# last built here (uncommitted changes don't count); if that build fails and the app isn't installed,
+# the bundle is installed instead, when there is one. A bundle is installed when the app isn't
 # installed or the bundle's checksum has changed. The default browser is set the first time only,
 # so choosing another browser afterwards sticks.
 set -eu
@@ -28,7 +29,7 @@ case ${1:-} in
     "") ;;
     --check) check=yes ;;
     -h | --help)
-        sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -254,6 +255,13 @@ for file in "$extras"/*.conf; do
     status=0
     if [ -n "$checkout" ] && [ -d "$checkout" ]; then
         from_checkout "$name" || status=$?
+        # A checkout that won't build still leaves a way in for an app that isn't installed at all.
+        # One that is installed keeps its own build rather than going back to the published bundle.
+        if [ "$status" -ne 0 ] && [ "$installed" = no ] && [ -n "$bundle_url" ]; then
+            say "$name" "installing its bundle instead"
+            status=0
+            from_bundle "$name" || status=$?
+        fi
     elif [ -n "$bundle_url" ]; then
         from_bundle "$name" || status=$?
     elif [ -n "$checkout" ]; then
