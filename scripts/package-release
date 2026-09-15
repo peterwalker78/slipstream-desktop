@@ -5,24 +5,18 @@
 #
 #   scripts/package-release [OUT_DIR]
 #
-# The programs link the libraries of the system they were built on, so SYSTEM names it from
-# /etc/os-release: fedora44, ubuntu26.04 (the whole version, as 26.04 and 26.10 differ).
+# There is one download per architecture: scripts/build-portable links what it must so the
+# programs run on any current distribution, and scripts/check-portable is what proves it.
 # SLIPSTREAM_PACKAGE_FROM packs programs from another folder.
 set -eu
 umask 022
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repo/Cargo.toml" | head -n1)
 [ -n "$version" ] || { echo "package-release: no version in Cargo.toml" >&2; exit 1; }
-os_release=/etc/os-release
-[ -r "$os_release" ] || os_release=/usr/lib/os-release
-field() { sed -n "s/^$1=//p" "$os_release" | head -n1 | tr -d "\"'"; }
-id=$(field ID)
-version_id=$(field VERSION_ID)
-system=${id:-linux}$version_id
 arch=$(uname -m)
 from=${SLIPSTREAM_PACKAGE_FROM:-${CARGO_TARGET_DIR:-$repo/target}/release}
 out=${1:-$repo/target/dist}
-name=slipstream-$version-$system-$arch
+name=slipstream-$version-linux-$arch
 
 for program in slipstream slipstream-settings; do
     [ -x "$from/$program" ] || { echo "package-release: $from/$program isn't built" >&2; exit 1; }
@@ -41,7 +35,7 @@ mkdir -p "$stage/$name/bin" "$stage/$name/scripts" "$stage/$name/session" \
     "$stage/$name/slipstream-settings" "$stage/$name/licences" "$stage/$name/extras"
 cp "$from/slipstream" "$from/slipstream-settings" "$stage/$name/bin/"
 cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$repo/scripts/install-extras" \
-    "$stage/$name/scripts/"
+    "$repo/scripts/try-slipstream" "$stage/$name/scripts/"
 cp "$repo"/session/* "$stage/$name/session/"
 cp "$repo"/extras/*.conf "$stage/$name/extras/"
 cp "$repo/slipstream-settings/io.github.peterwalker78.SlipstreamSettings.desktop" \
@@ -49,6 +43,11 @@ cp "$repo/slipstream-settings/io.github.peterwalker78.SlipstreamSettings.desktop
 cp "$repo/README.md" "$repo/CHANGELOG.md" "$repo/LICENSE" "$stage/$name/"
 cp "$repo"/assets/fonts/*-OFL.txt "$repo/assets/slipstream-logo.NOTE" \
     "$repo/slipstream/LICENSE-smallvil-MIT.txt" "$stage/$name/licences/"
+# The licence of anything linked in by scripts/build-portable.
+portable_licences=${CARGO_TARGET_DIR:-$repo/target}/portable/licences
+if [ -d "$portable_licences" ]; then
+    cp "$portable_licences"/* "$stage/$name/licences/"
+fi
 
 tar -C "$stage" --owner=0 --group=0 -czf "$out/$name.tar.gz" "$name"
 (cd "$out" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")

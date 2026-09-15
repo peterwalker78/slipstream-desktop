@@ -1,0 +1,71 @@
+#!/bin/sh
+# Runs Slipstream in a window on the desktop you are already using, so you can look at it without
+# installing anything or logging out.
+#
+#   scripts/try-slipstream [PROGRAM]
+#
+# PROGRAM, if given, is opened inside it. Settings and session state go to a scratch folder that
+# is removed afterwards, so nothing on your desktop changes.
+set -eu
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+
+case ${1:-} in
+    -h | --help)
+        sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+esac
+
+if [ -x "$repo/bin/slipstream" ]; then
+    bin=$repo/bin/slipstream
+elif [ -x "${CARGO_TARGET_DIR:-$repo/target}/release/slipstream" ]; then
+    bin=${CARGO_TARGET_DIR:-$repo/target}/release/slipstream
+elif [ -x "${CARGO_TARGET_DIR:-$repo/target}/debug/slipstream" ]; then
+    bin=${CARGO_TARGET_DIR:-$repo/target}/debug/slipstream
+else
+    echo "try-slipstream: no slipstream program here. Unpack a download, or build one first." >&2
+    exit 1
+fi
+
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+    echo "try-slipstream: this opens a window, so run it from inside a desktop session." >&2
+    echo "From a text console, run 'slipstream --session' to start the real thing instead." >&2
+    exit 1
+fi
+
+if command -v ldd >/dev/null 2>&1; then
+    libs=$(ldd "$bin" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
+    if [ -n "$libs" ]; then
+        echo "try-slipstream: this system is missing libraries Slipstream needs: $libs" >&2
+        echo "scripts/install-session --check names the packages that carry them." >&2
+        exit 1
+    fi
+fi
+
+scratch=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/slipstream-try.XXXXXX")
+cleanup() { rm -rf "$scratch"; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+mkdir -p "$scratch/config" "$scratch/state" "$scratch/data"
+
+echo "Slipstream is opening in a window."
+echo
+echo "  In a window, Alt stands in for the Windows key, which the desktop around it keeps."
+echo "  Alt+Return  a terminal        Alt+Space   the app explorer"
+echo "  Alt+1…5     workspaces        Alt+Tab     switch windows"
+echo "  Alt+I       settings          Alt+Q       close the window"
+echo "  Alt+Shift+Q closes Slipstream and ends this trial."
+echo
+echo "Nothing here is saved: settings and layout go to a scratch folder."
+echo
+
+if [ $# -gt 0 ]; then
+    set -- --command "$1"
+fi
+
+# Not exec'd, so the scratch folder is removed when it quits.
+XDG_CONFIG_HOME=$scratch/config \
+    XDG_STATE_HOME=$scratch/state \
+    XDG_DATA_HOME=$scratch/data \
+    "$bin" "$@"

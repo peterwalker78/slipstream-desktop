@@ -1,10 +1,10 @@
 name: build
 
-# Private repos get limited free CI minutes, so this runs on pushes to main
-# and on demand only, and cancels superseded runs.
+# Runs on pushes to main, on branches while they're being worked on, and on demand;
+# superseded runs are cancelled.
 on:
   push:
-    branches: [main]
+    branches: [main, "portable-*"]
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +30,8 @@ jobs:
         run: |
           shellcheck -s sh scripts/install-session scripts/update-session scripts/package-release \
             scripts/test-install-session scripts/install-extras scripts/test-install-extras \
-            session/slipstream-session
+            scripts/build-portable scripts/check-portable scripts/try-slipstream \
+            scripts/test-on-distro install.sh session/slipstream-session
           shellcheck scripts/nested scripts/stubborn
           scripts/test-install-session
           SHELL_UNDER_TEST=dash scripts/test-install-session
@@ -55,22 +56,23 @@ jobs:
       - name: Test
         run: . ~/.cargo/env && cargo test --workspace --locked
 
-  # Release downloads are built here too, so a change that doesn't build on Ubuntu's libraries shows
-  # up on the push rather than on release day.
-  ubuntu:
+  # The download is built on the oldest system it supports, so that a change which breaks that
+  # build shows up on the push rather than on release day.
+  portable:
     runs-on: ubuntu-latest
-    container: docker.io/library/ubuntu:26.04
+    container: docker.io/library/debian:13
     steps:
       - name: Install toolchain and libraries
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git build-essential clang mold \
-            pkg-config rustup libxkbcommon-dev libwayland-dev libsystemd-dev libudev-dev libinput-dev \
-            libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev libdisplay-info-dev \
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
+            mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
             libgtk-4-dev
-          rustup set profile minimal
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
 
       - uses: actions/checkout@v7
 
@@ -80,11 +82,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-ubuntu26.04-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-ubuntu26.04-
+          key: cargo-debian13-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-debian13-
 
-      - name: Build
-        run: cargo build --workspace --locked
+      - name: Build the way the download is built
+        run: scripts/build-portable
 
       - name: Test
         run: cargo test --workspace --locked

@@ -1,0 +1,161 @@
+#!/bin/sh
+# Installs a Slipstream download inside a container of some distribution, as a person would, and
+# checks that what was installed actually runs there. Written for CI: it makes a user, installs
+# with the real installer (packages and all), then takes it off again.
+#
+#   scripts/test-on-distro --release vX.Y.Z    fetch that release from GitHub
+#   scripts/test-on-distro --tarball FILE      use a download already here
+#
+# It writes to the system it runs on, so run it in a container, never on a desktop.
+set -eu
+
+source=
+tag=
+case ${1:-} in
+    --release)
+        tag=${2:?--release needs a tag such as v0.5.0}
+        source=release
+        ;;
+    --tarball)
+        source=${2:?--tarball needs a file}
+        [ -r "$source" ] || { echo "test-on-distro: $source isn't there." >&2; exit 2; }
+        source=$(cd "$(dirname "$source")" && pwd -P)/$(basename "$source")
+        ;;
+    -h | --help)
+        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "test-on-distro: say --release TAG or --tarball FILE (try --help)" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "test-on-distro: this has to run as root, in a container." >&2
+    exit 2
+fi
+if [ -z "${SLIPSTREAM_TEST_ON_DISTRO:-}" ] && [ ! -e /run/.containerenv ] && [ ! -e /.dockerenv ] \
+    && [ -z "${GITHUB_ACTIONS:-}" ]; then
+    echo "test-on-distro: this doesn't look like a container, and it installs packages and" >&2
+    echo "system files. Set SLIPSTREAM_TEST_ON_DISTRO=1 if you really mean it." >&2
+    exit 2
+fi
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+have() { command -v "$1" >/dev/null 2>&1; }
+
+say() { printf '\n== %s\n' "$*"; }
+
+# ---------------------------------------------------------------------------------------------
+# The bare minimum for a person to install anything at all: a package manager that knows what is
+# available, a user to be, sudo, and the tools the installer itself calls.
+
+say "Preparing $( (sed -n 's/^PRETTY_NAME=//p' /etc/os-release || true) | tr -d '"')"
+if have apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends sudo ca-certificates curl tar gzip xz-utils \
+        passwd libpam-runtime login procps >/dev/null
+elif have dnf; then
+    dnf install -y -q --setopt=install_weak_deps=False sudo ca-certificates curl tar gzip \
+        shadow-utils util-linux pam gawk findutils procps-ng >/dev/null
+elif have pacman; then
+    pacman -Syu --noconfirm --quiet sudo ca-certificates curl tar gzip shadow pam gawk procps-ng \
+        >/dev/null
+elif have zypper; then
+    zypper --non-interactive --quiet refresh >/dev/null
+    zypper --non-interactive --quiet install sudo ca-certificates curl tar gzip shadow pam gawk \
+        util-linux procps >/dev/null
+else
+    echo "test-on-distro: no package manager this script knows." >&2
+    exit 1
+fi
+
+user=slipstreamer
+if ! id "$user" >/dev/null 2>&1; then
+    useradd --create-home --shell /bin/sh "$user"
+fi
+home=$(eval echo "~$user")
+echo "$user ALL=(ALL) NOPASSWD: ALL" >/etc/sudoers.d/slipstream-test
+chmod 440 /etc/sudoers.d/slipstream-test
+
+as_user() {
+    # A login-ish environment, with the test's own hints for what a container can't have.
+    su "$user" -c "cd '$home' && SLIPSTREAM_TEST_SEAT=1 HOME='$home' $*"
+}
+
+# ---------------------------------------------------------------------------------------------
+# Install, the way a person would.
+
+say "Installing"
+if [ "$source" = release ]; then
+    cp "$repo/install.sh" "$home/install.sh"
+    chown "$user" "$home/install.sh"
+    as_user "sh install.sh --version '$tag' --yes"
+    folder=$(as_user "ls -d \${XDG_CACHE_HOME:-\$HOME/.cache}/slipstream-install/slipstream-*-linux-*" | head -n1)
+else
+    cp "$source" "$home/download.tar.gz"
+    chown "$user" "$home/download.tar.gz"
+    as_user "tar xf download.tar.gz"
+    folder=$(as_user "ls -d \$HOME/slipstream-*-linux-*" | head -n1)
+    as_user "cd '$folder' && sh scripts/install-session --yes"
+fi
+echo "Installed from $folder"
+
+# ---------------------------------------------------------------------------------------------
+# Does what was installed actually work here?
+
+failures=0
+fail() {
+    echo "FAIL: $*" >&2
+    failures=$((failures + 1))
+}
+
+say "Checking"
+for program in slipstream slipstream-settings; do
+    path=/usr/local/bin/$program
+    if ! [ -x "$path" ]; then
+        fail "$path isn't there after installing"
+        continue
+    fi
+    missing=$(ldd "$path" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
+    if [ -n "$missing" ]; then
+        fail "$program can't find: $missing"
+    fi
+done
+
+if version=$(as_user "/usr/local/bin/slipstream --version" 2>&1); then
+    echo "  $version"
+    if [ -n "$tag" ] && [ "$version" != "slipstream ${tag#v}" ]; then
+        fail "the installed program says '$version', not ${tag#v}"
+    fi
+else
+    fail "slipstream --version didn't run: $version"
+fi
+
+if ! [ -r /usr/local/share/wayland-sessions/slipstream.desktop ] \
+    && ! [ -r /usr/share/wayland-sessions/slipstream.desktop ]; then
+    fail "there's no session entry for a login screen to show"
+fi
+[ -x /usr/local/bin/slipstream-session ] || fail "the session launcher isn't installed"
+[ -r /etc/pam.d/slipstream ] || fail "the lock screen's PAM service isn't installed"
+
+if ! as_user "cd '$folder' && sh scripts/install-session --check" >"$home/check.log" 2>&1; then
+    fail "install-session --check reports a problem after installing"
+fi
+sed 's/^/  /' "$home/check.log"
+
+say "Removing"
+as_user "cd '$folder' && sh scripts/install-session --uninstall --yes --purge" || fail "uninstall failed"
+for path in /usr/local/bin/slipstream /usr/local/bin/slipstream-session /etc/pam.d/slipstream; do
+    if [ -e "$path" ]; then
+        fail "$path is still here after --uninstall"
+    fi
+done
+
+if [ "$failures" -gt 0 ]; then
+    say "$failures problem(s) on this distribution"
+    exit 1
+fi
+say "All good on this distribution"

@@ -1,0 +1,89 @@
+#!/bin/sh
+# Checks that built programs will run on other distributions: no glibc symbol newer than the
+# oldest system to support, and no shared library outside the set every desktop has.
+#
+#   scripts/check-portable [--max-glibc VERSION] PROGRAM...
+#
+# A binary runs on any system whose glibc is at least the newest version it asks for, so the
+# highest GLIBC_x.y in its symbols is the oldest distribution it can run on. Libraries whose
+# soname changes with each release (libdisplay-info) have to be linked in rather than looked for
+# at run time; anything unexpected here means a dependency crept in and the download would fail
+# to start somewhere.
+set -eu
+
+# Debian 13's glibc, the oldest system the downloads are built for.
+max_glibc=2.41
+# Sonames that have been stable for years and are part of any graphical system.
+allowed="ld-linux-x86-64.so.2 ld-linux-aarch64.so.1 libc.so.6 libm.so.6 libdl.so.2 librt.so.1
+libpthread.so.0 libgcc_s.so.1 libstdc++.so.6 libgbm.so.1 libseat.so.1 libudev.so.1
+libinput.so.10 libxkbcommon.so.0 libwayland-client.so.0 libwayland-server.so.0
+libwayland-cursor.so.0 libwayland-egl.so.1 libEGL.so.1 libGL.so.1 libGLESv2.so.2 libdrm.so.2
+libgtk-4.so.1 libgraphene-1.0.so.0 libpango-1.0.so.0 libpangocairo-1.0.so.0
+libpangoft2-1.0.so.0 libharfbuzz.so.0 libcairo.so.2 libcairo-gobject.so.2
+libgdk_pixbuf-2.0.so.0 libgio-2.0.so.0 libgobject-2.0.so.0 libglib-2.0.so.0
+libgmodule-2.0.so.0 libepoxy.so.0 libvulkan.so.1"
+allowed=$(printf '%s' "$allowed" | tr '\n' ' ')
+
+case ${1:-} in
+    -h | --help)
+        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    --max-glibc)
+        max_glibc=${2:?--max-glibc needs a version}
+        shift 2
+        ;;
+esac
+if [ $# -eq 0 ]; then
+    echo "check-portable: name the programs to check (try --help)" >&2
+    exit 2
+fi
+if ! command -v readelf >/dev/null 2>&1; then
+    echo "check-portable: readelf isn't installed (binutils), so nothing could be checked." >&2
+    exit 2
+fi
+
+# `newer A B`: true when version A is newer than version B.
+newer() {
+    [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
+failed=no
+for program in "$@"; do
+    if ! [ -r "$program" ]; then
+        echo "check-portable: $program isn't there." >&2
+        failed=yes
+        continue
+    fi
+
+    # The highest glibc version any symbol asks for, from the dynamic symbol table.
+    wanted=$(readelf -W --dyn-syms "$program" | sed -n 's/.*@GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)
+    [ -n "$wanted" ] || wanted=none
+    if [ "$wanted" != none ] && newer "$wanted" "$max_glibc"; then
+        echo "check-portable: $program needs glibc $wanted, newer than the $max_glibc it is built for." >&2
+        echo "  Build it on the oldest system to support, or stop using the newer symbol." >&2
+        failed=yes
+    fi
+
+    libs=$(readelf -W -d "$program" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
+    unexpected=
+    for lib in $libs; do
+        case " $allowed " in
+            *" $lib "*) ;;
+            *) unexpected="$unexpected $lib" ;;
+        esac
+    done
+    if [ -n "$unexpected" ]; then
+        echo "check-portable: $program links libraries that aren't on every system:$unexpected" >&2
+        echo "  Link them in, drop them, or add them to the list in this script once they're" >&2
+        echo "  known to be everywhere with a soname that doesn't change." >&2
+        failed=yes
+    fi
+
+    echo "$program: glibc $wanted, $(printf '%s\n' "$libs" | grep -c .) shared libraries"
+done
+
+if [ "$failed" = yes ]; then
+    exit 1
+fi
+echo "Portable: runs on glibc $max_glibc and newer."

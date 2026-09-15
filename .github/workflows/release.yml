@@ -1,8 +1,8 @@
 name: release
 
-# For a version tag: builds the programs on each system below and attaches them, packed with the
-# scripts that install them, to the tag's GitHub release (made from CHANGELOG.md if it isn't there
-# yet). Programs link the libraries of the system they're built on, so each gets its own download.
+# For a version tag: builds the one download that runs on any current distribution, attaches it to
+# the tag's GitHub release (made from CHANGELOG.md if it isn't there yet), then installs that
+# download in a container of each distribution to check it works there.
 on:
   push:
     tags: ["v*"]
@@ -14,47 +14,32 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release-${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   release:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - system: fedora44
-            image: registry.fedoraproject.org/fedora:44
-          - system: ubuntu26.04
-            image: docker.io/library/ubuntu:26.04
     runs-on: ubuntu-latest
-    container: ${{ matrix.image }}
+    # The oldest system the download supports: its libraries are old enough for newer ones too.
+    container: docker.io/library/debian:13
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Install toolchain and libraries (Fedora)
-        if: startsWith(matrix.system, 'fedora')
-        run: |
-          dnf install -y --setopt=install_weak_deps=False git gcc clang mold rustup pkgconf-pkg-config \
-            libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
-            libseat-devel libdrm-devel mesa-libEGL-devel pixman-devel libdisplay-info-devel gtk4-devel \
-            gh tar gzip
-          rustup-init -y --profile minimal
-          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
-
-      - name: Install toolchain and libraries (Ubuntu)
-        if: startsWith(matrix.system, 'ubuntu')
+      - name: Install toolchain and libraries
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git build-essential clang mold \
-            pkg-config rustup libxkbcommon-dev libwayland-dev libsystemd-dev libudev-dev libinput-dev \
-            libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev libdisplay-info-dev \
-            libgtk-4-dev gh
-          rustup set profile minimal
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
+            mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
+            libgtk-4-dev gh tar gzip
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
 
       - uses: actions/checkout@v7
         with:
@@ -69,12 +54,17 @@ jobs:
           fi
 
       - name: Build
-        run: cargo build --release --locked -p slipstream -p slipstream-settings
+        run: scripts/build-portable --release
 
       - name: Pack
         run: |
           scripts/package-release dist
-          ls dist/*-"${{ matrix.system }}"-*.tar.gz
+          ls dist/*-linux-*.tar.gz
+
+      - name: Say where it was built, verifiably
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.tar.gz
 
       - name: Attach to the release
         run: |
@@ -85,9 +75,32 @@ jobs:
               $0 ~ "^## \\[" v "\\]" { on = 1; next }
               on && /^## / { exit }
               on { print }' CHANGELOG.md >notes.md
-            # Every system's job gets here; whichever is second finds the release already made.
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
               --title "Slipstream $version beta" --notes-file notes.md \
               || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/*.sha256
+
+  # Install what was just published on each distribution, as a person would.
+  distributions:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - docker.io/library/debian:13
+          - docker.io/library/ubuntu:26.04
+          - registry.fedoraproject.org/fedora:43
+          - registry.fedoraproject.org/fedora:44
+          - docker.io/library/archlinux:latest
+          - registry.opensuse.org/opensuse/tumbleweed:latest
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install it and check it runs
+        run: sh scripts/test-on-distro --release "$TAG"

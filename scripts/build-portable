@@ -1,0 +1,80 @@
+#!/bin/sh
+# Builds the programs for the download that runs on any current distribution. Meant for a
+# container of the oldest system to support (Debian 13), where every library it links is old
+# enough to be on newer systems too.
+#
+#   scripts/build-portable [--release]
+#
+# libdisplay-info is built here and linked in, because its soname changes with every release
+# (0.2 is .so.2, 0.3 is .so.3), so a binary built against one can't find it on a system with
+# another. Everything else is linked the usual way: those sonames have been the same for years.
+#
+# Needs a compiler, meson, ninja, pkg-config, hwdata and cargo. On Debian:
+#   apt-get install build-essential meson ninja-build pkg-config hwdata
+set -eu
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+profile=debug
+cargo_args="--locked -p slipstream -p slipstream-settings"
+case ${1:-} in
+    "") ;;
+    --release)
+        profile=release
+        cargo_args="--release $cargo_args"
+        ;;
+    -h | --help)
+        sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "build-portable: unknown option $1 (try --help)" >&2
+        exit 2
+        ;;
+esac
+
+# The last release the Rust bindings accept (they ask for < 0.4.0), by commit so the source is
+# always the same one.
+di_version=0.3.0
+di_commit=47a5590e9c4eb35d67651b8c05a55f1a48259329
+di_url=https://gitlab.freedesktop.org/emersion/libdisplay-info.git
+
+work=${CARGO_TARGET_DIR:-$repo/target}/portable
+prefix=$work/libdisplay-info-$di_version
+
+have() { command -v "$1" >/dev/null 2>&1; }
+for tool in cargo meson ninja pkg-config git; do
+    have "$tool" || { echo "build-portable: $tool isn't installed." >&2; exit 1; }
+done
+
+if ! [ -e "$prefix/lib/pkgconfig/libdisplay-info.pc" ]; then
+    echo "Building libdisplay-info $di_version to link in"
+    src=$work/src/libdisplay-info
+    rm -rf "$src"
+    mkdir -p "$(dirname "$src")"
+    git init -q "$src"
+    (
+        cd "$src"
+        git remote add origin "$di_url"
+        git fetch -q --depth 1 origin "$di_commit"
+        git checkout -q FETCH_HEAD
+    )
+    # Static only, and with position-independent code, which Rust's binaries need.
+    meson setup "$src/build" "$src" --prefix="$prefix" --libdir=lib --buildtype=release \
+        --default-library=static -Db_staticpic=true -Dwerror=false >"$work/meson.log" 2>&1 \
+        || { cat "$work/meson.log" >&2; exit 1; }
+    ninja -C "$src/build" install >>"$work/meson.log" 2>&1 || { cat "$work/meson.log" >&2; exit 1; }
+    mkdir -p "$work/licences"
+    cp "$src/LICENSE" "$work/licences/libdisplay-info-MIT.txt"
+    rm -rf "$src"
+fi
+
+# Ahead of any copy the system has, and asked for as a static library rather than a shared one.
+PKG_CONFIG_PATH=$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+SYSTEM_DEPS_LIBDISPLAY_INFO_LINK=static
+export PKG_CONFIG_PATH SYSTEM_DEPS_LIBDISPLAY_INFO_LINK
+
+# shellcheck disable=SC2086 # cargo_args is a list of arguments
+(cd "$repo" && cargo build $cargo_args)
+
+built=${CARGO_TARGET_DIR:-$repo/target}/$profile
+"$repo/scripts/check-portable" "$built/slipstream" "$built/slipstream-settings"
