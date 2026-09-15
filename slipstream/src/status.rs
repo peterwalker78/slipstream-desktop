@@ -84,10 +84,12 @@ pub fn start() -> Arc<Mutex<Reading>> {
     let writer = shared.clone();
     let reader = std::thread::spawn(move || {
         let mut reading = Reading::default();
+        let mut estimate = slipstream_config::battery::Estimate::default();
+        let started = Instant::now();
         let mut tick = 0u64;
         loop {
             let everything = EVERYTHING.swap(false, Ordering::Relaxed) || tick % 5 == 0;
-            read_often(&mut reading);
+            read_often(&mut reading, &mut estimate, started.elapsed().as_secs_f64());
             // NetworkManager, BlueZ and the power profile change rarely; ask them every 10 s.
             if everything {
                 read_rarely(&mut reading);
@@ -235,14 +237,18 @@ pub fn next_power_profile(current: &str) -> &'static str {
     }
 }
 
-fn read_often(reading: &mut Reading) {
+fn read_often(
+    reading: &mut Reading,
+    estimate: &mut slipstream_config::battery::Estimate,
+    now: f64,
+) {
     if let Some((time, date, today)) = clock() {
         reading.time = time;
         reading.date = date;
         reading.today = Some(today);
     }
     reading.battery = battery();
-    reading.battery_time = battery_time();
+    reading.battery_time = battery_time(estimate, now);
     let (volume, muted) = volume().unwrap_or((0, false));
     reading.volume = volume;
     reading.muted = muted;
@@ -458,7 +464,8 @@ fn charger_online() -> bool {
 }
 
 /// Batteries report either energy (µWh, µW) or charge (µAh, µA); the ratio is hours either way.
-fn battery_time() -> Option<String> {
+/// `estimate` steadies the rate across readings.
+fn battery_time(estimate: &mut slipstream_config::battery::Estimate, now: f64) -> Option<String> {
     let dir = battery_dir()?;
     let read = |name: &str| -> Option<f64> {
         std::fs::read_to_string(dir.join(name))
@@ -468,32 +475,22 @@ fn battery_time() -> Option<String> {
             .ok()
     };
     let status = std::fs::read_to_string(dir.join("status")).ok()?;
-    let (now, full, rate) = match (read("energy_now"), read("energy_full"), read("power_now")) {
-        (Some(now), Some(full), Some(rate)) => (now, full, rate),
-        _ => (
-            read("charge_now")?,
-            read("charge_full")?,
-            read("current_now")?,
-        ),
+    let status = status.trim();
+    let (amount, full, rate) = if read("energy_now").is_some() {
+        (read("energy_now"), read("energy_full"), read("power_now"))
+    } else {
+        (read("charge_now"), read("charge_full"), read("current_now"))
     };
-    match status.trim() {
-        "Discharging" => time_text(now / rate, "left"),
-        "Charging" => time_text((full - now) / rate, "until full"),
-        _ => None,
-    }
-}
-
-/// `hours` as `3 h 10 min left`; nothing for a rate of zero or a nonsense estimate.
-fn time_text(hours: f64, suffix: &str) -> Option<String> {
-    if !hours.is_finite() || hours <= 0.0 || hours > 48.0 {
-        return None;
-    }
-    let minutes = (hours * 60.0).round() as u64;
-    Some(match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min {suffix}"),
-        (h, 0) => format!("{h} h {suffix}"),
-        (h, m) => format!("{h} h {m} min {suffix}"),
-    })
+    let hours = estimate.update(status, amount, full, rate, now)?;
+    let suffix = if status == "Charging" {
+        "until full"
+    } else {
+        "left"
+    };
+    Some(format!(
+        "{} {suffix}",
+        slipstream_config::battery::duration(hours)
+    ))
 }
 
 #[cfg(test)]
@@ -547,17 +544,6 @@ mod tests {
             Some("WH-1000XM4".into())
         );
         assert_eq!(connected_device(""), None);
-    }
-
-    #[test]
-    fn battery_times_read_naturally() {
-        assert_eq!(
-            time_text(3.0 + 10.0 / 60.0, "left"),
-            Some("3 h 10 min left".into())
-        );
-        assert_eq!(time_text(0.75, "left"), Some("45 min left".into()));
-        assert_eq!(time_text(2.0, "until full"), Some("2 h until full".into()));
-        assert_eq!(time_text(f64::INFINITY, "left"), None);
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 use std::{collections::HashMap, fs, path::Path};
 
+use slipstream_config::battery::Estimate;
+
 const SUPPLIES: &str = "/sys/class/power_supply";
 
 /// One power supply's attributes, by file name.
@@ -40,9 +42,10 @@ impl Battery {
     }
 }
 
-/// Reads every supply on this machine.
-pub fn read() -> Reading {
-    reading(&supplies(Path::new(SUPPLIES)))
+/// Reads every supply on this machine. `estimate` steadies the time across readings taken at
+/// `now`, in seconds on a steady clock.
+pub fn read(estimate: &mut Estimate, now: f64) -> Reading {
+    reading(&supplies(Path::new(SUPPLIES)), estimate, now)
 }
 
 fn supplies(root: &Path) -> Vec<Supply> {
@@ -69,14 +72,14 @@ fn supplies(root: &Path) -> Vec<Supply> {
         .collect()
 }
 
-fn reading(supplies: &[Supply]) -> Reading {
+fn reading(supplies: &[Supply], estimate: &mut Estimate, now: f64) -> Reading {
     // A wireless mouse's or headset's battery has the scope "Device"; it powers nothing here.
     let system = |supply: &&Supply| supply.get("scope").is_none_or(|scope| scope != "Device");
     let battery = supplies
         .iter()
         .filter(system)
         .find(|supply| supply.get("type").is_some_and(|kind| kind == "Battery"))
-        .and_then(battery);
+        .and_then(|supply| battery(supply, estimate, now));
     let chargers: Vec<&Supply> = supplies
         .iter()
         .filter(system)
@@ -111,12 +114,12 @@ fn number(supply: &Supply, name: &str) -> Option<f64> {
     supply.get(name)?.parse().ok()
 }
 
-fn battery(supply: &Supply) -> Option<Battery> {
+fn battery(supply: &Supply, estimate: &mut Estimate, now: f64) -> Option<Battery> {
     let status = supply.get("status").cloned().unwrap_or_default();
     // Batteries report either energy (µWh, µW) or charge (µAh, µA). Either way, the ratio of an
     // amount to its rate is hours.
     let by_energy = supply.contains_key("energy_now");
-    let (now, full, design, rate) = if by_energy {
+    let (amount, full, design, rate) = if by_energy {
         (
             number(supply, "energy_now"),
             number(supply, "energy_full"),
@@ -143,15 +146,10 @@ fn battery(supply: &Supply) -> Option<Battery> {
         }
     })();
     let percent = number(supply, "capacity")
-        .or_else(|| Some(100.0 * now? / full?))?
+        .or_else(|| Some(100.0 * amount? / full?))?
         .round()
         .clamp(0.0, 100.0) as u8;
-    let hours = (|| match status.as_str() {
-        "Discharging" => Some(now? / rate?),
-        "Charging" => Some((full? - now?).max(0.0) / rate?),
-        _ => None,
-    })()
-    .filter(|hours| hours.is_finite() && *hours > 0.0 && *hours <= 48.0);
+    let hours = estimate.update(&status, amount, full, rate, now);
     let health = (|| Some((100.0 * full? / design?).round() as u32))().filter(|health| *health > 0);
     // Charge becomes energy through the battery's nominal voltage.
     let capacity_wh = (|| {
@@ -178,18 +176,10 @@ fn battery(supply: &Supply) -> Option<Battery> {
     })
 }
 
-/// `hours` as `3 h 10 min`.
-pub fn duration(hours: f64) -> String {
-    let minutes = (hours * 60.0).round() as u64;
-    match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m} min"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use slipstream_config::battery::duration;
+
     use super::*;
 
     fn supply(pairs: &[(&str, &str)]) -> Supply {
@@ -224,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_battery_charging_by_charge_reads_in_watts_and_hours() {
-        let reading = reading(&charging_by_charge());
+        let reading = reading(&charging_by_charge(), &mut Estimate::default(), 0.0);
         assert!(reading.plugged);
         assert_eq!(reading.charger_watts, Some(55.0));
         let battery = reading.battery.unwrap();
@@ -241,15 +231,19 @@ mod tests {
 
     #[test]
     fn a_battery_discharging_by_energy_counts_down() {
-        let reading = reading(&[supply(&[
-            ("type", "Battery"),
-            ("status", "Discharging"),
-            ("energy_now", "30000000"),
-            ("energy_full", "50000000"),
-            ("energy_full_design", "57000000"),
-            ("power_now", "-10000000"),
-            ("charge_control_end_threshold", "80"),
-        ])]);
+        let reading = reading(
+            &[supply(&[
+                ("type", "Battery"),
+                ("status", "Discharging"),
+                ("energy_now", "30000000"),
+                ("energy_full", "50000000"),
+                ("energy_full_design", "57000000"),
+                ("power_now", "-10000000"),
+                ("charge_control_end_threshold", "80"),
+            ])],
+            &mut Estimate::default(),
+            0.0,
+        );
         assert!(!reading.plugged);
         let battery = reading.battery.unwrap();
         assert_eq!(battery.percent, 60);
@@ -262,23 +256,31 @@ mod tests {
 
     #[test]
     fn a_battery_held_at_its_limit_is_plugged_in_without_a_charger_listed() {
-        let reading = reading(&[supply(&[
-            ("type", "Battery"),
-            ("status", "Not charging"),
-            ("capacity", "80"),
-        ])]);
+        let reading = reading(
+            &[supply(&[
+                ("type", "Battery"),
+                ("status", "Not charging"),
+                ("capacity", "80"),
+            ])],
+            &mut Estimate::default(),
+            0.0,
+        );
         assert!(reading.plugged);
         assert_eq!(reading.battery.unwrap().hours, None);
     }
 
     #[test]
     fn a_mouse_battery_is_not_the_laptop_battery() {
-        let reading = reading(&[supply(&[
-            ("type", "Battery"),
-            ("scope", "Device"),
-            ("capacity", "40"),
-            ("status", "Discharging"),
-        ])]);
+        let reading = reading(
+            &[supply(&[
+                ("type", "Battery"),
+                ("scope", "Device"),
+                ("capacity", "40"),
+                ("status", "Discharging"),
+            ])],
+            &mut Estimate::default(),
+            0.0,
+        );
         assert_eq!(reading.battery, None);
     }
 }

@@ -1043,8 +1043,10 @@ fn power(_: &Store) -> gtk::Widget {
     let (health_row, health, health_sub) = add("Health", Some(""));
     let (cycles_row, cycles, _) = add("Charge cycles", None);
 
-    let update = move || {
-        let reading = supplies::read();
+    let mut estimate = slipstream_config::battery::Estimate::default();
+    let opened = std::time::Instant::now();
+    let mut update = move || {
+        let reading = supplies::read(&mut estimate, opened.elapsed().as_secs_f64());
         let Some(battery) = &reading.battery else {
             percent.set_label("—");
             bar.set_fraction(0.0);
@@ -1082,11 +1084,13 @@ fn power(_: &Store) -> gtk::Widget {
             _ if reading.plugged => "Plugged in",
             _ => "On battery",
         });
-        time.set_label(&match (battery.hours, battery.charging()) {
-            (Some(hours), true) => format!("{} until full", supplies::duration(hours)),
-            (Some(hours), false) => format!("{} left", supplies::duration(hours)),
-            (None, true) => "Working out the time".to_string(),
-            (None, false) => String::new(),
+        let duration = slipstream_config::battery::duration;
+        time.set_label(&match (battery.hours, battery.status.as_str()) {
+            (Some(hours), "Charging") => format!("{} until full", duration(hours)),
+            (Some(hours), _) => format!("{} left", duration(hours)),
+            // Just after a charger is plugged in or pulled out, while the rate settles.
+            (None, "Charging" | "Discharging") => "Working out the time".to_string(),
+            (None, _) => String::new(),
         });
         time.set_visible(!time.label().is_empty());
 
