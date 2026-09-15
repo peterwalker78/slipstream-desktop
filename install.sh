@@ -64,12 +64,15 @@ case $arch in
         ;;
 esac
 
+# GitHub allows a limited number of unnamed requests from one address each hour. A token in the
+# environment, which continuous integration has and people generally don't, lifts that.
+token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if have curl; then
-    fetch() { curl -fsSL "$1"; }
-    fetch_to() { curl -fL --progress-bar -o "$2" "$1"; }
+    fetch() { curl -fsSL ${token:+-H "Authorization: Bearer $token"} "$1"; }
+    fetch_to() { curl -fL --progress-bar ${token:+-H "Authorization: Bearer $token"} -o "$2" "$1"; }
 elif have wget; then
-    fetch() { wget -qO- "$1"; }
-    fetch_to() { wget -q --show-progress -O "$2" "$1"; }
+    fetch() { wget -qO- ${token:+--header="Authorization: Bearer $token"} "$1"; }
+    fetch_to() { wget -q --show-progress ${token:+--header="Authorization: Bearer $token"} -O "$2" "$1"; }
 else
     echo "install.sh: neither curl nor wget is installed, so nothing can be downloaded." >&2
     exit 1
@@ -86,7 +89,8 @@ else
     tag=$(fetch "$releases_api?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)
 fi
 if [ -z "$tag" ]; then
-    echo "install.sh: GitHub didn't name a release. Try again, or download one by hand:" >&2
+    echo "install.sh: GitHub didn't name a release. It may be limiting how often this address can" >&2
+    echo "ask, in which case a few minutes is enough. Failing that, download one by hand:" >&2
     echo "  https://github.com/$project/releases" >&2
     exit 1
 fi

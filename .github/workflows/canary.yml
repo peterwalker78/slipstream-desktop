@@ -25,6 +25,9 @@ jobs:
           - registry.opensuse.org/opensuse/tumbleweed:latest
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
+    env:
+      # So that asking GitHub which release is newest isn't rate-limited alongside every other job.
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
 

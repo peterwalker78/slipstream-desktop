@@ -102,7 +102,7 @@ as_user() {
     # A login-ish environment, with the test's own hints for what a container can't have.
     # Exported rather than written in front of the command: what follows may start with `cd`,
     # and then the variables would have applied to that and nothing else.
-    su "$user" -c "export HOME='$home' SLIPSTREAM_TEST_SEAT=1; cd '$home' || exit 1; $*"
+    su "$user" -c "export HOME='$home' SLIPSTREAM_TEST_SEAT=1 GH_TOKEN='${GH_TOKEN:-}'; cd '$home' || exit 1; $*"
 }
 
 # ---------------------------------------------------------------------------------------------
