@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-15
+
 - **Releases have a download for Ubuntu 26.04 LTS** and the systems built on it, such as Kubuntu 26.04, beside the one for Fedora 44, so neither needs building from source. The README says which download is whose, and how to build on Ubuntu. Ubuntu 24.04 and the systems built on it are too old for the Settings app.
 
 ## [0.4.2] - 2026-09-15
