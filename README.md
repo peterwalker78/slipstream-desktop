@@ -6,7 +6,7 @@
 
 Beautiful, keyboard-first and private by design.<br>
 Your wallpaper is a screensaver. Minimised windows turn into digital rain.<br>
-Pop-ups wait until you stop typing. And it comes with **Wisp**, the web browser that's on your side.
+Pop-ups wait until you stop typing. And it comes with **Glimmerwood**, the web browser that's on your side.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
@@ -16,7 +16,7 @@ Pop-ups wait until you stop typing. And it comes with **Wisp**, the web browser 
 
 <sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
-[**Install**](#installing) · [**Why Slipstream**](#why-were-building-slipstream) · [**Wisp**](#comes-with-wisp-the-web-browser-thats-on-your-side) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
+[**Install**](#installing) · [**Why Slipstream**](#why-were-building-slipstream) · [**Glimmerwood**](#comes-with-glimmerwood-the-web-browser-thats-on-your-side) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
 
 </div>
 
@@ -28,10 +28,10 @@ Infinite feeds. Red badges. Autoplay. Notifications timed to pull you back just 
 
 **We think your computer should be on your side.** Not a slot machine, but a workshop: the place where you learn, create, and feel the joy of building something that's yours.
 
-Slipstream is the start of an ecosystem built to help rewire those habits. It begins with the desktop itself and grows through companion apps that share the same values, starting with the Wisp browser. Everything we make follows three commitments:
+Slipstream is the start of an ecosystem built to help rewire those habits. It begins with the desktop itself and grows through companion apps that share the same values, starting with the Glimmerwood browser. Everything we make follows three commitments:
 
-- 🔒 **Private by design.** No telemetry, no accounts, no cloud, ever. Slipstream judges when you're typing from the timing of keys, never which keys. Clipboard history lives only in memory and never keeps what a password manager marks as secret. Your window layout is saved only if you turn that on. Wisp never records the pages you visit.
-- 🌱 **Healthy habits, built in.** Not with blockers, timers or guilt, which most people end up switching off, but with gentle, honest feedback. Step away and the desktop steps aside for its living wallpaper; one key brings you back. Wisp shows you, kindly, which corners of the web restore you and which wear you down.
+- 🔒 **Private by design.** No telemetry, no accounts, no cloud, ever. Slipstream judges when you're typing from the timing of keys, never which keys. Clipboard history lives only in memory and never keeps what a password manager marks as secret. Your window layout is saved only if you turn that on. Glimmerwood never records the pages you visit.
+- 🌱 **Healthy habits, built in.** Not with blockers, timers or guilt, which most people end up switching off, but with gentle, honest feedback. Step away and the desktop steps aside for its living wallpaper; one key brings you back. Glimmerwood shows you, kindly, which corners of the web restore you and which wear you down.
 - 🎯 **Fewer distractions.** Pop-ups wait for a natural pause. Windows you didn't ask for can't steal the keyboard. Everything is a keystroke away, so your hands stay on the work and your head stays in it.
 
 It's free, open source under the GPL, and yours to keep. **The future of personal computing shouldn't be decided by whoever is best at capturing your time. We're building the alternative, in the open.**
@@ -40,7 +40,7 @@ Slipstream is a whole desktop session: its own compositor, bar, notifications, l
 
 ### New in 0.4
 
-- ✨ **Wisp comes with Slipstream.** A calm web browser with a living companion, installed and kept up to date for you. [Meet it below.](#comes-with-wisp-the-web-browser-thats-on-your-side)
+- ✨ **Glimmerwood comes with Slipstream.** A calm web browser with a living companion, installed and kept up to date for you. [Meet it below.](#comes-with-glimmerwood-the-web-browser-thats-on-your-side)
 - 📊 **A meter of your own on the bar.** Point it at any command that reports how much of something you've used: a storage quota, a plan's limits, a data allowance. Set it up and try it in **Settings → Meter**.
 - 🖥️ **Several screens that make sense.** The keyboard moves between screens instead of shuffling their workspaces, and every screen remembers what it was showing when it's unplugged or its lid is shut.
 - 🔋 **A battery you can read at a glance.** It turns mint with a bolt while charging, and the new **Settings → Power** page shows the charge, time left, charger, charge limit, health and cycles.
@@ -127,23 +127,23 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 Settings → Notifications has the switches.
 
-## Comes with Wisp, the web browser that's on your side
+## Comes with Glimmerwood, the web browser that's on your side
 
-<img src="https://raw.githubusercontent.com/peterwalker78/wisp/main/data/screenshots/browsing.png" alt="Wisp showing a Wikipedia article. In the corner of the toolbar the wisp, a small glowing flame with a friendly face, is bright and smiling." width="960">
+<img src="https://raw.githubusercontent.com/peterwalker78/glimmerwood/main/data/screenshots/browsing.png" alt="Glimmerwood showing a Wikipedia article. In the corner of the toolbar the wisp, a small glowing flame with a friendly face, is bright and smiling." width="960">
 
-The desktop keeps your focus. **Wisp looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and `update-session` installs it for you and keeps it up to date, as a Flatpak from [its own project](https://github.com/peterwalker78/wisp).
+The desktop keeps your focus. **Glimmerwood looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and `update-session` installs it for you and keeps it up to date, as a Flatpak from [its own project](https://github.com/peterwalker78/glimmerwood).
 
 Up in the corner of its toolbar lives **the wisp**, a small glowing flame with a face. It reflects how your time online really feels, the way the sky reflects the weather:
 
 - **Somewhere that restores you**, like reading, learning, making or nature, and it brightens, smiles and gives off little motes of light.
 - **Sink into an endless feed** and it slowly clouds over and grows sleepy, as if it's hoping you'll step outside too.
-- **Close the laptop** and it recovers fastest of all. Wisp may be the only browser that's happiest when you're not using it.
+- **Close the laptop** and it recovers fastest of all. Glimmerwood may be the only browser that's happiest when you're not using it.
 
 **It never blocks a page, never nags and never shames you.** At its heaviest the wisp looks sleepy, never sad. Hover over it and it tells you in plain words what's moving it. Click it and you see the shape of your days and week, with no minutes, scores or streaks to feel bad about. Every new tab opens a **Home** garden that grows moss, ferns, flowers and fireflies on good days, and simply grows nothing on heavy ones. Nothing ever wilts.
 
 Around 2,300 sites come sorted from published research into wellbeing online, and you can move any of them. Like Slipstream, **everything stays on your computer**: no accounts, no telemetry, no record of the pages you visit, built-in tracking protection and HTTPS first.
 
-Wisp is its own project with its own releases, so it's just as happy on any Linux desktop. To leave it out of Slipstream's install, put `install=no` in `~/.config/slipstream/extras/wisp.conf`. To make it your default browser, choose it under your default applications, or add `default_browser=yes` to that file alongside the lines from Slipstream's own [`extras/wisp.conf`](extras/wisp.conf).
+Glimmerwood is its own project with its own releases, so it's just as happy on any Linux desktop. To leave it out of Slipstream's install, put `install=no` in `~/.config/slipstream/extras/glimmerwood.conf`. To make it your default browser, choose it under your default applications, or add `default_browser=yes` to that file alongside the lines from Slipstream's own [`extras/glimmerwood.conf`](extras/glimmerwood.conf).
 
 ## Everyday tools, with a twist
 
@@ -236,9 +236,9 @@ Log out, choose **Slipstream** in the login screen's session menu, and log in. S
 - **It leaves other files alone.** It never replaces or removes a file it didn't write.
 - **Updates can't leave a broken program.** `update-session` checks the new programs run on your system before swapping them in.
 
-### Wisp, and apps of your own alongside it
+### Glimmerwood, and apps of your own alongside it
 
-Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Slipstream ships one, Wisp, described in `extras/wisp.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
+Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Slipstream ships one, Glimmerwood, described in `extras/glimmerwood.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
 
 ```sh
 app_id=org.example.Browser
