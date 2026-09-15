@@ -1,4 +1,5 @@
-//! The on-screen display for the volume and brightness keys: one card low on the screen with an
+//! The on-screen display for the volume and brightness keys, and for a charger plugged in or
+//! pulled out: one card low on the screen with an
 //! icon, a filled bar and the number. The media keys change the machine and say nothing otherwise
 //! — the bar's tray icon is small, and brightness isn't in it at all — and on a keyboard-first
 //! desktop that feedback is the whole answer to "did that key do anything?".
@@ -37,6 +38,10 @@ const BOTTOM: f32 = 96.0;
 const SHOWN: f64 = 1.2;
 /// Caps Lock and Num Lock stay up longer, since their cards have a note to read as well.
 const SHOWN_LOCK_KEY: f64 = 1.7;
+/// A charger's card isn't the answer to a key, so it may not be looked at straight away.
+const SHOWN_POWER: f64 = 2.5;
+/// Charging's colour, as on the bar's battery.
+const MINT: u32 = icons::CHARGING_RGBA;
 
 /// What Caps Lock's card says under its title: on the desktop, what it does to the screensaver;
 /// at the lock screen, how the password is being typed. Every way it can go has a note, so on
@@ -86,6 +91,10 @@ pub enum Kind {
     NumLock {
         on: bool,
     },
+    /// A charger was plugged in or pulled out. The level is the battery's charge.
+    Power {
+        plugged: bool,
+    },
 }
 
 impl Kind {
@@ -93,12 +102,13 @@ impl Kind {
     fn shown(self) -> f64 {
         match self {
             Kind::CapsLock { .. } | Kind::NumLock { .. } => SHOWN_LOCK_KEY,
+            Kind::Power { .. } => SHOWN_POWER,
             _ => SHOWN,
         }
     }
 
-    fn icon(self) -> &'static str {
-        match self {
+    fn icon(self, level: u8) -> String {
+        let icon = match self {
             Kind::Volume { muted: false } => icons::VOLUME,
             Kind::Volume { muted: true } => icons::VOLUME_MUTED,
             Kind::Microphone { muted: false } => icons::MIC,
@@ -107,13 +117,18 @@ impl Kind {
             Kind::Media { playing: true } => icons::PLAY,
             Kind::Media { playing: false } => icons::PAUSE,
             Kind::CapsLock { .. } | Kind::NumLock { .. } => icons::KEYBOARD,
-        }
+            Kind::Power { plugged } => return icons::battery(level, plugged),
+        };
+        icon.to_string()
     }
 
     /// Whether the level means anything: a muted microphone has no level, and neither has one
     /// that isn't muted.
     fn has_bar(self) -> bool {
-        matches!(self, Kind::Volume { .. } | Kind::Brightness)
+        matches!(
+            self,
+            Kind::Volume { .. } | Kind::Brightness | Kind::Power { .. }
+        )
     }
 
     fn label(self, level: u8) -> String {
@@ -260,7 +275,7 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
         Kind::Volume { muted: true } | Kind::Microphone { muted: true }
     );
     let ink = if muted { DIM } else { ink };
-    p.icon(kind.icon(), dx + 22.0, dy + 24.0, 24.0, Some(ink));
+    p.icon(&kind.icon(level), dx + 22.0, dy + 24.0, 24.0, Some(ink));
     let label = Style {
         tabular: true,
         ..Style::new(Face::Mono, 15.0, 0xdfe5eeff)
@@ -275,7 +290,11 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
         // Below about a percent there's nothing to draw, and a stub would read as more than none.
         let filled = BAR_W * level.min(100) as f32 / 100.0;
         if filled >= BAR_H {
-            let bar = if muted { DIM } else { panel::AMBER };
+            let bar = match kind {
+                _ if muted => DIM,
+                Kind::Power { plugged: true } => MINT,
+                _ => panel::AMBER,
+            };
             p.fill(bar_x, y, filled, BAR_H, BAR_H / 2.0, bar);
         }
         let number = format!("{level}%");
@@ -286,18 +305,23 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
             dy + HEIGHT / 2.0,
             &label,
         );
+        let tag = |colour: u32| Style {
+            tracking: 0.12,
+            ..Style::new(Face::BodyBold, 10.0, colour)
+        };
+        if let Kind::Power { plugged } = kind {
+            // What happened, under the bar, as muted is said.
+            let (word, colour) = if plugged {
+                ("CHARGING", MINT)
+            } else {
+                ("ON BATTERY", DIM)
+            };
+            p.text(word, bar_x, dy + HEIGHT / 2.0 + 16.0, &tag(colour));
+        }
         if muted {
             // Muted keeps the level visible — it's what comes back — and says so in the icon's
             // place, under the bar, rather than taking the number's room.
-            p.text(
-                "MUTED",
-                bar_x,
-                dy + HEIGHT / 2.0 + 16.0,
-                &Style {
-                    tracking: 0.12,
-                    ..Style::new(Face::BodyBold, 10.0, DIM)
-                },
-            );
+            p.text("MUTED", bar_x, dy + HEIGHT / 2.0 + 16.0, &tag(DIM));
         }
     } else if let Some(detail) = detail {
         // A track: what the player is doing, and what it's playing under it.

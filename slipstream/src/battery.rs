@@ -1,4 +1,5 @@
-//! Running low on battery, in three steps as the charge falls while unplugged.
+//! Running low on battery, in three steps as the charge falls while unplugged; and a card low on
+//! the screen whenever a charger is plugged in or pulled out.
 //!
 //! - **20%:** the living wallpaper slows to half speed, stepping half as often, and a toast says
 //!   that's to save power. It comes back to speed on the charger.
@@ -66,6 +67,8 @@ pub enum Act {
 #[derive(Default)]
 pub struct Battery {
     last: Option<Stage>,
+    /// Whether a charger was plugged in at the last reading.
+    plugged: Option<bool>,
     /// The card is held off until the charge is at or below this.
     held_off_until: Option<u8>,
     /// A reading to use instead of the machine's, for the `battery:` debug step.
@@ -237,6 +240,18 @@ impl Slipstream {
         };
         for saver in self.savers.values_mut() {
             saver.pace = pace;
+        }
+
+        // Said on the change, not when a session starts on the charger.
+        if let Some((percent, plugged)) = reading
+            && self
+                .battery
+                .plugged
+                .replace(plugged)
+                .is_some_and(|was| was != plugged)
+        {
+            tracing::info!(percent, plugged, "charger plugged in or pulled out");
+            self.show_osd(crate::osd::Kind::Power { plugged }, percent);
         }
 
         let before = self.battery.last.replace(stage);

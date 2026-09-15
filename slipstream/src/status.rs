@@ -17,7 +17,8 @@ use crate::calendar::Date;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reading {
-    /// Charge in percent and whether it's charging; `None` without a battery.
+    /// Charge in percent and whether a charger is plugged in, charging or not (a battery held at
+    /// a charge limit, or already full, still counts); `None` without a battery.
     pub battery: Option<(u8, bool)>,
     /// How long the battery lasts, or how long until it's full, e.g. `3 h 10 min left`.
     pub battery_time: Option<String>,
@@ -419,7 +420,10 @@ fn battery_dir() -> Option<std::path::PathBuf> {
         .flatten()
         .map(|entry| entry.path())
         .find(|path| {
-            std::fs::read_to_string(path.join("type")).is_ok_and(|kind| kind.trim() == "Battery")
+            let read = |name: &str| std::fs::read_to_string(path.join(name)).unwrap_or_default();
+            // A wireless mouse's or headset's battery has the scope "Device"; the laptop's has
+            // "System", or no scope at all.
+            read("type").trim() == "Battery" && read("scope").trim() != "Device"
         })
 }
 
@@ -431,7 +435,26 @@ fn battery() -> Option<(u8, bool)> {
             .map(|text| text.trim().to_string())
     };
     let capacity = read("capacity")?.parse().ok()?;
-    Some((capacity, read("status")? == "Charging"))
+    let status = read("status").unwrap_or_default();
+    Some((capacity, plugged_in(&status) || charger_online()))
+}
+
+/// Whether the battery's own status means a charger is attached.
+fn plugged_in(status: &str) -> bool {
+    matches!(status, "Charging" | "Full" | "Not charging")
+}
+
+/// Whether any supply other than a battery (mains, or USB power delivery) is online.
+fn charger_online() -> bool {
+    let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") else {
+        return false;
+    };
+    entries.flatten().map(|entry| entry.path()).any(|path| {
+        let read = |name: &str| std::fs::read_to_string(path.join(name)).unwrap_or_default();
+        read("type").trim() != "Battery"
+            && read("scope").trim() != "Device"
+            && read("online").trim() == "1"
+    })
 }
 
 /// Batteries report either energy (µWh, µW) or charge (µAh, µA); the ratio is hours either way.

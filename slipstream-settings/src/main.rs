@@ -8,6 +8,7 @@
 
 mod fonts;
 mod pages;
+mod power;
 mod previews;
 
 use std::{
@@ -51,7 +52,23 @@ fn main() -> glib::ExitCode {
         fonts::register();
         style();
         app.set_accels_for_action("window.close", &["<Control>w", "<Control>q"]);
+        // Asked for by a later launch with `--page`, while this window is already open.
+        let action = gio::SimpleAction::new("show-page", Some(glib::VariantTy::STRING));
+        action.connect_activate(|_, id| {
+            if let Some(id) = id.and_then(|id| id.str()) {
+                show_page(id);
+            }
+        });
+        app.add_action(&action);
     });
+    // Settings is a single window: a launch while it's open hands its page to that window.
+    if screenshot.is_none()
+        && let Some(id) = &page
+        && app.register(None::<&gio::Cancellable>).is_ok()
+        && app.is_remote()
+    {
+        app.activate_action("show-page", Some(&id.to_variant()));
+    }
     app.connect_activate(move |app| activate(app, page.as_deref(), screenshot.clone()));
     app.run_with_args::<&str>(&[])
 }
@@ -244,6 +261,21 @@ fn activate(app: &gtk::Application, page: Option<&str>, screenshot: Option<PathB
     }
 }
 
+thread_local! {
+    /// The open window's sidebar, for turning to a page asked for later.
+    static SIDEBAR: RefCell<glib::WeakRef<gtk::ListBox>> = RefCell::default();
+}
+
+/// Turns the open window to the page with the id `id`.
+fn show_page(id: &str) {
+    let Some(side) = SIDEBAR.with(|side| side.borrow().upgrade()) else {
+        return;
+    };
+    if let Some(index) = pages::PAGES.iter().position(|page| page.id == id) {
+        side.select_row(side.row_at_index(index as i32).as_ref());
+    }
+}
+
 /// Builds and shows the window on `page`, with `told` in the note if there's news to give.
 fn open_window(
     app: &gtk::Application,
@@ -304,6 +336,7 @@ fn open_window(
         .and_then(|id| pages::PAGES.iter().position(|page| page.id == id))
         .unwrap_or(0);
     side.select_row(side.row_at_index(first as i32).as_ref());
+    SIDEBAR.with(|sidebar| sidebar.borrow().set(Some(&side)));
 
     let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
     main.append(&stack);

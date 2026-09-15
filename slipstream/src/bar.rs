@@ -302,8 +302,11 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     }
 
     let battery = status.battery.map(|(percent, charging)| {
-        let low = percent <= 15 && !charging;
-        let ink = if low { AMBER } else { INK };
+        let ink = match (percent, charging) {
+            (_, true) => icons::CHARGING_RGBA,
+            (..=15, false) => AMBER,
+            _ => INK,
+        };
         (
             icons::battery(percent, charging),
             format!("{percent}%"),

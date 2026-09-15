@@ -102,6 +102,13 @@ fn terminal() -> Option<Vec<String>> {
 
 const SETTINGS_APP: &str = "slipstream-settings";
 
+/// Slipstream's settings app opened on one of its pages, such as `power`.
+pub fn settings_app_on(page: &str) -> Option<Vec<String>> {
+    let mut command = settings_app()?;
+    command.extend(["--page".to_string(), page.to_string()]);
+    Some(command)
+}
+
 /// Slipstream's settings app: the one installed beside this compositor, else one on `PATH`.
 fn settings_app() -> Option<Vec<String>> {
     std::env::current_exe()

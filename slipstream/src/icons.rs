@@ -53,12 +53,27 @@ pub const CHEVRON: &str = r#"<path d="M9.5 6l6 6-6 6"/>"#;
 /// Two chevrons, amber and mint. Brings its own fills: draw it without ink.
 pub const LOGO: &str = r##"<path d="M2.5 5.5h9l5.5 6.5-5.5 6.5h-9L8 12z" fill="#ffb547"/><path d="M14 5.5h2.5l5.5 6.5-5.5 6.5H14l5.5-6.5z" fill="#3cf0c0"/>"##;
 
-/// The battery, filled to `percent`. The mockup's is fixed at 78%.
+/// Charging's colour: the battery's icon, and the words beside it.
+pub const CHARGING: &str = "#3cf0c0";
+pub const CHARGING_RGBA: u32 = 0x3cf0c0ff;
+
+/// The battery, filled to `percent`. The mockup's is fixed at 78%. On a charger it's drawn in mint
+/// whatever the ink, with a lightning bolt through it, cut out of the outline so it reads at bar
+/// size.
 pub fn battery(percent: u8, charging: bool) -> String {
-    let fill = if charging { "#3cf0c0" } else { "currentColor" };
     let level = 13.0 * percent.min(100) as f32 / 100.0;
+    let body = |paint: &str| {
+        format!(
+            r#"<g stroke="{paint}"><rect x="2.5" y="7.5" width="17" height="9" rx="2"/><path d="M21.5 10.5v3"/><rect x="4.5" y="9.5" width="{level:.2}" height="5" rx="1" fill="{paint}" stroke="none"/></g>"#
+        )
+    };
+    if !charging {
+        return body("currentColor");
+    }
+    const BOLT: &str = "M13.4 3.2L6.4 13.2h4.8L9.6 20.8l7-10h-4.8z";
     format!(
-        r#"<rect x="2.5" y="7.5" width="17" height="9" rx="2"/><path d="M21.5 10.5v3"/><rect x="4.5" y="9.5" width="{level:.2}" height="5" rx="1" fill="{fill}" stroke="none"/>"#
+        r##"<mask id="bolt-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff" stroke="none"/><path d="{BOLT}" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="round"/></mask><g mask="url(#bolt-cut)">{}</g><path d="{BOLT}" fill="{CHARGING}" stroke="none"/>"##,
+        body(CHARGING)
     )
 }
 
@@ -131,6 +146,12 @@ mod tests {
         }
         assert!(coverage(LOGO, None) > 200);
         assert!(coverage(&battery(50, false), Some(0xdfe4ecff)) > 20);
+    }
+
+    #[test]
+    fn a_charging_battery_shows_its_bolt_even_when_nearly_empty() {
+        let ink = Some(0xdfe4ecff);
+        assert!(coverage(&battery(3, true), ink) > coverage(&battery(3, false), ink));
     }
 
     #[test]

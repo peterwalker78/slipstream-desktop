@@ -38,6 +38,8 @@ const CHEVRON_W: f32 = 36.0;
 /// Something in quick settings the keyboard can move to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Control {
+    /// The battery line in the header: Settings' Power page, with the charging details.
+    Battery,
     /// Locks the screen.
     Lock,
     Power,
@@ -94,6 +96,7 @@ impl Control {
 
     fn label(self) -> &'static str {
         match self {
+            Self::Battery => "Battery details",
             Self::Lock => "Lock",
             Self::Power => "Power",
             Self::Suspend => "Sleep",
@@ -263,7 +266,7 @@ impl QuickSettings {
 
     /// The controls in keyboard order, row by row.
     fn rows(&self, facts: &Facts) -> Vec<Vec<Control>> {
-        let mut rows = vec![vec![Control::Lock, Control::Power]];
+        let mut rows = vec![vec![Control::Battery, Control::Lock, Control::Power]];
         if self.power_menu {
             rows.push(POWER_MENU.to_vec());
         }
@@ -498,25 +501,41 @@ impl QuickSettings {
             // Each control's box (x, y, w, h and corner radius), for the keyboard's ring.
             let mut shapes: Vec<(Control, [f32; 5])> = Vec::new();
 
-            // The battery and, quietly beneath it, who is logged in; then the lock and power
-            // buttons.
+            // The battery, its icon showing the charger, and quietly beneath it who is logged in;
+            // then the lock and power buttons. The battery and name together open the Power page.
             let power_x = x0 + inner - 40.0;
             let lock_x = power_x - 8.0 - 40.0;
             let room = lock_x - 12.0 - x0;
             let battery = Style::new(Face::Body, 16.0, INK);
-            p.text(
-                &text::ellipsize(&battery_line(status), &battery, room),
-                x0,
+            let mut text_x = x0;
+            if let Some((percent, plugged)) = status.battery {
+                p.icon(
+                    &icons::battery(percent, plugged),
+                    x0,
+                    y + 3.0,
+                    18.0,
+                    Some(INK),
+                );
+                text_x += 26.0;
+            }
+            let battery_w = p.text(
+                &text::ellipsize(&battery_line(status), &battery, room - (text_x - x0)),
+                text_x,
                 y + 12.0,
                 &battery,
             );
             let small = Style::new(Face::Body, 13.0, 0x8f98a8ff);
-            p.text(
-                &text::ellipsize(&facts.user, &small, room),
-                x0,
+            let name_w = p.text(
+                &text::ellipsize(&facts.user, &small, room - (text_x - x0)),
+                text_x,
                 y + 31.0,
                 &small,
             );
+            let header_w = text_x - x0 + battery_w.max(name_w);
+            shapes.push((
+                Control::Battery,
+                [x0 - 6.0, y + 1.0, header_w + 12.0, 40.0, 8.0],
+            ));
             let fill = if look.power_menu {
                 0xffffff24
             } else {
@@ -718,12 +737,12 @@ fn tile(control: Control, facts: &Facts) -> (bool, String) {
     }
 }
 
-/// The line under the name, e.g. `Battery 78% · 3 h 10 min left`.
+/// The header's main line, e.g. `78% · 3 h 10 min left`, beside the battery's icon.
 fn battery_line(status: &Reading) -> String {
     match (status.battery, &status.battery_time) {
-        (Some((percent, _)), Some(time)) => format!("Battery {percent}% · {time}"),
-        (Some((percent, true)), None) => format!("Battery {percent}% · charging"),
-        (Some((percent, false)), None) => format!("Battery {percent}%"),
+        (Some((percent, _)), Some(time)) => format!("{percent}% · {time}"),
+        (Some((percent, true)), None) => format!("{percent}% · plugged in"),
+        (Some((percent, false)), None) => format!("{percent}%"),
         (None, _) => "On mains power".to_string(),
     }
 }
@@ -901,6 +920,10 @@ impl Slipstream {
                 self.quick.close();
                 self.launch_app(App::Settings);
             }
+            Control::Battery => {
+                self.quick.close();
+                self.open_slipstream_settings("power");
+            }
             Control::WiFiPage | Control::BluetoothPage => {
                 self.quick.close();
                 let page = if control == Control::WiFiPage {
@@ -1020,7 +1043,16 @@ mod tests {
         for _ in 0..4 {
             quick.key(Keysym::Up, false, &facts);
         }
-        assert_eq!(quick.selected, Control::Lock, "the header's first button");
+        assert_eq!(
+            quick.selected,
+            Control::Battery,
+            "the header's battery line"
+        );
+        assert_eq!(
+            quick.key(Keysym::Return, false, &facts),
+            Request::Press(Control::Battery)
+        );
+        quick.key(Keysym::Right, false, &facts);
         assert_eq!(
             quick.key(Keysym::Return, false, &facts),
             Request::Press(Control::Lock)
@@ -1047,7 +1079,7 @@ mod tests {
         quick.key(Keysym::End, false, &facts);
         assert_eq!(quick.selected, Control::AllSettings);
         quick.key(Keysym::Home, false, &facts);
-        assert_eq!(quick.selected, Control::Lock);
+        assert_eq!(quick.selected, Control::Battery);
     }
 
     #[test]
@@ -1065,6 +1097,12 @@ mod tests {
         assert_eq!(quick.selected, Control::Power);
         quick.key(Keysym::Tab, true, &facts);
         assert_eq!(quick.selected, Control::Lock, "lock comes before power");
+        quick.key(Keysym::Tab, true, &facts);
+        assert_eq!(
+            quick.selected,
+            Control::Battery,
+            "the battery line comes first"
+        );
         quick.key(Keysym::Tab, true, &facts);
         assert_eq!(
             quick.selected,

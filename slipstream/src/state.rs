@@ -4550,6 +4550,22 @@ impl Slipstream {
     }
 
     /// Quick settings' chevrons: the system's own settings page for Wi-Fi or Bluetooth.
+    /// Slipstream's own Settings app, on the page with the id `page`.
+    pub fn open_slipstream_settings(&mut self, page: &str) {
+        self.concentration.asked(std::time::Instant::now());
+        let Some(command) = launch::settings_app_on(page) else {
+            self.show_toast(
+                "No Settings app",
+                "slipstream-settings isn’t installed beside Slipstream or on the PATH.",
+            );
+            return;
+        };
+        tracing::info!(page, ?command, "opening a Settings page");
+        if let Err(err) = launch::spawn(&command) {
+            self.show_toast("Couldn’t start Settings", &err.to_string());
+        }
+    }
+
     pub fn open_settings_page(&mut self, page: launch::Page) {
         let Some(command) = launch::settings_page(page) else {
             match page {

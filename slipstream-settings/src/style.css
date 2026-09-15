@@ -239,3 +239,49 @@ dropdown > button:focus-visible {
   outline: 2px solid #ffb547;
   outline-offset: -2px;
 }
+
+/* Power: the battery card, as the mockup's, with its charge in a mint bar. */
+.card.batt {
+  padding: 16px;
+}
+
+.batt-percent {
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 600;
+  font-size: 34px;
+  color: #f1f3f7;
+}
+
+.batt-state {
+  font-weight: 700;
+  color: #dfe2e9;
+}
+
+.batt progressbar trough {
+  min-height: 14px;
+  margin: 0;
+  border: none;
+  border-radius: 7px;
+  background: #2f333d;
+}
+
+.batt progressbar progress {
+  min-height: 14px;
+  min-width: 0;
+  margin: 0;
+  border: none;
+  border-radius: 7px;
+  background-image: linear-gradient(90deg, #7fe0a8, #b6f0c8);
+}
+
+/* While charging, a light runs along the charge. Without animations it holds still. */
+.batt progressbar.charging progress {
+  background-image: linear-gradient(90deg, #7fe0a8 0%, #7fe0a8 35%, #e4fff0 50%, #7fe0a8 65%, #b6f0c8 100%);
+  background-size: 300% 100%;
+  animation: batt-charging 2.4s linear infinite;
+}
+
+@keyframes batt-charging {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
