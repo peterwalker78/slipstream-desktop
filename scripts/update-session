@@ -2,7 +2,9 @@
 # Installs Slipstream and its Settings app in ~/.local, where the login session runs them. No root
 # needed. The compositor's changes take effect at the next login; the Settings app's straight away.
 #
-#   scripts/update-session     build (in the `slipstream` distrobox if there is one), then install
+#   scripts/update-session                build (in the `slipstream` distrobox if there is one), then install
+#   scripts/update-session --no-extras    the same, without building or updating the apps that
+#                                         come with Slipstream (they can take a while)
 #
 # In an unpacked release, which carries the programs ready-built in bin/, nothing is built.
 #
@@ -15,10 +17,12 @@ if [ "$(id -u)" -eq 0 ]; then
     echo "update-session: run this as your own user, not as root: it installs into your home." >&2
     exit 2
 fi
+extras=yes
 case ${1:-} in
     "") ;;
+    --no-extras) extras=no ;;
     -h | --help)
-        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -154,8 +158,12 @@ sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" \
 echo "Installed $version."
 # Apps that are projects of their own, shipped in extras/ or described in ~/.config/slipstream/extras,
 # built or downloaded as Flatpaks. Slipstream is already installed by now, so one that fails only says so.
-if ! "$repo/scripts/install-extras"; then
-    echo "update-session: not every extra app installed; scripts/install-extras --check says more." >&2
+if [ "$extras" = yes ]; then
+    if ! "$repo/scripts/install-extras"; then
+        echo "update-session: not every extra app installed; scripts/install-extras --check says more." >&2
+    fi
+else
+    echo "Skipped the apps that come with Slipstream (--no-extras)."
 fi
 if [ ! -x /usr/local/bin/slipstream-session ]; then
     echo "Run scripts/install-session once to add Slipstream to the login screen."
