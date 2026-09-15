@@ -184,36 +184,61 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 ## Requirements
 
 - Linux with **systemd-logind** or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
-- A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`.
-- Recommended, each for one feature: Xwayland, xdg-desktop-portal-wlr (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. `scripts/install-session --check` says what's missing on your system and how to get it.
+- A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
+- Libraries as old as Debian 13's or newer. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
+- Recommended, each for one feature: Xwayland, xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
 
 Your existing desktop stays installed and on the login screen: Slipstream is added beside it.
 
 ## Installing
 
-### From a release
-
-Each release has a download for each of these systems, with the programs ready-built:
-
-| Your system | Download |
-|---|---|
-| Fedora 44, Bazzite, Aurora, Bluefin | `slipstream-VERSION-fedora44-x86_64.tar.gz` |
-| Ubuntu 26.04 LTS and systems built on it, such as Kubuntu 26.04 | `slipstream-VERSION-ubuntu26.04-x86_64.tar.gz` |
-
-Ubuntu 24.04 and the systems built on it (Linux Mint 22, Pop!_OS 24.04) are too old: the Settings app needs Pango 1.56, and they have 1.52. On anything else, build from source.
-
-Download your system's `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then, in the folder you saved them to (Ubuntu shown; for Fedora, put `fedora44` in place of `ubuntu26.04`):
+One command. It downloads the newest release, checks it against its published checksum, and runs the installer, which says what it will do before writing anything:
 
 ```sh
-sha256sum -c slipstream-*-ubuntu26.04-x86_64.tar.gz.sha256
-tar xf slipstream-*-ubuntu26.04-x86_64.tar.gz
-cd slipstream-*-ubuntu26.04-x86_64
-scripts/install-session --check    # what it will do, and what's missing; writes nothing
-scripts/update-session             # puts the programs in ~/.local/bin; no root
-scripts/install-session            # adds Slipstream to the login screen; asks for your password once
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
 ```
 
-`install-session --check` names any packages worth adding, with the command to add them. Glimmerwood, the browser that comes with Slipstream, installs as a Flatpak, so on Ubuntu add `flatpak` first (`sudo apt install flatpak`) if you want it.
+Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
+
+To look before you leap, add an option after `--`:
+
+```sh
+sh -c "$(curl -fsSL .../install.sh)" -- --try      # opens Slipstream in a window on your desktop
+sh -c "$(curl -fsSL .../install.sh)" -- --check    # says what installing would do; writes nothing
+```
+
+Prefer to read what you run? [`install.sh`](install.sh) is forty lines of shell, and the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases) has the same download to unpack yourself:
+
+```sh
+sha256sum -c slipstream-*-linux-x86_64.tar.gz.sha256
+tar xf slipstream-*-linux-x86_64.tar.gz
+cd slipstream-*-linux-x86_64
+scripts/try-slipstream             # optional: run it in a window first
+scripts/install-session --check    # what it would do, and what's missing; writes nothing
+scripts/install-session            # installs it; asks for your password once
+```
+
+Every download is built by GitHub from a tagged commit, and comes with a signed record of where it was built. With the GitHub CLI: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
+
+### Works on
+
+| | |
+|---|---|
+| **Used daily** | Bazzite (Fedora Atomic), on real hardware. Where the rough edges are found. |
+| **Checked on every release** | Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed: each one installs the download in a container and starts it. Repeated weekly against Debian testing, Ubuntu rolling, Fedora Rawhide, Arch and Tumbleweed, so a change in a distribution shows up here first. |
+| **Should work** | Any distribution with Debian 13's libraries or newer, and logind or seatd: Linux Mint 23, Pop!_OS 26.04, Manjaro, EndeavourOS, CachyOS, Nobara, Omarchy, Aurora, Bluefin, Silverblue, Kinoite. Please report it if it doesn't. |
+| **Not yet** | Ubuntu 24.04 and what's built on it (Linux Mint 22, Pop!_OS 24.04, Zorin 18): the Settings app needs Pango 1.56, and they have 1.52. Debian 12 and the RHEL family, which are older still. Alpine and other musl systems, NixOS and Guix, which all need a build of their own. Systems with neither systemd nor seatd. ARM machines. |
+
+Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the capture protocols Slipstream speaks arrived. Debian 13 and Ubuntu 25.10 package 0.7, so sharing doesn't work there yet; everything else does, and the installer says so plainly.
+
+### What the installer does
+
+- **The programs go in `/usr/local/bin`**, so everyone with an account on the machine can use Slipstream, along with the Settings app's entry, the session's systemd units and the portal settings.
+- **A copy in your own `~/.local/bin` comes first**, so a build of your own runs for you and the installed release for everyone else.
+- **It checks first, and writes all or nothing.** Its system files are staged and moved into place together, so a failure part way changes nothing. A refusal writes nothing at all.
+- **It leaves other files alone**, and never replaces or removes a file it didn't write.
+- **Packages are your call.** It names what's missing and offers to install it with your own package manager; on atomic systems, where that rewrites the system image, it prints the command instead of running it. Without a terminal it asks nothing and installs nothing.
+- **`scripts/install-session --uninstall`** removes exactly what it wrote, keeping your settings unless you add `--purge`.
 
 ### From source
 
@@ -246,20 +271,11 @@ scripts/update-session     # builds in the box (or with the cargo on your system
 scripts/install-session    # once
 ```
 
-### Then
-
-Log out, choose **Slipstream** in the login screen's session menu, and log in. Super+/ shows every key.
-
-### How the installer keeps your system safe
-
-- **It checks everything first.** A refusal writes nothing, and it never installs packages.
-- **It writes all or nothing.** Its few system files (the session entry, its launcher, the lock screen's PAM service and a manifest) are staged and moved into place together, so a failure part way changes nothing.
-- **It leaves other files alone.** It never replaces or removes a file it didn't write.
-- **Updates can't leave a broken program.** `update-session` checks the new programs run on your system before swapping them in.
+Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than Debian 13's glibc and links nothing unusual. For a distribution package, a plain `cargo build --release --locked` against the system's own libraries is the right thing; nothing is vendored.
 
 ### Glimmerwood, and apps of your own alongside it
 
-Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Slipstream ships one, Glimmerwood, described in `extras/glimmerwood.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
+Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `scripts/install-extras`, which the installer runs for you at the end (and `update-session` runs on every rebuild). Slipstream ships one, Glimmerwood, described in `extras/glimmerwood.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
 
 ```sh
 app_id=org.example.Browser
@@ -295,7 +311,9 @@ The bar shows a small gauge for each section: its first meter as the thick bar, 
 
 ## Updating
 
-Pull or download the new version, run `scripts/update-session`, and log back in. Run `scripts/install-session` again too when the changelog mentions the installer or the session files; it's safe to run any time.
+Run the install command again: it fetches the newest release and installs it over the old one, which is safe to do at any time. From a clone, `scripts/update-session` builds and installs your own copy instead. Either way, the new version starts at your next login.
+
+Slipstream never checks for updates by itself, and nothing here contacts the internet unless you ask it to.
 
 ## Uninstalling
 

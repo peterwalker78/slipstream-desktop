@@ -4,6 +4,18 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-16
+
+- **One download for every distribution.** Releases had one build per system, each linking that system's libraries; there is now a single `slipstream-VERSION-linux-x86_64.tar.gz` that runs on any current distribution with Debian 13's libraries or newer. libdisplay-info, whose soname changes with every release, is linked in, and each release is checked before publishing that nothing asks for a newer glibc or an unusual library.
+- **One command installs it**, from the README: it fetches the newest release, checks it against its published checksum and runs the installer. `--try` opens Slipstream in a window on your current desktop first, `--check` says what installing would do and writes nothing. Downloads carry a signed record of where they were built, which `gh attestation verify` checks.
+- **Slipstream installs for everyone on the machine.** The programs, the Settings app's entry, the session's systemd units and the portal settings go in `/usr/local`; a copy in your own `~/.local/bin` still runs first, so a build of your own keeps working while other accounts use the installed release. A second account that chose Slipstream used to get a session that failed to start.
+- **The installer offers to install what's missing** with the system's own package manager, having named it first, rather than only printing the command. On atomic systems, where that rewrites the system image, it still prints the command. Without a terminal it asks nothing and installs nothing.
+- **Slipstream is its own desktop, and treats every other one alike.** It no longer names KDE in `XDG_CURRENT_DESKTOP`; instead, the portal settings list the backends the machine actually has, in the order found, with the generic GTK one last, so file choosers, secrets and dark mode work whatever desktop the machine came with. The cursor theme is the one the system calls its default.
+- **It says when screen sharing can't work**: the capture protocols Slipstream speaks need xdg-desktop-portal-wlr 0.8 or newer, and Debian 13 and Ubuntu 25.10 package 0.7. Everything else works there.
+- **It spots a machine that logs straight in** past the login screen (SDDM, GDM, LightDM or greetd) and says how to reach the session list, or how to make Slipstream the session it logs into.
+- **Every release is installed and started on Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed** before it's called done, and the newest release is checked again weekly against the distributions that keep moving, so a change in one of them shows up before somebody's first login.
+- `scripts/try-slipstream` runs Slipstream in a window on the desktop you're already using, with its settings and state in a scratch folder, so nothing changes.
+
 ## [0.4.3] - 2026-09-15
 
 - **Releases have a download for Ubuntu 26.04 LTS** and the systems built on it, such as Kubuntu 26.04, beside the one for Fedora 44, so neither needs building from source. The README says which download is whose, and how to build on Ubuntu. Ubuntu 24.04 and the systems built on it are too old for the Settings app.

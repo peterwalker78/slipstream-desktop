@@ -1149,6 +1149,15 @@ fi
 
 if [ -z "$root" ]; then
     systemctl --user daemon-reload 2>/dev/null || true
+    # Apps that come with Slipstream but are projects of their own, as Flatpaks for you alone.
+    # Without flatpak it says so and changes nothing, and nothing here depends on them.
+    if [ -n "$programs" ] && [ -x "$repo/scripts/install-extras" ] && have flatpak; then
+        echo
+        if ! "$repo/scripts/install-extras"; then
+            echo "Not every app that comes with Slipstream installed; scripts/install-extras --check"
+            echo "says more. Slipstream itself is installed."
+        fi
+    fi
 fi
 
 echo
