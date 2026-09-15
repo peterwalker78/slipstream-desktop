@@ -164,6 +164,7 @@ pub enum Step {
     /// Super+P and Super+Shift+P.
     NextScreen,
     MoveToNextScreen,
+    SwapScreens,
     /// Keys pressed and let go through the real keyboard routing, in order, by xkb name.
     Keys(Vec<(String, bool)>),
     /// Locks the screen. Nested runs only.
@@ -387,6 +388,7 @@ impl Script {
                     ("motion", None) => Step::Motion,
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
+                    ("swapscreens", None) => Step::SwapScreens,
                     ("logout", None) => Step::LogOut,
                     ("restart", None) => Step::Restart,
                     ("shutdown", None) => Step::ShutDown,

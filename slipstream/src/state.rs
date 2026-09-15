@@ -1597,7 +1597,7 @@ impl Slipstream {
         }
 
         if let Some(workspace) = self.workspaces.find(window) {
-            self.go_to_workspace(workspace);
+            self.switch_workspace(workspace);
         }
         self.focus_window(window);
     }
@@ -1711,6 +1711,9 @@ impl Slipstream {
         self.space.raise_element(window, true);
         // Floating windows stay above the tiles, and the one chosen, with its dialogs, above them.
         if let Some(index) = self.workspaces.find(window) {
+            // Remembered straight away rather than only when the workspace is left: a screen the
+            // keyboard moves off keeps naming this window in its bar.
+            self.workspaces.get_mut(index).last_focus = Some(window.clone());
             self.workspaces
                 .get_mut(index)
                 .floating
@@ -1792,10 +1795,16 @@ impl Slipstream {
         }
     }
 
+    /// Super+arrows: focus the neighbouring window that way. At the edge of the screen, left or
+    /// right carries on to the screen beside it.
     pub fn focus_direction(&mut self, direction: Direction) {
         // Nothing focused (a window closed while the pointer was elsewhere, say): the first focus
-        // key picks up whatever is on the workspace instead of doing nothing.
+        // key picks up whatever is on the workspace instead of doing nothing. An empty workspace
+        // has nothing to pick up, so the key goes on to the screen beside.
         if self.focused_window().is_none() {
+            if self.current_workspace().is_empty() && self.focus_across(direction, None) {
+                return;
+            }
             self.restore_focus();
             return;
         }
@@ -1815,7 +1824,53 @@ impl Slipstream {
             .tiles_within(area, &min_size);
         if let Some(next) = layout::neighbour(&rects, &current, direction) {
             self.focus_window(&next);
+            return;
         }
+        let from = rects
+            .iter()
+            .find(|(window, _)| *window == current)
+            .map(|(_, rect)| *rect);
+        self.focus_across(direction, from);
+    }
+
+    /// The screen beside the focused one, `direction` of it. Screens sit in one row.
+    fn screen_towards(&self, direction: Direction) -> Option<usize> {
+        match direction {
+            Direction::Left => self.screens.beside(-1),
+            Direction::Right => self.screens.beside(1),
+            Direction::Up | Direction::Down => None,
+        }
+    }
+
+    /// Moves the keyboard to the screen `direction` of this one, on to the tile nearest the edge
+    /// crossed and most level with `from`. Returns whether there was a screen there.
+    fn focus_across(&mut self, direction: Direction, from: Option<Rect>) -> bool {
+        let Some(target) = self.screen_towards(direction) else {
+            return false;
+        };
+        if let Some(leaving) = self.focused_window() {
+            let active = self.active_workspace();
+            self.workspaces.get_mut(active).last_focus = Some(leaving);
+        }
+        self.screens.focus(target);
+        let workspace = self.active_workspace();
+        let entering = self.output_area().and_then(|area| {
+            let rects = self
+                .workspaces
+                .get_mut(workspace)
+                .tiles_within(area, &min_size);
+            layout::entering(&rects, direction, from)
+        });
+        match entering {
+            Some(window) => self.focus_window(&window),
+            None => self.restore_focus(),
+        }
+        tracing::info!(
+            ?direction,
+            workspace = workspace + 1,
+            "focus crossed to the next screen"
+        );
+        true
     }
 
     /// A left click at a point on screen, in logical pixels, as the mouse would make it:
@@ -1936,6 +1991,15 @@ impl Slipstream {
             .get_mut(active)
             .tiles_within(area, &min_size);
         let Some(next) = layout::neighbour(&rects, &current, direction) else {
+            // At the edge of the screen, the window goes on to the screen beside.
+            if let Some(target) = self.screen_towards(direction)
+                && let Some(workspace) = self.screens.get(target).map(|screen| screen.workspace)
+            {
+                self.move_window_to_workspace(&current, workspace, false);
+                self.focus_screen_at(target);
+                self.focus_window(&current);
+                tracing::info!(?direction, "moved window to the next screen");
+            }
             return;
         };
         if self.current_workspace_mut().layout.swap(&current, &next) {
@@ -1989,9 +2053,9 @@ impl Slipstream {
         }
     }
 
-    /// Puts workspace `index` (0-based) on the focused screen, remembering focus on the one
-    /// being left. If another screen is showing it the two trade workspaces, so a workspace is
-    /// never on two screens at once and no window has to move.
+    /// Goes to workspace `index` (0-based), remembering focus on the one being left. If another
+    /// screen is showing it, the keyboard moves to that screen and neither screen changes what
+    /// it shows; otherwise the focused screen slides over to it.
     pub fn switch_workspace(&mut self, index: usize) {
         let index = index.min(self.workspaces.count().saturating_sub(1));
         let leaving = self.focused_window();
@@ -2004,30 +2068,47 @@ impl Slipstream {
         if !show.changed {
             return;
         }
-        // The camera runs on wall time: moving about is never slowed, even in bullet time.
-        let wall = self.wall();
-        self.motion.slide_to(&here, index, wall);
-        if let Some(other) = show.swapped {
-            let name = self
-                .screens
-                .get(other)
-                .map(|screen| screen.output.name())
-                .unwrap_or_default();
-            self.motion.slide_to(&name, show.from, wall);
+        if show.moved_to.is_none() {
+            // The camera runs on wall time: moving about is never slowed, even in bullet time.
+            let wall = self.wall();
+            self.motion.slide_to(&here, index, wall);
+            self.retile();
         }
-        self.retile();
         self.restore_focus();
         tracing::info!(
             workspace = index + 1,
             windows = self.workspaces.get(index).layout.len(),
-            traded = show.swapped.is_some(),
+            to_another_screen = show.moved_to.is_some(),
             "switched workspace"
         );
     }
 
-    /// Goes to workspace `index` because something on it is wanted — Alt+Tab, the explorer, a
-    /// click on a stream in the code rain. If a screen is already showing it the keyboard moves
-    /// there instead of dragging the workspace over to this one.
+    /// Super+Ctrl+P: the focused screen and the next one along trade workspaces, windows and
+    /// all. The keyboard stays on this screen, which now shows what the other one was.
+    pub fn swap_with_next_screen(&mut self) {
+        if self.screens.len() < 2 {
+            self.show_toast("One screen", "Nothing to swap with.");
+            return;
+        }
+        let leaving = self.focused_window();
+        if leaving.is_some() {
+            let active = self.active_workspace();
+            self.workspaces.get_mut(active).last_focus = leaving;
+        }
+        let next = (self.screens.focused_index() + 1) % self.screens.len();
+        if !self.screens.swap_with(next) {
+            return;
+        }
+        // The windows glide across to their new screens; the views are already there.
+        for screen in self.screens.iter() {
+            self.motion
+                .jump_camera(&screen.output.name(), screen.workspace);
+        }
+        self.retile();
+        self.restore_focus();
+        tracing::info!("swapped workspaces with the next screen");
+    }
+
     /// Super+D: the lowest-numbered empty workspace no screen is showing, remembering where it
     /// came from. Pressed again while still on that workspace, and it's still empty, it goes back.
     pub fn show_desktop(&mut self) {
@@ -2040,7 +2121,7 @@ impl Slipstream {
             && self.workspaces.get(active).is_empty()
         {
             tracing::info!(workspace = from + 1, "back from the empty workspace");
-            self.go_to_workspace(from);
+            self.switch_workspace(from);
             return;
         }
         let empty: Vec<bool> = (0..self.workspaces.count())
@@ -2055,15 +2136,6 @@ impl Slipstream {
             }
             None => self.show_toast("No empty workspace", "Settings › Workspaces adds one"),
         }
-    }
-
-    pub fn go_to_workspace(&mut self, index: usize) {
-        let index = index.min(self.workspaces.count().saturating_sub(1));
-        if let Some(other) = self.screens.showing(index) {
-            self.focus_screen_at(other);
-            return;
-        }
-        self.switch_workspace(index);
     }
 
     /// The workspace a number key names, 1-based. A number past the last workspace says how many
@@ -2086,9 +2158,20 @@ impl Slipstream {
         None
     }
 
+    /// Super+Ctrl+←/→: the previous or next workspace on this screen, passing over any another
+    /// screen is showing.
     pub fn switch_workspace_by(&mut self, delta: i32) {
-        let target =
-            (self.active_workspace() as i32 + delta).clamp(0, self.workspaces.count() as i32 - 1);
+        let count = self.workspaces.count() as i32;
+        let mut target = self.active_workspace() as i32;
+        loop {
+            target += delta.signum();
+            if target < 0 || target >= count || delta == 0 {
+                return;
+            }
+            if self.screens.showing(target as usize).is_none() {
+                break;
+            }
+        }
         self.switch_workspace(target as usize);
     }
 
@@ -2129,8 +2212,13 @@ impl Slipstream {
             .get(index)
             .map(|screen| screen.workspace)
             .unwrap_or(0);
-        // A screen arrives already looking at its workspace; there is nothing to slide from.
-        self.motion.jump_camera(&output.name(), workspace);
+        // A screen arrives already looking at its workspace; there is nothing to slide from. One
+        // that carried this screen's workspace on while it was gone may have gone back to its
+        // own, and is put there too.
+        for screen in self.screens.iter() {
+            self.motion
+                .jump_camera(&screen.output.name(), screen.workspace);
+        }
         self.hold_the_lid();
         self.retile();
         if self.focused_window().is_none() {
@@ -2148,7 +2236,8 @@ impl Slipstream {
     ///
     /// Nothing moves between workspaces. If the keyboard was on that screen, whichever screen
     /// takes over shows what the lost one was showing, so shutting the lid carries on what you
-    /// were doing rather than leaving it behind on a panel nobody can see.
+    /// were doing rather than leaving it behind on a panel nobody can see. Both go back when the
+    /// screen returns.
     pub fn screen_disconnected(&mut self, output: &Output) {
         let was_focused = self.screens.focused_output().as_ref() == Some(output);
         let Some(lost) = self.screens.remove(output) else {
@@ -2169,7 +2258,7 @@ impl Slipstream {
         let mut carried = false;
         if was_focused && !self.screens.is_empty() {
             let here = self.focused_screen_name();
-            carried = self.screens.show(lost, self.workspaces.count()).changed;
+            carried = self.screens.carry(lost);
             if carried {
                 self.motion.jump_camera(&here, lost);
             }
@@ -2186,10 +2275,11 @@ impl Slipstream {
         );
         if carried {
             let name = self.focused_screen_name();
+            let label = self.workspaces.label(lost);
             let now = self.clock.tick();
             self.toast.show(
                 "One screen left",
-                &format!("Workspace {} carried on to {name}.", lost + 1),
+                &format!("{} carried on to {name}.", workspace_called(&label)),
                 now,
             );
         }
@@ -2362,6 +2452,10 @@ impl Slipstream {
         if from == index {
             return;
         }
+        // Between workspaces laid out on the same screen, the window rides across the gap between
+        // them; to another screen it simply glides to its new tile there.
+        let same_screen =
+            self.screens.screen_for_workspace(from) == self.screens.screen_for_workspace(index);
         // A floating window floats on where it goes, in the same part of the screen.
         let float = self.workspaces.get(from).floating.get(window).cloned();
         self.take_off_workspace(window);
@@ -2374,24 +2468,18 @@ impl Slipstream {
             }
         }
         // The window rides across to its new workspace, then settles into its tile.
-        let now = self.clock.tick();
-        let step = (area.w + motion::WORKSPACE_GAP) as f64;
-        self.motion
-            .carry(window, (from as f64 - index as f64) * step, now);
+        if same_screen {
+            let now = self.clock.tick();
+            let step = (area.w + motion::WORKSPACE_GAP) as f64;
+            self.motion
+                .carry(window, (from as f64 - index as f64) * step, now);
+        }
         if follow {
             let here = self.focused_screen_name();
             let show = self.screens.show(index, self.workspaces.count());
-            let wall = self.wall();
-            if show.changed {
+            if show.changed && show.moved_to.is_none() {
+                let wall = self.wall();
                 self.motion.slide_to(&here, index, wall);
-                if let Some(other) = show.swapped {
-                    let name = self
-                        .screens
-                        .get(other)
-                        .map(|screen| screen.output.name())
-                        .unwrap_or_default();
-                    self.motion.slide_to(&name, show.from, wall);
-                }
             }
             self.retile();
             self.focus_window(window);
@@ -2528,7 +2616,7 @@ impl Slipstream {
                     return;
                 }
                 if let Some(workspace) = self.workspaces.find(&window) {
-                    self.go_to_workspace(workspace);
+                    self.switch_workspace(workspace);
                 }
                 self.focus_window(&window);
             }
@@ -3000,10 +3088,12 @@ impl Slipstream {
         let active = plan.active();
         if active != self.active_workspace() {
             let here = self.focused_screen_name();
-            self.screens.show(active, self.workspaces.count());
+            let show = self.screens.show(active, self.workspaces.count());
             // The layout coming back is where the session left off, not a move to watch: the
             // view is put there rather than slid there.
-            self.motion.jump_camera(&here, active);
+            if show.moved_to.is_none() {
+                self.motion.jump_camera(&here, active);
+            }
         }
         self.retile();
         match plan.focus() {
@@ -3662,15 +3752,19 @@ impl Slipstream {
             Some(target) => {
                 let window = target.window().clone();
                 if let Some(index) = self.workspaces.find(&window) {
-                    self.go_to_workspace(index);
+                    self.switch_workspace(index);
                 }
                 self.focus_window(&window);
             }
             None => self.switch_workspace(view),
         }
-        let (wall, active) = (self.wall(), self.active_workspace());
-        let here = self.focused_screen_name();
-        self.motion.slide_to(&here, active, wall);
+        // The view was panned on the screen bullet time was on, and the keyboard may have gone to
+        // another: every screen slides back to what it's showing.
+        let wall = self.wall();
+        for screen in self.screens.iter() {
+            self.motion
+                .slide_to(&screen.output.name(), screen.workspace, wall);
+        }
     }
 
     /// Looks at workspace `index`, choosing its most recent window when `choose` is set.
@@ -4821,6 +4915,7 @@ impl Slipstream {
                 debug::Step::Motion => self.log_reduced_motion(),
                 debug::Step::NextScreen => self.focus_next_screen(),
                 debug::Step::MoveToNextScreen => self.move_focused_to_next_screen(),
+                debug::Step::SwapScreens => self.swap_with_next_screen(),
                 debug::Step::LogOut => self.begin_exit(Intent::LogOut),
                 debug::Step::Restart => self.begin_exit(Intent::Restart),
                 debug::Step::ShutDown => self.begin_exit(Intent::ShutDown),
@@ -5033,6 +5128,15 @@ impl Slipstream {
                 }
             }
         }
+    }
+}
+
+/// How a workspace is named in a sentence: `Workspace 3`, or its own name.
+fn workspace_called(label: &str) -> String {
+    if label.chars().all(|ch| ch.is_ascii_digit()) {
+        format!("Workspace {label}")
+    } else {
+        label.to_string()
     }
 }
 

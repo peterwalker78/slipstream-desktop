@@ -214,6 +214,14 @@ fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
     Some((p.pixmap, size))
 }
 
+/// How far a window on workspace `index` is shifted from where it sits in the layout of screens,
+/// on a screen at `here` whose view is at `camera` with workspaces `step` apart. `origin` is the
+/// left edge of the screen the workspace is laid out for: its windows sit that far along, and are
+/// drawn from this screen's edge instead, a workspace's distance from the view to the side.
+fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: i32) -> f64 {
+    (index as f64 - camera) * step + (here - origin) as f64
+}
+
 /// The everyday keys, shown on an empty workspace in two columns: getting about on the left,
 /// arranging what's open on the right.
 const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
@@ -1047,14 +1055,33 @@ pub fn output_elements(
     if tiling_output && ui > 0.0 && !state.fullscreen_on(active) {
         let bullet = state.bullet.as_ref().filter(|_| first_output);
         let (highlighted, home) = bullet::bar_workspaces(active, bullet);
+        let keyboard_here = first_output;
         let title = match bullet {
             Some(_) => state.bullet_bar_title(),
-            None => state.focused_title(),
+            None if keyboard_here => state.focused_title(),
+            // Where the keyboard isn't, the window it would come back to on this screen.
+            None => state
+                .workspaces
+                .get(active)
+                .last_focus
+                .as_ref()
+                .filter(|window| state.workspaces.find(window) == Some(active))
+                .map(crate::state::window_title)
+                .unwrap_or_default(),
         };
         let content = bar::Content {
             active: highlighted,
             home,
             occupied: used.clone(),
+            elsewhere: (0..state.workspaces.count())
+                .map(|index| {
+                    state
+                        .screens
+                        .showing(index)
+                        .is_some_and(|showing| Some(showing) != screen_index)
+                })
+                .collect(),
+            keyboard_here,
             labels: (0..state.workspaces.count())
                 .map(|index| state.workspaces.label(index))
                 .collect(),
@@ -1171,24 +1198,37 @@ pub fn output_elements(
 
     // Front to back. The space lists the workspace on screen bottom to top. During a switch,
     // the workspace sliding away is drawn too: its windows are unmapped but still alive.
-    // A window is drawn as far from this screen's view as its own workspace is: the ones on a
-    // workspace another screen is showing land off the side of this one, which is where they
-    // belong.
+    // A window's place is on the screen its workspace is laid out for; it's drawn where it sits on
+    // that screen, as far from this screen's view as its workspace is. The ones on a workspace
+    // another screen is showing land off the side of this one, which is where they belong.
+    let offset = |index: usize| {
+        let origin = state
+            .screen_rect_for_workspace(index)
+            .map_or(output_geo.loc.x, |rect| rect.x);
+        shift_for_workspace(index, camera, step, output_geo.loc.x, origin)
+    };
     let mut windows: Vec<(Window, f64)> = state
         .space
         .elements()
         .rev()
-        .map(|window| {
+        .filter_map(|window| {
             let index = state.workspaces.find(window).unwrap_or(active);
-            (window.clone(), (index as f64 - camera) * step)
+            // Outside bullet time another screen's windows are that screen's alone: a wider
+            // screen's workspace is wider than the gap between this screen's workspaces, so its
+            // edge would reach in here.
+            let elsewhere = state
+                .screens
+                .showing(index)
+                .is_some_and(|showing| Some(showing) != screen_index);
+            (!elsewhere || zoomed_out > 0.0).then(|| (window.clone(), offset(index)))
         })
         .collect();
     for index in
         (0..state.workspaces.count()).filter(|index| state.screens.showing(*index).is_none())
     {
-        let dx = (index as f64 - camera) * step;
+        let dx = offset(index);
         // Zoomed out, neighbouring workspaces come into view.
-        if dx.abs() * zoom < step {
+        if ((index as f64 - camera) * step).abs() * zoom < step {
             // Front to back: the floating windows, front-most first, then the tiles.
             let ws = state.workspaces.get(index);
             let floating = ws.floating.windows().into_iter().rev();
@@ -2048,6 +2088,21 @@ pub fn encode_png(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn another_screens_windows_are_drawn_off_this_one_whichever_side_its_workspace_is() {
+        // The laptop (1536 wide, at 0) and a monitor (1920 wide, at 1536).
+        let step = (1536 + motion::WORKSPACE_GAP) as f64;
+        // A window at the monitor's left edge, drawn on the laptop.
+        let drawn_at =
+            |index: usize, camera: f64| 1536.0 + shift_for_workspace(index, camera, step, 0, 1536);
+        // The laptop on workspace 2, the monitor on workspace 1: a lower workspace, so to the left.
+        assert!(drawn_at(0, 1.0) < 0.0, "{}", drawn_at(0, 1.0));
+        // The laptop on workspace 1, the monitor on workspace 3: off the right.
+        assert!(drawn_at(2, 0.0) >= 1536.0, "{}", drawn_at(2, 0.0));
+        // Its own workspace sits where the layout put it, on its own screen's edge.
+        assert_eq!(0.0 + shift_for_workspace(1, 1.0, step, 0, 0), 0.0);
+    }
 
     #[test]
     fn with_reduced_motion_a_tier_tag_appears_where_it_rests() {

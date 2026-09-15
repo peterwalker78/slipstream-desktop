@@ -613,8 +613,11 @@ impl Slipstream {
             udev.primary = None;
         }
         self.loop_handle.remove(gpu.token);
+        // Each of its screens leaves the desktop as an unplugged one does, so the keyboard and
+        // the workspaces never point at an output that's gone.
         for screen in gpu.screens.into_values() {
             self.space.unmap_output(&screen.output);
+            self.screen_disconnected(&screen.output);
             self.display_handle
                 .remove_global::<Slipstream>(screen.global);
         }

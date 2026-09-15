@@ -87,6 +87,7 @@ impl Slipstream {
             Action::MoveToWorkspaceBy(delta) => self.move_focused_by(delta as i32),
             Action::NextScreen => self.focus_next_screen(),
             Action::MoveToNextScreen => self.move_focused_to_next_screen(),
+            Action::SwapScreens => self.swap_with_next_screen(),
             Action::Close => self.close_focused(),
             Action::Launch(app) => self.launch_app(app),
             Action::Screenshot { window } => self.take_screenshot(window),
@@ -198,10 +199,11 @@ impl Slipstream {
     /// The bar button at `pos`. Every screen has a bar, so the one being clicked is the one the
     /// point is on.
     pub(crate) fn bar_target_at(&self, pos: Point<f64, Logical>) -> Option<crate::bar::Target> {
-        if self.fullscreen_on_screen() {
+        let index = self.screen_at(pos)?;
+        // A fullscreen window hides that screen's bar, and only that screen's.
+        if self.fullscreen_on(self.screens.get(index)?.workspace) {
             return None;
         }
-        let index = self.screen_at(pos)?;
         let rect = self.screen_rect(index)?;
         let name = self.screens.get(index)?.output.name();
         let (x, y) = (pos.x - rect.x as f64, pos.y - rect.y as f64);

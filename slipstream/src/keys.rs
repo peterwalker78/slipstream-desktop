@@ -63,6 +63,8 @@ pub enum Action {
     NextScreen,
     /// Move the focused window to the next screen along, and follow it there.
     MoveToNextScreen,
+    /// Trade workspaces with the next screen along.
+    SwapScreens,
     /// The focused tiled window fills the tiling area above its neighbours, or goes back.
     Maximise,
     /// Save the focused screen, or the focused window, as a PNG and copy it.
@@ -146,6 +148,7 @@ impl Action {
             Action::NotificationCentre => "notifications",
             Action::NextScreen => "keyboard to the next screen",
             Action::MoveToNextScreen => "send window to the next screen",
+            Action::SwapScreens => "swap workspaces with the next screen",
             Action::Maximise => "maximise",
             Action::Screenshot { window: false } => "screenshot",
             Action::Screenshot { window: true } => "snip a region or a window",
@@ -183,6 +186,7 @@ impl Action {
             | Action::ToggleGravity
             | Action::NextScreen
             | Action::MoveToNextScreen
+            | Action::SwapScreens
             | Action::ShowDesktop => Group::WorkspacesAndArranging,
             Action::BulletTime => Group::BulletTime,
             Action::Quit
@@ -397,6 +401,7 @@ pub fn defaults() -> Vec<Binding> {
         // screens. With one screen it says there's nowhere to go.
         bind(mod_, Keysym::p, Action::NextScreen),
         bind(mod_shift, Keysym::p, Action::MoveToNextScreen),
+        bind(mod_ctrl, Keysym::p, Action::SwapScreens),
         bind(mod_, Keysym::a, Action::QuickSettings),
         // Windows' screenshot keys: Print for the screen, Win+Shift+S to snip a region or a window
         // (gamescope keeps it while focused, as it does Super+S).

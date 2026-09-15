@@ -765,9 +765,46 @@ pub fn neighbour<T: Clone + PartialEq>(
         .map(|(t, _)| t.clone())
 }
 
+/// Coming in from the screen beside, heading `direction`: the tile nearest the edge being crossed,
+/// and of those the one most level with `from`, the tile left behind (none from an empty
+/// workspace).
+pub fn entering<T: Clone>(
+    rects: &[(T, Rect)],
+    direction: Direction,
+    from: Option<Rect>,
+) -> Option<T> {
+    let off_axis = |r: &Rect| from.map_or(0, |o| (r.y - (o.y + o.h)).max(o.y - (r.y + r.h)).max(0));
+    let edge = |r: &Rect| match direction {
+        Direction::Left => -(r.x + r.w),
+        Direction::Right => r.x,
+        Direction::Up => -(r.y + r.h),
+        Direction::Down => r.y,
+    };
+    rects
+        .iter()
+        .min_by_key(|(_, r)| (edge(r), off_axis(r), r.y))
+        .map(|(t, _)| t.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crossing_to_a_screen_lands_on_the_tile_at_its_near_edge_level_with_where_it_came_from() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        // A tall tile on the left, two stacked on the right.
+        let rects = [
+            ("tall", r(2000, 0, 900, 1000)),
+            ("top", r(2900, 0, 900, 500)),
+            ("bottom", r(2900, 500, 900, 500)),
+        ];
+        let lower = Some(r(0, 600, 1900, 400));
+        assert_eq!(entering(&rects, Direction::Right, lower), Some("tall"));
+        assert_eq!(entering(&rects, Direction::Left, lower), Some("bottom"));
+        assert_eq!(entering(&rects, Direction::Left, None), Some("top"));
+        assert_eq!(entering::<&str>(&[], Direction::Left, None), None);
+    }
 
     const AREA: Rect = Rect {
         x: 0,

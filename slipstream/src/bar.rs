@@ -40,6 +40,12 @@ pub struct Content {
     pub home: Option<usize>,
     /// One per workspace: whether anything is on it.
     pub occupied: Vec<bool>,
+    /// One per workspace: whether another screen is showing it. Those are underlined in grey, so
+    /// each bar says what the other screens have.
+    pub elsewhere: Vec<bool>,
+    /// The keyboard is on this bar's screen. Its workspace is highlighted fully only then; on the
+    /// other screens it's a fainter fill, and the title is dimmed.
+    pub keyboard_here: bool,
     /// One per workspace: its name, or its number.
     pub labels: Vec<String>,
     pub title: String,
@@ -218,9 +224,13 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let style = Style::new(Face::Mono, 15.0, color);
         let label_w = text::width(&label, &style);
         let w = (label_w + 16.0).max(30.0);
-        if on {
+        if on && content.keyboard_here {
             p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff26);
             p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x33ccffff);
+        } else if on {
+            p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff14);
+        } else if content.elsewhere.get(index).copied().unwrap_or(false) {
+            p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x8f98a8b0);
         }
         if content.home == Some(index) {
             p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
@@ -265,8 +275,14 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     );
     target(Target::Clock, centre_x, centre_w);
 
-    // The focused window's title fills what's left of the left column.
-    let title = Style::new(Face::Body, 14.0, 0x98a2b4ff);
+    // The title of this screen's window fills what's left of the left column, dimmed where the
+    // keyboard isn't.
+    let title_ink = if content.keyboard_here {
+        0x98a2b4ff
+    } else {
+        0x626b7cff
+    };
+    let title = Style::new(Face::Body, 14.0, title_ink);
     let room = centre_x - 16.0 - x;
     if room > 24.0 {
         p.text(
@@ -393,6 +409,8 @@ mod tests {
             active: 1,
             home: None,
             occupied: vec![true, true, false, false, false],
+            elsewhere: vec![false; 5],
+            keyboard_here: true,
             labels: (1..=5).map(|n| n.to_string()).collect(),
             title: "Firefox".into(),
             mode: Some(("BULLET TIME", AMBER)),
@@ -530,13 +548,40 @@ mod tests {
         let (unringed, _) = paint(
             &Content {
                 home: None,
-                ..looking
+                ..looking.clone()
             },
             1536,
             scale,
         )
         .unwrap();
         assert!(!cyan(edge(&unringed, 0)));
+
+        // On a screen without the keyboard its own workspace has no band, and one another screen
+        // shows is underlined in grey.
+        let (other, _) = paint(
+            &Content {
+                keyboard_here: false,
+                elsewhere: vec![false, true, false, false, false],
+                ..looking
+            },
+            1536,
+            scale,
+        )
+        .unwrap();
+        let band = |pixmap: &Pixmap, index| {
+            let area = button(index);
+            pixel(pixmap, area.loc.x + area.size.w / 2.0, bottom - 0.8, scale)
+        };
+        assert!(!cyan(band(&other, 3)));
+        let [r, g, b] = band(&other, 1);
+        assert!(
+            r > 80 && g > 80 && b > 80 && !cyan([r, g, b]),
+            "grey: {r} {g} {b}"
+        );
+        assert!(
+            band(&pixmap, 1).iter().all(|channel| *channel < 80),
+            "no underline while it's on no other screen"
+        );
     }
 
     #[test]
