@@ -133,7 +133,7 @@ Settings → Notifications has the switches.
 
 The desktop keeps your focus. **Glimmerwood looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and `update-session` installs it for you and keeps it up to date, as a Flatpak from [its own project](https://github.com/peterwalker78/glimmerwood).
 
-Up in the corner of its toolbar lives **the wisp**, a small glowing flame with a face. It reflects how your time online really feels, the way the sky reflects the weather:
+Glimmerwood is home to **the wisp**, a small glowing flame with a face who lives up in the corner of its toolbar. It reflects how your time online really feels, the way the sky reflects the weather:
 
 - **Somewhere that restores you**, like reading, learning, making or nature, and it brightens, smiles and gives off little motes of light.
 - **Sink into an endless feed** and it slowly clouds over and grows sleepy, as if it's hoping you'll step outside too.
