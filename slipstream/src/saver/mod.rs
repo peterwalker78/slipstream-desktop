@@ -188,8 +188,7 @@ trait Variation {
         30.0
     }
 
-    /// Seconds of animation clock in one turn of its own cycle, if it has one. Handing over to
-    /// the next variation waits for a turn to end, so the screen is nearly empty when it does.
+    /// Seconds of animation clock in one turn of its own cycle, if it has one.
     fn turn(&self) -> Option<f64> {
         None
     }
@@ -1041,8 +1040,11 @@ pub struct Saver {
     current: Box<dyn Variation>,
     /// Seconds one variation holds before the next takes over; 0 never changes.
     change_every: f64,
-    /// When the variation showing now took over, on the animation clock.
+    /// When the variation showing now took over, on the wallpaper's own clock.
     started: Option<f64>,
+    /// The same moment on the animation clock, which a slowed wallpaper doesn't hold back, so
+    /// each variation holds for `change_every` whatever its pace.
+    shown_at: Option<f64>,
     /// A cross-fade from the variation before, and when it started.
     handover: Option<f64>,
     stepped_to: f64,
@@ -1088,6 +1090,7 @@ impl Saver {
             current,
             change_every: wallpaper.change_every_mins as f64 * 60.0,
             started: None,
+            shown_at: None,
             handover: None,
             stepped_to: 0.0,
             spawned: 0,
@@ -1168,6 +1171,7 @@ impl Saver {
         self.index = index;
         self.current = next;
         self.started = Some(now);
+        self.shown_at = Some(now + self.lag);
         if self.reduced_motion {
             // No cross-fade: one still picture replaces another on the next step.
             self.handover = None;
@@ -1179,21 +1183,16 @@ impl Saver {
         self.stepped_to = f64::NEG_INFINITY;
     }
 
-    /// The dwell has run out: hand over at the end of the current turn, so the screen is nearly
-    /// empty when the picture changes. Never while bullet time is slowing the clock, where a
-    /// cross-fade at quarter speed would read as a glitch.
+    /// The dwell has run out: hand over now, wherever the variation is in its cycle, so every
+    /// variation holds for the same time. Never while bullet time is slowing the clock, where a
+    /// cross-fade at quarter speed would read as a glitch. `now` is on the wallpaper's own clock.
     fn maybe_hand_over(&mut self, now: f64, slowed: bool) {
         if self.chosen.len() < 2 || self.change_every <= 0.0 || slowed || self.handover.is_some() {
             return;
         }
-        let elapsed = now - self.started.unwrap_or(now);
-        if elapsed < self.change_every {
+        let clock = now + self.lag;
+        if clock - self.shown_at.unwrap_or(clock) < self.change_every {
             return;
-        }
-        if let Some(turn) = self.current.turn() {
-            if turn > 0.0 && elapsed.rem_euclid(turn) < turn - 0.25 {
-                return;
-            }
         }
         let next = self.next_index();
         self.change_to(next, now);
@@ -1279,6 +1278,7 @@ impl Saver {
                 .reset(&layout, self.spawned.wrapping_mul(0x9e37_79b9));
             self.layout = Some(layout);
             self.started.get_or_insert(now);
+            self.shown_at.get_or_insert(now + self.lag);
             self.stepped_to = now;
         }
         if !paused {
@@ -1659,23 +1659,38 @@ mod tests {
     }
 
     #[test]
-    fn a_variation_holds_for_its_dwell_and_hands_over_at_a_turn_boundary() {
+    fn a_variation_holds_for_its_dwell_and_hands_over_as_it_ends() {
         let layout = layout(640, 400).unwrap();
         let mut saver = saver_for(&layout);
         saver.chosen = vec!["slipstream", "vortex"];
         saver.change_every = 60.0;
         saver.started = Some(0.0);
+        saver.shown_at = Some(0.0);
         saver.handover = None;
-        let turn = saver.current.turn().unwrap();
-        saver.maybe_hand_over(59.0, false);
+        saver.maybe_hand_over(59.9, false);
         assert_eq!(saver.current.id(), "slipstream", "still inside its dwell");
-        saver.maybe_hand_over(61.0, false);
-        assert_eq!(saver.current.id(), "slipstream", "mid-turn: it waits");
         // Bullet time never changes the picture under it.
-        let boundary = (61.0f64 / turn).ceil() * turn - 0.05;
-        saver.maybe_hand_over(boundary, true);
+        saver.maybe_hand_over(60.0, true);
         assert_eq!(saver.current.id(), "slipstream");
-        saver.maybe_hand_over(boundary, false);
+        // Mid-cycle or not, it goes as soon as the dwell is up.
+        saver.maybe_hand_over(60.0, false);
+        assert_eq!(saver.current.id(), "vortex");
+    }
+
+    #[test]
+    fn a_slowed_wallpaper_still_changes_on_time() {
+        let layout = layout(640, 400).unwrap();
+        let mut saver = saver_for(&layout);
+        saver.chosen = vec!["slipstream", "vortex"];
+        saver.change_every = 60.0;
+        saver.started = Some(0.0);
+        saver.shown_at = Some(0.0);
+        saver.handover = None;
+        // A minute at half pace leaves the wallpaper's clock 30 s behind.
+        saver.lag = 30.0;
+        saver.maybe_hand_over(29.9, false);
+        assert_eq!(saver.current.id(), "slipstream");
+        saver.maybe_hand_over(30.0, false);
         assert_eq!(saver.current.id(), "vortex");
     }
 
