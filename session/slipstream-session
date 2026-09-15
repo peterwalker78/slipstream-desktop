@@ -20,6 +20,18 @@ export XDG_SESSION_DESKTOP=slipstream
 export XDG_SESSION_TYPE=wayland
 # Wayland everywhere it's optional.
 export QT_QPA_PLATFORM=wayland
+# Qt apps take their file dialogs, colours and fonts from the portal rather than from some other
+# desktop's plugin, which is the one route that works the same on every system. Without this they
+# fall back to Qt's own defaults, which is no worse than before.
+if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
+    for dir in /usr/lib64 /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+        if [ -e "$dir/qt6/plugins/platformthemes/libqxdgdesktopportal.so" ] \
+            || [ -e "$dir/qt5/plugins/platformthemes/libqxdgdesktopportal.so" ]; then
+            export QT_QPA_PLATFORMTHEME=xdgdesktopportal
+            break
+        fi
+    done
+fi
 export MOZ_ENABLE_WAYLAND=1
 export ELECTRON_OZONE_PLATFORM_HINT=auto
 export _JAVA_AWT_WM_NONREPARENTING=1

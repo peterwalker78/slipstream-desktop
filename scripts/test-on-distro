@@ -56,18 +56,22 @@ say "Preparing $( (sed -n 's/^PRETTY_NAME=//p' /etc/os-release || true) | tr -d 
 if have apt-get; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq --no-install-recommends sudo ca-certificates curl tar gzip xz-utils \
-        passwd libpam-runtime login procps >/dev/null
+    apt-get install -y -qq --no-install-recommends sudo ca-certificates curl tar gzip \
+        passwd libpam-runtime login >/dev/null
 elif have dnf; then
     dnf install -y -q --setopt=install_weak_deps=False sudo ca-certificates curl tar gzip \
-        shadow-utils util-linux pam gawk findutils procps-ng >/dev/null
+        shadow-utils util-linux pam gawk findutils >/dev/null
+    # The PAM stacks a desktop's lock screen includes come with authselect here; a container
+    # image is minimal enough not to have them.
+    dnf install -y -q authselect >/dev/null 2>&1 || true
+    [ -e /etc/pam.d/password-auth ] || authselect select minimal --force >/dev/null 2>&1 || true
 elif have pacman; then
-    pacman -Syu --noconfirm --quiet sudo ca-certificates curl tar gzip shadow pam gawk procps-ng \
-        >/dev/null
+    pacman -Syu --noconfirm --quiet sudo ca-certificates curl tar gzip shadow pam gawk >/dev/null
 elif have zypper; then
     zypper --non-interactive --quiet refresh >/dev/null
     zypper --non-interactive --quiet install sudo ca-certificates curl tar gzip shadow pam gawk \
-        util-linux procps >/dev/null
+        util-linux >/dev/null
+    zypper --non-interactive --quiet install pam-config >/dev/null 2>&1 || true
 else
     echo "test-on-distro: no package manager this script knows." >&2
     exit 1

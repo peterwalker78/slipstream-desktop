@@ -405,6 +405,11 @@ install_packages() {
         printf '%s %s\n' "$ip_command" "$*" >>"$SLIPSTREAM_TEST_PKG_LOG"
         return 0
     fi
+    # A run against a scratch root is pretending to be another system; installing real packages
+    # on this one would be a surprise.
+    if [ -n "$root" ]; then
+        return 1
+    fi
     # Debian's package lists can be older than the packages on the mirrors, and apt then refuses
     # to fetch anything at all.
     if [ "$family" = debian ]; then
@@ -1013,19 +1018,26 @@ if [ -n "$wanted_packages" ]; then
         bold "Missing packages: $wanted_packages"
         if confirm "Install them with this system's package manager?"; then
             # shellcheck disable=SC2086 # one word per package
-            if ! install_packages $wanted_packages; then
-                echo
-                echo "Installing the packages failed, so nothing else was written."
-                exit 1
-            fi
-            if [ -n "$programs" ] && have ldd; then
-                still=$(missing_libraries "$programs/slipstream" "$programs/slipstream-settings" | tr '\n' ' ')
-                if [ -n "$still" ]; then
-                    echo
-                    echo "Slipstream still can't find: $still"
-                    echo "Nothing else was written."
-                    exit 1
+            if install_packages $wanted_packages; then
+                if [ -n "$programs" ] && have ldd; then
+                    still=$(missing_libraries "$programs/slipstream" "$programs/slipstream-settings" | tr '\n' ' ')
+                    if [ -n "$still" ]; then
+                        echo
+                        echo "Slipstream still can't find: $still"
+                        echo "Nothing else was written."
+                        exit 1
+                    fi
                 fi
+            elif [ -n "$required_packages" ]; then
+                echo
+                echo "Installing them didn't work, and Slipstream can't start without them."
+                echo "Nothing was written."
+                exit 1
+            else
+                echo
+                say "Installing them didn't work. They were all optional, so this carries on;"
+                # shellcheck disable=SC2086 # one word per package
+                say "to add them later: $(install_command $wanted_packages)"
             fi
         elif [ -n "$required_packages" ]; then
             echo

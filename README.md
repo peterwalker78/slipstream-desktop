@@ -200,14 +200,13 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
 
-To look before you leap, add an option after `--`:
+To look before you leap, put an option after `--`. `--try` opens Slipstream in a window on the desktop you're using now; `--check` says what installing would do and writes nothing:
 
 ```sh
-sh -c "$(curl -fsSL .../install.sh)" -- --try      # opens Slipstream in a window on your desktop
-sh -c "$(curl -fsSL .../install.sh)" -- --check    # says what installing would do; writes nothing
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
 ```
 
-Prefer to read what you run? [`install.sh`](install.sh) is forty lines of shell, and the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases) has the same download to unpack yourself:
+Prefer to read what you run? [`install.sh`](install.sh) is a short shell script that does nothing clever, and the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases) has the same download to unpack yourself:
 
 ```sh
 sha256sum -c slipstream-*-linux-x86_64.tar.gz.sha256
@@ -361,7 +360,8 @@ Ctrl+Alt+F1–F12 switch virtual terminals as usual. Keys that input methods, sc
 
 - **Back at the login screen straight away:** read `~/.local/state/slipstream/slipstream.log` (the previous session's is `slipstream.log.old`).
 - **Super+L doesn't lock:** run `scripts/install-session`, which installs the lock screen's PAM service.
-- **Screen sharing offers nothing:** install xdg-desktop-portal-wlr, run `scripts/update-session`, and log in again.
+- **Screen sharing offers nothing:** you need xdg-desktop-portal-wlr 0.8 or newer. `scripts/install-session --check` says which version is here and offers to install it where a new enough one is packaged; log in again afterwards.
+- **No login screen appears at all:** the machine logs someone in automatically. `scripts/install-session --check` says which setting does it and how to change it.
 - **Anything else:** `scripts/install-session --check` reports what the system is missing.
 
 ## Development

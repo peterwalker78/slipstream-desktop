@@ -1,10 +1,11 @@
 name: build
 
-# Runs on pushes to main, on branches while they're being worked on, and on demand;
-# superseded runs are cancelled.
+# Runs on every push and on demand; superseded runs are cancelled. Public repositories get
+# runners for nothing, so there's no reason to be sparing with it.
 on:
   push:
-    branches: [main, "portable-*"]
+    # Tags are the release workflow's job.
+    tags-ignore: ["**"]
   workflow_dispatch:
 
 concurrency:
