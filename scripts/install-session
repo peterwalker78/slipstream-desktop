@@ -475,6 +475,17 @@ at_least() {
 # and the session entry are both useless if the login screen never appears.
 autologin=
 autologin_note=
+
+# Whether an automatic login is for a person rather than one of the system accounts a first-boot
+# wizard leaves behind, whose stanza sits in the configuration long after it has stopped running.
+# A name this machine doesn't know is taken at face value: it may be a person elsewhere.
+real_person() {
+    rp_uid=$(id -u "$1" 2>/dev/null) || return 0
+    if [ -z "$rp_uid" ]; then
+        return 0
+    fi
+    [ "$rp_uid" -ge 1000 ]
+}
 find_autologin() {
     case $dm in
         sddm | plasmalogin)
@@ -482,7 +493,7 @@ find_autologin() {
                 "$root"/etc/"$dm".conf
             fa_user=$(ini_value Autologin User "$@")
             fa_session=$(ini_value Autologin Session "$@")
-            if [ -n "$fa_user" ]; then
+            if [ -n "$fa_user" ] && real_person "$fa_user"; then
                 autologin="$fa_user, straight into ${fa_session:-its default session}"
                 autologin_note="Set Session=slipstream.desktop in $dm's [Autologin] section to log
     straight into Slipstream instead, or remove the [Autologin] section to get the list back."
@@ -494,7 +505,11 @@ find_autologin() {
             case $(ini_value daemon AutomaticLoginEnable $fa_files) in
                 true | True | TRUE | 1)
                     # shellcheck disable=SC2086 # one file per word
-                    autologin="$(ini_value daemon AutomaticLogin $fa_files), straight into their last session"
+                    fa_user=$(ini_value daemon AutomaticLogin $fa_files)
+                    if [ -n "$fa_user" ] && ! real_person "$fa_user"; then
+                        fa_user=
+                    fi
+                    autologin="${fa_user:+$fa_user, }straight into their last session"
                     autologin_note="Remove AutomaticLoginEnable from GDM's custom.conf to get the
     login screen back, then pick Slipstream there."
                     ;;
@@ -503,7 +518,7 @@ find_autologin() {
         lightdm)
             fa_user=$(ini_value "" autologin-user "$root"/etc/lightdm/lightdm.conf \
                 "$root"/etc/lightdm/lightdm.conf.d/*.conf)
-            if [ -n "$fa_user" ]; then
+            if [ -n "$fa_user" ] && real_person "$fa_user"; then
                 fa_session=$(ini_value "" autologin-session "$root"/etc/lightdm/lightdm.conf \
                     "$root"/etc/lightdm/lightdm.conf.d/*.conf)
                 autologin="$fa_user, straight into ${fa_session:-its default session}"

@@ -330,6 +330,13 @@ DM=sddm expect_status 0 || true
 grep -q "logs in automatically" "$work/out" || fail "$case_name: autologin not noticed"
 grep -q "sam, straight into hyprland.desktop" "$work/out" || fail "$case_name: $(grep -i autologin "$work/out")"
 
+case_name="an automatic login for a system account isn't reported as one"
+fresh
+mkdir -p "$r/etc/sddm.conf.d"
+printf '[Autologin]\nUser=root\nSession=plasma.desktop\n' >"$r/etc/sddm.conf.d/00-setup.conf"
+DM=sddm expect_status 0 || true
+grep -q "logs in automatically" "$work/out" && fail "$case_name: reported a setup account's stanza"
+
 case_name="missing packages are installed when told to"
 fresh
 make_download
