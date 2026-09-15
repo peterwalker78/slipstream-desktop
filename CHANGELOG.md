@@ -4,6 +4,11 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-16
+
+- **Installing works on systems whose sudo asks for the root password** (openSUSE's default). The installer asked sudo to check the password up front, which such a configuration refuses outright even where it would let the install through; it now tries a real command before giving up.
+- **A first-boot wizard's leftover automatic login is no longer reported as one.** Some systems keep an `[Autologin]` section naming their own setup account long after the login screen has come back, and the installer wrongly said no login screen would appear. Only an account that belongs to a person counts.
+
 ## [0.5.0] - 2026-09-16
 
 - **One download for every distribution.** Releases had one build per system, each linking that system's libraries; there is now a single `slipstream-VERSION-linux-x86_64.tar.gz` that runs on any current distribution with Debian 13's libraries or newer. libdisplay-info, whose soname changes with every release, is linked in, and each release is checked before publishing that nothing asks for a newer glibc or an unusual library.
