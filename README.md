@@ -2,10 +2,11 @@
 
 # Slipstream
 
-**A keyboard-first Wayland desktop for Linux that looks like nothing else and gets out of your way.**
+**The Linux desktop that gives you back your attention.**
 
+Beautiful, keyboard-first and private by design.<br>
 Your wallpaper is a screensaver. Minimised windows turn into digital rain.<br>
-Bullet time slows the whole desktop down. Pop-ups wait until you stop typing.
+Pop-ups wait until you stop typing. And it comes with **Wisp**, the web browser that's on your side.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
@@ -15,11 +16,35 @@ Bullet time slows the whole desktop down. Pop-ups wait until you stop typing.
 
 <sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
-[**Install**](#installing) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
+[**Install**](#installing) · [**Why Slipstream**](#why-were-building-slipstream) · [**Wisp**](#comes-with-wisp-the-web-browser-thats-on-your-side) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
 
 </div>
 
+## Why we're building Slipstream
+
+**Your attention is the most valuable thing you own. Somewhere along the way, most of your technology started treating it as something to harvest.**
+
+Infinite feeds. Red badges. Autoplay. Notifications timed to pull you back just as you settle into something that matters. The attention economy is extraordinarily good at what it does, and it has quietly trained all of us: to reach for the phone mid-sentence, to check "one thing" and lose an hour, to feel busy all day and still not make the thing we sat down to make.
+
+**We think your computer should be on your side.** Not a slot machine, but a workshop: the place where you learn, create, and feel the joy of building something that's yours.
+
+Slipstream is the start of an ecosystem built to help rewire those habits. It begins with the desktop itself and grows through companion apps that share the same values, starting with the Wisp browser. Everything we make follows three commitments:
+
+- 🔒 **Private by design.** No telemetry, no accounts, no cloud, ever. Slipstream judges when you're typing from the timing of keys, never which keys. Clipboard history lives only in memory and never keeps what a password manager marks as secret. Your window layout is saved only if you turn that on. Wisp never records the pages you visit.
+- 🌱 **Healthy habits, built in.** Not with blockers, timers or guilt, which most people end up switching off, but with gentle, honest feedback. Step away and the desktop steps aside for its living wallpaper; one key brings you back. Wisp shows you, kindly, which corners of the web restore you and which wear you down.
+- 🎯 **Fewer distractions.** Pop-ups wait for a natural pause. Windows you didn't ask for can't steal the keyboard. Everything is a keystroke away, so your hands stay on the work and your head stays in it.
+
+It's free, open source under the GPL, and yours to keep. **The future of personal computing shouldn't be decided by whoever is best at capturing your time. We're building the alternative, in the open.**
+
 Slipstream is a whole desktop session: its own compositor, bar, notifications, lock screen and Settings app, written in Rust on [Smithay](https://github.com/Smithay/smithay). It tiles, it's built for the keyboard and uses common shortcut key combos so you don't have to fight muscle memory from other Operating Systems. It installs next to your current desktop, so you can pick it at the login screen and go back whenever you like.
+
+### New in 0.4
+
+- ✨ **Wisp comes with Slipstream.** A calm web browser with a living companion, installed and kept up to date for you. [Meet it below.](#comes-with-wisp-the-web-browser-thats-on-your-side)
+- 📊 **A meter of your own on the bar.** Point it at any command that reports how much of something you've used: a storage quota, a plan's limits, a data allowance. Set it up and try it in **Settings → Meter**.
+- 🖥️ **Several screens that make sense.** The keyboard moves between screens instead of shuffling their workspaces, and every screen remembers what it was showing when it's unplugged or its lid is shut.
+- 🔋 **A battery you can read at a glance.** It turns mint with a bolt while charging, and the new **Settings → Power** page shows the charge, time left, charger, charge limit, health and cycles.
+- 🔔 **Notifications that know where they came from.** They play your sound theme, open the exact window that sent them, and stay quiet while you're already looking at it.
 
 ## The wallpaper *is* the screensaver
 
@@ -102,6 +127,24 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 Settings → Notifications has the switches.
 
+## Comes with Wisp, the web browser that's on your side
+
+<img src="https://raw.githubusercontent.com/peterwalker78/wisp/main/data/screenshots/browsing.png" alt="Wisp showing a Wikipedia article. In the corner of the toolbar the wisp, a small glowing flame with a friendly face, is bright and smiling." width="960">
+
+The desktop keeps your focus. **Wisp looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and `update-session` installs it for you and keeps it up to date, as a Flatpak from [its own project](https://github.com/peterwalker78/wisp).
+
+Up in the corner of its toolbar lives **the wisp**, a small glowing flame with a face. It reflects how your time online really feels, the way the sky reflects the weather:
+
+- **Somewhere that restores you**, like reading, learning, making or nature, and it brightens, smiles and gives off little motes of light.
+- **Sink into an endless feed** and it slowly clouds over and grows sleepy, as if it's hoping you'll step outside too.
+- **Close the laptop** and it recovers fastest of all. Wisp may be the only browser that's happiest when you're not using it.
+
+**It never blocks a page, never nags and never shames you.** At its heaviest the wisp looks sleepy, never sad. Hover over it and it tells you in plain words what's moving it. Click it and you see the shape of your days and week, with no minutes, scores or streaks to feel bad about. Every new tab opens a **Home** garden that grows moss, ferns, flowers and fireflies on good days, and simply grows nothing on heavy ones. Nothing ever wilts.
+
+Around 2,300 sites come sorted from published research into wellbeing online, and you can move any of them. Like Slipstream, **everything stays on your computer**: no accounts, no telemetry, no record of the pages you visit, built-in tracking protection and HTTPS first.
+
+Wisp is its own project with its own releases, so it's just as happy on any Linux desktop. To leave it out of Slipstream's install, put `install=no` in `~/.config/slipstream/extras/wisp.conf`. To make it your default browser, choose it under your default applications, or add `default_browser=yes` to that file alongside the lines from Slipstream's own [`extras/wisp.conf`](extras/wisp.conf).
+
 ## Everyday tools, with a twist
 
 The things you'd expect any desktop to do, each done the Slipstream way.
@@ -110,7 +153,8 @@ The things you'd expect any desktop to do, each done the Slipstream way.
 - **Clipboard history that decodes.** **Super+V** lists the last 25 things you copied, text and pictures. **As you move through the list, each entry decodes out of rain glyphs into its text.** Enter pastes it into the app you're in. It's kept in memory only and forgotten at logout, and anything a password manager marks as secret is never kept.
 - **An explorer that answers.** Type `12*7`, `15% of 80`, `5 km in miles` or `100f to c` into **Super+Space**, and the answer decodes into place, ready to copy. Type `:fire` and Enter types 🔥 into your app.
 - **Floating windows that stay out of the way.** Dialogs open floating, centred over the window they belong to. Splash screens and picture-in-picture videos float too. **Super+Shift+V** floats or tiles any window, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. Floating windows move with their title bar or Super+drag.
-- **A battery that looks after you.** Unplugged at 20%, **the living wallpaper visibly slows to half speed to save power.** At 5%, a card counts down a minute to sleep so your work survives in memory, and it ignores keys for its first moment, so nothing you're typing can answer it.
+- **A battery that looks after you.** Unplugged at 20%, **the living wallpaper visibly slows to half speed to save power.** At 5%, a card counts down a minute to sleep so your work survives in memory, and it ignores keys for its first moment, so nothing you're typing can answer it. On a charger the icon turns mint with a bolt through it, and Settings → Power has the whole story, from charge limit to battery health.
+- **A meter for whatever you're counting.** A small gauge beside quick settings shows how much of something you've used, from any command you choose: a quota, a plan's limits, a disk. It warms to amber at 75% and orange at 90%, and quick settings shows exactly when each allowance starts over. **Settings → Meter** runs your command on the spot and tells you what the bar will show, or exactly why it won't.
 - **Night light that follows the sun,** with no location needed: sunset and sunrise are worked out from your time zone. **The screen warms over half an hour at dusk, the way the light outside does,** rather than all at once.
 - **Caps Lock you can't miss:** an amber chip on the bar, and the Caps Lock arrow in the lock screen's password box.
 - **Games and virtual machines behave.** Games can lock the mouse and virtual machines can take every key. **Super+Esc** always takes them back.
@@ -154,9 +198,9 @@ Releases carry ready-built programs for Fedora 44 and the systems built on it. O
 Download the `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then:
 
 ```sh
-sha256sum -c slipstream-0.2.0-fedora44-x86_64.tar.gz.sha256
-tar xf slipstream-0.2.0-fedora44-x86_64.tar.gz
-cd slipstream-0.2.0-fedora44-x86_64
+sha256sum -c slipstream-0.4.0-fedora44-x86_64.tar.gz.sha256
+tar xf slipstream-0.4.0-fedora44-x86_64.tar.gz
+cd slipstream-0.4.0-fedora44-x86_64
 scripts/install-session --check    # what it will do, and what's missing; writes nothing
 scripts/update-session             # puts the programs in ~/.local/bin; no root
 scripts/install-session            # adds Slipstream to the login screen; asks for sudo once
@@ -192,9 +236,9 @@ Log out, choose **Slipstream** in the login screen's session menu, and log in. S
 - **It leaves other files alone.** It never replaces or removes a file it didn't write.
 - **Updates can't leave a broken program.** `update-session` checks the new programs run on your system before swapping them in.
 
-### Apps of your own alongside it
+### Wisp, and apps of your own alongside it
 
-Apps that go with your desktop but are projects of their own can be installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Describe each in a file in `~/.config/slipstream/extras/`, say `browser.conf`:
+Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `update-session`, which runs `scripts/install-extras` after installing Slipstream. Slipstream ships one, Wisp, described in `extras/wisp.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
 
 ```sh
 app_id=org.example.Browser
@@ -302,7 +346,8 @@ Nested, **Alt is the Mod key**, since your desktop keeps Super for itself.
 
 ## Principles
 
-- No telemetry, ever.
+- No telemetry, ever. What you do on your computer stays on your computer.
+- Designed for focus: nothing in Slipstream is built to keep you looking at it for longer than you meant to.
 - No AI in the desktop. Slipstream has no AI features and none are planned.
 - Keybindings never take keys that input methods, screen readers, games or apps rely on.
 - Works with logind or seatd through libseat.
