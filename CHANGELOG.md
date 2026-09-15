@@ -4,6 +4,10 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-15
+
+- **The browser that comes with Slipstream is now called Glimmerwood.** Another web browser already goes by Wisp, so it has a name of its own; its companion is still the wisp. `extras/glimmerwood.conf` installs it from [Glimmerwood's releases](https://github.com/peterwalker78/glimmerwood/releases) under its new app ID, `io.github.peterwalker78.Glimmerwood`, beside any Wisp 0.1.0 already installed, which `flatpak uninstall --user io.github.peterwalker78.Wisp` removes. A `~/.config/slipstream/extras/wisp.conf` of your own no longer replaces the shipped entry: rename it to `glimmerwood.conf`.
+
 ## [0.4.0] - 2026-09-15
 
 - **Slipstream comes with Wisp**, a calm web browser with a living companion that reflects how your time online feels, from [its own project](https://github.com/peterwalker78/wisp). `update-session` installs it from Wisp's latest release as a Flatpak, checks it against the release's SHA-256, and updates it when a new release comes out. It isn't made the default browser. A file of your own in `~/.config/slipstream/extras/` with the same name replaces the shipped one, and `install=no` on its own leaves Wisp out. Release packages carry the shipped `extras/`.
