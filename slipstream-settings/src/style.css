@@ -285,3 +285,35 @@ dropdown > button:focus-visible {
   from { background-position: 100% 0; }
   to { background-position: 0% 0; }
 }
+
+/* Meter: each meter of a tried report, set in under its section, with a bar coloured as the
+   desktop's bar colours it. */
+.card > .row.gauge-row {
+  padding-left: 34px;
+  border-top: none;
+}
+
+.row progressbar.gauge trough {
+  min-height: 8px;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: #2f333d;
+}
+
+.row progressbar.gauge progress {
+  min-height: 8px;
+  min-width: 0;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: #cfd6e2;
+}
+
+.row progressbar.gauge.amber progress {
+  background: #ffb547;
+}
+
+.row progressbar.gauge.hot progress {
+  background: #ff7a45;
+}

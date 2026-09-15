@@ -563,7 +563,7 @@ mod tests {
             detail: None,
             gauges: percents
                 .iter()
-                .map(|percent| meter::Gauge {
+                .map(|percent| slipstream_config::meter::Gauge {
                     label: "Daily".into(),
                     percent: *percent,
                     resets_in: None,

@@ -2321,7 +2321,6 @@ dependencies = [
  "png",
  "resvg",
  "serde",
- "serde_json",
  "slipstream-config",
  "smithay",
  "smithay-drm-extras",
@@ -2339,6 +2338,7 @@ name = "slipstream-config"
 version = "0.3.0"
 dependencies = [
  "serde",
+ "serde_json",
  "toml",
 ]
 

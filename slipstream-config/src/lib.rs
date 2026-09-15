@@ -55,6 +55,7 @@
 //! reads a newer file.
 
 pub mod battery;
+pub mod meter;
 pub mod sun;
 
 use std::{

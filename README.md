@@ -209,7 +209,7 @@ default_browser=yes              # set once, so choosing another browser later s
 
 ### A meter of your own
 
-The bar can show how much of something is used, from any command that prints a small JSON report. Set it in `~/.config/slipstream/settings.toml`:
+The bar can show how much of something is used, from any command that prints a small JSON report. Set it in **Settings → Meter**, where **Run it now** shows what the bar would show or why a command doesn't work, or in `~/.config/slipstream/settings.toml`:
 
 ```toml
 [meter]
