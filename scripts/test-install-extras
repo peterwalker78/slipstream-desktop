@@ -43,8 +43,9 @@ chmod +x "$stubs/flatpak" "$stubs/xdg-settings"
 
 # A fresh home, log and checkout for each case.
 fresh() {
-    rm -rf "${work:?}/home" "${work:?}/installed" "${work:?}/checkout" "${work:?}/bundles"
-    mkdir -p "$work/home/.config/slipstream/extras" "$work/installed" "$work/bundles"
+    rm -rf "${work:?}/home" "${work:?}/installed" "${work:?}/checkout" "${work:?}/bundles" \
+        "${work:?}/defaults"
+    mkdir -p "$work/home/.config/slipstream/extras" "$work/installed" "$work/bundles" "$work/defaults"
     : >"$work/log"
     mkdir -p "$work/checkout"
     # The checkout's build installs the app, as a real Flatpak build script would.
@@ -71,6 +72,7 @@ run() {
         STUB_LOG="$work/log" \
         STUB_INSTALLED="$work/installed" \
         SLIPSTREAM_TEST_EXTRAS=yes \
+        SLIPSTREAM_EXTRAS_DEFAULTS="$work/defaults" \
         "$shell" "$repo/scripts/install-extras" "$@" >"$work/out" 2>&1
 }
 
@@ -239,6 +241,42 @@ commit_checkout "later"
 expect_status 0
 expect_count '^built' 2
 expect_count 'xdg-settings set' 1
+
+case_name="a shipped app installs with no file of your own"
+fresh
+rm -rf "$work/home/.config/slipstream/extras"
+echo "$app" >"$work/bundles/browser.flatpak"
+sha=$(sha256sum "$work/bundles/browser.flatpak" | cut -d ' ' -f 1)
+printf 'app_id=%s\nbundle_url=file://%s\nbundle_sha256=%s\n' "$app" \
+    "$work/bundles/browser.flatpak" "$sha" >"$work/defaults/browser.conf"
+expect_status 0
+expect_count 'flatpak install' 1
+expect_count 'xdg-settings' 0
+
+case_name="a file of your own with the same name replaces the shipped one"
+fresh
+echo "$app" >"$work/bundles/browser.flatpak"
+printf 'app_id=%s\nbundle_url=file://%s\nbundle_sha256=%s\n' "$app" \
+    "$work/bundles/browser.flatpak" "$sha" >"$work/defaults/browser.conf"
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+EOF
+expect_status 0
+expect_count '^built' 1
+expect_count 'flatpak install' 0
+
+case_name="install=no leaves a shipped app out"
+fresh
+printf 'app_id=%s\nbundle_url=file://%s\nbundle_sha256=%s\n' "$app" \
+    "$work/bundles/browser.flatpak" "$sha" >"$work/defaults/browser.conf"
+conf <<EOF
+install=no
+EOF
+expect_status 0
+expect_count 'flatpak' 0
+grep -q "left out" "$work/out" || fail "$case_name: didn't say so"
 
 case_name="a file without an app ID fails, and the others still install"
 fresh

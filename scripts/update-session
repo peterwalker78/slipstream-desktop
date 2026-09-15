@@ -130,8 +130,8 @@ sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" \
     | put_text 644 "$config/xdg-desktop-portal-wlr/Slipstream"
 
 echo "Installed $version."
-# Apps described in ~/.config/slipstream/extras that are projects of their own, built or downloaded
-# as Flatpaks. Slipstream is already installed by now, so one that fails only says so.
+# Apps that are projects of their own, shipped in extras/ or described in ~/.config/slipstream/extras,
+# built or downloaded as Flatpaks. Slipstream is already installed by now, so one that fails only says so.
 if ! "$repo/scripts/install-extras"; then
     echo "update-session: not every extra app installed; scripts/install-extras --check says more." >&2
 fi

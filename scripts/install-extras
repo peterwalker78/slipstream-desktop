@@ -1,7 +1,9 @@
 #!/bin/sh
 # Installs or updates apps that belong with your Slipstream desktop but are projects of their own,
-# as Flatpaks for your user. Each app is described by a file in ~/.config/slipstream/extras/.
-# update-session runs this after installing Slipstream; it can also be run on its own.
+# as Flatpaks for your user. Each app is described by a file: Slipstream ships some in extras/, and
+# a file of your own in ~/.config/slipstream/extras/ adds another or, with the same name, replaces a
+# shipped one (install=no alone leaves it out). update-session runs this after installing Slipstream;
+# it can also be run on its own.
 #
 #   scripts/install-extras           install or update every app described there
 #   scripts/install-extras --check   say what would be done; changes nothing
@@ -15,6 +17,7 @@
 #   bundle_url=https://.../app.flatpak otherwise, a single-file Flatpak bundle to download, and the
 #   bundle_sha256=0123...              SHA-256 it must have (or bundle_sha256_url= to fetch it)
 #   default_browser=yes                make it the default web browser, once
+#   install=no                         don't install this app at all
 #
 # A checkout is built when the app isn't installed or the checkout's commit has changed since it was
 # last built here (uncommitted changes don't count); if that build fails and the app isn't installed,
@@ -29,7 +32,7 @@ case ${1:-} in
     "") ;;
     --check) check=yes ;;
     -h | --help)
-        sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -52,12 +55,26 @@ state=${XDG_STATE_HOME:-$HOME/.local/state}/slipstream/extras
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/slipstream/extras
 have() { command -v "$1" >/dev/null 2>&1; }
 
-set -- "$extras"/*.conf
-if ! [ -e "$1" ]; then
+# The apps Slipstream ships, beside this script. Tests point it elsewhere.
+defaults=${SLIPSTREAM_EXTRAS_DEFAULTS:-$(cd "$(dirname "$0")/.." && pwd -P)/extras}
+
+# Your own files, then each shipped one you haven't replaced with a file of the same name.
+set --
+for file in "$extras"/*.conf; do
+    if [ -e "$file" ]; then
+        set -- "$@" "$file"
+    fi
+done
+for file in "$defaults"/*.conf; do
+    if [ -e "$file" ] && ! [ -e "$extras/$(basename "$file")" ]; then
+        set -- "$@" "$file"
+    fi
+done
+if [ $# -eq 0 ]; then
     exit 0
 fi
 if ! have flatpak; then
-    echo "install-extras: apps are described in $extras, but flatpak isn't installed." >&2
+    echo "install-extras: there are apps to install, but flatpak isn't installed." >&2
     exit 1
 fi
 
@@ -199,11 +216,11 @@ make_default_browser() {
     say "$1" "is now the default web browser"
 }
 
-for file in "$extras"/*.conf; do
+for file in "$@"; do
     name=$(basename "$file" .conf)
     record_file=$state/$name
     app_id='' checkout='' build='' bundle_url='' bundle_sha256='' bundle_sha256_url=''
-    default_browser=no
+    default_browser=no install=yes
     bad=no
     while IFS= read -r line || [ -n "$line" ]; do
         # Carriage returns from a file saved on Windows, and spaces round the edges.
@@ -231,10 +248,15 @@ for file in "$extras"/*.conf; do
             bundle_sha256) bundle_sha256=$value ;;
             bundle_sha256_url) bundle_sha256_url=$value ;;
             default_browser) default_browser=$value ;;
+            install) install=$value ;;
             *) say "$name" "unknown key $key, skipped" >&2 ;;
         esac
     done <"$file"
 
+    if [ "$install" = no ]; then
+        say "$name" "left out (install=no in $file)"
+        continue
+    fi
     if [ -z "$app_id" ]; then
         say "$name" "no app_id in $file" >&2
         bad=yes
