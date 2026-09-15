@@ -274,14 +274,22 @@ fn open_window(
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
         .transition_duration(120)
+        .hexpand(true)
+        .vexpand(true)
         .build();
     let side = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Browse)
         .width_request(230)
         .css_classes(["side"])
         .build();
+    // Each page scrolls on its own, so a long page left scrolled down doesn't carry its offset to a
+    // short one and show it blank.
     for page in &pages::PAGES {
-        stack.add_named(&(page.build)(&store), Some(page.id));
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .child(&(page.build)(&store))
+            .build();
+        stack.add_named(&scroller, Some(page.id));
         side.append(&sidebar_item(page));
     }
     side.connect_row_selected({
@@ -297,14 +305,8 @@ fn open_window(
         .unwrap_or(0);
     side.select_row(side.row_at_index(first as i32).as_ref());
 
-    let scroller = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .hexpand(true)
-        .vexpand(true)
-        .child(&stack)
-        .build();
     let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    main.append(&scroller);
+    main.append(&stack);
     main.append(&note.bar);
     let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     body.append(&side);
