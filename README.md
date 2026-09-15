@@ -191,22 +191,43 @@ Your existing desktop stays installed and on the login screen: Slipstream is add
 
 ## Installing
 
-### From a release (Fedora 44, Bazzite, Aurora, Bluefin)
+### From a release
 
-Releases carry ready-built programs for Fedora 44 and the systems built on it. On anything else, build from source.
+Each release has a download for each of these systems, with the programs ready-built:
 
-Download the `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then:
+| Your system | Download |
+|---|---|
+| Fedora 44, Bazzite, Aurora, Bluefin | `slipstream-VERSION-fedora44-x86_64.tar.gz` |
+| Ubuntu 26.04 LTS and systems built on it, such as Kubuntu 26.04 | `slipstream-VERSION-ubuntu26.04-x86_64.tar.gz` |
+
+Ubuntu 24.04 and the systems built on it (Linux Mint 22, Pop!_OS 24.04) are too old: the Settings app needs Pango 1.56, and they have 1.52. On anything else, build from source.
+
+Download your system's `.tar.gz` and its `.sha256` from the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases), then, in the folder you saved them to (Ubuntu shown; for Fedora, put `fedora44` in place of `ubuntu26.04`):
 
 ```sh
-sha256sum -c slipstream-0.4.0-fedora44-x86_64.tar.gz.sha256
-tar xf slipstream-0.4.0-fedora44-x86_64.tar.gz
-cd slipstream-0.4.0-fedora44-x86_64
+sha256sum -c slipstream-*-ubuntu26.04-x86_64.tar.gz.sha256
+tar xf slipstream-*-ubuntu26.04-x86_64.tar.gz
+cd slipstream-*-ubuntu26.04-x86_64
 scripts/install-session --check    # what it will do, and what's missing; writes nothing
 scripts/update-session             # puts the programs in ~/.local/bin; no root
-scripts/install-session            # adds Slipstream to the login screen; asks for sudo once
+scripts/install-session            # adds Slipstream to the login screen; asks for your password once
 ```
 
+`install-session --check` names any packages worth adding, with the command to add them. Glimmerwood, the browser that comes with Slipstream, installs as a Flatpak, so on Ubuntu add `flatpak` first (`sudo apt install flatpak`) if you want it.
+
 ### From source
+
+On Ubuntu 26.04, install the build tools and libraries, then build and install from your clone:
+
+```sh
+sudo apt install git build-essential clang mold pkg-config rustup libxkbcommon-dev libwayland-dev \
+    libsystemd-dev libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev \
+    libpixman-1-dev libdisplay-info-dev libgtk-4-dev
+git clone https://github.com/peterwalker78/slipstream-desktop.git
+cd slipstream-desktop
+scripts/update-session     # builds (rustup fetches the Rust version Slipstream needs) and installs
+scripts/install-session    # once
+```
 
 On an atomic system (Bazzite, Silverblue, Kinoite), build in a Fedora 44 distrobox called `slipstream`, which `update-session` uses when it's there:
 

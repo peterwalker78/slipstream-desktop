@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Releases have a download for Ubuntu 26.04 LTS** and the systems built on it, such as Kubuntu 26.04, beside the one for Fedora 44, so neither needs building from source. The README says which download is whose, and how to build on Ubuntu. Ubuntu 24.04 and the systems built on it are too old for the Settings app.
+
 ## [0.4.2] - 2026-09-15
 
 - **Slipstream shows up on SDDM's login screen on Ubuntu 22.04, Kubuntu, Debian 12 and other systems with SDDM 0.19.** That version only reads sessions from `/usr/share/wayland-sessions`, so on a system whose `/usr` can be written, `install-session` now puts the entry there for SDDM and Plasma Login (atomic systems keep `/usr/local`), and moves an entry an earlier install left in `/usr/local`. A `SessionDir` is only taken from the `[Wayland]` section of SDDM's configuration, and `sddm.conf` wins over `sddm.conf.d`, as in SDDM itself.

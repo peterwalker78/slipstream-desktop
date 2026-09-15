@@ -5,8 +5,9 @@
 #
 #   scripts/package-release [OUT_DIR]
 #
-# The programs link the libraries of the system they were built on, so SYSTEM names it (fedora44,
-# from /etc/os-release). SLIPSTREAM_PACKAGE_FROM packs programs from another folder.
+# The programs link the libraries of the system they were built on, so SYSTEM names it from
+# /etc/os-release: fedora44, ubuntu26.04 (the whole version, as 26.04 and 26.10 differ).
+# SLIPSTREAM_PACKAGE_FROM packs programs from another folder.
 set -eu
 umask 022
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -17,7 +18,7 @@ os_release=/etc/os-release
 field() { sed -n "s/^$1=//p" "$os_release" | head -n1 | tr -d "\"'"; }
 id=$(field ID)
 version_id=$(field VERSION_ID)
-system=${id:-linux}${version_id%%.*}
+system=${id:-linux}$version_id
 arch=$(uname -m)
 from=${SLIPSTREAM_PACKAGE_FROM:-${CARGO_TARGET_DIR:-$repo/target}/release}
 out=${1:-$repo/target/dist}

@@ -1,7 +1,8 @@
 name: release
 
-# For a version tag: builds the programs on Fedora 44 and attaches them, packed with the scripts
-# that install them, to the tag's GitHub release (made from CHANGELOG.md if it isn't there yet).
+# For a version tag: builds the programs on each system below and attaches them, packed with the
+# scripts that install them, to the tag's GitHub release (made from CHANGELOG.md if it isn't there
+# yet). Programs link the libraries of the system they're built on, so each gets its own download.
 on:
   push:
     tags: ["v*"]
@@ -19,19 +20,41 @@ concurrency:
 
 jobs:
   release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: fedora44
+            image: registry.fedoraproject.org/fedora:44
+          - system: ubuntu26.04
+            image: docker.io/library/ubuntu:26.04
     runs-on: ubuntu-latest
-    container: registry.fedoraproject.org/fedora:44
+    container: ${{ matrix.image }}
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Install toolchain and libraries
+      - name: Install toolchain and libraries (Fedora)
+        if: startsWith(matrix.system, 'fedora')
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc clang mold rustup pkgconf-pkg-config \
             libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
             libseat-devel libdrm-devel mesa-libEGL-devel pixman-devel libdisplay-info-devel gtk4-devel \
             gh tar gzip
           rustup-init -y --profile minimal
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+
+      - name: Install toolchain and libraries (Ubuntu)
+        if: startsWith(matrix.system, 'ubuntu')
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential clang mold \
+            pkg-config rustup libxkbcommon-dev libwayland-dev libsystemd-dev libudev-dev libinput-dev \
+            libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev libdisplay-info-dev \
+            libgtk-4-dev gh
+          rustup set profile minimal
 
       - uses: actions/checkout@v7
         with:
@@ -46,10 +69,12 @@ jobs:
           fi
 
       - name: Build
-        run: . ~/.cargo/env && cargo build --release --locked -p slipstream -p slipstream-settings
+        run: cargo build --release --locked -p slipstream -p slipstream-settings
 
       - name: Pack
-        run: scripts/package-release dist
+        run: |
+          scripts/package-release dist
+          ls dist/*-"${{ matrix.system }}"-*.tar.gz
 
       - name: Attach to the release
         run: |
@@ -60,7 +85,9 @@ jobs:
               $0 ~ "^## \\[" v "\\]" { on = 1; next }
               on && /^## / { exit }
               on { print }' CHANGELOG.md >notes.md
+            # Every system's job gets here; whichever is second finds the release already made.
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-              --title "Slipstream $version beta" --notes-file notes.md
+              --title "Slipstream $version beta" --notes-file notes.md \
+              || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/*.sha256

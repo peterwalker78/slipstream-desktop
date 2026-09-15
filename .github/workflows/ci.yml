@@ -43,8 +43,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-
+          key: cargo-fedora44-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-fedora44-
 
       - name: Format
         run: . ~/.cargo/env && cargo fmt --all --check
@@ -54,3 +54,37 @@ jobs:
 
       - name: Test
         run: . ~/.cargo/env && cargo test --workspace --locked
+
+  # Release downloads are built here too, so a change that doesn't build on Ubuntu's libraries shows
+  # up on the push rather than on release day.
+  ubuntu:
+    runs-on: ubuntu-latest
+    container: docker.io/library/ubuntu:26.04
+    steps:
+      - name: Install toolchain and libraries
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git build-essential clang mold \
+            pkg-config rustup libxkbcommon-dev libwayland-dev libsystemd-dev libudev-dev libinput-dev \
+            libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev libdisplay-info-dev \
+            libgtk-4-dev
+          rustup set profile minimal
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-ubuntu26.04-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-ubuntu26.04-
+
+      - name: Build
+        run: cargo build --workspace --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
