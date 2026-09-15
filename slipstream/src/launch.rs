@@ -470,19 +470,20 @@ mod tests {
             libc::sigaddset(&mut term, libc::SIGTERM);
             libc::pthread_sigmask(libc::SIG_BLOCK, &term, std::ptr::null_mut());
         }
-        // The mask a child starts with. Whatever else the test runner blocked is inherited
+        // The mask a child starts with, read by grep itself: no shell in between, since dash
+        // clears the mask when it starts. Whatever else the test runner blocked is inherited
         // too, so the plain child is checked for SIGTERM's bit alone.
         let blocked = |mut process: Command| {
             let out = process
-                .args(["-c", "grep SigBlk /proc/self/status"])
+                .args(["SigBlk", "/proc/self/status"])
                 .output()
                 .unwrap();
             let line = String::from_utf8(out.stdout).unwrap();
             u64::from_str_radix(line.trim().trim_start_matches("SigBlk:").trim(), 16).unwrap()
         };
         let sigterm = 1u64 << (libc::SIGTERM - 1);
-        assert_ne!(blocked(Command::new("sh")) & sigterm, 0);
-        assert_eq!(blocked(command("sh")), 0);
+        assert_ne!(blocked(Command::new("grep")) & sigterm, 0);
+        assert_eq!(blocked(command("grep")), 0);
     }
 
     #[test]
