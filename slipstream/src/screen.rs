@@ -5,8 +5,8 @@
 //! once.
 //!
 //! What a screen shows changes only through what is done on that screen. Going to a workspace
-//! another screen is showing moves the keyboard there, as i3, sway and Hyprland do, rather than
-//! trading the two screens' workspaces; trading is its own command. Each workspace remembers the
+//! another screen is showing moves the keyboard there rather than trading the two screens'
+//! workspaces; trading is its own command. Each workspace remembers the
 //! screen it was last shown on, so a hidden one is laid out for the screen it will come back to,
 //! and a screen that goes out and comes back (a monitor unplugged, the lid shut) gets back what
 //! it was showing.
