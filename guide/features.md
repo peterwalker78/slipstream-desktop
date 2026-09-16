@@ -31,7 +31,7 @@ Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a 
 
 The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
 
-It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
+It's built from xscreensaver's GLMatrix, the classic recreation of the movie's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
 
 <br clear="right">
 

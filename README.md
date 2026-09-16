@@ -2,7 +2,7 @@
 
 # Slipstream
 
-**The Linux desktop the films promised.**
+**The Linux desktop the movies promised.**
 
 Windows that fall into green rain. Wallpapers that come alive the moment you walk away.<br>
 Nothing that interrupts you. Nothing that ever leaves your machine.
@@ -21,11 +21,11 @@ Nothing that interrupts you. Nothing that ever leaves your machine.
 
 ## Why Slipstream exists
 
-Films always made computers look better than this. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
+Movies always made computers look better than this. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
 
 **And everything on that screen is competing for you.** Infinite feeds, red badges, autoplay, notifications timed to pull you back the moment you settle into something that matters. It has quietly trained all of us to check one thing and lose an hour.
 
-**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away - which is the part the films genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
+**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away - which is the part the movies genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
 
 Free, open source, and yours to keep. It installs **beside** the desktop you already use, so trying it costs you nothing: pick Slipstream at the login screen, and go back whenever you like.
 
