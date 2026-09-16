@@ -21,7 +21,7 @@ Nothing that interrupts you. Nothing that ever leaves your machine.
 
 ## Why Slipstream exists
 
-Movies always made computers look better than this. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
+Movies always made computers look better than what big tech has delivered. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
 
 **And everything on that screen is competing for you.** Infinite feeds, red badges, autoplay, notifications timed to pull you back the moment you settle into something that matters. It has quietly trained all of us to check one thing and lose an hour.
 
