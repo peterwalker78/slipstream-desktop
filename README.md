@@ -25,7 +25,7 @@ Films always made computers look better than this. Screens of falling green code
 
 **And everything on that screen is competing for you.** Infinite feeds, red badges, autoplay, notifications timed to pull you back the moment you settle into something that matters. It has quietly trained all of us to check one thing and lose an hour.
 
-**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away — which is the part the films genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
+**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away - which is the part the films genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
 
 Free, open source, and yours to keep. It installs **beside** the desktop you already use, so trying it costs you nothing: pick Slipstream at the login screen, and go back whenever you like.
 
@@ -39,7 +39,7 @@ Free, open source, and yours to keep. It installs **beside** the desktop you alr
 </tr>
 </table>
 
-Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in — the wallpaper was running behind your windows the whole time.
+Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in - the wallpaper was running behind your windows the whole time.
 
 **There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it.
 
@@ -61,7 +61,7 @@ Each stream spells out its app's name as it falls. Click one to bring the window
 
 <img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
 
-One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you — and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there.
+One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you - and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there.
 
 ## Nothing interrupts you
 
@@ -71,7 +71,7 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 - **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
 - **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into the code rain instead, with a quiet toast to say so.
-- **Slipstream can tell that you're typing, so it knows not to interrupt you** — but never what you're typing.
+- **Slipstream can tell that you're typing, so it knows not to interrupt you** - but never what you're typing.
 
 ## The other half: Glimmerwood
 
@@ -79,7 +79,7 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 The desktop keeps your focus. **[Glimmerwood](https://github.com/peterwalker78/glimmerwood) looks after the hours you spend online.** It's a quiet, lightweight browser, and home to **the wisp**: a small glowing flame with a face who sits in the corner of the toolbar and reflects how your time online really feels, the way the sky reflects the weather.
 
-Read, learn or make something and it brightens and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. **Close the laptop and it recovers fastest of all.** It never blocks a page, never nags and never shames you — and like Slipstream, nothing about you ever leaves your computer.
+Read, learn or make something and it brightens and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. **Close the laptop and it recovers fastest of all.** It never blocks a page, never nags and never shames you - and like Slipstream, nothing about you ever leaves your computer.
 
 **Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop. There's more of the workshop to come.
 
@@ -139,7 +139,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 | | |
 |---|---|
 | [**Installing**](guide/install.md) | what you need, every install route, which distributions, updating, uninstalling, building from source |
-| [**Every key**](guide/keys.md) | the whole table — Super+/ shows it in the desktop too |
+| [**Every key**](guide/keys.md) | the whole table - Super+/ shows it in the desktop too |
 | [**Help**](guide/help.md) | when something goes wrong, the bar's meter, and apps that come with your desktop |
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
