@@ -97,7 +97,7 @@ Tick as many as you like in Settings → Wallpaper, which has moving previews, a
 
 ## Minimise into the Matrix
 
-<img src="assets/readme/rain.webp" alt="Three code-rain streams at the right edge of the screen, headed Foot, Foot and Konsole. The busy Konsole stream falls fast and bright green, the idle Foot streams slow and grey, and each spells out its app's name." width="240" align="right">
+<img src="assets/readme/rain.webp" alt="Three code-rain streams at the right edge of the screen, each under the icon of the app it came from. The busy one falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
 
 Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
 
