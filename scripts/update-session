@@ -36,6 +36,20 @@ if [ -z "${HOME:-}" ] || ! [ -d "$HOME" ]; then
     echo "update-session: HOME isn't set to a folder." >&2
     exit 2
 fi
+# A container has its own /usr, and almost everything this script decides is read from the
+# machine's: which portal backends are installed, and whether the launcher the login screen runs
+# is the one in this copy. Both come out wrong in here, and the home it installs into is shared,
+# so the wrong answers would be written where the real session reads them. Building in the
+# `slipstream` box is what the box is for, and this script enters it itself, from outside.
+if [ -f /run/.containerenv ] || [ -f /run/.dockerenv ]; then
+    if [ -z "${SLIPSTREAM_TEST_ROOT:-}" ]; then
+        echo "update-session: this is running inside a container, which has a /usr of its own." >&2
+        echo "The portal backends it would list and the login screen's launcher belong to the" >&2
+        echo "machine and aren't visible here, so it would install the wrong ones into your home." >&2
+        echo "Run it on the host instead: it enters the slipstream box to build." >&2
+        exit 2
+    fi
+fi
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 have() { command -v "$1" >/dev/null 2>&1; }
