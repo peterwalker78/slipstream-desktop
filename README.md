@@ -53,6 +53,8 @@ Put a window away and it doesn't disappear into a bar along the bottom. It pours
 
 **The rain is a readout.** A busy app races, bright green. A quiet one drifts down slowly in grey. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
 
+**Pop-ups you never asked for are sent there too.** An app that opens a window by itself, or throws one in front of you while you're typing, pours straight into the rain instead of taking the screen, with a quiet toast to say what happened. Windows you opened yourself, dialogs belonging to the app you're in, and anything that appears just after a click still come to you as normal.
+
 Each stream spells out its app's name as it falls. Click one to bring the window back.
 
 <br clear="right">
