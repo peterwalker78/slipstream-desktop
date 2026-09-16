@@ -467,15 +467,25 @@ mod tests {
     #[test]
     fn a_stepped_clock_counts_frames_drawn_rather_than_seconds_passing() {
         let mut clock = Clock::new(false);
-        assert_eq!(clock.wall_at(2.0), 2.0, "real seconds until asked otherwise");
+        assert_eq!(
+            clock.wall_at(2.0),
+            2.0,
+            "real seconds until asked otherwise"
+        );
         clock.set_step_at(2.0, 0.02);
         // However long the frame really took — here a whole second, as the first frame of
         // bullet time can — it is worth one step and no more.
         clock.frame();
-        assert!((clock.wall_at(3.0) - 2.02).abs() < 1e-9, "one frame, one step");
+        assert!(
+            (clock.wall_at(3.0) - 2.02).abs() < 1e-9,
+            "one frame, one step"
+        );
         clock.frame();
         clock.frame();
-        assert!((clock.wall_at(9.0) - 2.06).abs() < 1e-9, "three, three steps");
+        assert!(
+            (clock.wall_at(9.0) - 2.06).abs() < 1e-9,
+            "three, three steps"
+        );
         clock.set_step_at(9.0, 0.0);
         assert!(
             (clock.wall_at(9.5) - 2.56).abs() < 1e-9,

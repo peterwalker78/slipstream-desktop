@@ -5218,7 +5218,10 @@ impl Slipstream {
 
     /// Runs the timed debug steps now due. Screenshots wait for the next frame.
     pub fn run_due_debug_steps(&mut self) {
-        for step in self.debug.due(std::time::Duration::from_secs_f64(self.clock.wall())) {
+        for step in self
+            .debug
+            .due(std::time::Duration::from_secs_f64(self.clock.wall()))
+        {
             tracing::info!(?step, "debug step");
             // While locked, only steps that go through the same paths as the keyboard, the
             // pointer and apps do anything, so a script can't reach round the lock.

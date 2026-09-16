@@ -140,12 +140,7 @@ fn appearance(store: &Store) -> gtk::Widget {
     let names: Vec<&str> = schemes.iter().map(|scheme| scheme.label()).collect();
     let scheme = gtk::DropDown::from_strings(&names);
     let chosen = store.get().appearance.colour_scheme;
-    scheme.set_selected(
-        schemes
-            .iter()
-            .position(|held| *held == chosen)
-            .unwrap_or(0) as u32,
-    );
+    scheme.set_selected(schemes.iter().position(|held| *held == chosen).unwrap_or(0) as u32);
     let scheme_store = store.clone();
     scheme.connect_selected_notify(move |scheme| {
         if let Some(chosen) = schemes.get(scheme.selected() as usize).copied() {
