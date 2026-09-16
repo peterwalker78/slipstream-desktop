@@ -1260,7 +1260,7 @@ impl Slipstream {
     /// left edge, then the others in the order they connected. The code rain stays on the panel,
     /// whichever order the screens lit up in, the lid opening included.
     fn arrange_screens(&mut self) {
-        let lit: Vec<(String, i32)> = self
+        let lit: Vec<Placing> = self
             .screen_order
             .iter()
             .filter_map(|name| {
@@ -1270,8 +1270,13 @@ impl Slipstream {
                     .find(|s| s.output.name() == *name)?
                     .output
                     .clone();
-                let width = self.space.output_geometry(&output)?.size.w;
-                Some((name.clone(), width))
+                let size = self.space.output_geometry(&output)?.size;
+                Some(Placing {
+                    name: name.clone(),
+                    width: size.w,
+                    height: size.h,
+                    place: self.settings.display.place(&self.monitor_id(&output)),
+                })
             })
             .collect();
         let nested_panel = self.nested_panel_name.clone();
@@ -1279,7 +1284,7 @@ impl Slipstream {
             is_internal_panel(name) || nested_panel.as_deref() == Some(name)
         });
         let mut moved = false;
-        for (name, x) in places {
+        for (name, x, y) in places {
             let Some(output) = self
                 .screens
                 .iter()
@@ -1288,11 +1293,12 @@ impl Slipstream {
             else {
                 continue;
             };
-            let at = self.space.output_geometry(&output).map(|geo| geo.loc.x);
-            if at != Some(x) {
-                self.space.map_output(&output, (x, 0));
-                output.change_current_state(None, None, None, Some((x, 0).into()));
-                self.screens.add(output, x, self.workspaces.count(), None);
+            let at = self.space.output_geometry(&output).map(|geo| geo.loc);
+            if at.map(|loc| (loc.x, loc.y)) != Some((x, y)) {
+                self.space.map_output(&output, (x, y));
+                output.change_current_state(None, None, None, Some((x, y).into()));
+                self.screens
+                    .add(output, x, y, self.workspaces.count(), None);
                 moved = true;
             }
         }
@@ -1851,13 +1857,20 @@ impl Slipstream {
         self.focus_across(direction, from);
     }
 
-    /// The screen beside the focused one, `direction` of it. Screens sit in one row.
+    /// The screen `direction` of the focused one, by where the screens actually sit — they can be
+    /// stacked as well as side by side, so up and down cross screens too.
     fn screen_towards(&self, direction: Direction) -> Option<usize> {
-        match direction {
-            Direction::Left => self.screens.beside(-1),
-            Direction::Right => self.screens.beside(1),
-            Direction::Up | Direction::Down => None,
-        }
+        let rects: Vec<Rect> = (0..self.screens.len())
+            .map(|index| {
+                self.screen_rect(index).unwrap_or(Rect {
+                    x: 0,
+                    y: 0,
+                    w: 1,
+                    h: 1,
+                })
+            })
+            .collect();
+        crate::screen::towards(&rects, self.screens.focused_index(), direction)
     }
 
     /// Moves the keyboard to the screen `direction` of this one, on to the tile nearest the edge
@@ -2241,9 +2254,11 @@ impl Slipstream {
                 }
             }
         }
+        // Placed at the right edge of what's lit for now; `arrange_screens` just below puts it
+        // where its setting says, which is the only place it ever really sits.
         let index = self
             .screens
-            .add(output.clone(), x, self.workspaces.count(), wanted);
+            .add(output.clone(), x, 0, self.workspaces.count(), wanted);
         if !self.screen_order.contains(&output.name()) {
             self.screen_order.push(output.name());
         }
@@ -2468,6 +2483,13 @@ impl Slipstream {
             (!self.workspaces.is_scratch(workspace)).then(|| self.workspaces.get(workspace).id);
         let before = self.known.get(&monitor).cloned();
         self.known.set(&monitor, &output.name(), shows);
+        // How big it is and that it's plugged in, which is what the Settings app offers an
+        // arrangement for.
+        if let Some(size) = self.space.output_geometry(output).map(|geo| geo.size) {
+            let label = known::short_name(&output.physical_properties().model, &output.name());
+            self.known
+                .set_lit(&monitor, &output.name(), &label, size.w, size.h);
+        }
         if before.as_ref() == self.known.get(&monitor) {
             return;
         }
@@ -2506,6 +2528,13 @@ impl Slipstream {
             if carried {
                 self.motion.jump_camera(&here, lost);
             }
+        }
+        // The Settings app offers an arrangement for the screens that are plugged in, so it has
+        // to be told when one goes.
+        let monitor = self.monitor_id(output);
+        self.known.set_dark(&monitor);
+        if let Err(err) = known::write(&known::path(), &self.known) {
+            tracing::warn!("couldn't write down what the screens show: {err}");
         }
         // A card asking about this screen has nothing left to ask about.
         if self
@@ -4725,6 +4754,7 @@ impl Slipstream {
             let entries = workspace_entries(&settings);
             self.set_workspaces(&entries, self.screens.len());
         }
+        let rearrange = settings.display.screens != self.settings.display.screens;
         if !settings.clipboard.history && self.settings.clipboard.history {
             self.history.close();
             self.history.clear();
@@ -4748,6 +4778,17 @@ impl Slipstream {
             }
         }
         self.settings = settings;
+        // The screens were moved about in Settings: put them where they are now said to be, and
+        // re-tile, since every workspace's area has changed with them.
+        if rearrange {
+            self.arrange_screens();
+            for screen in self.screens.iter() {
+                self.motion
+                    .jump_camera(&screen.output.name(), screen.workspace);
+            }
+            self.retile();
+            tracing::info!("the screens were rearranged in Settings");
+        }
     }
 
     pub fn toggle_explorer(&mut self) {
@@ -5466,20 +5507,52 @@ fn workspace_called(label: &str) -> String {
 /// Whether an output is the laptop's own panel, by the kind of connector it is on. Embedded
 /// DisplayPort, LVDS and DSI are the three a built-in screen turns up on; everything else is
 /// something plugged in.
-/// Where each lit screen goes, left edge first: `screens` are names and widths in the order they
-/// connected, and `panel` says which are laptop panels. Panels go first, in their own order, and
-/// every other screen follows to their right in its order.
-pub fn arrange(screens: &[(String, i32)], panel: impl Fn(&str) -> bool) -> Vec<(String, i32)> {
-    let (panels, others): (Vec<_>, Vec<_>) = screens.iter().partition(|(name, _)| panel(name));
-    let mut x = 0;
-    panels
+/// One screen to be placed: its connector's name, how big it is, and where its owner says it sits.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placing {
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+    pub place: slipstream_config::ScreenPlace,
+}
+
+/// Where each lit screen's top left corner goes. Panels come first, then everything else in the
+/// order it connected; each screen is then placed against the one before it by its own setting —
+/// to the right by default, which is what Slipstream did before there was any say in it.
+///
+/// The result is shifted so nothing sits at a negative coordinate: a screen placed left of or
+/// above the panel moves everything else along rather than putting the desktop off the top left.
+pub fn arrange(screens: &[Placing], panel: impl Fn(&str) -> bool) -> Vec<(String, i32, i32)> {
+    use slipstream_config::{Align, Position};
+    let (panels, others): (Vec<_>, Vec<_>) = screens.iter().partition(|s| panel(&s.name));
+    let order: Vec<&Placing> = panels.into_iter().chain(others).collect();
+    let mut placed: Vec<(String, i32, i32, i32, i32)> = Vec::new();
+    for screen in order {
+        let Some((px, py, pw, ph)) = placed.last().map(|(_, x, y, w, h)| (*x, *y, *w, *h)) else {
+            placed.push((screen.name.clone(), 0, 0, screen.width, screen.height));
+            continue;
+        };
+        let (w, h) = (screen.width, screen.height);
+        // Along the axis the screens are stacked on, they touch; across it, the setting says
+        // which edges line up.
+        let across = |mine: i32, theirs: i32| match screen.place.align {
+            Align::Start => 0,
+            Align::Centre => (theirs - mine) / 2,
+            Align::End => theirs - mine,
+        };
+        let (x, y) = match screen.place.position {
+            Position::RightOf => (px + pw, py + across(h, ph)),
+            Position::LeftOf => (px - w, py + across(h, ph)),
+            Position::Above => (px + across(w, pw), py - h),
+            Position::Below => (px + across(w, pw), py + ph),
+        };
+        placed.push((screen.name.clone(), x, y, w, h));
+    }
+    let left = placed.iter().map(|(_, x, ..)| *x).min().unwrap_or(0);
+    let top = placed.iter().map(|(_, _, y, ..)| *y).min().unwrap_or(0);
+    placed
         .into_iter()
-        .chain(others)
-        .map(|(name, width)| {
-            let at = x;
-            x += width;
-            (name.clone(), at)
-        })
+        .map(|(name, x, y, _, _)| (name, x - left, y - top))
         .collect()
 }
 
@@ -5730,36 +5803,130 @@ mod tests {
         assert!(tall.h >= 1200 && (tall.w as f64 / tall.h as f64 - shape).abs() < 0.01);
     }
 
+    /// Screens to place, each `(name, width, height)`, all following the one before them to the
+    /// right with their tops level — the default when nothing has been arranged by hand.
+    fn to_place(list: &[(&str, i32, i32)]) -> Vec<Placing> {
+        list.iter()
+            .map(|(name, w, h)| Placing {
+                name: name.to_string(),
+                width: *w,
+                height: *h,
+                place: slipstream_config::ScreenPlace {
+                    monitor: name.to_string(),
+                    ..Default::default()
+                },
+            })
+            .collect()
+    }
+
+    fn at(list: &[(&str, i32, i32)]) -> Vec<(String, i32, i32)> {
+        list.iter()
+            .map(|(name, x, y)| (name.to_string(), *x, *y))
+            .collect()
+    }
+
     #[test]
     fn internal_panels_go_first() {
-        let named = |list: &[(&str, i32)]| -> Vec<(String, i32)> {
-            list.iter()
-                .map(|(name, w)| (name.to_string(), *w))
-                .collect()
-        };
         // The monitor lit first, or the panel came back when the lid opened.
         let places = arrange(
-            &named(&[("HDMI-A-1", 1920), ("eDP-1", 1536)]),
+            &to_place(&[("HDMI-A-1", 1920, 1080), ("eDP-1", 1536, 960)]),
             is_internal_panel,
         );
-        assert_eq!(places, named(&[("eDP-1", 0), ("HDMI-A-1", 1536)]));
+        assert_eq!(places, at(&[("eDP-1", 0, 0), ("HDMI-A-1", 1536, 0)]));
         // The panel goes out and comes back: still first.
-        let without = arrange(&named(&[("HDMI-A-1", 1920)]), is_internal_panel);
-        assert_eq!(without, named(&[("HDMI-A-1", 0)]));
+        let without = arrange(&to_place(&[("HDMI-A-1", 1920, 1080)]), is_internal_panel);
+        assert_eq!(without, at(&[("HDMI-A-1", 0, 0)]));
         let back = arrange(
-            &named(&[("HDMI-A-1", 1920), ("eDP-1", 1536)]),
+            &to_place(&[("HDMI-A-1", 1920, 1080), ("eDP-1", 1536, 960)]),
             is_internal_panel,
         );
         assert_eq!(back, places);
         // Other screens keep the order they connected in.
         let three = arrange(
-            &named(&[("DP-3", 2560), ("eDP-1", 1536), ("HDMI-A-1", 1920)]),
+            &to_place(&[
+                ("DP-3", 2560, 1440),
+                ("eDP-1", 1536, 960),
+                ("HDMI-A-1", 1920, 1080),
+            ]),
             is_internal_panel,
         );
         assert_eq!(
             three,
-            named(&[("eDP-1", 0), ("DP-3", 1536), ("HDMI-A-1", 4096)])
+            at(&[("eDP-1", 0, 0), ("DP-3", 1536, 0), ("HDMI-A-1", 4096, 0)])
         );
+    }
+
+    /// `list` is `(name, width, height, position, align)`, the panel first.
+    fn arranged(
+        list: &[(
+            &str,
+            i32,
+            i32,
+            slipstream_config::Position,
+            slipstream_config::Align,
+        )],
+    ) -> Vec<(String, i32, i32)> {
+        let screens: Vec<Placing> = list
+            .iter()
+            .map(|(name, w, h, position, align)| Placing {
+                name: name.to_string(),
+                width: *w,
+                height: *h,
+                place: slipstream_config::ScreenPlace {
+                    monitor: name.to_string(),
+                    position: *position,
+                    align: *align,
+                },
+            })
+            .collect();
+        arrange(&screens, is_internal_panel)
+    }
+
+    #[test]
+    fn a_screen_can_be_put_above_the_panel() {
+        use slipstream_config::{Align, Position};
+        // A monitor on a stand behind the laptop: the desktop shifts down so nothing is off the
+        // top of the layout, and the panel ends up below it.
+        let places = arranged(&[
+            ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
+            ("DP-2", 1920, 1080, Position::Above, Align::Start),
+        ]);
+        assert_eq!(places, at(&[("eDP-1", 0, 1080), ("DP-2", 0, 0)]));
+    }
+
+    #[test]
+    fn a_screen_can_be_put_left_of_the_panel() {
+        use slipstream_config::{Align, Position};
+        let places = arranged(&[
+            ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
+            ("DP-2", 1920, 1080, Position::LeftOf, Align::Start),
+        ]);
+        // Nothing sits at a negative coordinate: the monitor takes x 0 and the panel follows it.
+        assert_eq!(places, at(&[("eDP-1", 1920, 0), ("DP-2", 0, 0)]));
+    }
+
+    #[test]
+    fn screens_beside_each_other_line_up_by_the_edges_asked_for() {
+        use slipstream_config::{Align, Position};
+        let tops = arranged(&[
+            ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
+            ("DP-2", 1920, 1080, Position::RightOf, Align::Start),
+        ]);
+        assert_eq!(tops, at(&[("eDP-1", 0, 0), ("DP-2", 1536, 0)]));
+        // Middles level: the taller monitor starts 60 above the panel, so the layout shifts down
+        // by 60 and the panel sits there instead. Both middles land on 540.
+        let middles = arranged(&[
+            ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
+            ("DP-2", 1920, 1080, Position::RightOf, Align::Centre),
+        ]);
+        assert_eq!(middles, at(&[("eDP-1", 0, 60), ("DP-2", 1536, 0)]));
+        assert_eq!(60 + 960 / 2, 1080 / 2, "the middles really are level");
+        let bottoms = arranged(&[
+            ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
+            ("DP-2", 1920, 1080, Position::RightOf, Align::End),
+        ]);
+        // Bottoms level: the taller screen starts above the panel, so everything shifts down.
+        assert_eq!(bottoms, at(&[("eDP-1", 0, 120), ("DP-2", 1536, 0)]));
     }
 
     use super::*;

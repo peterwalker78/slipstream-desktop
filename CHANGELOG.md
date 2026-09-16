@@ -4,6 +4,13 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Settings → Screens arranges your monitors.** Slipstream put every screen in a row, left to
+  right, tops level, in whatever order they were plugged in, and there was no way to say otherwise
+  — so a monitor sitting above the laptop, or to its left, was somewhere the pointer could only
+  reach by going the wrong way. Each screen can now be placed above, below, left of or right of the
+  one before it, and told which edges line up with it. **Super+↑ and Super+↓ cross between screens**
+  now too, which they couldn't while screens were always a row. Changes apply straight away.
+
 - **A monitor you plug in gets a workspace of its own** instead of taking one of yours. Before, a
   second screen claimed the lowest-numbered free workspace, so Super+2 stopped showing workspace 2
   on the screen you were working on and jumped the keyboard to the monitor instead. Now the

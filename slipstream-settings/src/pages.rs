@@ -23,7 +23,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 9] = [
+pub const PAGES: [Page; 10] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -42,6 +42,16 @@ pub const PAGES: [Page; 9] = [
             "image-x-generic-symbolic",
         ],
         build: wallpaper,
+    },
+    Page {
+        id: "screens",
+        title: "Screens",
+        icons: &[
+            "preferences-desktop-display-symbolic",
+            "video-display-symbolic",
+            "preferences-desktop-display",
+        ],
+        build: screens,
     },
     Page {
         id: "sound",
@@ -287,6 +297,157 @@ fn night_light(page: &gtk::Box, store: &Store) {
                 });
             }
         });
+    }
+}
+
+/// Where the screens sit. Each one after the first is placed against the one before it, which is
+/// all the arranging two or three screens on a desk ever needs; the compositor moves them the
+/// moment this is saved.
+fn screens(store: &Store) -> gtk::Widget {
+    let page = page(
+        "Screens",
+        "Where your screens sit, so the pointer and Super+arrows cross between them the way they          are really arranged on your desk.",
+    );
+    let card = group(&page, "Arrangement");
+    fill_screens(&card, store);
+    let note = group(&page, "About this list");
+    row(
+        &note,
+        "Screens are remembered by what they are",
+        Some(
+            "A screen is known by what it reports about itself, so moving it to another port              keeps its place, and a different screen on the same port gets its own. Screens that              aren't plugged in now aren't shown.",
+        ),
+        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+    );
+    page.upcast()
+}
+
+/// The rows, rebuilt whenever the shape changes. Reads the screens the compositor says are lit
+/// (`screens.toml`), so this is the same list, named the same way, that the compositor arranges.
+fn fill_screens(card: &gtk::Box, store: &Store) {
+    use slipstream_config::{Align, Position, screens as known};
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+    let remembered = known::read(&known::path());
+    let lit: Vec<&known::Known> = remembered.lit().collect();
+    if lit.len() < 2 {
+        let note = match lit.len() {
+            0 => "No screens to arrange. This list fills in when Slipstream is running.",
+            _ => "Only one screen. Plug another in and it can be placed against this one.",
+        };
+        row(
+            card,
+            "Nothing to arrange",
+            Some(note),
+            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+        );
+        return;
+    }
+    let refill = {
+        let card = card.clone();
+        let store = store.clone();
+        move || {
+            let card = card.clone();
+            let store = store.clone();
+            gtk::glib::idle_add_local_once(move || fill_screens(&card, &store));
+        }
+    };
+    for (index, screen) in lit.iter().enumerate() {
+        let size = format!("{}×{}", screen.width, screen.height);
+        // The first screen is the one everything else is placed against, so it has nothing to set.
+        let Some(before) = lit.get(index.wrapping_sub(1)) else {
+            row(
+                card,
+                screen.name(),
+                Some(&format!(
+                    "{size} · {} · everything else is placed against this one",
+                    screen.connector
+                )),
+                &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+            );
+            continue;
+        };
+        let place = store.get().display.place(&screen.monitor);
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+
+        let names: Vec<String> = Position::ALL
+            .iter()
+            .map(|position| position.label(before.name()))
+            .collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let position = gtk::DropDown::from_strings(&refs);
+        position.set_selected(
+            Position::ALL
+                .iter()
+                .position(|which| *which == place.position)
+                .unwrap_or(0) as u32,
+        );
+
+        let align_names: Vec<&str> = Align::ALL
+            .iter()
+            .map(|align| align.label(place.position.beside()))
+            .collect();
+        let align = gtk::DropDown::from_strings(&align_names);
+        align.set_selected(
+            Align::ALL
+                .iter()
+                .position(|which| *which == place.align)
+                .unwrap_or(0) as u32,
+        );
+        controls.append(&position);
+        controls.append(&align);
+        row(
+            card,
+            screen.name(),
+            Some(&format!("{size} · {}", screen.connector)),
+            &controls,
+        );
+
+        let monitor = screen.monitor.clone();
+        {
+            let (store, align, refill) = (store.clone(), align.clone(), refill.clone());
+            let monitor = monitor.clone();
+            position.connect_selected_notify(move |position| {
+                let Some(which) = Position::ALL.get(position.selected() as usize).copied() else {
+                    return;
+                };
+                let chosen = Align::ALL
+                    .get(align.selected() as usize)
+                    .copied()
+                    .unwrap_or_default();
+                let monitor = monitor.clone();
+                store.change(move |settings| {
+                    settings.display.set_place(slipstream_config::ScreenPlace {
+                        monitor: monitor.clone(),
+                        position: which,
+                        align: chosen,
+                    })
+                });
+                // Beside and stacked name different edges, so the other list has to be rebuilt.
+                refill();
+            });
+        }
+        {
+            let (store, position) = (store.clone(), position.clone());
+            align.connect_selected_notify(move |align| {
+                let Some(chosen) = Align::ALL.get(align.selected() as usize).copied() else {
+                    return;
+                };
+                let which = Position::ALL
+                    .get(position.selected() as usize)
+                    .copied()
+                    .unwrap_or_default();
+                let monitor = monitor.clone();
+                store.change(move |settings| {
+                    settings.display.set_place(slipstream_config::ScreenPlace {
+                        monitor: monitor.clone(),
+                        position: which,
+                        align: chosen,
+                    })
+                });
+            });
+        }
     }
 }
 

@@ -56,6 +56,7 @@
 
 pub mod battery;
 pub mod meter;
+pub mod screens;
 pub mod sun;
 
 use std::{
@@ -408,6 +409,112 @@ pub struct Display {
     /// is earlier than the start.
     pub night_light_from: String,
     pub night_light_to: String,
+    /// Where each screen sits, for the ones that shouldn't simply follow the one before. A screen
+    /// with no entry goes to the right of the one before it, tops level, which is what Slipstream
+    /// did before there was any say in it.
+    #[serde(rename = "screen", skip_serializing_if = "Vec::is_empty")]
+    pub screens: Vec<ScreenPlace>,
+}
+
+/// Where one screen sits against the one before it in the row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct ScreenPlace {
+    /// The screen this is about, as `screens.toml` knows it: what its EDID says, else its
+    /// connector's name.
+    pub monitor: String,
+    pub position: Position,
+    pub align: Align,
+}
+
+/// Which side of the screen before it a screen sits on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Position {
+    #[default]
+    RightOf,
+    LeftOf,
+    Above,
+    Below,
+}
+
+/// How a screen lines up with the one before it across the other axis: beside it, whether their
+/// top edges, middles or bottom edges are level; above or below it, their left edges, middles or
+/// right edges.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Align {
+    #[default]
+    Start,
+    Centre,
+    End,
+}
+
+impl Position {
+    pub const ALL: [Position; 4] = [
+        Position::RightOf,
+        Position::LeftOf,
+        Position::Above,
+        Position::Below,
+    ];
+
+    /// Side by side rather than stacked.
+    pub fn beside(self) -> bool {
+        matches!(self, Position::RightOf | Position::LeftOf)
+    }
+
+    /// What it's called in the Settings app, with `other` the screen it's placed against.
+    pub fn label(self, other: &str) -> String {
+        match self {
+            Position::RightOf => format!("Right of {other}"),
+            Position::LeftOf => format!("Left of {other}"),
+            Position::Above => format!("Above {other}"),
+            Position::Below => format!("Below {other}"),
+        }
+    }
+}
+
+impl Align {
+    pub const ALL: [Align; 3] = [Align::Start, Align::Centre, Align::End];
+
+    /// What it's called in the Settings app: the edges differ depending on which way the screens
+    /// are stacked.
+    pub fn label(self, beside: bool) -> &'static str {
+        match (self, beside) {
+            (Align::Start, true) => "Tops level",
+            (Align::Centre, true) => "Middles level",
+            (Align::End, true) => "Bottoms level",
+            (Align::Start, false) => "Left edges level",
+            (Align::Centre, false) => "Middles level",
+            (Align::End, false) => "Right edges level",
+        }
+    }
+}
+
+impl Display {
+    /// Where `monitor` sits, or the default of "to the right, tops level".
+    pub fn place(&self, monitor: &str) -> ScreenPlace {
+        self.screens
+            .iter()
+            .find(|place| place.monitor == monitor)
+            .cloned()
+            .unwrap_or_else(|| ScreenPlace {
+                monitor: monitor.to_string(),
+                ..ScreenPlace::default()
+            })
+    }
+
+    /// Records where `monitor` sits, replacing what was there.
+    pub fn set_place(&mut self, place: ScreenPlace) {
+        match self
+            .screens
+            .iter_mut()
+            .find(|held| held.monitor == place.monitor)
+        {
+            Some(slot) => *slot = place,
+            None => self.screens.push(place),
+        }
+    }
 }
 
 impl Default for Display {
@@ -417,6 +524,7 @@ impl Default for Display {
             night_light_schedule: NightSchedule::Off,
             night_light_from: "21:00".into(),
             night_light_to: "07:00".into(),
+            screens: Vec::new(),
         }
     }
 }
@@ -1152,6 +1260,11 @@ mod tests {
                 night_light_schedule: NightSchedule::Custom,
                 night_light_from: "22:15".into(),
                 night_light_to: "06:45".into(),
+                screens: vec![ScreenPlace {
+                    monitor: "Made Up MU27 0001".into(),
+                    position: Position::Above,
+                    align: Align::Centre,
+                }],
             },
             notifications: Notifications {
                 do_not_disturb: true,

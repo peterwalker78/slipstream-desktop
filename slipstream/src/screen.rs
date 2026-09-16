@@ -34,8 +34,9 @@ impl Named for &str {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Screen<O> {
     pub output: O,
-    /// Where it sits in the layout of screens, left edge first, in logical pixels.
+    /// Where its top left corner sits in the layout of screens, in logical pixels.
     pub x: i32,
+    pub y: i32,
     /// 0-based.
     pub workspace: usize,
     /// The workspace it was showing before it took over one from a screen that went out, to go
@@ -77,10 +78,11 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
     /// lowest-numbered of the `count` workspaces no other screen has, so a second screen comes up
     /// on workspace 2 rather than looking at the same desktop twice. The first screen to arrive
     /// takes the keyboard.
-    pub fn add(&mut self, output: O, x: i32, count: usize, wanted: Option<usize>) -> usize {
+    pub fn add(&mut self, output: O, x: i32, y: i32, count: usize, wanted: Option<usize>) -> usize {
         if let Some(index) = self.index_of(&output) {
             let focused = self.focused_output();
             self.list[index].x = x;
+            self.list[index].y = y;
             self.sort();
             // Moving a screen along doesn't move the keyboard off the one it's on.
             self.focused = focused
@@ -118,6 +120,7 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
         self.list.push(Screen {
             output: output.clone(),
             x,
+            y,
             workspace,
             carried_from: None,
         });
@@ -216,8 +219,10 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
         self.homes[workspace] = Some(name);
     }
 
+    /// Left to right, then top to bottom, so "the next screen" walks a row the way it reads and
+    /// a stack from the top down.
     fn sort(&mut self) {
-        self.list.sort_by_key(|screen| screen.x);
+        self.list.sort_by_key(|screen| (screen.x, screen.y));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -349,6 +354,52 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
     }
 }
 
+/// The screen `direction` of the one at `from`, by where the screens actually sit: the nearest on
+/// that side, and among equals the one that lines up with it best across the other axis.
+///
+/// Screens used to be a row, so "the next one left" was the previous index. They can be stacked
+/// now, so it has to be worked out from the rectangles.
+pub fn towards(
+    rects: &[crate::layout::Rect],
+    from: usize,
+    direction: crate::layout::Direction,
+) -> Option<usize> {
+    use crate::layout::Direction;
+    let here = *rects.get(from)?;
+    let (here_near, here_far) = match direction {
+        Direction::Left | Direction::Right => (here.x, here.x + here.w),
+        Direction::Up | Direction::Down => (here.y, here.y + here.h),
+    };
+    rects
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != from)
+        .filter_map(|(index, there)| {
+            let (near, far) = match direction {
+                Direction::Left | Direction::Right => (there.x, there.x + there.w),
+                Direction::Up | Direction::Down => (there.y, there.y + there.h),
+            };
+            // Wholly on the side asked for, and how far away it is along that axis.
+            let gap = match direction {
+                Direction::Left | Direction::Up => (far <= here_near).then(|| here_near - far),
+                Direction::Right | Direction::Down => (near >= here_far).then(|| near - here_far),
+            }?;
+            // How much of the other axis they share: a screen straight ahead beats one off to a
+            // corner, however close that corner is.
+            let overlap = match direction {
+                Direction::Left | Direction::Right => {
+                    (here.y + here.h).min(there.y + there.h) - here.y.max(there.y)
+                }
+                Direction::Up | Direction::Down => {
+                    (here.x + here.w).min(there.x + there.w) - here.x.max(there.x)
+                }
+            };
+            Some((index, gap, overlap.max(0)))
+        })
+        .min_by_key(|(_, gap, overlap)| (*gap, -*overlap))
+        .map(|(index, _, _)| index)
+}
+
 /// What going to a workspace did.
 #[derive(Debug, Default, PartialEq)]
 pub struct Show {
@@ -396,8 +447,8 @@ mod tests {
 
     fn two() -> Screens<&'static str> {
         let mut screens = Screens::default();
-        screens.add("eDP-1", 0, 5, None);
-        screens.add("DP-2", 1920, 5, None);
+        screens.add("eDP-1", 0, 0, 5, None);
+        screens.add("DP-2", 1920, 0, 5, None);
         screens
     }
 
@@ -415,8 +466,8 @@ mod tests {
     #[test]
     fn screens_are_kept_in_the_order_they_sit_in() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 1920, 5, None);
-        screens.add("DP-2", 0, 5, None);
+        screens.add("eDP-1", 1920, 0, 5, None);
+        screens.add("DP-2", 0, 0, 5, None);
         assert_eq!(screens.get(0).map(|s| s.output), Some("DP-2"));
         assert_eq!(
             screens.focused_output(),
@@ -513,7 +564,7 @@ mod tests {
         screens.remove(&"DP-2");
         // Meanwhile the laptop goes to workspace 2, which the monitor started on.
         screens.show(1, 5);
-        screens.add("DP-2", 1920, 5, None);
+        screens.add("DP-2", 1920, 0, 5, None);
         assert_eq!(shown(&screens), vec![1, 3], "the monitor is back on 4");
     }
 
@@ -524,7 +575,7 @@ mod tests {
         assert_eq!(screens.remove(&"eDP-1"), Some(0));
         assert!(screens.carry(0));
         assert_eq!(shown(&screens), vec![0]);
-        screens.add("eDP-1", 0, 5, None);
+        screens.add("eDP-1", 0, 0, 5, None);
         assert_eq!(shown(&screens), vec![0, 1], "each back on its own");
         assert_eq!(
             screens.focused_output(),
@@ -539,7 +590,7 @@ mod tests {
         screens.remove(&"eDP-1");
         screens.carry(0);
         screens.show(4, 5);
-        screens.add("eDP-1", 0, 5, None);
+        screens.add("eDP-1", 0, 0, 5, None);
         assert_eq!(shown(&screens), vec![0, 4]);
     }
 
@@ -548,7 +599,7 @@ mod tests {
         let mut screens = two();
         screens.remove(&"DP-2");
         screens.show(1, 5);
-        screens.add("DP-2", 1920, 5, None);
+        screens.add("DP-2", 1920, 0, 5, None);
         assert_eq!(shown(&screens), vec![1, 0]);
     }
 
@@ -570,11 +621,11 @@ mod tests {
     #[test]
     fn a_screen_can_show_every_workspace_there_is_past_the_fifth() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 7, None);
+        screens.add("eDP-1", 0, 0, 7, None);
         let show = screens.show(6, 7);
         assert!(show.changed);
         assert_eq!(screens.workspace(), 6, "the seventh, not the fifth");
-        screens.add("DP-2", 1920, 7, None);
+        screens.add("DP-2", 1920, 0, 7, None);
         assert_eq!(
             screens.get(1).map(|s| s.workspace),
             Some(0),
@@ -585,12 +636,12 @@ mod tests {
     #[test]
     fn lighting_the_same_output_twice_moves_it_rather_than_doubling_it() {
         let mut screens = two();
-        screens.add("DP-2", 3840, 5, None);
+        screens.add("DP-2", 3840, 0, 5, None);
         assert_eq!(screens.len(), 2);
         assert_eq!(screens.get(1).map(|s| s.x), Some(3840));
         // Moved to the other side, it keeps the keyboard it had.
         screens.focus(1);
-        screens.add("DP-2", -1920, 5, None);
+        screens.add("DP-2", -1920, 0, 5, None);
         assert_eq!(screens.get(0).map(|s| s.output), Some("DP-2"));
         assert_eq!(screens.focused_output(), Some("DP-2"));
     }
@@ -602,14 +653,52 @@ mod tests {
         assert_eq!(press_elsewhere(Overlay::None), PressElsewhere::MoveKeyboard);
     }
 
+    fn rect(x: i32, y: i32, w: i32, h: i32) -> crate::layout::Rect {
+        crate::layout::Rect { x, y, w, h }
+    }
+
+    #[test]
+    fn the_screen_beside_one_is_found_by_where_it_sits() {
+        use crate::layout::Direction;
+        // A panel with a monitor to its right, tops level.
+        let row = [rect(0, 0, 1536, 960), rect(1536, 0, 1920, 1080)];
+        assert_eq!(towards(&row, 0, Direction::Right), Some(1));
+        assert_eq!(towards(&row, 1, Direction::Left), Some(0));
+        assert_eq!(towards(&row, 0, Direction::Up), None);
+        assert_eq!(towards(&row, 0, Direction::Down), None);
+    }
+
+    #[test]
+    fn a_screen_above_the_panel_is_reached_by_going_up() {
+        use crate::layout::Direction;
+        // A monitor on a stand, the laptop below it.
+        let stack = [rect(0, 1080, 1536, 960), rect(0, 0, 1920, 1080)];
+        assert_eq!(towards(&stack, 0, Direction::Up), Some(1));
+        assert_eq!(towards(&stack, 1, Direction::Down), Some(0));
+        assert_eq!(towards(&stack, 0, Direction::Left), None);
+        assert_eq!(towards(&stack, 0, Direction::Right), None);
+    }
+
+    #[test]
+    fn a_screen_straight_ahead_beats_one_off_to_a_corner() {
+        use crate::layout::Direction;
+        // Two to the right: one level with the panel, one far above it and slightly nearer.
+        let screens = [
+            rect(0, 1000, 1536, 960),
+            rect(1536, 1000, 1920, 1080),
+            rect(1500, -2000, 800, 600),
+        ];
+        assert_eq!(towards(&screens, 0, Direction::Right), Some(1));
+    }
+
     #[test]
     fn a_screen_takes_the_workspace_set_aside_for_it() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 5, None);
+        screens.add("eDP-1", 0, 0, 5, None);
         assert_eq!(screens.get(0).map(|s| s.workspace), Some(0));
         // Six workspaces now, the sixth made for this screen: it takes that one rather than
         // workspace 2, which the laptop's Super+2 still wants.
-        screens.add("DP-2", 1920, 6, Some(5));
+        screens.add("DP-2", 1920, 0, 6, Some(5));
         let monitor = screens.index_of(&"DP-2").unwrap();
         assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(5));
         assert_eq!(screens.showing(1), None, "workspace 2 is still nobody's");
@@ -618,13 +707,13 @@ mod tests {
     #[test]
     fn what_a_screen_showed_before_beats_the_workspace_set_aside_for_it() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 6, None);
-        screens.add("DP-2", 1920, 6, Some(5));
+        screens.add("eDP-1", 0, 0, 6, None);
+        screens.add("DP-2", 1920, 0, 6, Some(5));
         screens.focus(screens.index_of(&"DP-2").unwrap());
         screens.show(3, 6);
         screens.remove(&"DP-2");
         // Plugged back in, it comes back to what it was showing, not to a new one.
-        screens.add("DP-2", 1920, 6, Some(5));
+        screens.add("DP-2", 1920, 0, 6, Some(5));
         let monitor = screens.index_of(&"DP-2").unwrap();
         assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(3));
     }
@@ -632,9 +721,9 @@ mod tests {
     #[test]
     fn a_screen_falls_back_to_the_lowest_free_workspace() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 5, None);
+        screens.add("eDP-1", 0, 0, 5, None);
         // The workspace set aside for it is gone, or taken: the old rule still applies.
-        screens.add("DP-2", 1920, 5, Some(9));
+        screens.add("DP-2", 1920, 0, 5, Some(9));
         let monitor = screens.index_of(&"DP-2").unwrap();
         assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(1));
     }
@@ -642,13 +731,13 @@ mod tests {
     #[test]
     fn trimming_forgets_workspaces_that_have_gone() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 6, None);
-        screens.add("DP-2", 1920, 6, Some(5));
+        screens.add("eDP-1", 0, 0, 6, None);
+        screens.add("DP-2", 1920, 0, 6, Some(5));
         screens.remove(&"DP-2");
         // Its workspace went with it, so nothing should bring the screen back to a sixth that
         // isn't there any more.
         screens.trim_homes(5);
-        screens.add("DP-2", 1920, 5, None);
+        screens.add("DP-2", 1920, 0, 5, None);
         let monitor = screens.index_of(&"DP-2").unwrap();
         let workspace = screens.get(monitor).map(|s| s.workspace).unwrap();
         assert!(workspace < 5, "came back to workspace {workspace}");
@@ -658,8 +747,8 @@ mod tests {
     fn workspaces_and_screens_agree_after_add_and_remove() {
         let count = 4;
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, count, None);
-        screens.add("DP-2", 1536, count, None);
+        screens.add("eDP-1", 0, 0, count, None);
+        screens.add("DP-2", 1536, 0, count, None);
         // Every screen shows a workspace that exists, and no two show the same one.
         let check = |screens: &Screens<&str>| {
             let list = shown(screens);
@@ -686,13 +775,13 @@ mod tests {
         assert_eq!(screens.focused_output(), Some("eDP-1"));
         assert_eq!(screens.get(0).map(|screen| screen.workspace), other);
         // A screen that isn't focused going out leaves the focused one as it was.
-        screens.add("DP-2", 1536, count, None);
+        screens.add("DP-2", 1536, 0, count, None);
         check(&screens);
         let before = screens.workspace();
         screens.remove(&"DP-2");
         assert_eq!(screens.workspace(), before);
         // Fewer workspaces than screens after an edit: every screen still shows one that exists.
-        screens.add("DP-2", 1536, count, None);
+        screens.add("DP-2", 1536, 0, count, None);
         screens.remap(&[0, 0, 0, 0], 1);
         assert!(shown(&screens).iter().all(|&workspace| workspace == 0));
     }
