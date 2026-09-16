@@ -59,7 +59,7 @@ There are **twenty** of them, and many aren't canned animations at all but real 
 <td align="center"><img src="assets/readme/wallpaper-life.webp" alt="Life: glowing, colourful Game of Life cells swirling round the logo" width="280"><br><b>Life</b><br><sub>Conway's Game of Life, seeded with the logo, glowing and swirling to a beat.</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="assets/readme/wallpaper-physarum.webp" alt="Physarum: a network of amber veins across the screen" width="280"><br><b>Physarum</b><br><sub>A slime mould creeps out of the letters and spreads over the screen as veins.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-physarum.webp" alt="Physarum: a slime mould spreading out of the logo into a network of amber veins" width="280"><br><b>Physarum</b><br><sub>A slime mould creeps out of the letters and spreads over the screen as veins.</sub></td>
 <td align="center"><img src="assets/readme/wallpaper-warp.webp" alt="Warp: streaks flying out of a vanishing point behind the logo" width="280"><br><b>Warp</b><br><sub>A steering tunnel of streaks, with the logo coming up out of the vanishing point.</sub></td>
 <td align="center"><img src="assets/readme/wallpaper-coral.webp" alt="Coral: spots and stripes growing round the logo" width="280"><br><b>Coral</b><br><sub>The letters seed a chemical reaction that grows over the screen, then dies back.</sub></td>
 </tr>
@@ -97,7 +97,7 @@ Tick as many as you like in Settings → Wallpaper, which has moving previews, a
 
 ## Minimise into the Matrix
 
-<img src="assets/readme/rain.webp" alt="Three code-rain streams at the right edge of the screen, each under the icon of the app it came from. The busy one falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
+<img src="assets/readme/rain.webp" alt="Super+M on a terminal: the window shrinks away to the right edge of the screen and pours into a stream of code rain, under the icon of the app it came from. Two streams are already running beside it, the busy one falling fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="960">
 
 Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
 
@@ -105,11 +105,9 @@ The rain is a live readout of that app. **An idle app's rain drifts down slow an
 
 It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
 
-<br clear="right">
-
 ## Bullet time
 
-<img src="assets/readme/bullet.webp" alt="Bullet time: every workspace appears as a tilted 3D frame with amber letter hints over each window, and a key press glides the view across to the next workspace." width="960">
+<img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
 
 **Super+Tab** tilts the whole desktop back into 3D, with every workspace laid out side by side and a letter on each window. Press the letter and you're there. Or move windows between workspaces, weigh them, minimise or close them from the overview.
 
@@ -129,7 +127,7 @@ Settings → Notifications has the switches.
 
 ## Comes with Glimmerwood, the web browser that's on your side
 
-<img src="https://raw.githubusercontent.com/peterwalker78/glimmerwood/main/data/screenshots/browsing.png" alt="Glimmerwood showing a Wikipedia article. In the corner of the toolbar the wisp, a small glowing flame with a friendly face, is bright and smiling." width="960">
+<img src="assets/readme/glimmerwood.webp" alt="Glimmerwood showing a Wikipedia article. Its chrome is a single dark bar with the address in it, and up in the corner the wisp, a small glowing flame with a friendly face, sits in its nook." width="960">
 
 The desktop keeps your focus. **Glimmerwood looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and `update-session` installs it for you and keeps it up to date, as a Flatpak from [its own project](https://github.com/peterwalker78/glimmerwood).
 
