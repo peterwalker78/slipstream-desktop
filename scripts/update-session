@@ -1,6 +1,8 @@
 #!/bin/sh
 # Installs Slipstream and its Settings app in ~/.local, where the login session runs them. No root
-# needed. The compositor's changes take effect at the next login; the Settings app's straight away.
+# needed, bar the one file that can't live in a home: the launcher the login screen runs, which is
+# refreshed only when it has changed. The compositor's changes take effect at the next login; the
+# Settings app's straight away.
 #
 #   scripts/update-session                build (in the `slipstream` distrobox if there is one), then install
 #   scripts/update-session --no-extras    the same, without building or updating the apps that
@@ -22,7 +24,7 @@ case ${1:-} in
     "") ;;
     --no-extras) extras=no ;;
     -h | --help)
-        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
@@ -109,10 +111,40 @@ put_text() {
     chmod "$1" "$2.slipstream-new"
     mv -f "$2.slipstream-new" "$2"
 }
+# Puts this copy's launcher where the login screen reads it. The same copy-beside-and-move as
+# above, so a login starting mid-update still reads a whole file, and all of it in one `sh -c`
+# under one sudo, so there's a single password prompt rather than one per step. Root without a
+# password is tried first: an update run from somewhere nothing can be typed then says what to do
+# instead of waiting at a prompt nobody will see.
+refresh_launcher() {
+    # shellcheck disable=SC2016 # expanded by the shell that runs it, from the arguments after it
+    refresh_step='cp "$1" "$2.slipstream-new" && chmod 755 "$2.slipstream-new" && mv -f "$2.slipstream-new" "$2"'
+    if [ -n "${SLIPSTREAM_TEST_ROOT:-}" ]; then
+        mkdir -p "$(dirname "$launcher")"
+        sh -c "$refresh_step" _ "$repo/session/slipstream-session" "$launcher"
+        return
+    fi
+    if ! have sudo; then
+        return 1
+    fi
+    if sudo -n sh -c "$refresh_step" _ "$repo/session/slipstream-session" "$launcher" 2>/dev/null; then
+        return 0
+    fi
+    if ! [ -t 0 ]; then
+        return 1
+    fi
+    echo "The login screen's launcher has changed; sudo asks for your password to replace it."
+    sudo sh -c "$refresh_step" _ "$repo/session/slipstream-session" "$launcher"
+}
 
 bin_dir=$HOME/.local/bin
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 data=${XDG_DATA_HOME:-$HOME/.local/share}
+# The one file the login screen runs that no copy in a home can stand in for: it sets the
+# session's environment before the compositor starts, so a change to it reaches the next login
+# only once the installed copy is replaced. scripts/install-session writes it, and everything
+# else Slipstream needs outside a home; this script keeps just this file in step.
+launcher=${SLIPSTREAM_TEST_ROOT:-}/usr/local/bin/slipstream-session
 
 put 755 "$built/slipstream" "$bin_dir/slipstream"
 put 755 "$built/slipstream-settings" "$bin_dir/slipstream-settings"
@@ -170,8 +202,18 @@ if [ "$extras" = yes ]; then
 else
     echo "Skipped the apps that come with Slipstream (--no-extras)."
 fi
-if [ ! -x /usr/local/bin/slipstream-session ]; then
+if [ ! -x "$launcher" ]; then
     echo "Run scripts/install-session once to add Slipstream to the login screen."
-else
+# Nothing to do when the two are the same file, which is the usual case: the launcher changes
+# far less often than the programs do. Without cmp there's no telling, and a password prompt on
+# every update would be worse than leaving it to install-session.
+elif ! have cmp || cmp -s "$repo/session/slipstream-session" "$launcher"; then
     echo "Log out and choose Slipstream on the login screen."
+elif refresh_launcher; then
+    echo "Refreshed the launcher the login screen runs."
+    echo "Log out and choose Slipstream on the login screen."
+else
+    echo "update-session: the installed session launcher isn't the one in this copy of Slipstream," >&2
+    echo "so the next login would start the session as it was set up before. Everything else is" >&2
+    echo "installed; run scripts/install-session to bring the launcher up to date." >&2
 fi
