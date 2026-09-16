@@ -47,6 +47,11 @@ if [ -f /run/.containerenv ] || [ -f /run/.dockerenv ]; then
         echo "The portal backends it would list and the login screen's launcher belong to the" >&2
         echo "machine and aren't visible here, so it would install the wrong ones into your home." >&2
         echo "Run it on the host instead: it enters the slipstream box to build." >&2
+        # distrobox leaves a way back out to the host in every container it makes, so from a box
+        # there's no need to go and find another terminal.
+        if command -v distrobox-host-exec >/dev/null 2>&1; then
+            echo "From in here, that is: distrobox-host-exec $0 $*" >&2
+        fi
         exit 2
     fi
 fi
