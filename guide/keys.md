@@ -8,6 +8,7 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 |---|---|
 | Super+Space, Super+R | App explorer |
 | Super+Return, Super+E, Super+I | Terminal, files, Settings |
+| Super+B | A new window of your default browser |
 | Alt+Tab, Alt+Shift+Tab | Switch windows |
 | Alt+F4 | Close the window |
 | Super+arrows | Move focus |

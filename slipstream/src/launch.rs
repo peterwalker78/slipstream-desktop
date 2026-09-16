@@ -72,6 +72,7 @@ pub fn launch(app: App) -> Result<(), Failure> {
         App::Terminal => terminal(),
         App::Files => first_installed(FILE_MANAGERS),
         App::Settings => settings_app(),
+        App::Browser => browser(),
     };
     match command {
         Some(command) => {
@@ -98,6 +99,105 @@ fn terminal() -> Option<Vec<String>> {
         .map(|terminal| vec![terminal])
         .or_else(|| first_installed(&[&[XDG_TERMINAL_EXEC]]))
         .or_else(|| first_installed(TERMINALS))
+}
+
+/// `$BROWSER`, else whichever browser the desktop is set to open a web page with. Nothing is
+/// preferred over anything else: this is the same choice every other app on the machine follows,
+/// so Super+B opens the browser the person already chose.
+fn browser() -> Option<Vec<String>> {
+    std::env::var("BROWSER")
+        .ok()
+        .filter(|browser| installed(browser))
+        .map(|browser| vec![browser])
+        .or_else(default_browser)
+}
+
+/// The desktop entry ID set to open a web page, from one `mimeapps.list`. `https` wins over
+/// `http`, and where several entries are listed the first is the one to use.
+pub fn web_browser_id(text: &str) -> Option<String> {
+    let mut secure = None;
+    let mut plain = None;
+    let mut in_defaults = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_defaults = line == "[Default Applications]";
+            continue;
+        }
+        if !in_defaults || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let held = match key.trim() {
+            "x-scheme-handler/https" => &mut secure,
+            "x-scheme-handler/http" => &mut plain,
+            _ => continue,
+        };
+        if held.is_none() {
+            *held = value
+                .split(';')
+                .map(str::trim)
+                .find(|id| !id.is_empty())
+                .map(str::to_owned);
+        }
+    }
+    secure.or(plain)
+}
+
+/// Where the desktop's default applications are written down, most specific first.
+fn mimeapps_files() -> Vec<PathBuf> {
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config")
+        });
+    let mut files = vec![config_home.join("mimeapps.list")];
+    let config_dirs = std::env::var("XDG_CONFIG_DIRS").unwrap_or_else(|_| "/etc/xdg".to_string());
+    files.extend(
+        config_dirs
+            .split(':')
+            .filter(|dir| !dir.is_empty())
+            .map(|dir| PathBuf::from(dir).join("mimeapps.list")),
+    );
+    files.extend(
+        crate::apps::application_dirs()
+            .into_iter()
+            .map(|dir| dir.join("mimeapps.list")),
+    );
+    files
+}
+
+/// The command of the desktop's chosen browser, wherever its entry is installed. A Flatpak is
+/// started the way its own entry says to, so a browser installed that way works like any other.
+fn default_browser() -> Option<Vec<String>> {
+    let desktops: Vec<String> = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_else(|_| "Slipstream".to_string())
+        .split(':')
+        .map(String::from)
+        .collect();
+    for file in mimeapps_files() {
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let Some(id) = web_browser_id(&text) else {
+            continue;
+        };
+        let stem = id.strip_suffix(".desktop").unwrap_or(&id);
+        for dir in crate::apps::application_dirs() {
+            let Ok(entry) = std::fs::read_to_string(dir.join(format!("{stem}.desktop"))) else {
+                continue;
+            };
+            if let Some(app) = crate::apps::parse(stem, &entry, &desktops, installed)
+                && !app.exec.is_empty()
+            {
+                return Some(app.exec);
+            }
+        }
+    }
+    None
 }
 
 const SETTINGS_APP: &str = "slipstream-settings";
@@ -440,6 +540,36 @@ pub fn spawn(command: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_browser_comes_from_the_desktops_own_choice() {
+        let list = "\
+[Added Associations]
+x-scheme-handler/https=someone-elses.desktop;
+
+[Default Applications]
+text/html=chosen.desktop
+x-scheme-handler/http=second-best.desktop;fallback.desktop;
+x-scheme-handler/https=chosen.desktop;also-fine.desktop;
+";
+        assert_eq!(
+            web_browser_id(list).as_deref(),
+            Some("chosen.desktop"),
+            "https wins, and only the first entry of the list is used"
+        );
+        assert_eq!(
+            web_browser_id("[Default Applications]\nx-scheme-handler/http=only.desktop;")
+                .as_deref(),
+            Some("only.desktop"),
+            "http will do when https says nothing"
+        );
+        assert_eq!(
+            web_browser_id("[Added Associations]\nx-scheme-handler/https=not-a-default.desktop;"),
+            None,
+            "an association is not a default"
+        );
+        assert_eq!(web_browser_id(""), None);
+    }
 
     #[test]
     fn what_was_typed_stays_out_of_toast_titles() {

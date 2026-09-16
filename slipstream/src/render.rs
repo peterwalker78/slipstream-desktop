@@ -230,6 +230,7 @@ const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
         (&["Super+Return"], "terminal"),
         (&["Super+E"], "files"),
         (&["Super+I"], "settings"),
+        (&["Super+B"], "browser"),
         (&["Alt+Tab"], "switch window"),
         (&["Super+Tab"], "bullet time"),
         (&["Super+← → ↑ ↓"], "move focus"),

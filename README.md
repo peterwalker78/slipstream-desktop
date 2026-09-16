@@ -103,6 +103,8 @@ The desktop keeps your focus. **[Glimmerwood](https://github.com/peterwalker78/g
 
 Read, learn or make something and it brightens and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. **Close the laptop and it recovers fastest of all.** It never blocks a page, never nags and never shames you - and like Slipstream, nothing about you ever leaves your computer.
 
+**Super+B opens a new browser window,** whichever browser you've set as your default.
+
 **Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop. There's more of the workshop to come.
 
 ## Everything else you'd expect

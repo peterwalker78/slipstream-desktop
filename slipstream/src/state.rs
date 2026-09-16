@@ -4956,7 +4956,7 @@ impl Slipstream {
         }
     }
 
-    /// Super+Return, Super+E and All settings: starts the app, or says what's missing.
+    /// Super+Return, Super+E, Super+B and All settings: starts the app, or says what's missing.
     pub fn launch_app(&mut self, app: crate::keys::App) {
         use crate::keys::App;
         self.concentration.asked(std::time::Instant::now());
@@ -4972,12 +4972,17 @@ impl Slipstream {
                     "No Settings app",
                     "slipstream-settings isn’t installed beside Slipstream or on the PATH.",
                 ),
+                App::Browser => self.show_toast(
+                    "No browser",
+                    "Choose a default browser in your settings, or set $BROWSER.",
+                ),
             },
             Err(launch::Failure::Spawn(err)) => {
                 let name = match app {
                     App::Terminal => "the terminal",
                     App::Files => "the file manager",
                     App::Settings => "Settings",
+                    App::Browser => "the browser",
                 };
                 self.show_toast(&format!("Couldn’t start {name}"), &err.to_string());
             }

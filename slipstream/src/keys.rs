@@ -132,6 +132,7 @@ impl Action {
             Action::Launch(App::Terminal) => "terminal",
             Action::Launch(App::Files) => "files",
             Action::Launch(App::Settings) => "settings",
+            Action::Launch(App::Browser) => "browser",
             Action::SwitchVt(_) => "virtual terminal",
             Action::Volume(_) => "volume up, down",
             Action::ToggleMute { microphone: false } => "mute",
@@ -277,6 +278,8 @@ pub enum App {
     Files,
     /// Super+I, as on Windows: Slipstream's own settings app.
     Settings,
+    /// Super+B: whichever browser the desktop is set to open a web page with.
+    Browser,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -392,6 +395,7 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::Return, Action::Launch(App::Terminal)),
         bind(mod_, Keysym::e, Action::Launch(App::Files)),
         bind(mod_, Keysym::i, Action::Launch(App::Settings)),
+        bind(mod_, Keysym::b, Action::Launch(App::Browser)),
         // The app explorer. Super+R opens it too, as Windows' Run: Enter on a query that matches
         // no app runs it as a command. Intent takes Super+R later.
         bind(mod_, Keysym::space, Action::Explorer),

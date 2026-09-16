@@ -4,6 +4,12 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Super+B opens a browser window.** Whichever browser the desktop is set to open a web page
+  with: `$BROWSER` if it names one, else the default the rest of the machine follows, read from
+  `mimeapps.list` and started the way its own desktop entry says to, so a browser installed as a
+  Flatpak works like any other. Nothing is preferred over anything else, and if no default is set
+  it says so rather than guessing.
+
 - **Sleep, Restart and Shut down work again on current systemd.** They were asked for with
   `loginctl suspend`, `loginctl reboot` and `loginctl poweroff`; systemd has since dropped those
   three commands, so on a machine with a recent systemd every one of them came back as "Unknown
