@@ -4,7 +4,7 @@
 
 **The Linux desktop the movies promised.**
 
-Windows that fall into green rain. Wallpapers that come alive the moment you walk away.<br>
+Apps that transfer to digital rain. Wallpapers that come alive the moment you walk away.<br>
 Nothing that interrupts you. Nothing that ever leaves your machine.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
