@@ -173,6 +173,7 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
 - **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied.
 - **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.
+- **Dark or light, chosen in Settings**, and every app that asks the desktop follows it the moment you change it: GTK and Qt apps, browsers and anything packaged as a Flatpak. Slipstream's own bar, panels and windows are dark either way.
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
 - **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
@@ -186,7 +187,7 @@ Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** an
 - Linux with **systemd-logind** or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
 - A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
 - Libraries as old as Debian 13's or newer. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
-- Recommended, each for one feature: Xwayland, xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
+- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark and light, file dialogs), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
 
 Your existing desktop stays installed and on the login screen: Slipstream is added beside it.
 

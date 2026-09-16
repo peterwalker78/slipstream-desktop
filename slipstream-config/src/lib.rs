@@ -3,6 +3,9 @@
 //! setting's name, default and meaning lives here, so they never disagree.
 //!
 //! ```toml
+//! [appearance]
+//! colour-scheme = "dark"
+//!
 //! [wallpaper]
 //! fade-after-secs = 120
 //! variations = ["slipstream"]
@@ -84,6 +87,7 @@ const HEADER: &str = "\
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Settings {
+    pub appearance: Appearance,
     pub wallpaper: Wallpaper,
     pub motion: Motion,
     pub display: Display,
@@ -95,6 +99,63 @@ pub struct Settings {
     pub clipboard: Clipboard,
     pub meter: Meter,
     pub workspaces: Workspaces,
+}
+
+/// What apps are told to colour themselves.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Appearance {
+    /// Dark or light, for every app that asks the desktop which to be. Slipstream's own chrome is
+    /// dark either way.
+    pub colour_scheme: ColourScheme,
+}
+
+/// Dark or light.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ColourScheme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl ColourScheme {
+    pub const ALL: [ColourScheme; 2] = [ColourScheme::Dark, ColourScheme::Light];
+
+    /// What it's called in the Settings app.
+    pub fn label(self) -> &'static str {
+        match self {
+            ColourScheme::Dark => "Dark",
+            ColourScheme::Light => "Light",
+        }
+    }
+
+    /// The number the appearance portal's `color-scheme` key uses. Its third value, 0 for no
+    /// preference, is never sent: Slipstream always has one.
+    pub fn portal_value(self) -> u32 {
+        match self {
+            ColourScheme::Dark => 1,
+            ColourScheme::Light => 2,
+        }
+    }
+
+    /// The same preference as GNOME's `color-scheme` setting spells it, which is what GTK reads
+    /// when it doesn't know the portal's own key.
+    pub fn gnome_value(self) -> &'static str {
+        match self {
+            ColourScheme::Dark => "prefer-dark",
+            ColourScheme::Light => "prefer-light",
+        }
+    }
+
+    /// A stock GTK theme of that colour, for apps that follow a theme's name rather than a
+    /// preference. Adwaita ships with GTK itself, so it is on every machine GTK apps run on.
+    pub fn gtk_theme(self) -> &'static str {
+        match self {
+            ColourScheme::Dark => "Adwaita-dark",
+            ColourScheme::Light => "Adwaita",
+        }
+    }
 }
 
 /// The living wallpaper, and when the UI steps aside for it.
@@ -1241,6 +1302,9 @@ mod tests {
     #[test]
     fn what_is_written_reads_back() {
         let settings = Settings {
+            appearance: Appearance {
+                colour_scheme: ColourScheme::Light,
+            },
             session: Session {
                 remember: true,
                 reopen_without_asking: true,

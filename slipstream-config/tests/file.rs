@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use slipstream_config::{
-    Borders, Clipboard, Display, Lock, Meter, Motion, NightSchedule, Notifications, Session,
-    Settings, Sound, Wallpaper, read, write,
+    Appearance, Borders, Clipboard, ColourScheme, Display, Lock, Meter, Motion, NightSchedule,
+    Notifications, Session, Settings, Sound, Wallpaper, read, write,
 };
 
 fn scratch(name: &str) -> PathBuf {
@@ -27,6 +27,9 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
     let dir = scratch("written");
     let path = dir.join("slipstream").join("settings.toml");
     let settings = Settings {
+        appearance: Appearance {
+            colour_scheme: ColourScheme::Light,
+        },
         wallpaper: Wallpaper {
             fade_after_secs: 600,
             variations: vec!["decode".into()],

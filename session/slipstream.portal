@@ -1,0 +1,12 @@
+# Slipstream answers the settings portal itself, which is how apps ask the desktop whether to be
+# dark or light. The compositor takes this bus name while the session runs; it can't be started
+# on demand, so nothing here makes it activatable.
+#
+# scripts/install-session puts this in /usr/local/share/xdg-desktop-portal/portals, for everyone
+# on the machine; scripts/update-session puts a copy in the data folder of the one home it builds
+# for, which xdg-desktop-portal reads first. UseIn is what portals released before portals.conf
+# read; slipstream-portals.conf says the same thing for the ones that came after.
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.slipstream
+Interfaces=org.freedesktop.impl.portal.Settings;
+UseIn=Slipstream

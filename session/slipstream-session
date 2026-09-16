@@ -32,6 +32,18 @@ if [ -z "${QT_QPA_PLATFORMTHEME:-}" ]; then
         fi
     done
 fi
+# GTK apps that aren't in a sandbox read their colours and dialogs from their own machinery
+# rather than from the portal unless this says otherwise, and Slipstream's dark and light setting
+# only travels by portal. Sandboxed apps already ask it; there is nothing to gain, and a file
+# dialog to lose, on a system with no portal installed at all.
+if [ -z "${GTK_USE_PORTAL:-}" ]; then
+    for dir in /usr/share /usr/local/share; do
+        if [ -e "$dir/dbus-1/services/org.freedesktop.portal.Desktop.service" ]; then
+            export GTK_USE_PORTAL=1
+            break
+        fi
+    done
+fi
 export MOZ_ENABLE_WAYLAND=1
 export ELECTRON_OZONE_PLATFORM_HINT=auto
 export _JAVA_AWT_WM_NONREPARENTING=1

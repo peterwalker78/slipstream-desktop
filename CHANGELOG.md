@@ -4,6 +4,15 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Dark or light is Slipstream's to set, and Settings → Appearance sets it.** Slipstream names
+  only itself as the desktop, so nothing on the machine was answering apps that asked which to be,
+  and they all came up light whatever the rest of the screen looked like. Slipstream now answers
+  that question itself, over the settings portal every toolkit already asks: GTK and Qt apps,
+  Firefox, Chromium and anything packaged as a Flatpak change the moment the setting does, without
+  restarting. Dark to begin with. Slipstream's own bar, panels and windows are dark either way.
+  The installer checks that the portal is there and new enough, offers to install it where it
+  isn't, and says plainly which apps won't follow on a system that can't manage it.
+
 - **Settings → Screens arranges your monitors.** Slipstream put every screen in a row, left to
   right, tops level, in whatever order they were plugged in, and there was no way to say otherwise
   — so a monitor sitting above the laptop, or to its left, was somewhere the pointer could only

@@ -125,8 +125,9 @@ put 644 "$repo/slipstream-settings/$entry" "$data/applications/$entry"
 put 644 "$repo/session/slipstream-session.target" "$config/systemd/user/slipstream-session.target"
 put 644 "$repo/session/slipstream-shutdown.target" "$config/systemd/user/slipstream-shutdown.target"
 systemctl --user daemon-reload 2>/dev/null || true
-# Screen sharing: which portal backend answers under Slipstream, and that backend's picker. Both
-# are per-user and named for Slipstream, so no root is needed and KDE's own session is untouched.
+# Which portal backend answers what under Slipstream: screen sharing's, and that backend's picker.
+# All of it is per-user and named for Slipstream, so no root is needed and no other desktop's
+# session is touched.
 # The same file scripts/install-session writes, with the default naming the portal backends this
 # machine has: Slipstream is its own desktop, so no other desktop's configuration is consulted.
 {
@@ -137,7 +138,7 @@ systemctl --user daemon-reload 2>/dev/null || true
             if [ -r "$file" ]; then
                 name=${file##*/}
                 case ${name%.portal} in
-                    wlr | gtk) continue ;;
+                    wlr | gtk | slipstream) continue ;;
                 esac
                 printf '%s\n' "${name%.portal}"
             fi
@@ -150,6 +151,10 @@ systemctl --user daemon-reload 2>/dev/null || true
     echo "# Every other interface goes to the backends installed here, in turn."
     echo "default=${backends:-*}"
 } | put_text 644 "$config/xdg-desktop-portal/slipstream-portals.conf"
+# Slipstream's own portal backend, which answers what apps ask about dark and light. The data
+# folder of this one home is the first place xdg-desktop-portal looks, so this needs no root and
+# takes the place of an installed release's copy in /usr/local for whoever runs update-session.
+put 644 "$repo/session/slipstream.portal" "$data/xdg-desktop-portal/portals/slipstream.portal"
 # The binary's path goes into a sed replacement, where \, & and the | delimiter are special.
 escaped=$(printf '%s\n' "$bin_dir/slipstream" | sed 's/[\\&|]/\\&/g')
 sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" \

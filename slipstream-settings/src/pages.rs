@@ -133,7 +133,34 @@ const CHANGE_CHOICES: [u64; 8] = [1, 2, 5, 10, 15, 30, 60, 0];
 fn appearance(store: &Store) -> gtk::Widget {
     let page = page(
         "Appearance",
-        "The colours Slipstream marks things with, and how much it moves",
+        "What apps are coloured, what Slipstream marks things with, and how much it moves",
+    );
+    let colours = group(&page, "Colours");
+    let schemes = slipstream_config::ColourScheme::ALL;
+    let names: Vec<&str> = schemes.iter().map(|scheme| scheme.label()).collect();
+    let scheme = gtk::DropDown::from_strings(&names);
+    let chosen = store.get().appearance.colour_scheme;
+    scheme.set_selected(
+        schemes
+            .iter()
+            .position(|held| *held == chosen)
+            .unwrap_or(0) as u32,
+    );
+    let scheme_store = store.clone();
+    scheme.connect_selected_notify(move |scheme| {
+        if let Some(chosen) = schemes.get(scheme.selected() as usize).copied() {
+            scheme_store.change(move |settings| settings.appearance.colour_scheme = chosen);
+        }
+    });
+    row(
+        &colours,
+        "Apps",
+        Some(
+            "Which one apps are asked for, and they change without restarting. Slipstream's own \
+             bar, panels and windows are dark either way, and an app that never asks the desktop \
+             keeps whatever colours it was set to.",
+        ),
+        &scheme,
     );
     let borders = group(&page, "Border colours");
     colour_row(

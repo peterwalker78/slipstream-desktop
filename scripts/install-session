@@ -314,6 +314,10 @@ settings_entry=/usr/local/share/applications/$settings_entry_name
 session_target=/usr/local/lib/systemd/user/slipstream-session.target
 shutdown_target=/usr/local/lib/systemd/user/slipstream-shutdown.target
 portals_conf=/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
+# Slipstream's own portal backend: the compositor answers the settings portal, which is how apps
+# are told dark or light. xdg-desktop-portal finds this in any of XDG_DATA_DIRS, /usr/local/share
+# among them.
+portal_backend=/usr/local/share/xdg-desktop-portal/portals/slipstream.portal
 wlr_conf=/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 
 ours() {
@@ -322,7 +326,7 @@ ours() {
             | /etc/lightdm/lightdm.conf.d/50-slipstream.conf | "$manifest" \
             | "$installed_bin" | "$installed_settings" | "$settings_entry" \
             | "$session_target" | "$shutdown_target" \
-            | "$portals_conf" | "$wlr_conf") return 0 ;;
+            | "$portals_conf" | "$portal_backend" | "$wlr_conf") return 0 ;;
     esac
     return 1
 }
@@ -337,6 +341,9 @@ written_by_slipstream() {
         "$session_launcher") grep -q "Starts Slipstream as a login session" "$wbs_file" 2>/dev/null ;;
         */slipstream.desktop) grep -q "^Exec=/usr/local/bin/slipstream-session" "$wbs_file" 2>/dev/null ;;
         "$pam_file" | */50-slipstream.conf) grep -qF "$pam_marker" "$wbs_file" 2>/dev/null ;;
+        */slipstream.portal)
+            grep -q "^DBusName=.*impl.portal.desktop.slipstream" "$wbs_file" 2>/dev/null
+            ;;
         *) return 0 ;;
     esac
 }
@@ -448,6 +455,52 @@ missing_libraries() {
     for ml_program in "$@"; do
         ldd "$ml_program" 2>/dev/null | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p'
     done | sed '/^$/d' | sort -u
+}
+
+# xdg-desktop-portal's own program, wherever this system keeps it; nothing when it isn't
+# installed at all. Tests set SLIPSTREAM_TEST_XDP to a path of their own, empty for "no portal".
+xdp_program() {
+    if [ -n "${SLIPSTREAM_TEST_XDP+set}" ]; then
+        printf '%s\n' "$SLIPSTREAM_TEST_XDP"
+        return 0
+    fi
+    for xp_dir in /usr/libexec /usr/lib /usr/local/libexec /usr/local/lib; do
+        if [ -x "$xp_dir/xdg-desktop-portal" ]; then
+            printf '%s\n' "$xp_dir/xdg-desktop-portal"
+            return 0
+        fi
+    done
+}
+
+# What version it is. Asking the program is the same question on every distribution, which asking
+# a package manager isn't.
+xdp_version() {
+    if [ -n "${SLIPSTREAM_TEST_XDP_VERSION+set}" ]; then
+        printf '%s\n' "$SLIPSTREAM_TEST_XDP_VERSION"
+        return 0
+    fi
+    xv_program=$(xdp_program)
+    [ -n "$xv_program" ] || return 0
+    "$xv_program" --version 2>/dev/null | head -n1 | awk '{ print $NF }'
+}
+
+# Whether Qt can take its colours from the portal here: the platform theme plugin that does it
+# ships with Qt on some systems and in a package of its own on others, under a different name on
+# each, so this looks for the plugin rather than guessing at a package. session/slipstream-session
+# looks in the same places.
+qt_portal_theme() {
+    qpt_dirs=${SLIPSTREAM_TEST_QT_DIRS:-}
+    if [ -z "$qpt_dirs" ]; then
+        qpt_dirs="/usr/lib64 /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu"
+    fi
+    for qpt_dir in $qpt_dirs; do
+        for qpt_qt in qt6 qt5; do
+            if [ -e "$qpt_dir/$qpt_qt/plugins/platformthemes/libqxdgdesktopportal.so" ]; then
+                return 0
+            fi
+        done
+    done
+    return 1
 }
 
 # What version of xdg-desktop-portal-wlr is installed, if this system can say.
@@ -569,7 +622,7 @@ check() {
         problem "NixOS: a script that writes into /usr is the wrong shape here. Slipstream would
     need a NixOS module (services.displayManager.sessionPackages), which doesn't exist yet."
     fi
-    for file in session/slipstream-session session/slipstream.desktop; do
+    for file in session/slipstream-session session/slipstream.desktop session/slipstream.portal; do
         if ! [ -r "$repo/$file" ]; then
             problem "$repo/$file is missing: run this from a complete copy of Slipstream."
         fi
@@ -641,6 +694,25 @@ check() {
 
     # What individual features need. None of these stops the session working.
     have Xwayland || lacks xwayland "Xwayland: X11 apps (Steam, older games) won't open"
+    # The portal is how apps ask the desktop anything, dark or light among it. Slipstream answers
+    # that one itself, but only through the portal: with no portal installed there is nothing to
+    # ask, and apps keep the colours they default to.
+    if [ -z "$(xdp_program)" ]; then
+        lacks portal "xdg-desktop-portal: apps stay light, and file dialogs and secrets fall back"
+    else
+        xdp_have=$(xdp_version)
+        # Portals older than 1.17 only look for backends in /usr/share, which isn't writable on an
+        # atomic system and isn't where a program installed into /usr/local belongs.
+        if [ -n "$xdp_have" ] && ! at_least 1.17 "$xdp_have"; then
+            limits="$limits
+  - dark and light: this system's xdg-desktop-portal is $xdp_have, and 1.17 or newer is needed to
+    find a backend outside /usr/share. Apps will keep their own colours."
+        elif ! qt_portal_theme; then
+            limits="$limits
+  - dark and light in Qt apps: Qt's xdgdesktopportal platform theme isn't installed, so Qt apps
+    keep their own colours. GTK apps, browsers and anything in a Flatpak follow the setting."
+        fi
+    fi
     if ! portal_backend_installed wlr; then
         lacks portal-wlr "xdg-desktop-portal-wlr: no screen sharing (Discord, Meet, OBS)"
     elif ! at_least 0.8 "$(xdpw_version)"; then
@@ -753,9 +825,9 @@ report() {
     fi
 }
 
-# slipstream-portals.conf as installed. Slipstream answers screen sharing itself, through the
-# wlroots backend; everything else (file choosers, secrets, dark mode, app chooser) goes to the
-# portal backends this machine happens to have. They are listed in the order they are found,
+# slipstream-portals.conf as installed. Slipstream answers screen sharing through the wlroots
+# backend and dark or light itself; everything else (file choosers, secrets, app chooser) goes to
+# the portal backends this machine happens to have. They are listed in the order they are found,
 # which is alphabetical and so favours no distribution, except that gtk goes last: it is the
 # generic backend, the one any desktop can fall back to, so anything more specific gets asked
 # first. A backend that can't answer an interface passes it to the next one in the list.
@@ -764,9 +836,10 @@ installed_portal_backends() {
     for ipb_file in $(for ipb_dir in $portal_dirs; do echo "$ipb_dir"/*.portal; done); do
         if [ -r "$ipb_file" ]; then
             ipb_name=${ipb_file##*/}
-            # wlr is named for screen sharing above; it implements nothing else.
+            # wlr is named for screen sharing above and slipstream for dark and light;
+            # neither implements anything else.
             case ${ipb_name%.portal} in
-                wlr | gtk) continue ;;
+                wlr | gtk | slipstream) continue ;;
             esac
             printf '%s\n' "${ipb_name%.portal}"
         fi
@@ -950,7 +1023,8 @@ if [ "$mode" = uninstall ]; then
         {
             manifest_paths
             printf '%s\n' "$session_launcher" /usr/local/share/wayland-sessions/slipstream.desktop \
-                "$session_entry" "$pam_file" "$portals_conf" "$wlr_conf" "$installed_bin" \
+                "$session_entry" "$pam_file" "$portals_conf" "$portal_backend" \
+                "$wlr_conf" "$installed_bin" \
                 "$installed_settings" "$settings_entry" "$session_target" "$shutdown_target" \
                 "$manifest"
         } | sed '/^$/d' | sort -u
@@ -975,6 +1049,7 @@ $data/applications/io.github.peterwalker78.SlipstreamSettings.desktop
 $config/systemd/user/slipstream-session.target
 $config/systemd/user/slipstream-shutdown.target
 $config/xdg-desktop-portal/slipstream-portals.conf
+$data/xdg-desktop-portal/portals/slipstream.portal
 $config/xdg-desktop-portal-wlr/Slipstream"
     bold "This removes:"
     printf '%s%s\n' "$system_files" "$user_files" | while IFS= read -r f; do
@@ -1125,6 +1200,8 @@ if [ -n "$programs" ]; then
     put 644 "$repo/session/slipstream-shutdown.target" "$shutdown_target"
     write_portals_conf >"$scratch/portals.conf"
     put 644 "$scratch/portals.conf" "$portals_conf"
+    # Slipstream's own settings portal backend, so apps can be told dark or light.
+    put 644 "$repo/session/slipstream.portal" "$portal_backend"
     # The picker the screen-sharing portal runs is this installed program.
     escaped=$(printf '%s\n' "$installed_bin" | sed 's/[\\&|]/\\&/g')
     sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" >"$scratch/wlr.conf"

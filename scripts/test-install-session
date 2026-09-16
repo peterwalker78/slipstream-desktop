@@ -26,6 +26,11 @@ fresh() {
     : >"$work/pam/system-auth"
     : >"$work/pam/login"
     printf 'ID=fedora\nPRETTY_NAME="Fedora Linux 44"\n' >"$work/os-release"
+    # A machine with xdg-desktop-portal and Qt's portal platform theme, unless a case says
+    # otherwise. Unset here because a variable set in front of a function call outlives it.
+    unset XDP XDP_VERSION QT_DIRS
+    mkdir -p "$work/qt/qt6/plugins/platformthemes"
+    : >"$work/qt/qt6/plugins/platformthemes/libqxdgdesktopportal.so"
 }
 
 run() {
@@ -38,6 +43,9 @@ run() {
         SLIPSTREAM_TEST_OSTREE="${OSTREE:-$work/not-atomic}" \
         SLIPSTREAM_TEST_DM="${DM-plasmalogin}" \
         SLIPSTREAM_TEST_SEAT=yes \
+        SLIPSTREAM_TEST_XDP="${XDP-/usr/libexec/xdg-desktop-portal}" \
+        SLIPSTREAM_TEST_XDP_VERSION="${XDP_VERSION-1.22.1}" \
+        SLIPSTREAM_TEST_QT_DIRS="${QT_DIRS-$work/qt}" \
         ${FAIL_AT:+SLIPSTREAM_TEST_FAIL_AT=$FAIL_AT} \
         ${PORTAL_DIR:+SLIPSTREAM_TEST_PORTAL_DIR=$PORTAL_DIR} \
         ${XDPW:+SLIPSTREAM_TEST_XDPW_VERSION=$XDPW} \
@@ -239,7 +247,8 @@ case_name="a copy in a folder with spaces"
 fresh
 mkdir -p "$work/copy with spaces/scripts" "$work/copy with spaces/session"
 cp "$repo/scripts/install-session" "$work/copy with spaces/scripts/"
-cp "$repo/session/slipstream-session" "$repo/session/slipstream.desktop" "$work/copy with spaces/session/"
+cp "$repo/session/slipstream-session" "$repo/session/slipstream.desktop" \
+    "$repo/session/slipstream.portal" "$work/copy with spaces/session/"
 SCRIPT="$work/copy with spaces/scripts/install-session" expect_status 0 || true
 [ "$(cksum <"$entry")" = "$(cksum <"$repo/session/slipstream.desktop")" ] || fail "$case_name: entry differs"
 
@@ -278,6 +287,7 @@ installed_settings=$r/usr/local/bin/slipstream-settings
 portals_conf=$r/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
 wlr_conf=$r/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 unit=$r/usr/local/lib/systemd/user/slipstream-session.target
+portal_backend=$r/usr/local/share/xdg-desktop-portal/portals/slipstream.portal
 
 case_name="a download installs the programs where everyone can run them"
 fresh
@@ -294,10 +304,31 @@ grep -q "^chooser_cmd=/usr/local/bin/slipstream --choose-share$" "$wlr_conf" \
     || fail "$case_name: the sharing picker isn't the installed program"
 grep -q "^/usr/local/bin/slipstream$" "$manifest" || fail "$case_name: the manifest doesn't list the program"
 
+case_name="a download installs the backend that tells apps dark or light"
+fresh
+make_download
+make_portals wlr kde gtk
+PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+grep -q "^DBusName=org.freedesktop.impl.portal.desktop.slipstream$" "$portal_backend" \
+    || fail "$case_name: no settings portal backend at $portal_backend"
+grep -q "^org.freedesktop.impl.portal.Settings=slipstream;\*$" "$portals_conf" \
+    || fail "$case_name: Slipstream isn't asked about dark and light first"
+grep -q "portals/slipstream.portal$" "$manifest" || fail "$case_name: not in the manifest"
+
+case_name="Slipstream's own backend stays out of the list of the others"
+fresh
+make_download
+make_portals wlr kde gtk slipstream
+PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+grep -q "^default=kde;gtk$" "$portals_conf" || fail "$case_name: $(grep '^default' "$portals_conf")"
+
 case_name="uninstalling a download takes the programs with it"
 PORTAL_DIR=$work/portals SCRIPT=$download/scripts/install-session \
     expect_status 0 --uninstall --yes || true
-for f in "$installed_bin" "$installed_settings" "$unit" "$portals_conf" "$wlr_conf"; do
+for f in "$installed_bin" "$installed_settings" "$unit" "$portals_conf" "$portal_backend" \
+    "$wlr_conf"; do
     if [ -e "$f" ]; then
         fail "$case_name: $f still there"
     fi
@@ -321,6 +352,37 @@ grep -q "0.8 or newer" "$work/out" || fail "$case_name: nothing said about the v
 if [ -e "$work/packages" ] && grep -q xdg-desktop-portal-wlr "$work/packages"; then
     fail "$case_name: installed a package that wouldn't have helped"
 fi
+
+case_name="no portal at all is offered as a package"
+fresh
+make_download
+make_portals wlr gtk
+rm -f "$work/packages"
+XDP='' PORTAL_DIR=$work/portals XDPW=0.8.4 PKG_LOG=$work/packages \
+    SCRIPT=$download/scripts/install-session expect_status 0 --yes || true
+grep -qE ' xdg-desktop-portal( |$)' "$work/packages" \
+    || fail "$case_name: $(cat "$work/packages" 2>/dev/null)"
+
+case_name="a portal too old to find the backend is explained, not installed over"
+fresh
+make_download
+make_portals wlr gtk
+rm -f "$work/packages"
+XDP_VERSION=1.16.0 PORTAL_DIR=$work/portals XDPW=0.8.4 PKG_LOG=$work/packages \
+    SCRIPT=$download/scripts/install-session expect_status 0 --yes || true
+grep -q "1.17 or newer" "$work/out" || fail "$case_name: nothing said about the portal's version"
+if [ -e "$work/packages" ] && grep -qE ' xdg-desktop-portal( |$)' "$work/packages"; then
+    fail "$case_name: installed a package that wouldn't have helped"
+fi
+
+case_name="Qt without the portal's platform theme is said so"
+fresh
+make_download
+make_portals wlr gtk
+mkdir -p "$work/no-qt"
+QT_DIRS=$work/no-qt PORTAL_DIR=$work/portals XDPW=0.8.4 \
+    SCRIPT=$download/scripts/install-session expect_status 0 --yes || true
+grep -q "dark and light in Qt apps" "$work/out" || fail "$case_name: nothing said about Qt"
 
 case_name="a machine that logs in by itself is told how to reach the session list"
 fresh

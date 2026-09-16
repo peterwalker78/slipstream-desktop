@@ -4741,6 +4741,8 @@ impl Slipstream {
             self.night.schedule_changed();
         }
         self.set_reduced_motion(settings.motion.reduced);
+        // Apps hear about dark and light over the settings portal, and change without restarting.
+        crate::appearance::set(settings.appearance.colour_scheme);
         meter::configure(&settings.meter);
         let now = self.clock.tick();
         self.wallpaper = settings.wallpaper.clone();

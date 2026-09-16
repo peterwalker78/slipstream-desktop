@@ -9,6 +9,7 @@
 
 mod alert;
 mod anim;
+mod appearance;
 mod apps;
 mod auth;
 mod bar;
@@ -270,6 +271,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .map_err(|err| err.error)?;
         notify::serve(sender);
+    }
+    // Dark or light, for every app that asks the desktop. Nested, the desktop Slipstream runs
+    // inside already answers that for its own apps.
+    if session || std::env::var("SLIPSTREAM_APPEARANCE").as_deref() == Ok("1") {
+        appearance::serve(state.settings.appearance.colour_scheme);
     }
 
     if hardware {
