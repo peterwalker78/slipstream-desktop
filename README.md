@@ -97,13 +97,15 @@ Tick as many as you like in Settings → Wallpaper, which has moving previews, a
 
 ## Minimise into the Matrix
 
-<img src="assets/readme/rain.webp" alt="Super+M on a terminal: the window shrinks away to the right edge of the screen and pours into a stream of code rain, under the icon of the app it came from. Two streams are already running beside it, the busy one falling fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="960">
+<img src="assets/readme/rain.webp" alt="The right edge of the screen: a window pours into a new stream of code rain beside two that are already running, each under the icon of the app it came from, and a moment later it comes back out. The busy app's stream falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
 
 Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
 
 The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
 
 It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
+
+<br clear="right">
 
 ## Bullet time
 
