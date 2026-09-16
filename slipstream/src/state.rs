@@ -2800,9 +2800,10 @@ impl Slipstream {
         tracing::info!(workspace = index + 1, follow, "moved window to workspace");
     }
 
-    /// Wall-clock seconds since start, for animations that must never be slowed.
+    /// Seconds since start, for animations that bullet time must never slow. A recording's
+    /// `slow:` steps these too, so the whole picture stays together.
     pub fn wall(&self) -> f64 {
-        self.start_time.elapsed().as_secs_f64()
+        self.clock.wall()
     }
 
     /// Where the windows of workspace `index` go, gravity included: in the area of the screen
@@ -5217,7 +5218,7 @@ impl Slipstream {
 
     /// Runs the timed debug steps now due. Screenshots wait for the next frame.
     pub fn run_due_debug_steps(&mut self) {
-        for step in self.debug.due(self.start_time.elapsed()) {
+        for step in self.debug.due(std::time::Duration::from_secs_f64(self.clock.wall())) {
             tracing::info!(?step, "debug step");
             // While locked, only steps that go through the same paths as the keyboard, the
             // pointer and apps do anything, so a script can't reach round the lock.
@@ -5252,6 +5253,7 @@ impl Slipstream {
                 debug::Step::Fade(value) => {
                     self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
                 }
+                debug::Step::Slow(step) => self.clock.set_step(step),
                 debug::Step::AddScreen(w, h) => self.add_made_up_screen(w, h),
                 debug::Step::DropScreen(name) => self.drop_made_up_screen(&name),
                 debug::Step::Lid(closed) => self.lid_switched(closed),

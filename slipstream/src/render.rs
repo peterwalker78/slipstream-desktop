@@ -652,7 +652,7 @@ pub fn output_elements(
         .unwrap_or_else(|| state.new_saver());
     let screen_index = state.screens.index_of(output);
     let scale = Scale::from(output.current_scale().fractional_scale());
-    let now = state.clock.tick();
+    let now = state.clock.frame();
     // While locked, the lock is all there is: nothing below reads a window.
     if state.lock.is_some() {
         let elements = lock_elements(

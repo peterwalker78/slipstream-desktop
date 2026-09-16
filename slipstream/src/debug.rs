@@ -134,6 +134,10 @@ pub enum Step {
     /// The fade to the wallpaper held this far along, 0 (the UI) to 1 (the wallpaper), so its
     /// frames can be looked at one by one.
     Fade(f32),
+    /// Count each frame drawn from here on as this many milliseconds, whatever it really cost,
+    /// so a renderer that manages a dozen frames a second still lays them a fortieth of a second
+    /// apart through an animation. The script's own times step with it; 0 is real time again.
+    Slow(f64),
     /// The volume or brightness display, as a keypress would put it up. It only draws the card:
     /// nothing is muted and no level is changed, so a nested run can't touch the real machine.
     Osd(String),
@@ -384,6 +388,7 @@ impl Script {
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
                     ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),
+                    ("slow", Some(ms)) => Step::Slow(ms.trim().parse::<f64>().ok()? / 1000.0),
                     ("osd", Some(what)) => Step::Osd(what.trim().to_string()),
                     ("screen", Some(size)) => {
                         let (w, h) = size.trim().split_once('x')?;
@@ -460,6 +465,19 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_recording_asks_for_a_stepped_clock_by_its_milliseconds() {
+        let script = Script::parse("1000:slow:20;2000:slow:0");
+        assert_eq!(
+            script.steps,
+            vec![
+                (Duration::from_millis(1000), Step::Slow(0.02)),
+                (Duration::from_millis(2000), Step::Slow(0.0)),
+            ]
+        );
+        assert!(Script::parse("1000:slow:slowly").steps.is_empty());
+    }
 
     #[test]
     fn a_chord_presses_in_order_and_releases_in_reverse() {

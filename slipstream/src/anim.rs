@@ -34,6 +34,25 @@ enum Phase {
 #[derive(Debug, Clone)]
 pub struct Clock {
     started: Instant,
+    /// The real seconds read last and the wall seconds they came to. Kept as a cell so reading
+    /// the time takes a shared borrow, as every other reading does.
+    recorded: std::cell::Cell<(f64, f64)>,
+    /// A recording's fixed step (`slow:`): a drawn frame is worth this many seconds, however long
+    /// it really took to draw. None the rest of the time, when real seconds are what count.
+    ///
+    /// A software renderer manages a dozen frames a second, so a third-of-a-second animation is
+    /// over in three or four of them and no amount of screenshotting finds any more; worse, the
+    /// one frame that costs a second of real time lands most of the way through the animation, so
+    /// what frames there are bunch up at the end. Stepping the clock instead lays them wherever
+    /// the recording asks, however slow the drawing is, and the debug script's own timeline steps
+    /// with it, so a shot every step catches every frame exactly once.
+    ///
+    /// It is the clock the compositor draws by, not the one the world runs on: how long since
+    /// someone last touched a key, how long a program has been starting and how long until the
+    /// screen fades are all real seconds and stay real. So a scene is set up at full speed and
+    /// stepped only over the moment being recorded — and only while something is animating, since
+    /// a stepped clock moves when a frame is drawn and a still screen draws nothing.
+    step: Option<f64>,
     /// Wall seconds since start, at the last tick.
     wall: f64,
     /// Animation seconds, at the last tick.
@@ -47,6 +66,8 @@ impl Clock {
     pub fn new(reduced_motion: bool) -> Self {
         Self {
             started: Instant::now(),
+            recorded: std::cell::Cell::new((0.0, 0.0)),
+            step: None,
             wall: 0.0,
             anim: 0.0,
             phase: Phase::Normal,
@@ -54,10 +75,52 @@ impl Clock {
         }
     }
 
-    /// Advances to the present and returns the animation time.
+    /// Wall time as the compositor is living it: real seconds, or a recording's steps. Whatever
+    /// is timed in seconds rather than animation seconds reads this, and the debug script does
+    /// too, so a `slow:` carries all of it rather than half of it.
+    pub fn wall(&self) -> f64 {
+        self.wall_at(self.started.elapsed().as_secs_f64())
+    }
+
+    /// `wall()` with the reading handed in. A stepped clock stands still between frames.
+    fn wall_at(&self, real: f64) -> f64 {
+        let (read, wall) = self.recorded.get();
+        if self.step.is_some() {
+            return wall;
+        }
+        let wall = wall + (real - read).max(0.0);
+        self.recorded.set((real, wall));
+        wall
+    }
+
+    /// Steps by `step` seconds a frame from now on, for a recording; zero puts it back on real
+    /// time. Either way the time it reads carries on from where it was.
+    pub fn set_step(&mut self, step: f64) {
+        self.set_step_at(self.started.elapsed().as_secs_f64(), step);
+    }
+
+    /// `set_step` with the reading handed in.
+    fn set_step_at(&mut self, real: f64, step: f64) {
+        // Close off the stretch just gone before the rule for it changes.
+        let wall = self.wall_at(real);
+        self.recorded.set((real, wall));
+        self.step = (step > 0.0).then(|| step.clamp(0.001, 1.0));
+    }
+
+    /// Advances to the present and returns the animation time. A stepped clock stands still
+    /// here: only drawing a frame moves it.
     pub fn tick(&mut self) -> f64 {
-        let wall = self.started.elapsed().as_secs_f64();
+        let wall = self.wall();
         self.advance_to(wall)
+    }
+
+    /// A frame is being drawn: the one thing that moves a stepped clock on.
+    pub fn frame(&mut self) -> f64 {
+        if let Some(step) = self.step {
+            let (real, wall) = self.recorded.get();
+            self.recorded.set((real, wall + step));
+        }
+        self.tick()
     }
 
     /// The animation time as of the last tick.
@@ -398,6 +461,38 @@ mod tests {
         assert!(
             (almost - (t0 + window)).abs() < 1e-3,
             "position jumped at the end"
+        );
+    }
+
+    #[test]
+    fn a_stepped_clock_counts_frames_drawn_rather_than_seconds_passing() {
+        let mut clock = Clock::new(false);
+        assert_eq!(clock.wall_at(2.0), 2.0, "real seconds until asked otherwise");
+        clock.set_step_at(2.0, 0.02);
+        // However long the frame really took — here a whole second, as the first frame of
+        // bullet time can — it is worth one step and no more.
+        clock.frame();
+        assert!((clock.wall_at(3.0) - 2.02).abs() < 1e-9, "one frame, one step");
+        clock.frame();
+        clock.frame();
+        assert!((clock.wall_at(9.0) - 2.06).abs() < 1e-9, "three, three steps");
+        clock.set_step_at(9.0, 0.0);
+        assert!(
+            (clock.wall_at(9.5) - 2.56).abs() < 1e-9,
+            "real seconds again afterwards, carrying on from where it was"
+        );
+    }
+
+    #[test]
+    fn a_stepped_clock_steps_the_animations_with_it() {
+        let mut clock = Clock::new(false);
+        clock.set_step_at(0.0, 0.04);
+        for _ in 0..25 {
+            clock.frame();
+        }
+        assert!(
+            (clock.now() - 1.0).abs() < 1e-9,
+            "twenty-five frames at a fortieth each moved the animations on by a second"
         );
     }
 
