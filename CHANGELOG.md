@@ -4,6 +4,14 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **Sleep, Restart and Shut down work again on current systemd.** They were asked for with
+  `loginctl suspend`, `loginctl reboot` and `loginctl poweroff`; systemd has since dropped those
+  three commands, so on a machine with a recent systemd every one of them came back as "Unknown
+  command verb" and nothing happened — Restart and Shut down after the desktop had already closed
+  every app. Slipstream now asks logind itself, over the system bus, which systemd-logind and
+  elogind have both answered the same way for years and which no longer depends on which commands
+  a particular version of `loginctl` happens to ship.
+
 - **Dark or light is Slipstream's to set, and Settings → Appearance sets it.** Slipstream names
   only itself as the desktop, so nothing on the machine was answering apps that asked which to be,
   and they all came up light whatever the rest of the screen looked like. Slipstream now answers

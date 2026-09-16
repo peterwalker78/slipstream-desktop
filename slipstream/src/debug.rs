@@ -43,7 +43,7 @@
 //! it keeps its last selection, which a mistimed step would otherwise press.
 //!
 //! Nested, commands that change the machine are only logged (`launch::machine_commands_held`):
-//! `restart` and `shutdown` end in `nested: not running ["loginctl", …]` and the compositor stops
+//! `restart` and `shutdown` end in `nested: not asking logind` and the compositor stops
 //! as Log out does, and `SLIPSTREAM_POWER_REFUSE=1` has the request refused instead, as an
 //! inhibitor would. Outside a nested run they really restart and shut the machine down. `quit`
 //! stops the event loop on the spot, as the watchdog does, and never goes near the overlay: every

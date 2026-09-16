@@ -24,10 +24,10 @@ use smithay::reexports::calloop::channel::Sender;
 
 /// logind answers locally, at once; a bus that doesn't gets a deadline rather than a thread that
 /// waits for ever.
-const TIMEOUT: Duration = Duration::from_secs(2);
-const LOGIND: &str = "org.freedesktop.login1";
-const MANAGER_PATH: &str = "/org/freedesktop/login1";
-const MANAGER: &str = "org.freedesktop.login1.Manager";
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const LOGIND: &str = "org.freedesktop.login1";
+pub(crate) const MANAGER_PATH: &str = "/org/freedesktop/login1";
+pub(crate) const MANAGER: &str = "org.freedesktop.login1.Manager";
 const SESSION: &str = "org.freedesktop.login1.Session";
 /// How long a screen has to draw the lock after logind says the machine is about to sleep.
 pub const SLEEP_GRACE: f64 = 1.0;

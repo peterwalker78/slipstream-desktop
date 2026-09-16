@@ -3751,7 +3751,7 @@ impl Slipstream {
         crate::power::request(
             power,
             crate::power::Answerer::current(),
-            crate::power::run,
+            crate::power::ask,
             move |answer| {
                 let _ = answers.send(answer);
             },

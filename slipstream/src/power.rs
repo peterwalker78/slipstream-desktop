@@ -1,21 +1,24 @@
 //! Sleep, Restart and Shut down, handed to logind, and what happens when logind says no.
 //!
-//! `loginctl reboot` can be refused: another session is logged in and there is no agent to ask
-//! for a password, or something holds a shutdown inhibitor (a system update, say). By then the way
-//! out has closed every app and faded the screen to black, so a refusal that nobody hears of
-//! leaves a black, empty session with no way back. The command runs on its own thread, and its
-//! exit status comes back to the event loop, which clears the way out and says what happened.
+//! The request goes to logind on the system bus — `Suspend`, `Reboot` and `PowerOff` on
+//! `org.freedesktop.login1.Manager` — which systemd-logind and elogind both answer. `loginctl`
+//! once had the same three as commands of its own, and newer systemd has dropped them, so asking
+//! it would fail on a machine where logind itself is perfectly willing.
 //!
-//! A nested compositor never asks logind: a stand-in logs the command and grants it, and the
+//! logind can refuse: another session is logged in and there is no agent to ask for a password, or
+//! something holds a shutdown inhibitor (a system update, say). By then the way out has closed
+//! every app and faded the screen to black, so a refusal that nobody hears of leaves a black,
+//! empty session with no way back. The call is made on a thread of its own, and what logind said
+//! comes back to the event loop, which clears the way out and says what happened.
+//!
+//! A nested compositor never asks logind: a stand-in logs the request and grants it, and the
 //! compositor then stops as Log out does, or refuses it the way an inhibitor would, so that path
 //! can be checked without a person at the laptop.
 
-use std::{
-    os::unix::process::ExitStatusExt,
-    process::{ExitStatus, Output, Stdio},
+use crate::{
+    exit::Intent,
+    logind::{LOGIND, MANAGER, MANAGER_PATH, TIMEOUT},
 };
-
-use crate::exit::Intent;
 
 /// What logind is asked to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,14 +37,13 @@ impl Power {
         }
     }
 
-    /// The command, which works with systemd-logind and elogind alike.
-    pub fn command(self) -> Vec<String> {
-        let verb = match self {
-            Power::Sleep => "suspend",
-            Power::Restart => "reboot",
-            Power::ShutDown => "poweroff",
-        };
-        vec!["loginctl".to_string(), verb.to_string()]
+    /// The method on logind's manager, which systemd-logind and elogind share.
+    pub fn method(self) -> &'static str {
+        match self {
+            Power::Sleep => "Suspend",
+            Power::Restart => "Reboot",
+            Power::ShutDown => "PowerOff",
+        }
     }
 
     fn name(self) -> &'static str {
@@ -62,7 +64,7 @@ impl Power {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refused {
     pub power: Power,
-    /// What loginctl said, or why it couldn't run: one line.
+    /// What logind said, or why it couldn't be asked: one line.
     pub reason: String,
 }
 
@@ -78,27 +80,12 @@ impl Refused {
     }
 }
 
-/// What came of running the command: nothing to report, or a refusal.
-pub fn outcome(power: Power, result: std::io::Result<Output>) -> Option<Refused> {
-    let reason = match result {
-        Ok(output) if output.status.success() => return None,
-        Ok(output) => String::from_utf8_lossy(&output.stderr)
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("loginctl stopped with {}", output.status)),
-        Err(err) => format!("loginctl couldn't be run: {err}"),
-    };
-    Some(Refused { power, reason })
-}
-
 /// Who answers a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answerer {
-    /// logind, through the runner.
+    /// logind, on the system bus.
     Logind,
-    /// A nested run's stand-in, which runs nothing: it grants the request, or with `refuse`
+    /// A nested run's stand-in, which asks nothing: it grants the request, or with `refuse`
     /// turns it down as an inhibitor would (`SLIPSTREAM_POWER_REFUSE=1`).
     StandIn { refuse: bool },
 }
@@ -125,58 +112,67 @@ pub enum Answer {
     StoodIn(Power),
 }
 
-/// Runs `power`'s command on a thread and calls `answered` there with anything to report.
-/// `runner` is the real command in the session and a stand-in in tests; the stand-in answerer
-/// never calls it.
+/// Asks for `power` on a thread and calls `answered` there with anything to report. `ask` reaches
+/// logind in the session and stands in for it in tests; the stand-in answerer never calls it.
 pub fn request(
     power: Power,
     answerer: Answerer,
-    runner: impl FnOnce(&[String]) -> std::io::Result<Output> + Send + 'static,
+    ask: impl FnOnce(Power) -> Result<(), String> + Send + 'static,
     answered: impl FnOnce(Answer) + Send + 'static,
 ) {
     std::thread::spawn(move || {
-        let command = power.command();
         let result = match answerer {
-            Answerer::Logind => runner(&command),
-            Answerer::StandIn { refuse } => stand_in(&command, refuse),
+            Answerer::Logind => ask(power),
+            Answerer::StandIn { refuse } => stand_in(power, refuse),
         };
-        match outcome(power, result) {
-            Some(refusal) => {
-                tracing::warn!(?command, reason = refusal.reason, "logind refused");
-                answered(Answer::Refused(refusal));
+        match result {
+            Err(reason) => {
+                tracing::warn!(method = power.method(), reason, "logind refused");
+                answered(Answer::Refused(Refused { power, reason }));
             }
-            None if answerer != Answerer::Logind => answered(Answer::StoodIn(power)),
-            None => {}
+            Ok(()) if answerer != Answerer::Logind => answered(Answer::StoodIn(power)),
+            Ok(()) => {}
         }
     });
 }
 
-/// What loginctl would have said, without running it.
-fn stand_in(command: &[String], refuse: bool) -> std::io::Result<Output> {
-    tracing::info!("nested: not running {command:?}");
-    let (code, stderr) = if refuse {
-        (1, "Operation inhibited by \"test\"")
+/// What logind would have said, without asking it.
+fn stand_in(power: Power, refuse: bool) -> Result<(), String> {
+    tracing::info!(method = power.method(), "nested: not asking logind");
+    if refuse {
+        Err("Operation inhibited by \"test\"".to_string())
     } else {
-        (0, "")
-    };
-    Ok(Output {
-        status: ExitStatus::from_raw(code << 8),
-        stdout: Vec::new(),
-        stderr: stderr.as_bytes().to_vec(),
-    })
+        Ok(())
+    }
 }
 
-/// Runs a command to completion, keeping what it printed on its error stream.
-pub fn run(command: &[String]) -> std::io::Result<Output> {
-    let (program, args) = command
-        .split_first()
-        .ok_or_else(|| std::io::Error::other("no command"))?;
-    crate::launch::command(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
+/// Asks logind, and waits for its answer. Not interactive: with no agent to ask for a password
+/// there is nothing to wait on, and an answer that comes back at once is what the way out needs.
+pub fn ask(power: Power) -> Result<(), String> {
+    let connection = zbus::blocking::connection::Builder::system()
+        .map(|builder| builder.method_timeout(TIMEOUT))
+        .and_then(|builder| builder.build())
+        .map_err(|err| format!("logind couldn't be reached: {err}"))?;
+    connection
+        .call_method(
+            Some(LOGIND),
+            MANAGER_PATH,
+            Some(MANAGER),
+            power.method(),
+            &false,
+        )
+        .map(|_| ())
+        .map_err(refusal)
+}
+
+/// One line for the toast: what logind said, else the error it raised.
+fn refusal(err: zbus::Error) -> String {
+    match err {
+        zbus::Error::MethodError(name, description, _) => {
+            description.unwrap_or_else(|| name.as_str().to_string())
+        }
+        err => err.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -185,34 +181,26 @@ mod tests {
 
     use super::*;
 
-    fn output(code: i32, stderr: &str) -> std::io::Result<Output> {
-        Ok(Output {
-            status: ExitStatus::from_raw(code << 8),
-            stdout: Vec::new(),
-            stderr: stderr.as_bytes().to_vec(),
-        })
-    }
-
-    /// `request` with a stand-in for loginctl, waiting for its answer.
+    /// `request` with a stand-in for logind, waiting for its answer.
     fn answer(
         power: Power,
-        result: impl FnOnce() -> std::io::Result<Output> + Send + 'static,
+        result: impl FnOnce() -> Result<(), String> + Send + 'static,
     ) -> Option<Refused> {
         let (sender, receiver) = mpsc::channel();
         let asked = sender.clone();
         request(
             power,
             Answerer::Logind,
-            move |command| {
-                let _ = asked.send(Err(command.join(" ")));
+            move |wanted| {
+                let _ = asked.send(Err(wanted));
                 result()
             },
             move |answer| {
                 let _ = sender.send(Ok(answer));
             },
         );
-        let command = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert!(command.is_err(), "the runner is asked first");
+        let first = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(first.err(), Some(power), "logind is asked first");
         match receiver
             .recv_timeout(Duration::from_millis(300))
             .ok()?
@@ -223,13 +211,13 @@ mod tests {
         }
     }
 
-    /// `request` with the stand-in, and a runner that must never be called.
+    /// `request` with the stand-in, and an ask that must never be made.
     fn stood_in(power: Power, refuse: bool) -> Answer {
         let (sender, receiver) = mpsc::channel();
         request(
             power,
             Answerer::StandIn { refuse },
-            |command| panic!("{command:?} ran in a nested run"),
+            |wanted| panic!("{wanted:?} was asked of logind in a nested run"),
             move |answer| {
                 let _ = sender.send(answer);
             },
@@ -254,10 +242,7 @@ mod tests {
     #[test]
     fn a_refused_restart_comes_back_with_what_logind_said() {
         let refusal = answer(Power::Restart, || {
-            output(
-                1,
-                "\nCall to Reboot failed: Operation inhibited by \"rpm-ostree\" (PID 812).\n",
-            )
+            Err("Operation inhibited by \"rpm-ostree\" (PID 812).".to_string())
         })
         .expect("a failure is reported");
         assert_eq!(refusal.power, Power::Restart);
@@ -265,36 +250,34 @@ mod tests {
         assert_eq!(title, "Restart was refused");
         assert_eq!(
             body,
-            "Call to Reboot failed: Operation inhibited by \"rpm-ostree\" (PID 812). The apps \
-             were already closed; the desktop is still here."
+            "Operation inhibited by \"rpm-ostree\" (PID 812). The apps were already closed; the \
+             desktop is still here."
         );
     }
 
     #[test]
     fn a_request_that_goes_through_says_nothing() {
-        assert_eq!(answer(Power::ShutDown, || output(0, "")), None);
+        assert_eq!(answer(Power::ShutDown, || Ok(())), None);
     }
 
     #[test]
-    fn a_command_that_cannot_run_or_says_nothing_still_explains_itself() {
+    fn a_request_that_cannot_be_made_still_explains_itself() {
         let refusal = answer(Power::Sleep, || {
-            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            Err("logind couldn't be reached: no system bus".to_string())
         })
         .unwrap();
-        assert!(refusal.reason.starts_with("loginctl couldn't be run"));
+        assert!(refusal.reason.starts_with("logind couldn't be reached"));
         assert!(
             !refusal.message().1.contains("apps"),
             "sleep closes nothing"
         );
-        let silent = outcome(Power::ShutDown, output(1, "")).unwrap();
-        assert!(silent.reason.contains("stopped with"), "{}", silent.reason);
     }
 
     #[test]
-    fn the_commands_are_logind_s() {
-        assert_eq!(Power::Restart.command(), ["loginctl", "reboot"]);
-        assert_eq!(Power::ShutDown.command(), ["loginctl", "poweroff"]);
-        assert_eq!(Power::Sleep.command(), ["loginctl", "suspend"]);
+    fn the_requests_are_logind_s_own() {
+        assert_eq!(Power::Restart.method(), "Reboot");
+        assert_eq!(Power::ShutDown.method(), "PowerOff");
+        assert_eq!(Power::Sleep.method(), "Suspend");
         assert_eq!(Power::for_intent(Intent::LogOut), None);
     }
 }
