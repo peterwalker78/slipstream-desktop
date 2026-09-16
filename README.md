@@ -29,6 +29,26 @@ Movies always made computers look better than what big tech has delivered. Scree
 
 Free, open source, and yours to keep. It installs **beside** the desktop you already use, so trying it costs you nothing: pick Slipstream at the login screen, and go back whenever you like.
 
+## Get Slipstream
+
+One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
+
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
+```
+
+Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
+
+**Rather look before you leap?** Add `-- --try` and it opens in a window on the desktop you're using now, installing nothing:
+
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
+```
+
+**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic), and every release is checked on Debian, Ubuntu, Fedora, Arch and openSUSE. Expect rough edges, and changes between versions.
+
+[**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
+
 ## Your wallpaper is alive
 
 <table>
@@ -97,36 +117,6 @@ Read, learn or make something and it brightens and gives off little motes of lig
 - **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
-
-### New in 0.4
-
-- ✨ **Glimmerwood comes with Slipstream,** installed and kept up to date for you.
-- 📊 **A meter of your own on the bar,** from any command that reports what you've used.
-- 🖥️ **Several screens that make sense,** each remembering what it was showing when it's unplugged.
-- 🔋 **A battery you can read at a glance,** with a new **Settings → Power** page behind it.
-- 🔔 **Notifications that know where they came from,** and open the exact window that sent them.
-
-[Full changelog →](CHANGELOG.md)
-
-## Get Slipstream
-
-One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
-
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
-```
-
-Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
-
-**Rather look before you leap?** Add `-- --try` and it opens in a window on the desktop you're using now, installing nothing:
-
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
-```
-
-**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic), and every release is checked on Debian, Ubuntu, Fedora, Arch and openSUSE. Expect rough edges, and changes between versions.
-
-[**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 
 ## What we won't do
 
