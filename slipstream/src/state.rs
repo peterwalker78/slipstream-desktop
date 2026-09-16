@@ -72,7 +72,9 @@ use crate::{
     bar,
     bullet::{self, Target, Typed},
     capture::{self, Captures},
-    card, clipboard, debug,
+    card, clipboard,
+    connect::{self, Connect},
+    debug,
     exit::{self, Act, Exit, Intent},
     explorer::{Explorer, Item, Outcome},
     focus::KeyboardFocus,
@@ -80,7 +82,7 @@ use crate::{
     idle::Idle,
     inhibit::LidInhibitor,
     keys::{self, Mods},
-    launch,
+    known, launch,
     layout::{self, Direction, Rect},
     meter,
     motion::{self, Motion},
@@ -290,6 +292,11 @@ pub struct Slipstream {
     pub restoring: Option<restore::Plan<Window>>,
     /// The card at login asking whether to put the last layout back.
     pub offer: Option<Offer>,
+    /// The card asking what a screen Slipstream has never seen should show.
+    pub connect: Option<Connect>,
+    /// The screens this machine has shown a desktop on, and what each one comes back to
+    /// (`known.rs`). Read at startup, written as screens come and go.
+    pub known: known::Remembered,
     /// Whether the recorded layout has been looked at yet. It waits for the desktop entries to be
     /// read, since without them nothing in the record can be matched to an app to run.
     restore_looked: bool,
@@ -613,6 +620,8 @@ impl Slipstream {
             fullscreen_on_map: Vec::new(),
             restoring: None,
             offer: None,
+            connect: None,
+            known: known::read(&known::path()),
             restore_looked: false,
             tags: Vec::new(),
             rain: Rain::new(false, ring_rgb),
@@ -683,6 +692,9 @@ impl Slipstream {
         }
         if let Some(offer) = self.offer.as_mut() {
             offer.reduced_motion = on;
+        }
+        if let Some(connect) = self.connect.as_mut() {
+            connect.reduced_motion = on;
         }
         if let Some(share) = self.share.as_mut() {
             share.reduced_motion = on;
@@ -1278,7 +1290,7 @@ impl Slipstream {
             if at != Some(x) {
                 self.space.map_output(&output, (x, 0));
                 output.change_current_state(None, None, None, Some((x, 0).into()));
-                self.screens.add(output, x, self.workspaces.count());
+                self.screens.add(output, x, self.workspaces.count(), None);
                 moved = true;
             }
         }
@@ -2196,17 +2208,41 @@ impl Slipstream {
         }
     }
 
-    /// A screen lit up: it joins the row, left to right, and shows a workspace no other screen
-    /// has. Called by both backends when an output is mapped.
+    /// A screen lit up: it joins the row, left to right, and shows a workspace of its own rather
+    /// than taking one of the user's. Called by both backends when an output is mapped.
     pub fn screen_connected(&mut self, output: &Output, x: i32) {
+        let new_screen = self.screens.index_of(output).is_none();
         // A screen never shares a workspace, so there is always one more than the lit screens.
-        if self.screens.index_of(output).is_none()
-            && self.workspaces.count() < self.screens.len() + 1
-        {
+        if new_screen && self.workspaces.count() < self.screens.len() + 1 {
             let entries = workspace_entries(&self.settings);
             self.set_workspaces(&entries, self.screens.len() + 1);
         }
-        let index = self.screens.add(output.clone(), x, self.workspaces.count());
+        // What this screen should be looking at. A screen met before takes back what it had; one
+        // never seen here gets a workspace of its own, so plugging a monitor in never takes a
+        // workspace off the screen already in use.
+        let mut wanted = None;
+        let mut ask = None;
+        // Only once something else is lit. The first screen of a session has no one to take a
+        // workspace from, so it starts on the first workspace as it always has, and there is
+        // nothing worth asking about.
+        if new_screen && !self.screens.is_empty() {
+            let monitor = self.monitor_id(output);
+            match self.known.get(&monitor) {
+                Some(known) if known.own_workspace => wanted = Some(self.workspaces.add_scratch()),
+                Some(known) => {
+                    wanted = known
+                        .workspace_id
+                        .and_then(|id| self.workspaces.index_of_id(id))
+                }
+                None => {
+                    wanted = Some(self.workspaces.add_scratch());
+                    ask = Some(monitor);
+                }
+            }
+        }
+        let index = self
+            .screens
+            .add(output.clone(), x, self.workspaces.count(), wanted);
         if !self.screen_order.contains(&output.name()) {
             self.screen_order.push(output.name());
         }
@@ -2229,12 +2265,185 @@ impl Slipstream {
         if self.focused_window().is_none() {
             self.restore_focus();
         }
+        if new_screen {
+            self.remember_screen(output, workspace);
+        }
+        if let Some(monitor) = ask {
+            self.ask_about_screen(output, &monitor, workspace);
+        }
         tracing::info!(
             screen = output.name(),
             workspace = workspace + 1,
+            own_workspace = self.workspaces.is_scratch(workspace),
             screens = self.screens.len(),
             "a screen joined the desktop"
         );
+    }
+
+    /// A screen nobody has seen on this machine before: it has been given a workspace of its own,
+    /// and the card says so and offers the other answer. Asked once per screen, ever — the answer
+    /// is written down against the screen, and a screen met before never asks again.
+    fn ask_about_screen(&mut self, output: &Output, monitor: &str, workspace: usize) {
+        // What it would have taken under the old rule: the lowest-numbered workspace from the
+        // settings' list that no screen is showing. With none free there is nothing to offer.
+        let share = (0..self.workspaces.count())
+            .find(|index| {
+                !self.workspaces.is_scratch(*index)
+                    && !self.screens.iter().any(|screen| screen.workspace == *index)
+            })
+            .map(|index| (index, self.workspace_prose(index)));
+        let now = self.wall();
+        self.connect = Some(Connect::new(
+            monitor.to_string(),
+            output.name(),
+            workspace,
+            self.workspace_prose(workspace),
+            share,
+            now,
+            self.settings.motion.reduced,
+        ));
+        tracing::info!(
+            screen = output.name(),
+            monitor,
+            workspace = workspace + 1,
+            "asking what a screen never seen here should show"
+        );
+    }
+
+    /// What a workspace is called in a sentence: its name, or "workspace 6". The bar's bare
+    /// number reads as a number there and as nothing in prose.
+    fn workspace_prose(&self, index: usize) -> String {
+        let label = self.workspaces.label(index);
+        match label.chars().all(|c| c.is_ascii_digit()) {
+            true => format!("workspace {label}"),
+            false => label,
+        }
+    }
+
+    pub fn connect_key(&mut self, sym: Keysym) {
+        let now = self.wall();
+        let Some(act) = self.connect.as_ref().map(|card| card.key(sym, now)) else {
+            return;
+        };
+        self.act_on_connect(act);
+    }
+
+    pub fn connect_click(&mut self, x: f64, y: f64) {
+        let Some(act) = self.connect.as_ref().map(|card| card.click(x, y)) else {
+            return;
+        };
+        self.act_on_connect(act);
+    }
+
+    pub fn connect_hover(&mut self, pos: Point<f64, Logical>) {
+        let Some((_, screen)) = self.overlay_screen() else {
+            return;
+        };
+        let pos = pos - Point::from((screen.x as f64, screen.y as f64));
+        if let Some(card) = self.connect.as_mut()
+            && card.hover(pos.x, pos.y)
+        {
+            self.note_layout_change();
+        }
+    }
+
+    fn act_on_connect(&mut self, act: connect::Act) {
+        let Some(card) = self.connect.as_ref() else {
+            return;
+        };
+        let (monitor, connector) = (card.monitor.clone(), card.connector.clone());
+        match act {
+            connect::Act::Nothing => return,
+            connect::Act::Own => {
+                tracing::info!(monitor, "a workspace of its own");
+            }
+            connect::Act::Share => {
+                let Some(share) = card.share else {
+                    return;
+                };
+                let Some(index) = self
+                    .screens
+                    .iter()
+                    .position(|screen| screen.output.name() == connector)
+                else {
+                    return;
+                };
+                // Show it there, then drop the workspace it was given: it is empty, nothing is
+                // looking at it any more, and it sits at the end, so no other workspace moves.
+                // The keyboard stays where it was: the card was answered on the screen in use.
+                let keyboard = self.screens.focused_index();
+                self.screens.focus(index);
+                self.screens.show(share, self.workspaces.count());
+                self.screens.focus(keyboard);
+                self.prune_scratch();
+                for screen in self.screens.iter() {
+                    self.motion
+                        .jump_camera(&screen.output.name(), screen.workspace);
+                }
+                self.retile();
+                self.note_layout_change();
+                tracing::info!(
+                    monitor,
+                    workspace = share + 1,
+                    "showing a workspace instead"
+                );
+            }
+        }
+        // Whichever way it was answered, this screen never asks again.
+        let screen = self
+            .screens
+            .iter()
+            .find(|screen| screen.output.name() == connector)
+            .map(|screen| (screen.output.clone(), screen.workspace));
+        self.connect = None;
+        if let Some((output, workspace)) = screen {
+            self.remember_screen(&output, workspace);
+        }
+        self.note_layout_change();
+    }
+
+    /// Drops empty workspaces a screen was given but nothing is looking at any more. Only ones at
+    /// the end go, so no surviving workspace changes its number and nothing that remembers one by
+    /// index has to be put right. Returns how many went.
+    fn prune_scratch(&mut self) -> usize {
+        let shown: Vec<usize> = self.screens.iter().map(|screen| screen.workspace).collect();
+        let floor = workspace_entries(&self.settings)
+            .len()
+            .max(self.screens.len() + 1);
+        let dropped = self.workspaces.prune_scratch(&shown, floor);
+        if dropped > 0 {
+            let count = self.workspaces.count();
+            self.screens.trim_homes(count);
+        }
+        dropped
+    }
+
+    /// What a screen is known by between sessions: what its EDID says, else its connector's name.
+    pub fn monitor_id(&self, output: &Output) -> String {
+        let physical = output.physical_properties();
+        known::identity(
+            &physical.make,
+            &physical.model,
+            &physical.serial_number,
+            &output.name(),
+        )
+    }
+
+    /// Writes down what `output` is showing, so it comes back to the same place next session. A
+    /// scratch workspace is remembered as "one of its own" rather than by id: the id is this
+    /// session's and means nothing next time.
+    pub fn remember_screen(&mut self, output: &Output, workspace: usize) {
+        let monitor = self.monitor_id(output);
+        let shows =
+            (!self.workspaces.is_scratch(workspace)).then(|| self.workspaces.get(workspace).id);
+        let before = self.known.get(&monitor).cloned();
+        self.known.set(&monitor, &output.name(), shows);
+        if before.as_ref() == self.known.get(&monitor) {
+            return;
+        }
+        if let Err(err) = known::write(&known::path(), &self.known) {
+            tracing::warn!("couldn't write down what the screens show: {err}");
+        }
     }
 
     /// A screen went out: unplugged, or the lid shut on it.
@@ -2268,6 +2477,17 @@ impl Slipstream {
                 self.motion.jump_camera(&here, lost);
             }
         }
+        // A card asking about this screen has nothing left to ask about.
+        if self
+            .connect
+            .as_ref()
+            .is_some_and(|card| card.connector == output.name())
+        {
+            self.connect = None;
+        }
+        // Its own workspace goes with it, unless something is still open there: an empty one is
+        // clutter in bullet time and on the bar, and a full one is work nobody asked to move.
+        let dropped = self.prune_scratch();
         self.hold_the_lid();
         self.retile();
         self.restore_focus();
@@ -2276,6 +2496,7 @@ impl Slipstream {
             workspace = lost + 1,
             screens = self.screens.len(),
             carried,
+            dropped,
             "a screen left the desktop"
         );
         if carried {
@@ -2354,11 +2575,19 @@ impl Slipstream {
     /// Writes the screens into the log: what each is showing, where it is, and where windows
     /// tile on it. Checks read this back.
     pub fn log_screens(&self) {
+        tracing::info!(
+            workspaces = self.workspaces.count(),
+            scratch = (0..self.workspaces.count())
+                .filter(|index| self.workspaces.is_scratch(*index))
+                .count(),
+            "workspaces"
+        );
         for (index, screen) in self.screens.iter().enumerate() {
             let area = self.screen_area(index);
             tracing::info!(
                 screen = screen.output.name(),
                 workspace = screen.workspace + 1,
+                own = self.workspaces.is_scratch(screen.workspace),
                 focused = index == self.screens.focused_index(),
                 rect = ?self.screen_rect(index),
                 area = ?area,
@@ -2429,9 +2658,19 @@ impl Slipstream {
         let Some(target) = self.screens.get(next).map(|screen| screen.workspace) else {
             return;
         };
+        // The keyboard stays put. Throwing a window at the screen beside you is a thing you do
+        // while working on this one, and Super+P is one key away if you want to follow it.
         self.move_window_to_workspace(&window, target, false);
-        self.focus_screen_at(next);
-        self.focus_window(&window);
+        self.restore_focus();
+        let now = self.clock.tick();
+        let label = self.workspaces.label(target);
+        let screen = self
+            .screens
+            .get(next)
+            .map(|screen| screen.output.name())
+            .unwrap_or_default();
+        self.toast
+            .show("Window sent", &format!("{screen} · {label}"), now);
     }
 
     /// Moves the focused window to workspace `index` (0-based) and follows it there, as moving a
@@ -4933,6 +5172,9 @@ impl Slipstream {
                     self.offer_key(xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS))
                 }
                 debug::Step::OfferClick(x, y) => self.offer_click(x, y),
+                debug::Step::ConnectKey(name) => {
+                    self.connect_key(xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS))
+                }
                 debug::Step::SharePicker(kinds) => {
                     let mut list = String::new();
                     if kinds.contains('m') {

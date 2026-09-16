@@ -21,6 +21,7 @@ mod card;
 mod centre;
 mod clipboard;
 mod concentration;
+mod connect;
 mod cursor;
 mod debug;
 mod emoji;
@@ -44,6 +45,7 @@ mod inhibit;
 
 mod input;
 mod keys;
+mod known;
 mod launch;
 mod layers;
 mod layout;

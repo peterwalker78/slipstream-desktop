@@ -45,6 +45,8 @@ enum KeyUse {
     Share(Keysym, bool),
     /// A key for the offer at login, likewise.
     Offer(Keysym),
+    /// A key for the card asking what a screen just plugged in should show.
+    Connect(Keysym),
     /// A key for the low battery card.
     Battery(Keysym),
     /// A key for the lock screen's password pill.
@@ -163,6 +165,7 @@ impl Slipstream {
         let keys_taken = self.lock.is_some()
             || self.share.is_some()
             || self.offer.is_some()
+            || self.connect.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.bullet.is_some();
         if keys_taken {
@@ -226,6 +229,7 @@ impl Slipstream {
             || self.snip.is_some()
             || self.battery.card.is_some()
             || self.offer.is_some()
+            || self.connect.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
     }
 
@@ -272,6 +276,7 @@ impl Slipstream {
         if self.share.is_some()
             || self.battery.card.is_some()
             || self.offer.is_some()
+            || self.connect.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.switcher.is_some()
             || self.bullet.is_some()
@@ -359,6 +364,7 @@ impl Slipstream {
         pointer.frame(self);
         self.exit_hover(pos);
         self.offer_hover(pos);
+        self.connect_hover(pos);
         self.battery_hover(pos);
         self.share_hover(pos);
         self.snip_pointer_moved(pos);
@@ -457,6 +463,7 @@ impl Slipstream {
                 self.update_pointer_constraint();
                 self.exit_hover(pos);
                 self.offer_hover(pos);
+                self.connect_hover(pos);
                 self.battery_hover(pos);
                 self.share_hover(pos);
                 self.snip_pointer_moved(pos);
@@ -740,6 +747,16 @@ impl Slipstream {
             if let (ButtonState::Pressed, Some(screen)) = (button_state, screen) {
                 let pos = pointer.current_location() - screen.loc.to_f64();
                 self.offer_click(pos.x, pos.y);
+            }
+            return;
+        }
+        // The screen card takes every click, as the offer's does: its buttons, and one beside it
+        // that mustn't reach through to the windows underneath.
+        if self.connect.is_some() {
+            let screen = self.focused_screen_geometry();
+            if let (ButtonState::Pressed, Some(screen)) = (button_state, screen) {
+                let pos = pointer.current_location() - screen.loc.to_f64();
+                self.connect_click(pos.x, pos.y);
             }
             return;
         }
@@ -1112,6 +1129,14 @@ impl Slipstream {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Offer(handle.modified_sym())));
                     }
+                    // The screen card takes every key until it's answered, and ignores them for
+                    // its first moment, so a key already on its way can't answer it.
+                    if pressed && state.connect.is_some() {
+                        state.suppressed_keys.push(key);
+                        return FilterResult::Intercept(Some(KeyUse::Connect(
+                            handle.modified_sym(),
+                        )));
+                    }
                     // The way out takes every key while it's asking, and none at all
                     // while the apps are closing: a save prompt needs them more.
                     if pressed && state.exit.as_ref().is_some_and(|exit| exit.modal()) {
@@ -1227,6 +1252,7 @@ impl Slipstream {
             Some(Some(KeyUse::Centre(key, shift))) => self.centre_key(key, shift),
             Some(Some(KeyUse::Exit(key))) => self.exit_key(key),
             Some(Some(KeyUse::Offer(key))) => self.offer_key(key),
+            Some(Some(KeyUse::Connect(key))) => self.connect_key(key),
             Some(Some(KeyUse::Battery(key))) => self.battery_key(key),
             Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),

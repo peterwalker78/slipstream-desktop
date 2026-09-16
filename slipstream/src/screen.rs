@@ -71,11 +71,13 @@ impl<O> Default for Screens<O> {
 
 impl<O: Clone + PartialEq + Named> Screens<O> {
     /// Lights `output` at `x`. A screen that was here before takes back the workspace it was
-    /// showing, and a screen that carried it on while it was gone goes back to its own. Otherwise
-    /// it shows the lowest-numbered of the `count` workspaces no other screen has, so a second
-    /// screen comes up on workspace 2 rather than looking at the same desktop twice. The first
-    /// screen to arrive takes the keyboard.
-    pub fn add(&mut self, output: O, x: i32, count: usize) -> usize {
+    /// showing, and a screen that carried it on while it was gone goes back to its own. Failing
+    /// that it takes `wanted`, the workspace the caller has set aside for it — a scratch one of
+    /// its own, or the one it was remembered as showing in an earlier session. Failing that, the
+    /// lowest-numbered of the `count` workspaces no other screen has, so a second screen comes up
+    /// on workspace 2 rather than looking at the same desktop twice. The first screen to arrive
+    /// takes the keyboard.
+    pub fn add(&mut self, output: O, x: i32, count: usize, wanted: Option<usize>) -> usize {
         if let Some(index) = self.index_of(&output) {
             let focused = self.focused_output();
             self.list[index].x = x;
@@ -109,6 +111,7 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
         }
         let workspace = remembered
             .filter(|wanted| self.showing(*wanted).is_none())
+            .or_else(|| wanted.filter(|index| *index < count && self.showing(*index).is_none()))
             .or_else(|| (0..count).find(|index| self.showing(*index).is_none()))
             .unwrap_or(0);
         let focused = self.focused_output();
@@ -191,6 +194,18 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
         for index in 0..self.list.len() {
             let (workspace, name) = (self.list[index].workspace, self.list[index].output.name());
             self.set_home(workspace, name);
+        }
+    }
+
+    /// Workspaces past `count` have gone. Forgets the homes and the remembered workspaces that
+    /// pointed at them, so nothing comes back to a workspace that isn't there.
+    pub fn trim_homes(&mut self, count: usize) {
+        self.homes.truncate(count);
+        self.gone.retain(|(_, workspace)| *workspace < count);
+        for screen in &mut self.list {
+            if screen.carried_from.is_some_and(|own| own >= count) {
+                screen.carried_from = None;
+            }
         }
     }
 
@@ -381,8 +396,8 @@ mod tests {
 
     fn two() -> Screens<&'static str> {
         let mut screens = Screens::default();
-        screens.add("eDP-1", 0, 5);
-        screens.add("DP-2", 1920, 5);
+        screens.add("eDP-1", 0, 5, None);
+        screens.add("DP-2", 1920, 5, None);
         screens
     }
 
@@ -400,8 +415,8 @@ mod tests {
     #[test]
     fn screens_are_kept_in_the_order_they_sit_in() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 1920, 5);
-        screens.add("DP-2", 0, 5);
+        screens.add("eDP-1", 1920, 5, None);
+        screens.add("DP-2", 0, 5, None);
         assert_eq!(screens.get(0).map(|s| s.output), Some("DP-2"));
         assert_eq!(
             screens.focused_output(),
@@ -498,7 +513,7 @@ mod tests {
         screens.remove(&"DP-2");
         // Meanwhile the laptop goes to workspace 2, which the monitor started on.
         screens.show(1, 5);
-        screens.add("DP-2", 1920, 5);
+        screens.add("DP-2", 1920, 5, None);
         assert_eq!(shown(&screens), vec![1, 3], "the monitor is back on 4");
     }
 
@@ -509,7 +524,7 @@ mod tests {
         assert_eq!(screens.remove(&"eDP-1"), Some(0));
         assert!(screens.carry(0));
         assert_eq!(shown(&screens), vec![0]);
-        screens.add("eDP-1", 0, 5);
+        screens.add("eDP-1", 0, 5, None);
         assert_eq!(shown(&screens), vec![0, 1], "each back on its own");
         assert_eq!(
             screens.focused_output(),
@@ -524,7 +539,7 @@ mod tests {
         screens.remove(&"eDP-1");
         screens.carry(0);
         screens.show(4, 5);
-        screens.add("eDP-1", 0, 5);
+        screens.add("eDP-1", 0, 5, None);
         assert_eq!(shown(&screens), vec![0, 4]);
     }
 
@@ -533,7 +548,7 @@ mod tests {
         let mut screens = two();
         screens.remove(&"DP-2");
         screens.show(1, 5);
-        screens.add("DP-2", 1920, 5);
+        screens.add("DP-2", 1920, 5, None);
         assert_eq!(shown(&screens), vec![1, 0]);
     }
 
@@ -555,11 +570,11 @@ mod tests {
     #[test]
     fn a_screen_can_show_every_workspace_there_is_past_the_fifth() {
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, 7);
+        screens.add("eDP-1", 0, 7, None);
         let show = screens.show(6, 7);
         assert!(show.changed);
         assert_eq!(screens.workspace(), 6, "the seventh, not the fifth");
-        screens.add("DP-2", 1920, 7);
+        screens.add("DP-2", 1920, 7, None);
         assert_eq!(
             screens.get(1).map(|s| s.workspace),
             Some(0),
@@ -570,12 +585,12 @@ mod tests {
     #[test]
     fn lighting_the_same_output_twice_moves_it_rather_than_doubling_it() {
         let mut screens = two();
-        screens.add("DP-2", 3840, 5);
+        screens.add("DP-2", 3840, 5, None);
         assert_eq!(screens.len(), 2);
         assert_eq!(screens.get(1).map(|s| s.x), Some(3840));
         // Moved to the other side, it keeps the keyboard it had.
         screens.focus(1);
-        screens.add("DP-2", -1920, 5);
+        screens.add("DP-2", -1920, 5, None);
         assert_eq!(screens.get(0).map(|s| s.output), Some("DP-2"));
         assert_eq!(screens.focused_output(), Some("DP-2"));
     }
@@ -588,11 +603,63 @@ mod tests {
     }
 
     #[test]
+    fn a_screen_takes_the_workspace_set_aside_for_it() {
+        let mut screens: Screens<&str> = Screens::default();
+        screens.add("eDP-1", 0, 5, None);
+        assert_eq!(screens.get(0).map(|s| s.workspace), Some(0));
+        // Six workspaces now, the sixth made for this screen: it takes that one rather than
+        // workspace 2, which the laptop's Super+2 still wants.
+        screens.add("DP-2", 1920, 6, Some(5));
+        let monitor = screens.index_of(&"DP-2").unwrap();
+        assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(5));
+        assert_eq!(screens.showing(1), None, "workspace 2 is still nobody's");
+    }
+
+    #[test]
+    fn what_a_screen_showed_before_beats_the_workspace_set_aside_for_it() {
+        let mut screens: Screens<&str> = Screens::default();
+        screens.add("eDP-1", 0, 6, None);
+        screens.add("DP-2", 1920, 6, Some(5));
+        screens.focus(screens.index_of(&"DP-2").unwrap());
+        screens.show(3, 6);
+        screens.remove(&"DP-2");
+        // Plugged back in, it comes back to what it was showing, not to a new one.
+        screens.add("DP-2", 1920, 6, Some(5));
+        let monitor = screens.index_of(&"DP-2").unwrap();
+        assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(3));
+    }
+
+    #[test]
+    fn a_screen_falls_back_to_the_lowest_free_workspace() {
+        let mut screens: Screens<&str> = Screens::default();
+        screens.add("eDP-1", 0, 5, None);
+        // The workspace set aside for it is gone, or taken: the old rule still applies.
+        screens.add("DP-2", 1920, 5, Some(9));
+        let monitor = screens.index_of(&"DP-2").unwrap();
+        assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(1));
+    }
+
+    #[test]
+    fn trimming_forgets_workspaces_that_have_gone() {
+        let mut screens: Screens<&str> = Screens::default();
+        screens.add("eDP-1", 0, 6, None);
+        screens.add("DP-2", 1920, 6, Some(5));
+        screens.remove(&"DP-2");
+        // Its workspace went with it, so nothing should bring the screen back to a sixth that
+        // isn't there any more.
+        screens.trim_homes(5);
+        screens.add("DP-2", 1920, 5, None);
+        let monitor = screens.index_of(&"DP-2").unwrap();
+        let workspace = screens.get(monitor).map(|s| s.workspace).unwrap();
+        assert!(workspace < 5, "came back to workspace {workspace}");
+    }
+
+    #[test]
     fn workspaces_and_screens_agree_after_add_and_remove() {
         let count = 4;
         let mut screens: Screens<&str> = Screens::default();
-        screens.add("eDP-1", 0, count);
-        screens.add("DP-2", 1536, count);
+        screens.add("eDP-1", 0, count, None);
+        screens.add("DP-2", 1536, count, None);
         // Every screen shows a workspace that exists, and no two show the same one.
         let check = |screens: &Screens<&str>| {
             let list = shown(screens);
@@ -619,13 +686,13 @@ mod tests {
         assert_eq!(screens.focused_output(), Some("eDP-1"));
         assert_eq!(screens.get(0).map(|screen| screen.workspace), other);
         // A screen that isn't focused going out leaves the focused one as it was.
-        screens.add("DP-2", 1536, count);
+        screens.add("DP-2", 1536, count, None);
         check(&screens);
         let before = screens.workspace();
         screens.remove(&"DP-2");
         assert_eq!(screens.workspace(), before);
         // Fewer workspaces than screens after an edit: every screen still shows one that exists.
-        screens.add("DP-2", 1536, count);
+        screens.add("DP-2", 1536, count, None);
         screens.remap(&[0, 0, 0, 0], 1);
         assert!(shown(&screens).iter().all(|&workspace| workspace == 0));
     }

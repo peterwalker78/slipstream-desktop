@@ -145,6 +145,8 @@ pub enum Step {
     /// A key for the offer at login, and a click on its card.
     OfferKey(String),
     OfferClick(f64, f64),
+    /// A key for the card asking what a screen just plugged in should show.
+    ConnectKey(String),
     /// The share picker, offering screens (`m`), windows (`w`) or both.
     SharePicker(String),
     ShareKey(String),
@@ -394,6 +396,7 @@ impl Script {
                     ("shutdown", None) => Step::ShutDown,
                     ("xkey", Some(name)) => Step::ExitKey(name.to_string()),
                     ("okey", Some(name)) => Step::OfferKey(name.to_string()),
+                    ("sckey", Some(name)) => Step::ConnectKey(name.to_string()),
                     ("oclick", Some(at)) => {
                         let (x, y) = point(at)?;
                         Step::OfferClick(x, y)

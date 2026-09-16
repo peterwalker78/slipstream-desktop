@@ -928,6 +928,19 @@ pub fn output_elements(
         }
         state.battery.card = card;
     }
+    // The card asking what a screen never seen here should show. Drawn where the keyboard is, as
+    // the other cards are: that is the screen being looked at when the lead goes in.
+    if first_output && state.connect.is_some() {
+        let mut connect = state.connect.take();
+        if let Some(connect) = connect.as_mut() {
+            elements.extend(
+                connect
+                    .element(renderer, output_geo.size, scale.x, wall)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.connect = connect;
+    }
     // The offer at login, above everything else it is asking about.
     if first_output && state.offer.is_some() {
         let mut offer = state.offer.take();

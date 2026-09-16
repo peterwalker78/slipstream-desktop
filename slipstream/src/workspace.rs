@@ -32,6 +32,11 @@ pub struct Workspace<T> {
     /// underneath. It lasts until something else on the workspace is wanted, so it isn't
     /// written into the session record.
     pub maximised: Option<T>,
+    /// Made on the spot rather than read from the settings' list: the workspace a screen is given
+    /// when it asks for one of its own, and the one Super+D goes to. It lives at the end of the
+    /// list, is never written to `settings.toml`, and goes away again once it is empty and
+    /// nothing is looking at it.
+    pub scratch: bool,
 }
 
 impl<T: Clone + PartialEq> Workspace<T> {
@@ -147,11 +152,52 @@ impl<T: Clone + PartialEq> Workspaces<T> {
             gravity: Gravity::default(),
             last_focus: None,
             maximised: None,
+            scratch: false,
         }
     }
 
     pub fn count(&self) -> usize {
         self.list.len()
+    }
+
+    /// Where the workspace with settings id `id` is now, if it is still here.
+    pub fn index_of_id(&self, id: u32) -> Option<usize> {
+        self.list.iter().position(|workspace| workspace.id == id)
+    }
+
+    /// Whether workspace `index` was made on the spot rather than read from the settings' list.
+    pub fn is_scratch(&self, index: usize) -> bool {
+        self.list
+            .get(index)
+            .is_some_and(|workspace| workspace.scratch)
+    }
+
+    /// Adds an empty scratch workspace at the end and returns its index: the workspace a screen
+    /// gets when it asks for one of its own rather than taking one of the user's.
+    pub fn add_scratch(&mut self) -> usize {
+        let taken: Vec<u32> = self.list.iter().map(|w| w.id).collect();
+        let mut fresh = self.fresh(slipstream_config::unused_id(&taken), String::new());
+        fresh.scratch = true;
+        self.list.push(fresh);
+        self.list.len() - 1
+    }
+
+    /// Drops empty scratch workspaces from the end, leaving at least `min` and never touching one
+    /// a screen is `shown`. Only trailing ones go, so no surviving workspace changes its number
+    /// and nothing that remembers one by index has to be remapped. Returns how many went.
+    pub fn prune_scratch(&mut self, shown: &[usize], min: usize) -> usize {
+        let mut dropped = 0;
+        while self.list.len() > min.max(1) {
+            let last = self.list.len() - 1;
+            let go =
+                self.list[last].scratch && self.list[last].is_empty() && !shown.contains(&last);
+            if !go {
+                break;
+            }
+            self.list.pop();
+            dropped += 1;
+        }
+        dropped
     }
 
     /// What workspace `index` is called on screen: its name, or its number.
@@ -180,6 +226,10 @@ impl<T: Clone + PartialEq> Workspaces<T> {
     /// are kept, unnamed ones added at the end if the list is shorter, so every screen can show
     /// one of its own.
     ///
+    /// Scratch workspaces (`Workspace::scratch`) are in no settings list. They keep their place
+    /// at the end while they hold windows, and empty ones are dropped and made again as the count
+    /// needs them.
+    ///
     /// Returns where each old index went, for anything that remembers a workspace by index.
     pub fn reconcile(&mut self, entries: &[(u32, String)], min: usize, area: Rect) -> Vec<usize> {
         let old_ids: Vec<u32> = self.list.iter().map(|w| w.id).collect();
@@ -195,11 +245,26 @@ impl<T: Clone + PartialEq> Workspaces<T> {
                 .and_then(Option::take);
             let mut workspace = existing.unwrap_or_else(|| self.fresh(*id, String::new()));
             workspace.name = name.clone();
+            // Named in the list, so it's the user's now however it started.
+            workspace.scratch = false;
             new.push(workspace);
+        }
+        // Scratch workspaces are in no settings list, so the loop above never claimed them. Keep
+        // the ones still holding windows, in the order they were in: plugging a screen in, or
+        // renaming a workspace, mustn't tip a screen's own workspace into somebody else's. Empty
+        // ones are left behind and made again below if they're still wanted.
+        for slot in old.iter_mut() {
+            if slot.as_ref().is_some_and(|w| w.scratch && !w.is_empty())
+                && let Some(kept) = slot.take()
+            {
+                new.push(kept);
+            }
         }
         while new.len() < min.max(1) {
             let taken: Vec<u32> = new.iter().map(|w| w.id).collect();
-            new.push(self.fresh(slipstream_config::unused_id(&taken), String::new()));
+            let mut fresh = self.fresh(slipstream_config::unused_id(&taken), String::new());
+            fresh.scratch = true;
+            new.push(fresh);
         }
         let position = |id: u32| new.iter().position(|w| w.id == id);
         // A survivor goes where its id went; a deleted one where the nearest survivor before it
@@ -410,6 +475,91 @@ mod tests {
         ws.reconcile(&[(1, String::new())], 2, AREA);
         assert_eq!(ws.count(), 2);
         assert_ne!(ws.get(0).id, ws.get(1).id);
+    }
+
+    #[test]
+    fn a_workspace_made_for_a_screen_is_scratch_and_the_settings_list_is_not() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        ws.reconcile(&[(1, String::new()), (2, String::new())], 4, AREA);
+        assert_eq!(ws.count(), 4);
+        assert!(!ws.is_scratch(0) && !ws.is_scratch(1), "the user's two");
+        assert!(
+            ws.is_scratch(2) && ws.is_scratch(3),
+            "the two made to fill up"
+        );
+    }
+
+    #[test]
+    fn add_scratch_puts_a_workspace_of_its_own_at_the_end() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        let index = ws.add_scratch();
+        assert_eq!(index, 5, "after the five the settings asked for");
+        assert!(ws.is_scratch(index));
+        assert!(ws.get(index).is_empty());
+    }
+
+    #[test]
+    fn a_screen_s_own_workspace_keeps_its_windows_when_the_list_is_reconciled() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        let scratch = ws.add_scratch();
+        ws.insert(scratch, "a", None, AREA);
+        // Another screen arrives, or a workspace is renamed: either way the list is rebuilt.
+        ws.reconcile(&five(), 7, AREA);
+        let held = (0..ws.count()).find(|index| ws.get(*index).contains(&"a"));
+        assert_eq!(held, Some(5), "still its own, still at the end");
+        assert!(ws.is_scratch(5));
+        assert_eq!(
+            ws.get(0).windows(),
+            Vec::<&str>::new(),
+            "not tipped into the first"
+        );
+    }
+
+    #[test]
+    fn an_empty_workspace_of_its_own_is_not_kept_across_a_reconcile() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        let scratch = ws.add_scratch();
+        assert_eq!(ws.count(), 6);
+        let id = ws.get(scratch).id;
+        ws.reconcile(&five(), 5, AREA);
+        assert_eq!(ws.count(), 5, "nothing on it, so nothing to keep");
+        assert_eq!(ws.index_of_id(id), None);
+    }
+
+    #[test]
+    fn pruning_drops_empty_workspaces_of_their_own_from_the_end_only() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        let first = ws.add_scratch();
+        let second = ws.add_scratch();
+        ws.insert(first, "a", None, AREA);
+        assert_eq!(ws.count(), 7);
+        // The last is empty and nothing is looking at it, so it goes; the one before holds a
+        // window, so it stays and the numbers below it never move.
+        assert_eq!(ws.prune_scratch(&[0], 5), 1);
+        assert_eq!(ws.count(), 6);
+        assert!(ws.get(first).contains(&"a"));
+        let _ = second;
+    }
+
+    #[test]
+    fn pruning_leaves_a_workspace_a_screen_is_looking_at() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        let scratch = ws.add_scratch();
+        assert_eq!(ws.prune_scratch(&[scratch], 5), 0, "a screen is on it");
+        assert_eq!(ws.count(), 6);
+        assert_eq!(ws.prune_scratch(&[0], 5), 1, "nothing is now");
+        assert_eq!(ws.count(), 5);
+    }
+
+    #[test]
+    fn pruning_never_takes_one_of_the_user_s_workspaces() {
+        let mut ws: Workspaces<&str> = Workspaces::new(&five(), 16, 10);
+        assert_eq!(
+            ws.prune_scratch(&[], 1),
+            0,
+            "all five are the settings' own"
+        );
+        assert_eq!(ws.count(), 5);
     }
 
     #[test]

@@ -4,6 +4,21 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **A monitor you plug in gets a workspace of its own** instead of taking one of yours. Before, a
+  second screen claimed the lowest-numbered free workspace, so Super+2 stopped showing workspace 2
+  on the screen you were working on and jumped the keyboard to the monitor instead. Now the
+  numbered workspaces stay where they are, and the monitor gets an empty one of its own — a blank
+  area to throw windows at. The first time a given screen is seen, a card offers the other answer;
+  the choice is remembered against that screen, so it's asked once per monitor rather than once per
+  dock. A workspace made this way disappears when it is empty and its screen has gone, and stays
+  as an ordinary workspace at the end of the list for as long as anything is open on it.
+- **Super+Shift+P sends a window to the next screen without following it.** It used to take the
+  keyboard along, which is the wrong reflex for throwing something on to a second monitor; Super+P
+  still moves the keyboard when you do want to go. A toast names the screen and workspace it
+  landed on.
+- **Screens are told apart by what they are, not which port they are in**, so the same monitor on a
+  different port is recognised and a different monitor on the same port is not.
+
 - **The volume and brightness card stays put while you hold the key.** It played its rise and fade
   in again on every press, so the card flickered under a held key instead of the level simply
   sliding along. The entrance now happens once, when the card appears; further presses only move
