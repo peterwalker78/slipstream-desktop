@@ -2,11 +2,10 @@
 
 # Slipstream
 
-**The Linux desktop that gives you back your attention — and something to do with it.**
+**The Linux desktop the films promised.**
 
-Beautiful, quick under your hands, and private by design.<br>
-Your wallpaper comes alive when you step away. Put a window aside and it<br>turns into falling code you can still read at a glance.<br>
-Pop-ups wait until you stop typing. And it comes with **Glimmerwood**, the web browser that's on your side.
+Windows that fall into green rain. Wallpapers that come alive the moment you walk away.<br>
+Nothing that interrupts you. Nothing that ever leaves your machine.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
@@ -16,108 +15,45 @@ Pop-ups wait until you stop typing. And it comes with **Glimmerwood**, the web b
 
 <sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
-[**Install**](#installing) · [**Why Slipstream**](#why-were-building-slipstream) · [**Glimmerwood**](#comes-with-glimmerwood-the-web-browser-thats-on-your-side) · [**Keys**](#keys) · [**Changelog**](CHANGELOG.md)
+[**Get it**](#get-slipstream) · [**Why**](#why-slipstream-exists) · [**Glimmerwood**](#the-other-half-glimmerwood) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
 
 </div>
 
-## Why we're building Slipstream
+## Why Slipstream exists
 
-**Your attention is the most valuable thing you own, and most of your technology now treats it as something to harvest.** Infinite feeds. Red badges. Autoplay. Notifications timed to pull you back just as you settle into something that matters. It has quietly trained all of us: to check "one thing" and lose an hour, to feel busy all day and still not make the thing we sat down to make.
+Films always made computers look better than this. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
 
-**Your computer should be on your side.** Not a slot machine. A workshop.
+**And everything on that screen is competing for you.** Infinite feeds, red badges, autoplay, notifications timed to pull you back the moment you settle into something that matters. It has quietly trained all of us to check one thing and lose an hour.
 
-### Films always made computers look better than this
+**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away — which is the part the films genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
 
-Screens of falling green code. One key that does something enormous. Someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
+Free, open source, and yours to keep. It installs **beside** the desktop you already use, so trying it costs you nothing: pick Slipstream at the login screen, and go back whenever you like.
 
-Slipstream is the computer the films promised. Put a window away and it doesn't disappear into a bar along the bottom: it pours down the side of the screen as a stream of falling green code, and keeps running there. That stream races, bright green, while the app is busy and drifts slowly in grey while it's quiet, so you can see what your machine is up to out of the corner of your eye. One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you and everything moving in slow motion. Open the list of things you've copied and each one unscrambles out of glowing characters into readable text as you reach it.
-
-Step away from your desk and the desktop itself dissolves, and hands the screen to a wallpaper that's properly alive: frost creeping in from the edges, two galaxies colliding, a flock of birds that scatters and settles back into the logo. These aren't little videos playing on a loop. They're being worked out as you watch, so they're never quite the same twice. Touch any key and your work comes straight back, exactly as you left it.
-
-**The spectacle isn't the point, though. It's the invitation.** A computer that feels like this is one you actually want to sit down at and learn properly. Everything in Slipstream is a keystroke away, and that's the part the films genuinely got right: the people who look like wizards on screen are just people who never reach for the mouse. Super+/ puts the whole list of keys on screen whenever you forget one.
-
-And if you'd rather your computer sat still, every effect has a calmer version, one switch away.
-
-### Three commitments, in this and everything we build alongside it
-
-- 🔒 **Private by design.** No accounts, no tracking, no cloud, ever. Nothing you do here is sent anywhere, because there's nowhere for it to go. Slipstream can tell that you're typing, so it knows not to interrupt you, but never what you're typing.
-- 🎯 **Fewer interruptions.** Pop-ups wait until you pause for breath. Windows you didn't ask for can't barge in front of your work or run off with your keyboard.
-- 🌱 **Honest feedback, not blockers.** No timers, no lockouts, no guilt: everyone finds the off switch for those eventually. Just a desktop that steps aside when you do, and a browser that shows you kindly which corners of the web leave you better off and which leave you flat.
-
-**It's free and open source, it always will be, and it's yours to keep.** The future of personal computing shouldn't be decided by whoever is best at capturing your time.
-
-**Slipstream and [Glimmerwood](https://github.com/peterwalker78/glimmerwood) are two halves of the same desktop:** one keeps your focus, the other looks after the hours you spend online. There's more of the workshop to come.
-
-### Trying it doesn't cost you anything
-
-Slipstream is a whole desktop of its own, not a theme or an add-on, and it installs **alongside** the one you use now. Nothing about your current setup changes: you pick Slipstream from the list when you log in, and go back whenever you like. It's built for the keyboard, using the shortcuts you already know, so you aren't relearning muscle memory from scratch.
-
-### New in 0.4
-
-- ✨ **Glimmerwood comes with Slipstream.** A calm web browser with a living companion, installed and kept up to date for you. [Meet it below.](#comes-with-glimmerwood-the-web-browser-thats-on-your-side)
-- 📊 **A meter of your own on the bar.** Point it at any command that reports how much of something you've used: a storage quota, a plan's limits, a data allowance. Set it up and try it in **Settings → Meter**.
-- 🖥️ **Several screens that make sense.** The keyboard moves between screens instead of shuffling their workspaces, and every screen remembers what it was showing when it's unplugged or its lid is shut.
-- 🔋 **A battery you can read at a glance.** It turns mint with a bolt while charging, and the new **Settings → Power** page shows the charge, time left, charger, charge limit, health and cycles.
-- 🔔 **Notifications that know where they came from.** They play your sound theme, open the exact window that sent them, and stay quiet while you're already looking at it.
-
-## The wallpaper *is* the screensaver
-
-There's no separate screensaver to wait for. A living wallpaper runs behind your windows all the time, and when you step away, the windows and the bar fade out through a glass transition and leave it the whole screen. Touch a key and everything comes back the same way. That key only wakes the desktop, so nothing gets typed blind.
-
-There are **twenty**, and most of them aren't animations at all. They're worked out live, growing out of the logo as you watch, so they never run quite the same way twice: galaxies that collide and pull each other apart, frost creeping in from the corners, a slime mould spreading in amber veins, a flock of starlings scattering from a falcon. A few favourites:
+## Your wallpaper is alive
 
 <table>
 <tr>
-<td align="center"><img src="assets/readme/wallpaper-attractor.webp" alt="Attractor: a strange attractor traced in fine dots" width="280"><br><b>Attractor</b><br><sub>The logo unravels into a strange attractor, then winds back into letters.</sub></td>
-<td align="center"><img src="assets/readme/wallpaper-galaxies.webp" alt="Galaxies: two spiral galaxies drawn in dots, circling each other" width="280"><br><b>Galaxies</b><br><sub>The logo's two halves become spiral galaxies that collide, then run backwards.</sub></td>
-<td align="center"><img src="assets/readme/wallpaper-life.webp" alt="Life: glowing, colourful Game of Life cells swirling round the logo" width="280"><br><b>Life</b><br><sub>Conway's Game of Life, seeded with the logo, glowing and swirling to a beat.</sub></td>
-</tr>
-<tr>
-<td align="center"><img src="assets/readme/wallpaper-physarum.webp" alt="Physarum: a slime mould spreading out of the logo into a network of amber veins" width="280"><br><b>Physarum</b><br><sub>A slime mould creeps out of the letters and spreads over the screen as veins.</sub></td>
-<td align="center"><img src="assets/readme/wallpaper-warp.webp" alt="Warp: streaks flying out of a vanishing point behind the logo" width="280"><br><b>Warp</b><br><sub>A steering tunnel of streaks, with the logo coming up out of the vanishing point.</sub></td>
-<td align="center"><img src="assets/readme/wallpaper-coral.webp" alt="Coral: spots and stripes growing round the logo" width="280"><br><b>Coral</b><br><sub>The letters seed a chemical reaction that grows over the screen, then dies back.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-galaxies.webp" alt="Galaxies: two spiral galaxies drawn in dots, circling each other" width="280"><br><b>Galaxies</b><br><sub>Two galaxies collide, then the collision runs backwards.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-physarum.webp" alt="Physarum: a slime mould spreading out of the logo into a network of amber veins" width="280"><br><b>Physarum</b><br><sub>A slime mould creeps out over the screen in amber veins.</sub></td>
+<td align="center"><img src="assets/readme/wallpaper-life.webp" alt="Life: glowing, colourful Game of Life cells swirling round the logo" width="280"><br><b>Life</b><br><sub>Conway's Game of Life, glowing and swirling to a beat.</sub></td>
 </tr>
 </table>
 
-<details>
-<summary><b>All twenty wallpapers</b></summary>
+Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in — the wallpaper was running behind your windows the whole time.
 
-| | |
-|---|---|
-| **Slipstream** | The logo arrives letter by letter, holds, and peels away downwind in smoke. |
-| **Vortex** | The logo sits in the eye of a turning tunnel of light, and rings on the minute. |
-| **Departures** | A split-flap board with the time, date, workspace and battery, turning as they change. |
-| **Prompt** | A command is typed at a terminal, and prints the logo as a banner. |
-| **Circuit** | Tracks are routed in from the edges, and pulses run along them to the logo. |
-| **Life** | Conway's Game of Life, seeded with the logo, with a spark dropped in when it settles. |
-| **Sonar** | A beam sweeps round, and everything it touches answers and fades behind it. |
-| **Tide** | Swell crosses the screen in shaded bands, and the logo surfaces out of it. |
-| **Warp** | A steering tunnel of streaks, and the logo comes up out of its vanishing point. |
-| **Glitch** | The picture smears like a broken video stream, then swirls away. |
-| **Contours** | A pressure map of the air round the logo, with a weather system drifting across. |
-| **Contrails** | Aircraft leave trails that light up the logo, and now and then skywrite the time. |
-| **Coral** | The letters seed a chemical reaction that grows over the screen in stripes and spots, then dies back. |
-| **Attractor** | The logo unravels into a strange attractor that slowly changes shape, then winds back into letters. |
-| **Murmuration** | The logo takes off as a flock of starlings that wheels round the screen, scatters from a falcon, and lands back in the letters. |
-| **Maze** | A walk through a maze, seen first hand, to the logo on the wall at its end. |
-| **Physarum** | A slime mould creeps out of the letters, spreads over the screen as a network of veins, then draws back into the logo. |
-| **Galaxies** | The two halves of the logo wind up into spiral galaxies that collide and merge, then the collision runs backwards into letters. |
-| **Chladni** | The logo is sand on a ringing plate: each note shakes it into a new figure, and then it walks home. |
-| **Frost** | Frost grows out of the letters in branching ferns, glitters, and melts back the way it came. |
+**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it.
 
-</details>
+[**All twenty →**](guide/wallpapers.md)
 
-Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. **Caps Lock turns the screensaver off:** while it's on, the desktop stays up, and so it does while something is fullscreen or a video player asks. Caps Lock doesn't hold off the screen lock, so a desktop left with it on still locks on time. The lock screen uses the living wallpaper too.
-
-## Minimise into the Matrix
+## Windows fall into the Matrix
 
 <img src="assets/readme/rain.webp" alt="The right edge of the screen: a window pours into a new stream of code rain beside two that are already running, each under the icon of the app it came from, and a moment later it comes back out. The busy app's stream falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
 
-Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
+Put a window away and it doesn't disappear into a bar along the bottom. It pours down the side of the screen as a stream of falling green code, and carries on running there.
 
-The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
+**The rain is a readout.** A busy app races, bright green. A quiet one drifts down slowly in grey. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
 
-It's built from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
+Each stream spells out its app's name as it falls. Click one to bring the window back.
 
 <br clear="right">
 
@@ -125,89 +61,54 @@ It's built from xscreensaver's GLMatrix, the classic recreation of the film's ef
 
 <img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
 
-**Super+Tab** tilts the whole desktop back into 3D, with every workspace laid out side by side and a letter on each window. Press the letter and you're there. Or move windows between workspaces, weigh them, minimise or close them from the overview.
+One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you — and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there.
 
-While it's open, **everything on screen drops to a quarter of its speed**: window animations, the rain, the wallpaper. When you leave, the clock catches back up to where it would have been, smoothly and with no jump.
-
-## Concentration first
+## Nothing interrupts you
 
 <img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
 
 Most desktops let any app break your train of thought at any moment. Slipstream doesn't.
 
-- **Notifications that arrive while you type wait for a natural pause**, then come up as one card. The bell counts them straight away, and Super+N shows them any time. Critical ones never wait, and nothing waits more than 15 minutes.
-- **Windows you didn't ask for don't take the screen or the keyboard.** An app opening a window by itself, or a window from another app while you type, pours into the code rain with a toast instead. Windows you open yourself, dialogs of the app you're in, and anything that appears just after a click still come straight to you.
-- **Slipstream knows you're typing because keys are arriving somewhere, never because of which keys they are.** You count as typing until you pause for 15 seconds, use a shortcut, click, or move to another window.
+- **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
+- **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into the code rain instead, with a quiet toast to say so.
+- **Slipstream can tell that you're typing, so it knows not to interrupt you** — but never what you're typing.
 
-Settings → Notifications has the switches.
-
-## Comes with Glimmerwood, the web browser that's on your side
+## The other half: Glimmerwood
 
 <img src="assets/readme/glimmerwood.webp" alt="Glimmerwood showing a Wikipedia article. Its chrome is a single dark bar with the address in it, and up in the corner the wisp, a small glowing flame with a friendly face, sits in its nook." width="960">
 
-The desktop keeps your focus. **[Glimmerwood](https://github.com/peterwalker78/glimmerwood) looks after the hours you spend online.** It's a quiet, lightweight browser for Linux, and home to **the wisp**: a small glowing flame with a face who sits in the corner of the toolbar and reflects how your time online really feels, the way the sky reflects the weather. Read, learn or make something and it brightens, smiles and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. Close the laptop and it recovers fastest of all.
+The desktop keeps your focus. **[Glimmerwood](https://github.com/peterwalker78/glimmerwood) looks after the hours you spend online.** It's a quiet, lightweight browser, and home to **the wisp**: a small glowing flame with a face who sits in the corner of the toolbar and reflects how your time online really feels, the way the sky reflects the weather.
 
-**It never blocks a page, never nags and never shames you.** Hover over it and it tells you in plain words what's moving it; click it and you see the shape of your days, with no minutes, scores or streaks to feel bad about. Every new tab opens a garden that grows on good days and simply grows nothing on heavy ones. Like Slipstream, everything stays on your computer: no accounts, no telemetry, no record of the pages you visit, tracking protection built in.
+Read, learn or make something and it brightens and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. **Close the laptop and it recovers fastest of all.** It never blocks a page, never nags and never shames you — and like Slipstream, nothing about you ever leaves your computer.
 
-`update-session` installs Glimmerwood and keeps it up to date, as a Flatpak from its own project, so it's just as happy on any other Linux desktop. To leave it out, put `install=no` in `~/.config/slipstream/extras/glimmerwood.conf`. To make it your default browser, choose it under your default applications, or add `default_browser=yes` to that file alongside the lines from [`extras/glimmerwood.conf`](extras/glimmerwood.conf).
+**Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop. There's more of the workshop to come.
 
-## Tools that pay you back
+## Everything else you'd expect
 
-The things you'd expect any desktop to do, each done the Slipstream way.
+- **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
+- **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
+- **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
+- **Tiling that isn't all or nothing.** Nudge a window along a ladder from *distant* to *spotlight*, one rung per press, always reversible.
+- **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
+- **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
+- **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
+- **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
 
-- **Snip, then watch it go.** **Super+Shift+S** freezes the screen: drag out a region, press the letter on a window, or Enter for the whole screen. The snip is saved and copied, and **the part you chose breaks into fragments that turn into rain glyphs and fly into the "saved" toast.**
-- **Clipboard history that decodes.** **Super+V** lists the last 25 things you copied, text and pictures. **As you move through the list, each entry decodes out of rain glyphs into its text.** Enter pastes it into the app you're in. It's kept in memory only and forgotten at logout, and anything a password manager marks as secret is never kept.
-- **An explorer that answers.** Type `12*7`, `15% of 80`, `5 km in miles` or `100f to c` into **Super+Space**, and the answer decodes into place, ready to copy. Type `:fire` and Enter types 🔥 into your app.
-- **Floating windows that stay out of the way.** Dialogs open floating, centred over the window they belong to. Splash screens and picture-in-picture videos float too. **Super+Shift+V** floats or tiles any window, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. Floating windows move with their title bar or Super+drag.
-- **A battery that looks after you.** Unplugged at 20%, **the living wallpaper visibly slows to half speed to save power.** At 5%, a card counts down a minute to sleep so your work survives in memory, and it ignores keys for its first moment, so nothing you're typing can answer it. On a charger the icon turns mint with a bolt through it, and Settings → Power has the whole story, from charge limit to battery health.
-- **A meter for whatever you're counting.** A small gauge beside quick settings shows how much of something you've used, from any command you choose: a quota, a plan's limits, a disk. It warms to amber at 75% and orange at 90%, and quick settings shows exactly when each allowance starts over. **Settings → Meter** runs your command on the spot and tells you what the bar will show, or exactly why it won't.
-- **Night light that follows the sun,** with no location needed: sunset and sunrise are worked out from your time zone. **The screen warms over half an hour at dusk, the way the light outside does,** rather than all at once.
-- **Caps Lock you can't miss:** an amber chip on the bar, and the Caps Lock arrow in the lock screen's password box.
-- **Games and virtual machines behave.** Games can lock the mouse and virtual machines can take every key. **Super+Esc** always takes them back.
+[**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
 
-## Gravity
+### New in 0.4
 
-Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · tiling · centre · wide · spotlight*. One rung per press, always reversible.
+- ✨ **Glimmerwood comes with Slipstream,** installed and kept up to date for you.
+- 📊 **A meter of your own on the bar,** from any command that reports what you've used.
+- 🖥️ **Several screens that make sense,** each remembering what it was showing when it's unplugged.
+- 🔋 **A battery you can read at a glance,** with a new **Settings → Power** page behind it.
+- 🔔 **Notifications that know where they came from,** and open the exact window that sent them.
 
-## And everything else a desktop needs
+[Full changelog →](CHANGELOG.md)
 
-<details>
-<summary><b>The full list</b></summary>
+## Get Slipstream
 
-Slipstream is a complete desktop session of its own — compositor, bar, notifications, lock screen and Settings app — written in Rust on [Smithay](https://github.com/Smithay/smithay).
-
-- **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
-- **App explorer** (Super+Space or Super+R): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it, like Windows' Run box.
-- **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.
-- **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
-- **Notifications** (Super+N): pop-ups with action buttons, sounds from your sound theme, a notification centre, do not disturb. Each notification knows the window it came from, even `notify-send` in a terminal, and opening it takes you there.
-- **Lock screen** (Super+L), before sleep and optionally after a while idle.
-- **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied.
-- **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.
-- **Dark or light, chosen in Settings**, and every app that asks the desktop follows it the moment you change it: GTK and Qt apps, browsers and anything packaged as a Flatpak. Slipstream's own bar, panels and windows are dark either way.
-- **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
-- **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
-- **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
-- **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. See below.
-- **Every effect has a reduced-motion version**, switched live from Settings.
-
-
-</details>
-
-**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic). Expect rough edges, and changes between versions.
-
-## Requirements
-
-- Linux with **systemd-logind** or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
-- A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
-- Libraries as old as Debian 13's or newer. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
-- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark and light, file dialogs), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
-
-Your existing desktop stays installed and on the login screen: Slipstream is added beside it.
-
-## Installing
-
-One command. It downloads the newest release, checks it against its published checksum, and runs the installer, which says what it will do before writing anything:
+One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
@@ -215,240 +116,37 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
 
-To look before you leap, put an option after `--`. `--try` opens Slipstream in a window on the desktop you're using now; `--check` says what installing would do and writes nothing:
+**Rather look before you leap?** Add `-- --try` and it opens in a window on the desktop you're using now, installing nothing:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
 ```
 
-Prefer to read what you run? [`install.sh`](install.sh) is a short shell script that does nothing clever, and the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases) has the same download to unpack yourself:
+**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic), and every release is checked on Debian, Ubuntu, Fedora, Arch and openSUSE. Expect rough edges, and changes between versions.
 
-```sh
-sha256sum -c slipstream-*-linux-x86_64.tar.gz.sha256
-tar xf slipstream-*-linux-x86_64.tar.gz
-cd slipstream-*-linux-x86_64
-scripts/try-slipstream             # optional: run it in a window first
-scripts/install-session --check    # what it would do, and what's missing; writes nothing
-scripts/install-session            # installs it; asks for your password once
-```
+[**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 
-Every download is built by GitHub from a tagged commit, and comes with a signed record of where it was built. With the GitHub CLI: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
+## What we won't do
 
-### Works on
+- No telemetry, ever. What you do on your computer stays on your computer.
+- Nothing in Slipstream is built to keep you looking at it for longer than you meant to.
+- No AI in the desktop. Slipstream has no AI features and none are planned.
+- Keybindings never take keys that input methods, screen readers, games or apps rely on.
+- Every effect has a reduced-motion version, switched live from Settings.
 
-<details>
-<summary><b>Which distributions, and what each release is checked on</b></summary>
+## Help and detail
 
 | | |
 |---|---|
-| **Used daily** | Bazzite (Fedora Atomic), on real hardware. Where the rough edges are found. |
-| **Checked on every release** | Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed: each one installs the download in a container and starts it. Repeated weekly against Debian testing, Ubuntu rolling, Fedora Rawhide, Arch and Tumbleweed, so a change in a distribution shows up here first. |
-| **Should work** | Any distribution with Debian 13's libraries or newer, and logind or seatd: Linux Mint 23, Pop!_OS 26.04, Manjaro, EndeavourOS, CachyOS, Nobara, Omarchy, Aurora, Bluefin, Silverblue, Kinoite. Please report it if it doesn't. |
-| **Not yet** | Ubuntu 24.04 and what's built on it (Linux Mint 22, Pop!_OS 24.04, Zorin 18): the Settings app needs Pango 1.56, and they have 1.52. Debian 12 and the RHEL family, which are older still. Alpine and other musl systems, NixOS and Guix, which all need a build of their own. Systems with neither systemd nor seatd. ARM machines. |
-
-Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the capture protocols Slipstream speaks arrived. Debian 13 and Ubuntu 25.10 package 0.7, so sharing doesn't work there yet; everything else does, and the installer says so plainly.
-
-</details>
-
-### What the installer does
-
-<details>
-<summary><b>What it writes, and what it leaves alone</b></summary>
-
-- **The programs go in `/usr/local/bin`**, so everyone with an account on the machine can use Slipstream, along with the Settings app's entry, the session's systemd units and the portal settings.
-- **A copy in your own `~/.local/bin` comes first**, so a build of your own runs for you and the installed release for everyone else.
-- **It checks first, and writes all or nothing.** Its system files are staged and moved into place together, so a failure part way changes nothing. A refusal writes nothing at all.
-- **It leaves other files alone**, and never replaces or removes a file it didn't write.
-- **Packages are your call.** It names what's missing and offers to install it with your own package manager; on atomic systems, where that rewrites the system image, it prints the command instead of running it. Without a terminal it asks nothing and installs nothing.
-- **`scripts/install-session --uninstall`** removes exactly what it wrote, keeping your settings unless you add `--purge`.
-
-</details>
-
-### From source
-
-<details>
-<summary><b>Ubuntu, atomic systems, and packaging</b></summary>
-
-On Ubuntu 26.04, install the build tools and libraries, then build and install from your clone:
-
-```sh
-sudo apt install git build-essential clang mold pkg-config rustup libxkbcommon-dev libwayland-dev \
-    libsystemd-dev libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev \
-    libpixman-1-dev libdisplay-info-dev libgtk-4-dev
-git clone https://github.com/peterwalker78/slipstream-desktop.git
-cd slipstream-desktop
-scripts/update-session     # builds (rustup fetches the Rust version Slipstream needs) and installs
-scripts/install-session    # once
-```
-
-On an atomic system (Bazzite, Silverblue, Kinoite), build in a Fedora 44 distrobox called `slipstream`, which `update-session` uses when it's there:
-
-```sh
-distrobox create --name slipstream --image registry.fedoraproject.org/fedora-toolbox:44
-distrobox enter slipstream -- sudo dnf install -y gcc clang mold rustup pkgconf-pkg-config \
-    libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
-    libseat-devel libdrm-devel mesa-libEGL-devel pixman-devel libdisplay-info-devel gtk4-devel
-distrobox enter slipstream -- rustup-init -y
-```
-
-Then, from the host, in your clone:
-
-```sh
-scripts/update-session     # builds in the box (or with the cargo on your system) and installs
-scripts/install-session    # once
-```
-
-Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than Debian 13's glibc and links nothing unusual. For a distribution package, a plain `cargo build --release --locked` against the system's own libraries is the right thing; nothing is vendored.
-
-</details>
-
-### Glimmerwood, and apps of your own alongside it
-
-<details>
-<summary><b>How extras are installed, replaced or left out</b></summary>
-
-Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `scripts/install-extras`, which the installer runs for you at the end (and `update-session` runs on every rebuild). Slipstream ships one, Glimmerwood, described in `extras/glimmerwood.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
-
-```sh
-app_id=org.example.Browser
-checkout=~/Projects/browser      # built with its own command whenever the checkout has new commits
-build=scripts/flatpak
-bundle_url=https://example.org/browser.flatpak       # used without a checkout, or if it fails to build before the app is installed
-bundle_sha256_url=https://example.org/browser.flatpak.sha256
-default_browser=yes              # set once, so choosing another browser later sticks
-```
-
-`scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
-
-</details>
-
-### A meter of your own
-
-<details>
-<summary><b>The command, the report it prints, and what the bar shows</b></summary>
-
-The bar can show how much of something is used, from any command that prints a small JSON report. Set it in **Settings → Meter**, where **Run it now** shows what the bar would show or why a command doesn't work, or in `~/.config/slipstream/settings.toml`:
-
-```toml
-[meter]
-command = "quota-report --json"   # run with sh -c
-every-secs = 60
-```
-
-The report has sections, each with meters:
-
-```json
-{"sections": [{"name": "Storage", "detail": "Pro",
-               "meters": [{"label": "Daily", "percent": 42, "resets": 1790000000},
-                          {"label": "Weekly", "percent": 18}],
-               "note": null, "stale": false}]}
-```
-
-The bar shows a small gauge for each section: its first meter as the thick bar, with the percentage beside it, and its second as the thin bar underneath. The gauge turns amber at 75% and orange at 90%. Quick settings lists every meter, with the time left until each starts over (`resets` is in seconds since the Unix epoch). `detail`, `note`, `stale` and `resets` are optional. A section marked `stale` is dimmed, and so is everything if the command fails, times out after 30 seconds, or prints something unreadable. The last good report stays on show in the meantime.
-
-</details>
-
-## Updating
-
-Run the install command again: it fetches the newest release and installs it over the old one, which is safe to do at any time. From a clone, `scripts/update-session` builds and installs your own copy instead. Either way, the new version starts at your next login.
-
-Slipstream never checks for updates by itself, and nothing here contacts the internet unless you ask it to.
-
-## Uninstalling
-
-From another desktop:
-
-```sh
-scripts/install-session --uninstall           # the session, the programs, their units and portal settings
-scripts/install-session --uninstall --purge   # and your Slipstream settings, log and saved layout
-```
-
-Packages you added for it stay, since other things may use them.
-
-## Keys
-
-<details>
-<summary><b>The whole table — Super+/ shows it in the desktop too</b></summary>
-
-| Keys | What they do |
-|---|---|
-| Super+Space, Super+R | App explorer |
-| Super+Return, Super+E, Super+I | Terminal, files, Settings |
-| Alt+Tab, Alt+Shift+Tab | Switch windows |
-| Alt+F4 | Close the window |
-| Super+arrows | Move focus |
-| Super+Alt+arrows | Move the tile |
-| Super+[ and ], with Shift for height | Resize |
-| Super+F | Fill the screen, and back |
-| Super+M, Super+Shift+M | Minimise to the code rain, bring back |
-| Super+Shift+V, Super+Ctrl+V | Float the window or tile it; switch between floating and tiled windows |
-| Super+D | Show the desktop, and back |
-| Super+Tab | Bullet time |
-| Super+T, Super+PgUp, Super+PgDn | Gravity on or off, heavier, lighter |
-| Super+1–9, Super+Ctrl+← → | Go to a workspace |
-| Super+Shift+1–9, Super+Shift+← → | Move the window to a workspace |
-| Super+P, Super+Shift+P | Next screen, move the window there |
-| Super+A, Super+N | Quick settings, notifications |
-| Super+V | Clipboard history |
-| Print, Super+Shift+S | Screenshot of the screen; snip a region or a window |
-| Super+L | Lock |
-| Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
-| Caps Lock | Keeps the screensaver off while it's on (the screen still locks) |
-| Super+Shift+Esc | Log out |
-| Super+/ | Every key |
-
-Ctrl+Alt+F1–F12 switch virtual terminals as usual. Keys that input methods, screen readers and games rely on are left alone.
-
-</details>
-
-## Troubleshooting
-
-<details>
-<summary><b>If something goes wrong</b></summary>
-
-- **Back at the login screen straight away:** read `~/.local/state/slipstream/slipstream.log` (the previous session's is `slipstream.log.old`).
-- **Super+L doesn't lock:** run `scripts/install-session`, which installs the lock screen's PAM service.
-- **Screen sharing offers nothing:** you need xdg-desktop-portal-wlr 0.8 or newer. `scripts/install-session --check` says which version is here and offers to install it where a new enough one is packaged; log in again afterwards.
-- **No login screen appears at all:** the machine logs someone in automatically. `scripts/install-session --check` says which setting does it and how to change it.
-- **Anything else:** `scripts/install-session --check` reports what the system is missing.
-
-</details>
-
-## Development
-
-<details>
-<summary><b>The workspace, and running it nested</b></summary>
-
-| Path | What it is |
-|---|---|
-| `slipstream/` | The compositor (Rust and [Smithay](https://github.com/Smithay/smithay)) |
-| `slipstream-settings/` | The Settings app (GTK 4) |
-| `slipstream-config/` | The settings file both of them share |
-| `session/` | The login session's launcher, entry, systemd targets and portal settings |
-| `scripts/` | Installing, updating, packaging, and running nested |
-
-```sh
-scripts/nested              # builds in the box and opens foot inside Slipstream, as a window
-scripts/nested firefox      # or another program
-cargo test --workspace      # in the box
-scripts/test-install-session
-```
-
-Nested, **Alt is the Mod key**, since your desktop keeps Super for itself.
-
-</details>
-
-## Principles
-
-- No telemetry, ever. What you do on your computer stays on your computer.
-- Designed for focus: nothing in Slipstream is built to keep you looking at it for longer than you meant to.
-- No AI in the desktop. Slipstream has no AI features and none are planned.
-- Keybindings never take keys that input methods, screen readers, games or apps rely on.
-- Works with logind or seatd through libseat.
-- Every effect has a reduced-motion version.
+| [**Installing**](guide/install.md) | what you need, every install route, which distributions, updating, uninstalling, building from source |
+| [**Every key**](guide/keys.md) | the whole table — Super+/ shows it in the desktop too |
+| [**Help**](guide/help.md) | when something goes wrong, the bar's meter, and apps that come with your desktop |
+| [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
+| [**Everything a desktop needs**](guide/features.md) | the full feature list |
+| [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |
 
 AI coding tools are used in writing Slipstream's code. Every change is built and tested in CI.
 
 ## Licence
 
-GPL-3.0-or-later. See `LICENSE`. Parts of the compositor started from Smithay's `smallvil` example (MIT). The fonts are under the SIL Open Font Licence; their licences are in `assets/fonts`.
+GPL-3.0-or-later. See [`LICENSE`](LICENSE). Parts of the compositor started from Smithay's `smallvil` example (MIT). The code rain is built from xscreensaver's GLMatrix. The fonts are under the SIL Open Font Licence; their licences are in `assets/fonts`.
