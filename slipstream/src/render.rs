@@ -571,17 +571,58 @@ impl Slipstream {
         feedback
     }
 
+    /// After drawing a screen: notes, per surface, which screen it is really being shown on.
+    /// `send_frames` then paces each window by that screen's refresh rate rather than by whichever
+    /// screen happened to draw last. Without this a window on a 60 Hz panel is woken at 60 plus
+    /// 144 Hz when a 144 Hz monitor is plugged in, and a client that draws on every callback runs
+    /// at the sum of every screen's rate.
+    pub fn update_scanout_outputs(&mut self, output: &Output, states: &RenderElementStates) {
+        use smithay::{
+            backend::renderer::element::default_primary_scanout_output_compare,
+            desktop::utils::update_surface_primary_scanout_output,
+        };
+        // Windows drawn from workspaces no screen is showing (bullet time, a window being shared)
+        // count too: they are on this screen's frame, so this screen should pace them.
+        let off_space = self.drawn_off_space.clone();
+        for window in self.space.elements().chain(off_space.iter()) {
+            window.with_surfaces(|surface, surface_states| {
+                update_surface_primary_scanout_output(
+                    surface,
+                    output,
+                    surface_states,
+                    None,
+                    states,
+                    default_primary_scanout_output_compare,
+                );
+            });
+        }
+        for layer in smithay::desktop::layer_map_for_output(output).layers() {
+            layer.with_surfaces(|surface, surface_states| {
+                update_surface_primary_scanout_output(
+                    surface,
+                    output,
+                    surface_states,
+                    None,
+                    states,
+                    default_primary_scanout_output_compare,
+                );
+            });
+        }
+    }
+
     pub fn send_frames(&mut self, output: &Output) {
+        use smithay::desktop::utils::surface_primary_scanout_output;
         let now = self.start_time.elapsed();
         let off_space = std::mem::take(&mut self.drawn_off_space);
+        // A surface this screen isn't showing still gets a callback this often, so a window that
+        // is hidden or fully covered carries on rather than freezing until it is looked at again.
+        let throttle = Some(Duration::from_secs(1));
         let mut sent: Vec<&Window> = Vec::new();
         for window in self.space.elements().chain(off_space.iter()) {
             if sent.contains(&window) {
                 continue;
             }
-            window.send_frame(output, now, Some(Duration::ZERO), |_, _| {
-                Some(output.clone())
-            });
+            window.send_frame(output, now, throttle, surface_primary_scanout_output);
             sent.push(window);
         }
         self.send_layer_frames(output, now);
@@ -1311,7 +1352,7 @@ pub fn output_elements(
             [x, y, w, h]
         } else {
             let at_rest = [x, y, own.size.w as f64, own.size.h as f64];
-            let fullscreen = state.fullscreen.as_ref() == Some(&window);
+            let fullscreen = state.is_fullscreen(&window);
             match area_global {
                 // Zoomed out, a window bigger than its tile (a client with a minimum size, or a
                 // fullscreen one) shrinks to fit, so it stays inside its workspace's frame.

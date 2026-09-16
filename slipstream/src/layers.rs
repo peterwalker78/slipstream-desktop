@@ -367,11 +367,13 @@ impl Slipstream {
 
     /// Frame callbacks to every layer surface on `output`.
     pub fn send_layer_frames(&self, output: &Output, now: Duration) {
+        use smithay::desktop::utils::surface_primary_scanout_output;
         let map = layer_map_for_output(output);
+        // Paced by the screen each surface is really on, and once a second otherwise, as windows
+        // are (`render::send_frames`).
+        let throttle = Some(Duration::from_secs(1));
         for layer in map.layers() {
-            layer.send_frame(output, now, Some(Duration::ZERO), |_, _| {
-                Some(output.clone())
-            });
+            layer.send_frame(output, now, throttle, surface_primary_scanout_output);
         }
     }
 

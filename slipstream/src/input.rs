@@ -372,6 +372,27 @@ impl Slipstream {
         self.drag_quick_slider(pos);
     }
 
+    /// The screen a touchscreen or drawing tablet points at. Its coordinates are a fraction of
+    /// one screen, so it has to be told which; the built-in panel is the answer for a built-in
+    /// touchscreen, which is what almost every absolute device on a laptop is. Failing that, the
+    /// screen the keyboard is on, which at least follows the work.
+    ///
+    /// Not the first output the space happens to hold: that is the order they were mapped in, so a
+    /// laptop booted with a monitor already plugged in could send its own touchscreen to the
+    /// monitor. Binding a named device to a named screen needs a setting, and there isn't one yet.
+    fn absolute_screen(&self) -> Option<smithay::output::Output> {
+        self.space
+            .outputs()
+            .find(|output| crate::state::is_internal_panel(&output.name()))
+            .or_else(|| {
+                self.screens
+                    .focused_output()
+                    .and_then(|focused| self.space.outputs().find(|o| **o == focused))
+            })
+            .or_else(|| self.space.outputs().next())
+            .cloned()
+    }
+
     /// Keeps the pointer on screen: `pos`, or the nearest point on any output.
     pub fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
         let screens: Vec<_> = self
@@ -474,10 +495,8 @@ impl Slipstream {
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 self.wake_ui();
                 let Some(output_geo) = self
-                    .space
-                    .outputs()
-                    .next()
-                    .and_then(|output| self.space.output_geometry(output))
+                    .absolute_screen()
+                    .and_then(|output| self.space.output_geometry(&output))
                 else {
                     return;
                 };
@@ -982,9 +1001,8 @@ impl Slipstream {
         // A Super tap is off for games (fullscreen or gamescope), and for a real keyboard when
         // nested, where Alt stands in for Super and a tapped Alt is an app's menu bar.
         let fullscreen_focused = self
-            .fullscreen
-            .as_ref()
-            .is_some_and(|full| self.focused_window().as_ref() == Some(full));
+            .focused_window()
+            .is_some_and(|window| self.is_fullscreen(&window));
         // An app holding the shortcuts gets Super on its own too.
         let inhibited = self.shortcuts_inhibited();
         let tap_allowed =

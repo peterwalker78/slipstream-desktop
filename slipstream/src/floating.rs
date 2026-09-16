@@ -440,7 +440,7 @@ impl Slipstream {
         let Some(window) = self.focused_window() else {
             return;
         };
-        if self.fullscreen.as_ref() == Some(&window) {
+        if self.is_fullscreen(&window) {
             return;
         }
         let Some(index) = self.workspaces.find(&window) else {

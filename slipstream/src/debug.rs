@@ -147,6 +147,10 @@ pub enum Step {
     OfferClick(f64, f64),
     /// A key for the card asking what a screen just plugged in should show.
     ConnectKey(String),
+    /// The focused window fills its screen, or stops.
+    Fullscreen(bool),
+    /// Moves the keyboard to the neighbouring tile, as Super+arrow does.
+    FocusTile(String),
     /// The share picker, offering screens (`m`), windows (`w`) or both.
     SharePicker(String),
     ShareKey(String),
@@ -202,6 +206,8 @@ impl Step {
                 | Step::DropScreen(_)
                 | Step::Lid(_)
                 | Step::Screens
+                | Step::Fullscreen(_)
+                | Step::FocusTile(_)
                 | Step::Windows
                 | Step::Motion
                 | Step::Lock
@@ -397,6 +403,9 @@ impl Script {
                     ("xkey", Some(name)) => Step::ExitKey(name.to_string()),
                     ("okey", Some(name)) => Step::OfferKey(name.to_string()),
                     ("sckey", Some(name)) => Step::ConnectKey(name.to_string()),
+                    ("full", None) => Step::Fullscreen(true),
+                    ("unfull", None) => Step::Fullscreen(false),
+                    ("focus", Some(way)) => Step::FocusTile(way.trim().to_string()),
                     ("oclick", Some(at)) => {
                         let (x, y) = point(at)?;
                         Step::OfferClick(x, y)

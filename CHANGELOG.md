@@ -18,6 +18,17 @@ Slipstream is in beta: anything can change between versions, including settings 
   landed on.
 - **Screens are told apart by what they are, not which port they are in**, so the same monitor on a
   different port is recognised and a different monitor on the same port is not.
+- **A window can fill each screen at once.** Putting a second window fullscreen took the first out
+  of fullscreen without telling it, so only one screen at a time could be filled — no video on the
+  monitor while a game filled the laptop — and the window it displaced was left believing it still
+  covered a screen. An app that asks to fill a particular screen is also sent there now, instead of
+  filling whichever one it happened to be on.
+- **Windows are paced by the screen they are on.** Every window was woken by every screen's refresh,
+  so plugging a 144 Hz monitor in beside a 60 Hz panel made windows on the panel redraw at the
+  combined rate, wasting power and confusing apps that draw once per frame.
+- **A touchscreen or drawing tablet points at the built-in screen** rather than at whichever screen
+  happened to be set up first, so a laptop started with a monitor already plugged in no longer sends
+  its own touches to the monitor.
 
 - **The volume and brightness card stays put while you hold the key.** It played its rise and fade
   in again on every press, so the card flickered under a held key instead of the level simply

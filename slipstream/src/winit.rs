@@ -101,6 +101,7 @@ pub fn init_winit(
                     };
                     backend.submit(Some(&[damage])).unwrap();
                     // Nested, the host's swap is as close to the screen as can be known.
+                    state.update_scanout_outputs(&output, &states);
                     state.presentation_feedback(&output, &states).presented(
                         Clock::<Monotonic>::new().now(),
                         output

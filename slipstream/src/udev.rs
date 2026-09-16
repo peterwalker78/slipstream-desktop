@@ -718,6 +718,7 @@ impl Slipstream {
             FrameFlags::DEFAULT,
         ) {
             Ok(frame) => {
+                self.update_scanout_outputs(&output, &frame.states);
                 if !frame.is_empty {
                     let feedback = self.presentation_feedback(&output, &frame.states);
                     match screen.drm_output.queue_frame(Some(feedback)) {

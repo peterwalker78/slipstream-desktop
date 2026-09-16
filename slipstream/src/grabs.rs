@@ -165,7 +165,7 @@ impl Slipstream {
         let Some(workspace) = self.workspaces.find(&window) else {
             return false;
         };
-        if self.fullscreen.as_ref() == Some(&window) {
+        if self.is_fullscreen(&window) {
             return false;
         }
         if self.workspaces.get(workspace).gravity.is_on() {

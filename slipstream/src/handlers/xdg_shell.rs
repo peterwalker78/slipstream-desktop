@@ -52,9 +52,14 @@ impl XdgShellHandler for Slipstream {
     fn fullscreen_request(
         &mut self,
         surface: ToplevelSurface,
-        _output: Option<wl_output::WlOutput>,
+        output: Option<wl_output::WlOutput>,
     ) {
         if let Some(window) = self.toplevel_window(&surface) {
+            // A player or a game may name the screen it wants to fill — a monitor picker in its
+            // own settings. Send the window there first, then fill that screen.
+            if let Some(wanted) = output.as_ref().and_then(|o| self.output_named(o)) {
+                self.send_window_to_screen(&window, &wanted);
+            }
             self.set_fullscreen(&window, true);
         } else if let Some(window) = self.unmapped_window(&surface) {
             self.fullscreen_on_map.retain(|waiting| waiting != &window);

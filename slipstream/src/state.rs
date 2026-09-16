@@ -198,8 +198,9 @@ pub struct Slipstream {
     pub focus_history: Vec<Window>,
     /// Alt+Tab's switcher, while Alt is held (`switcher.rs`).
     pub switcher: Option<crate::switcher::Switcher<Window>>,
-    /// The window filling the screen at its own request (F11, video, games).
-    pub fullscreen: Option<Window>,
+    /// The windows filling a screen at their own request (F11, video, games). At most one per
+    /// workspace, so a video can fill one screen while another is worked on.
+    pub fullscreen: Vec<Window>,
     /// Floating windows that opened before knowing their size, and their parents, to centre once
     /// they do.
     pub centre_when_sized: Vec<(Window, Option<Window>)>,
@@ -576,7 +577,7 @@ impl Slipstream {
             pending_focus: None,
             focus_history: Vec::new(),
             switcher: None,
-            fullscreen: None,
+            fullscreen: Vec::new(),
             refloat: Vec::new(),
             floating_sizes: Vec::new(),
             centre_when_sized: Vec::new(),
@@ -1119,27 +1120,28 @@ impl Slipstream {
             self.space.unmap_elem(&window);
         }
         // A fullscreen window on a workspace being shown covers that screen, above its
-        // neighbours. Fullscreen covers the bar too.
-        let fullscreen = self.fullscreen.clone().filter(|window| {
-            self.workspaces
-                .find(window)
-                .is_some_and(|workspace| shown.iter().any(|(_, shown)| *shown == workspace))
-        });
-        let full_screen_rect = fullscreen
-            .as_ref()
-            .and_then(|window| self.workspaces.find(window))
-            .and_then(|workspace| self.screen_rect_for_workspace(workspace));
+        // neighbours. Fullscreen covers the bar too. One per screen: a video can fill the monitor
+        // while the laptop is worked on, so this is a window and a rect for each shown workspace,
+        // not one for the desktop.
+        let fullscreens: Vec<(Window, Rect)> = shown
+            .iter()
+            .filter_map(|(_, workspace)| {
+                let window = self.fullscreen_at(*workspace)?;
+                Some((window, self.screen_rect_for_workspace(*workspace)?))
+            })
+            .collect();
         let now = self.clock.tick();
         self.tiled_mins = rects
             .iter()
             .map(|(window, _)| (window.clone(), min_size(window)))
             .collect();
         for (window, tile) in rects {
-            let full = fullscreen.as_ref() == Some(&window);
-            let r = match (full, full_screen_rect) {
-                (true, Some(screen)) => screen,
-                _ => tile,
-            };
+            let full_rect = fullscreens
+                .iter()
+                .find(|(full, _)| *full == window)
+                .map(|(_, screen)| *screen);
+            let full = full_rect.is_some();
+            let r = full_rect.unwrap_or(tile);
             let asked = if full {
                 r
             } else {
@@ -1193,8 +1195,8 @@ impl Slipstream {
             }
             self.restack_floating(*workspace);
         }
-        if let Some(window) = fullscreen {
-            self.space.raise_element(&window, false);
+        for (window, _) in &fullscreens {
+            self.space.raise_element(window, false);
         }
         // Workspaces no screen is showing follow too, so a change to a tiling area (the code
         // rain taking or giving back width) reaches their windows before bullet time shows them.
@@ -1371,7 +1373,7 @@ impl Slipstream {
     fn expected_place(&self, window: &Window) -> Option<(Rect, bool)> {
         // A window that will float chooses its own size.
         let fullscreen_asked =
-            self.fullscreen_on_map.contains(window) || self.fullscreen.as_ref() == Some(window);
+            self.fullscreen_on_map.contains(window) || self.is_fullscreen(window);
         if !fullscreen_asked
             && (self.workspaces.is_floating(window)
                 || (self.workspaces.find(window).is_none()
@@ -1379,7 +1381,7 @@ impl Slipstream {
         {
             return None;
         }
-        if self.fullscreen_on_map.contains(window) || self.fullscreen.as_ref() == Some(window) {
+        if self.fullscreen_on_map.contains(window) || self.is_fullscreen(window) {
             let workspace = self
                 .workspaces
                 .find(window)
@@ -1434,8 +1436,7 @@ impl Slipstream {
         // Over a fullscreen window on screen, a new window waits behind it without the keyboard,
         // so a game or a video isn't interrupted, unless it's that window's own dialog.
         let covering = self
-            .fullscreen
-            .clone()
+            .fullscreen_at(active)
             .filter(|full| *full != window && self.fullscreen_on_screen());
         match covering {
             Some(full) if !is_child_of(&window, &full) => {
@@ -1625,9 +1626,7 @@ impl Slipstream {
         if self.pending_focus.as_ref() == Some(window) {
             self.pending_focus = None;
         }
-        if self.fullscreen.as_ref() == Some(window) {
-            self.fullscreen = None;
-        }
+        self.fullscreen.retain(|held| held != window);
         self.refloat.retain(|(held, _)| held != window);
         self.floating_sizes.retain(|(held, _)| held != window);
         self.centre_when_sized.retain(|(held, _)| held != window);
@@ -1699,10 +1698,11 @@ impl Slipstream {
         };
         // Choosing another window on a fullscreen window's workspace ends the fullscreen first, so
         // the chosen window is never a sliver drawn over it or hidden behind it.
-        if let Some(full) = self.fullscreen.clone()
+        if let Some(full) = self
+            .workspaces
+            .find(window)
+            .and_then(|index| self.fullscreen_at(index))
             && full != *window
-            && self.workspaces.find(&full).is_some()
-            && self.workspaces.find(&full) == self.workspaces.find(window)
         {
             self.set_fullscreen(&full, false);
         }
@@ -1789,8 +1789,9 @@ impl Slipstream {
         // Nor does it end a maximise.
         let fullscreen = self
             .fullscreen
-            .clone()
-            .filter(|window| here.contains(window));
+            .iter()
+            .find(|window| here.contains(window))
+            .cloned();
         let next = fullscreen
             .or_else(|| ws.maximised.clone())
             .or_else(|| {
@@ -2038,7 +2039,7 @@ impl Slipstream {
         }
         let ws = self.current_workspace();
         // A window filling the screen or the tiling area has no neighbour to give room to.
-        if self.fullscreen.as_ref() == Some(&window) || ws.maximised.as_ref() == Some(&window) {
+        if self.is_fullscreen(&window) || ws.maximised.as_ref() == Some(&window) {
             return;
         }
         if ws.gravity.is_on() {
@@ -2418,6 +2419,35 @@ impl Slipstream {
         dropped
     }
 
+    /// The output a client's `wl_output` stands for, if it's one of ours and still lit.
+    pub fn output_named(
+        &self,
+        resource: &smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
+    ) -> Option<Output> {
+        let wanted = Output::from_resource(resource)?;
+        self.space
+            .outputs()
+            .find(|output| **output == wanted)
+            .cloned()
+    }
+
+    /// Moves `window` to the workspace `output` is showing, leaving the keyboard where it is.
+    /// Nothing happens if it is already there, or if that screen isn't lit.
+    pub fn send_window_to_screen(&mut self, window: &Window, output: &Output) {
+        let Some(target) = self
+            .screens
+            .iter()
+            .find(|screen| screen.output == *output)
+            .map(|screen| screen.workspace)
+        else {
+            return;
+        };
+        if self.workspaces.find(window) == Some(target) {
+            return;
+        }
+        self.move_window_to_workspace(window, target, false);
+    }
+
     /// What a screen is known by between sessions: what its EDID says, else its connector's name.
     pub fn monitor_id(&self, output: &Output) -> String {
         let physical = output.physical_properties();
@@ -2580,6 +2610,7 @@ impl Slipstream {
             scratch = (0..self.workspaces.count())
                 .filter(|index| self.workspaces.is_scratch(*index))
                 .count(),
+            fullscreen = self.fullscreen.len(),
             "workspaces"
         );
         for (index, screen) in self.screens.iter().enumerate() {
@@ -2588,6 +2619,10 @@ impl Slipstream {
                 screen = screen.output.name(),
                 workspace = screen.workspace + 1,
                 own = self.workspaces.is_scratch(screen.workspace),
+                fullscreen = self
+                    .fullscreen_at(screen.workspace)
+                    .map(|window| logged_app(&window))
+                    .unwrap_or_default(),
                 focused = index == self.screens.focused_index(),
                 rect = ?self.screen_rect(index),
                 area = ?area,
@@ -2761,7 +2796,7 @@ impl Slipstream {
         let screen = self.screen_rect_for_workspace(index);
         let now = self.clock.tick();
         for (window, tile) in self.workspace_rects(index) {
-            let full = self.fullscreen.as_ref() == Some(&window);
+            let full = self.is_fullscreen(&window);
             let r = match (full, screen) {
                 (true, Some(screen)) => screen,
                 _ => tile,
@@ -2867,12 +2902,23 @@ impl Slipstream {
         }
     }
 
-    /// A window on the workspace on screen fills the screen, so the bar is hidden.
     /// A fullscreen window on the workspace `index`, so the bar and the wallpaper give way to it.
     pub fn fullscreen_on(&self, index: usize) -> bool {
+        self.fullscreen_at(index).is_some()
+    }
+
+    /// The window filling workspace `index`'s screen, if one is. At most one can: a second window
+    /// going fullscreen there takes the first out of it (`set_fullscreen`).
+    pub fn fullscreen_at(&self, index: usize) -> Option<Window> {
         self.fullscreen
-            .as_ref()
-            .is_some_and(|window| self.workspaces.find(window) == Some(index))
+            .iter()
+            .find(|window| self.workspaces.find(window) == Some(index))
+            .cloned()
+    }
+
+    /// Whether `window` is filling its screen.
+    pub fn is_fullscreen(&self, window: &Window) -> bool {
+        self.fullscreen.contains(window)
     }
 
     /// A new screen's wallpaper, at the settings the others are running.
@@ -2881,9 +2927,7 @@ impl Slipstream {
     }
 
     pub fn fullscreen_on_screen(&self) -> bool {
-        self.fullscreen
-            .as_ref()
-            .is_some_and(|window| self.workspaces.find(window) == Some(self.active_workspace()))
+        self.fullscreen_on(self.active_workspace())
     }
 
     /// An app asked to fill the screen, or to stop.
@@ -2897,9 +2941,24 @@ impl Slipstream {
                 self.workspaces.insert(index, window.clone(), None, area);
                 self.refloat.push((window.clone(), float));
             }
-            self.fullscreen = Some(window.clone());
-        } else if self.fullscreen.as_ref() == Some(window) {
-            self.fullscreen = None;
+            // Only one window can fill a screen, so one already filling this workspace's is
+            // taken out of it properly rather than left believing it is still fullscreen.
+            if let Some(index) = self.workspaces.find(window)
+                && let Some(held) = self.fullscreen_at(index)
+                && held != *window
+            {
+                tracing::info!(
+                    workspace = index + 1,
+                    left = logged_app(&held),
+                    "another window takes this screen"
+                );
+                self.set_fullscreen(&held, false);
+            }
+            if !self.fullscreen.contains(window) {
+                self.fullscreen.push(window.clone());
+            }
+        } else if self.fullscreen.contains(window) {
+            self.fullscreen.retain(|held| held != window);
             if let Some(at) = self.refloat.iter().position(|(held, _)| held == window) {
                 let (_, float) = self.refloat.remove(at);
                 if let Some(index) = self.workspaces.find(window) {
@@ -5017,9 +5076,7 @@ impl Slipstream {
         if self.rain.contains(window) || self.workspaces.find(window).is_none() {
             return;
         }
-        if self.fullscreen.as_ref() == Some(window) {
-            self.fullscreen = None;
-        }
+        self.fullscreen.retain(|held| held != window);
         self.take_off_workspace(window);
         let name = self.stream_name(window);
         let icon_px = crate::rain::icon_px(scale);
@@ -5172,6 +5229,23 @@ impl Slipstream {
                     self.offer_key(xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS))
                 }
                 debug::Step::OfferClick(x, y) => self.offer_click(x, y),
+                debug::Step::Fullscreen(on) => {
+                    if let Some(window) = self.focused_window() {
+                        self.set_fullscreen(&window, on);
+                    }
+                }
+                debug::Step::FocusTile(way) => {
+                    let direction = match way.as_str() {
+                        "left" => Some(Direction::Left),
+                        "right" => Some(Direction::Right),
+                        "up" => Some(Direction::Up),
+                        "down" => Some(Direction::Down),
+                        _ => None,
+                    };
+                    if let Some(direction) = direction {
+                        self.focus_direction(direction);
+                    }
+                }
                 debug::Step::ConnectKey(name) => {
                     self.connect_key(xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS))
                 }
