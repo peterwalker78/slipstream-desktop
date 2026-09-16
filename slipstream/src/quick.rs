@@ -966,6 +966,12 @@ impl Slipstream {
                     status::change(status::set_mute(false));
                 }
                 status::change(status::set_volume(percent));
+                // As the volume keys do: the click sounds at the level just set, so the slider can
+                // be heard as well as seen. Dragging it asks only when the level changes, and the
+                // click keeps its own minimum spacing, so a drag ticks rather than buzzes.
+                if self.settings.sound.volume_blip {
+                    crate::sound::blip();
+                }
             }
             Request::Brightness(percent) => {
                 if let Some(command) = launch::set_brightness(percent) {

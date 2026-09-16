@@ -5,8 +5,11 @@
 //! desktop that feedback is the whole answer to "did that key do anything?".
 //!
 //! It appears on the keypress and fades about 1.2 s after the last one, so a key held down (or
-//! pressed over and over) keeps one card on screen rather than stacking them up. Reduced motion
-//! gets the same card without the fades.
+//! pressed over and over) keeps one card on screen rather than stacking them up. The rise and the
+//! fade in are played once, when the card appears: a further press of the same key only moves the
+//! bar and puts the card's departure off, so holding a volume key slides the level along rather
+//! than flashing the card in and out under it. Reduced motion gets the same card without the
+//! fades.
 
 use smithay::{
     backend::renderer::{
@@ -153,10 +156,21 @@ struct Painted {
     device: (i32, i32),
 }
 
+/// The card on screen. The two times are separate so that pressing the key again holds the card
+/// where it is: `since` drives the entrance, `at` decides when it goes.
+#[derive(Clone, Copy)]
+struct Showing {
+    kind: Kind,
+    level: u8,
+    /// When the card appeared, on the animation clock.
+    since: f64,
+    /// The last press, which the card's time on screen is measured from.
+    at: f64,
+}
+
 #[derive(Default)]
 pub struct Osd {
-    /// What's showing, at what level, and when the last key was pressed on the animation clock.
-    showing: Option<(Kind, u8, f64)>,
+    showing: Option<Showing>,
     /// A line under the label: the track a media key moved to.
     detail: Option<String>,
     painted: Option<Painted>,
@@ -173,14 +187,39 @@ impl Osd {
 
     /// A key changed something. `level` is a percentage, ignored by the kinds that have no bar.
     pub fn show(&mut self, kind: Kind, level: u8, now: f64) {
-        self.showing = Some((kind, level.min(100), now));
+        self.showing = Some(Showing {
+            kind,
+            level: level.min(100),
+            since: self.entrance(kind, now),
+            at: now,
+        });
         self.detail = None;
     }
 
     /// As `show`, with a line of detail under the label.
     pub fn show_with(&mut self, kind: Kind, detail: String, now: f64) {
-        self.showing = Some((kind, 0, now));
+        self.showing = Some(Showing {
+            kind,
+            level: 0,
+            since: self.entrance(kind, now),
+            at: now,
+        });
         self.detail = Some(detail).filter(|detail| !detail.is_empty());
+    }
+
+    /// When the entrance started for a card about to show `kind`: the moment a card of the same
+    /// sort already on screen appeared, else now. Muting, or a media key going from playing to
+    /// paused, is the same sort of card and keeps it, since only its contents change.
+    fn entrance(&self, kind: Kind, now: f64) -> f64 {
+        match self.showing {
+            Some(showing)
+                if std::mem::discriminant(&showing.kind) == std::mem::discriminant(&kind)
+                    && (0.0..showing.kind.shown()).contains(&(now - showing.at)) =>
+            {
+                showing.since
+            }
+            _ => now,
+        }
     }
 
     /// Takes the card off, for when quick settings opens and shows the same thing better.
@@ -203,8 +242,16 @@ impl Osd {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let (kind, level, at) = *self.showing.as_ref()?;
+        let Showing {
+            kind,
+            level,
+            since,
+            at,
+        } = *self.showing.as_ref()?;
+        // Time since the last press decides when the card goes; time since it appeared drives the
+        // rise and the fade in, so neither restarts under a held key.
         let age = now - at;
+        let life = now - since;
         let shown = kind.shown();
         if !(0.0..shown).contains(&age) {
             self.showing = None;
@@ -220,12 +267,12 @@ impl Osd {
         let (fade, rise) = if self.reduced_motion {
             (0.0, 0.0)
         } else {
-            (FADE, 10.0 * (1.0 - HYPR.at((age / FADE).min(1.0))))
+            (FADE, 10.0 * (1.0 - HYPR.at((life / FADE).min(1.0))))
         };
         let alpha = if fade <= 0.0 {
             1.0
         } else {
-            (age / fade).min((shown - age) / fade).clamp(0.0, 1.0)
+            (life / fade).min((shown - age) / fade).clamp(0.0, 1.0)
         };
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
@@ -373,7 +420,7 @@ mod tests {
     fn a_level_over_a_hundred_is_still_a_hundred() {
         let mut osd = Osd::new(false);
         osd.show(Kind::Brightness, 180, 0.0);
-        assert_eq!(osd.showing.unwrap().1, 100);
+        assert_eq!(osd.showing.unwrap().level, 100);
     }
 
     #[test]
@@ -383,7 +430,47 @@ mod tests {
         assert!(osd.showing.is_some());
         // A second press while it's up holds it there rather than starting a second card.
         osd.show(Kind::Brightness, 45, 11.0);
-        assert_eq!(osd.showing.unwrap().2, 11.0);
+        assert_eq!(osd.showing.unwrap().at, 11.0);
+    }
+
+    #[test]
+    fn a_second_press_moves_the_bar_without_playing_the_entrance_again() {
+        let mut osd = Osd::new(false);
+        osd.show(Kind::Volume { muted: false }, 40, 10.0);
+        // Muting, and turning it up again, are the same card with different contents.
+        osd.show(Kind::Volume { muted: true }, 40, 10.3);
+        osd.show(Kind::Volume { muted: false }, 45, 10.6);
+        let showing = osd.showing.unwrap();
+        assert_eq!(showing.since, 10.0, "the entrance started once");
+        assert_eq!(showing.at, 10.6);
+        assert_eq!(showing.level, 45);
+        // A card that has had its time, or a different key, starts afresh.
+        let gone = 10.6 + SHOWN + 0.1;
+        osd.show(Kind::Volume { muted: false }, 50, gone);
+        assert_eq!(osd.showing.unwrap().since, gone);
+        osd.show(Kind::Brightness, 50, gone + 0.1);
+        assert_eq!(osd.showing.unwrap().since, gone + 0.1);
+    }
+
+    #[test]
+    fn a_held_key_keeps_the_card_solid() {
+        let mut osd = Osd::new(false);
+        osd.show(Kind::Volume { muted: false }, 40, 0.0);
+        // Once it's in, every further press leaves it fully opaque and at rest: the alpha and the
+        // rise both run from `since`, so they don't start over.
+        for step in 1..8 {
+            let now = FADE + 0.05 * step as f64;
+            osd.show(Kind::Volume { muted: false }, 40 + step as u8, now);
+            let showing = osd.showing.unwrap();
+            let (life, age) = (now - showing.since, now - showing.at);
+            assert_eq!(age, 0.0);
+            assert!(
+                (life / FADE).min((SHOWN - age) / FADE).clamp(0.0, 1.0) == 1.0,
+                "faded out at {now}"
+            );
+            let rise = 10.0 * (1.0 - HYPR.at((life / FADE).min(1.0)));
+            assert!(rise.abs() < 1e-4, "rose again at {now}");
+        }
     }
 
     #[test]

@@ -4,6 +4,17 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## [Unreleased]
 
+- **The volume and brightness card stays put while you hold the key.** It played its rise and fade
+  in again on every press, so the card flickered under a held key instead of the level simply
+  sliding along. The entrance now happens once, when the card appears; further presses only move
+  the bar and put its departure off.
+- **A notification pop-up has a cross to close it with**, in its top right corner as the
+  notification centre's cards do, so one that's in the way goes with a click rather than a trip
+  through the centre. The notification stays in the centre; a click elsewhere on the pop-up still
+  opens it.
+- **Quick settings' volume slider clicks at the new level**, as the volume keys already did, so the
+  volume can be heard as well as seen when it's set with the mouse or the arrow keys. The same
+  Sound setting turns both off.
 - **Installing works when there's no terminal to type a password into** — run from a file manager, a launcher, or a shell that isn't attached to one. sudo asks through the desktop's graphical helper instead of refusing.
 
 ## [0.5.1] - 2026-09-16

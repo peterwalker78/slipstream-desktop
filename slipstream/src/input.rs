@@ -837,7 +837,8 @@ impl Slipstream {
             return;
         }
 
-        // A left click on a notification's pop-up opens it; another button dismisses it.
+        // A left click on a notification's pop-up opens it; its cross, or another button, dismisses
+        // it.
         if !pointer.is_grabbed() && !self.fullscreen_on_screen() {
             const BTN_LEFT: u32 = 0x110;
             // Pop-ups are drawn on the focused screen, and their areas kept in its coordinates.
@@ -845,6 +846,19 @@ impl Slipstream {
                 .overlay_screen()
                 .map_or((0.0, 0.0), |(_, screen)| (screen.x as f64, screen.y as f64));
             let pos = pointer.current_location();
+            // The cross takes the left button only; any other on it dismisses the pop-up below it
+            // all the same.
+            let cross = self
+                .notices
+                .cross_hit_from((pos.x, pos.y), origin)
+                .filter(|_| button == BTN_LEFT);
+            if let Some(id) = cross {
+                if button_state == ButtonState::Pressed {
+                    let gone = self.notices.dismiss_popup(id);
+                    crate::notify::closed(gone, crate::notify::Reason::Dismissed);
+                }
+                return;
+            }
             if let Some((id, action)) = self.notices.button_hit_from((pos.x, pos.y), origin) {
                 if button_state == ButtonState::Pressed && button == BTN_LEFT {
                     self.invoke_notice_action(id, action);

@@ -4,6 +4,8 @@
 //!
 //! Pop-ups that arrive while you're typing, or while the UI is faded, wait. When they can be
 //! shown, one comes up on its own and several come up as a single card that opens the centre.
+//! Each carries a cross, so one that's in the way goes with a click on it rather than a trip
+//! through the notification centre.
 
 use std::{collections::HashMap, path::Path};
 
@@ -163,6 +165,8 @@ struct Card {
     scale: f64,
     height: f32,
     painted: Painted,
+    /// Its close cross, in mockup pixels from the painted area's corner.
+    cross: Option<[f32; 4]>,
     /// Its action buttons, in mockup pixels from the painted area's corner.
     buttons: Vec<[f32; 4]>,
 }
@@ -181,6 +185,8 @@ pub struct Notices {
     cards: HashMap<u32, Card>,
     /// Where each pop-up was drawn, in logical pixels from the output's corner.
     hits: Vec<(u32, Rectangle<f64, Logical>)>,
+    /// Where each pop-up's close cross was drawn.
+    cross_hits: Vec<(u32, Rectangle<f64, Logical>)>,
     /// Where each pop-up's action buttons were drawn: the notification, which action, and where.
     button_hits: Vec<(u32, usize, Rectangle<f64, Logical>)>,
     /// Pop-ups fade in where they rest instead of sliding (`Slipstream::set_reduced_motion`).
@@ -316,7 +322,7 @@ impl Notices {
         self.list.retain(|notice| notice.id != id);
         self.popups.retain(|popup| popup.id != id);
         self.waiting.retain(|waiting| waiting.id != id);
-        self.hits.retain(|(hit, _)| *hit != id);
+        self.forget_hits(id);
         let removed = self.list.len() != before;
         if removed {
             self.revision += 1;
@@ -363,19 +369,35 @@ impl Notices {
         self.popups.clear();
         self.waiting.clear();
         self.hits.clear();
+        self.cross_hits.clear();
+        self.button_hits.clear();
         self.sweep()
     }
 
     /// Hides one pop-up, as `hide_popups` does.
     pub fn dismiss_popup(&mut self, id: u32) -> Vec<u32> {
         self.popups.retain(|popup| popup.id != id);
-        self.hits.retain(|(hit, _)| *hit != id);
+        self.forget_hits(id);
         self.sweep()
+    }
+
+    /// Drops what a pop-up left behind, so a click where it was doesn't land on it after it has
+    /// gone and before the next frame lays the pop-ups out again.
+    fn forget_hits(&mut self, id: u32) {
+        self.hits.retain(|(hit, _)| *hit != id);
+        self.cross_hits.retain(|(hit, _)| *hit != id);
+        self.button_hits.retain(|(hit, _, _)| *hit != id);
     }
 
     /// The pop-up at a point, in logical pixels from the output's corner.
     pub fn popup_at(&self, x: f64, y: f64) -> Option<u32> {
         popup_hit((x, y), (0.0, 0.0), &self.hits)
+    }
+
+    /// The close cross under `pointer`, in the space's coordinates, on pop-ups drawn on the
+    /// screen whose corner is at `origin`: the notification it closes.
+    pub fn cross_hit_from(&self, pointer: (f64, f64), origin: (f64, f64)) -> Option<u32> {
+        popup_hit(pointer, origin, &self.cross_hits)
     }
 
     /// The action button under `pointer`, in the space's coordinates, on pop-ups drawn on the
@@ -440,6 +462,7 @@ impl Notices {
             Vec::new()
         };
         self.hits.clear();
+        self.cross_hits.clear();
         self.button_hits.clear();
         let left = width as f32 / MOCKUP_PX - POPUP_RIGHT - POPUP_W;
         let mut top = POPUP_TOP;
@@ -449,6 +472,7 @@ impl Notices {
             popups,
             cards,
             hits,
+            cross_hits,
             button_hits,
             reduced_motion,
             ..
@@ -490,19 +514,23 @@ impl Notices {
                         .into(),
                 ),
             ));
-            for (index, [bx, by, bw, bh]) in card.buttons.iter().enumerate() {
-                button_hits.push((
-                    popup.id,
-                    index,
-                    Rectangle::new(
-                        (
-                            ((left + bx - SHADOW) * MOCKUP_PX) as f64,
-                            ((top + by - SHADOW) * MOCKUP_PX) as f64,
-                        )
-                            .into(),
-                        ((bw * MOCKUP_PX) as f64, (bh * MOCKUP_PX) as f64).into(),
-                    ),
-                ));
+            // The controls are placed where the card comes to rest, so a click lands the same
+            // whether or not it has finished sliding in.
+            let control = |[bx, by, bw, bh]: [f32; 4]| {
+                Rectangle::new(
+                    (
+                        ((left + bx - SHADOW) * MOCKUP_PX) as f64,
+                        ((top + by - SHADOW) * MOCKUP_PX) as f64,
+                    )
+                        .into(),
+                    ((bw * MOCKUP_PX) as f64, (bh * MOCKUP_PX) as f64).into(),
+                )
+            };
+            if let Some(cross) = card.cross {
+                cross_hits.push((popup.id, control(cross)));
+            }
+            for (index, button) in card.buttons.iter().copied().enumerate() {
+                button_hits.push((popup.id, index, control(button)));
             }
             top += card.height + POPUP_GAP;
         }
@@ -513,6 +541,7 @@ impl Notices {
 
 fn paint_popup(notice: &Notice, scale: f64) -> Option<Card> {
     let height = card_height(notice, POPUP_W, POPUP_LINES);
+    let mut cross = None;
     let mut buttons = Vec::new();
     let logical = Size::<i32, Logical>::from((
         ((POPUP_W + 2.0 * SHADOW) * MOCKUP_PX).ceil() as i32,
@@ -521,7 +550,10 @@ fn paint_popup(notice: &Notice, scale: f64) -> Option<Card> {
     let painted = Painted::new(logical, scale, |p| {
         p.f *= MOCKUP_PX;
         crate::panel::notice(p, SHADOW, SHADOW, POPUP_W, height);
-        let hits = paint_card(p, notice, SHADOW, SHADOW, POPUP_W, POPUP_LINES, false);
+        // A cross, as the notification centre's cards have: a pop-up in the corner can be shut up
+        // where it stands, without opening the centre to delete it.
+        let hits = paint_card(p, notice, SHADOW, SHADOW, POPUP_W, POPUP_LINES, true);
+        cross = hits.cross;
         buttons = hits.buttons;
     })?;
     Some(Card {
@@ -529,6 +561,7 @@ fn paint_popup(notice: &Notice, scale: f64) -> Option<Card> {
         scale,
         height,
         painted,
+        cross,
         buttons,
     })
 }
@@ -1262,6 +1295,59 @@ mod tests {
         assert_eq!(
             card_height(&long, POPUP_W, 3),
             2.0 * PAD_Y + META_H + 1.0 + TITLE_H + 2.0 + 3.0 * LINE_H
+        );
+    }
+
+    #[test]
+    fn a_pop_up_carries_a_cross_inside_its_own_corner() {
+        let card = paint_popup(&notice(1), 1.25).expect("a painted pop-up");
+        let [x, y, w, h] = card.cross.expect("a cross to close it with");
+        // Its box is the card's top right corner, in mockup pixels from the painted area, which
+        // holds the shadow as well.
+        assert!(
+            x > SHADOW + POPUP_W / 2.0 && x + w <= SHADOW + POPUP_W,
+            "{x} {w}"
+        );
+        assert!(y >= SHADOW && y + h <= SHADOW + card.height, "{y} {h}");
+    }
+
+    #[test]
+    fn a_pop_ups_cross_is_where_the_card_comes_to_rest() {
+        let mut notices = Notices::default();
+        notices.add(notice(4), 0.0, Some(POPUP_SHOWN), true);
+        // `popup_elements` needs a renderer, so lay the hit out the way it does and check the
+        // cross falls inside the pop-up rather than beside it.
+        let card = paint_popup(&notice(4), 1.0).expect("a painted pop-up");
+        let [cx, cy, cw, ch] = card.cross.expect("a cross");
+        let left = 1536.0 / MOCKUP_PX - POPUP_RIGHT - POPUP_W;
+        let cross = Rectangle::new(
+            (
+                ((left + cx - SHADOW) * MOCKUP_PX) as f64,
+                ((POPUP_TOP + cy - SHADOW) * MOCKUP_PX) as f64,
+            )
+                .into(),
+            ((cw * MOCKUP_PX) as f64, (ch * MOCKUP_PX) as f64).into(),
+        );
+        let popup = Rectangle::<f64, Logical>::new(
+            ((left * MOCKUP_PX) as f64, (POPUP_TOP * MOCKUP_PX) as f64).into(),
+            (
+                (POPUP_W * MOCKUP_PX) as f64,
+                (card.height * MOCKUP_PX) as f64,
+            )
+                .into(),
+        );
+        let centre = (
+            cross.loc.x + cross.size.w / 2.0,
+            cross.loc.y + cross.size.h / 2.0,
+        );
+        assert!(
+            popup.contains(Point::from(centre)),
+            "{cross:?} in {popup:?}"
+        );
+        assert_eq!(
+            popup_hit(centre, (0.0, 0.0), &[(4, cross)]),
+            Some(4),
+            "a click on the cross finds the notification"
         );
     }
 

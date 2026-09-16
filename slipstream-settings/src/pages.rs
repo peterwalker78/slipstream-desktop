@@ -601,7 +601,7 @@ fn same_colour(one: &str, other: &str) -> bool {
 /// setting yet.
 fn sound(store: &Store) -> gtk::Widget {
     let page = page("Sound", "The sounds Slipstream makes itself");
-    let keys = group(&page, "Volume keys");
+    let keys = group(&page, "Volume");
 
     let blip = gtk::CheckButton::new();
     blip.set_active(store.get().sound.volume_blip);
@@ -609,8 +609,9 @@ fn sound(store: &Store) -> gtk::Widget {
         &keys,
         "Click when the volume changes",
         Some(
-            "A short click through the speakers at the new level, as macOS and Windows do, so \
-             the volume can be heard as well as seen. Never on mute, and never on brightness.",
+            "A short click through the speakers at the new level, from the volume keys or quick \
+             settings' slider, as macOS and Windows do, so the volume can be heard as well as \
+             seen. Never on mute, and never on brightness.",
         ),
         &blip,
     );
