@@ -22,6 +22,20 @@ use crate::{
 // Sizes in the mockup's pixels.
 const WIDTH: f32 = 440.0;
 const TOP: f32 = 58.0;
+/// Where the toast sits instead while a gravity tag is on screen.
+///
+/// The tag names the rung the window has just reached, on the window itself, and the toast is
+/// there to explain that rung: covering the answer with its own explanation is the one place
+/// the two can't share. The band is the top of a top-row window (the bar's height and the gap
+/// around the tiling area), the tag's inset inside that window and the tag's own height, all in
+/// the mockup's pixels, plus a gap of its own.
+const TOP_CLEARING_A_TAG: f32 = (crate::bar::HEIGHT + crate::layout::OUTER_GAP) as f32 / MOCKUP_PX
+    + TAG_INSET
+    + TAG_HEIGHT
+    + 10.0;
+/// The gravity tag's inset inside its window, and its height (`render.rs` draws it).
+const TAG_INSET: f32 = 22.0;
+const TAG_HEIGHT: f32 = 30.0;
 /// Where the toast's top edge sits, in logical pixels.
 pub const TOP_LOGICAL: f64 = (TOP * MOCKUP_PX) as f64;
 /// Logical pixels per mockup pixel.
@@ -67,12 +81,14 @@ impl Toast {
     }
 
     /// The toast for a screen `width` logical pixels wide, while one is showing.
+    /// `under_tag` is whether a gravity tag is on screen, which moves the toast down to clear it.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
         width: i32,
         scale: f64,
         now: f64,
+        under_tag: bool,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -106,9 +122,10 @@ impl Toast {
         };
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
+        let top = if under_tag { TOP_CLEARING_A_TAG } else { TOP };
         let location = Point::<f64, Logical>::from((
             ((width - painted.logical.w) / 2) as f64,
-            (TOP as f64 + rise) * MOCKUP_PX as f64 - margin,
+            (top as f64 + rise) * MOCKUP_PX as f64 - margin,
         ))
         .to_physical(scale)
         .to_i32_round::<i32>()
@@ -187,5 +204,24 @@ mod tests {
         .unwrap();
         assert_eq!(short.logical.w, long.logical.w);
         assert!(long.logical.h > short.logical.h);
+    }
+
+    /// The toast drops below a gravity tag rather than over it. The tag names the rung the window
+    /// has reached; the toast explains that rung, and an explanation that hides its own answer is
+    /// worse than none.
+    #[test]
+    fn the_toast_clears_a_tag_on_a_top_row_window() {
+        // Where a tag on a top-row window ends, in mockup pixels: the window starts below the
+        // bar and the gap around the tiling area, and the tag sits `TAG_INSET` inside it.
+        let window_top = (crate::bar::HEIGHT + crate::layout::OUTER_GAP) as f32 / MOCKUP_PX;
+        let tag_bottom = window_top + TAG_INSET + TAG_HEIGHT;
+        assert!(
+            TOP < tag_bottom,
+            "the usual place overlaps a tag, so there is something to clear"
+        );
+        assert!(
+            TOP_CLEARING_A_TAG >= tag_bottom,
+            "{TOP_CLEARING_A_TAG} still covers a tag ending at {tag_bottom}"
+        );
     }
 }

@@ -106,6 +106,7 @@ impl Slipstream {
             Action::ToggleGravity => self.toggle_gravity(),
             Action::Minimise => self.minimise_focused(),
             Action::Restore => self.restore_latest(),
+            Action::HideAll => self.hide_all(),
             Action::BulletTime => self.toggle_bullet_time(),
             Action::QuickSettings => self.toggle_quick_settings(),
             Action::NotificationCentre => self.toggle_notification_centre(),

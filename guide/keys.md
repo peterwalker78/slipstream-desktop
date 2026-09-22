@@ -17,6 +17,7 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 | Super+[ and ], with Shift for height | Resize |
 | Super+F | Fill the screen, and back |
 | Super+M, Super+Shift+M | Minimise to the code rain, bring back |
+| Super+H | Hide every window on the workspace; again, bring them back |
 | Super+Shift+V, Super+Ctrl+V | Float the window or tile it; switch between floating and tiled windows |
 | Super+D | Show the desktop, and back |
 | Super+Tab | Bullet time |

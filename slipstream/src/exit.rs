@@ -220,12 +220,7 @@ impl<W: Clone + PartialEq> Exit<W> {
 
     /// The overlay on its chooser: every way out, nothing decided yet. Lock is the row the
     /// keyboard starts on, so Ctrl+Alt+Del then Enter is the harmless answer.
-    pub fn choosing(
-        open: Vec<Open<W>>,
-        now: f64,
-        reduced_motion: bool,
-        remember: bool,
-    ) -> Self {
+    pub fn choosing(open: Vec<Open<W>>, now: f64, reduced_motion: bool, remember: bool) -> Self {
         Self::in_phase(
             Phase::Choosing { selected: 0 },
             Intent::LogOut,
@@ -809,7 +804,11 @@ mod tests {
         assert_eq!(on(&exit), "Log out");
         exit.key(Keysym::Up, 0.0);
         exit.key(Keysym::Up, 0.0);
-        assert_eq!(on(&exit), "Shut down", "up from the first wraps to the last");
+        assert_eq!(
+            on(&exit),
+            "Shut down",
+            "up from the first wraps to the last"
+        );
         exit.key(Keysym::Home, 0.0);
         assert_eq!(on(&exit), "Lock");
         exit.key(Keysym::Tab, 0.0);

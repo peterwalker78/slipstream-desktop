@@ -275,6 +275,9 @@ pub struct Slipstream {
     pub osd: crate::osd::Osd,
     /// The way out, while it's on screen: Ctrl+Alt+Del, or Log out, Restart or Shut down.
     pub exit: Option<Exit<Window>>,
+    /// The windows Super+H put into the code rain, so the next press brings back those and
+    /// nothing else that happens to be minimised.
+    hidden: Option<Vec<Window>>,
     /// What was open when the way out's card went up, ready to be written down if the switch on
     /// it is on. Taken then rather than at the end, because by the end the windows have gone.
     exit_record: Option<session::Record>,
@@ -595,8 +598,11 @@ impl Slipstream {
             drag: None,
             drag_retile_due: false,
             cursor_override: None,
-            // The same gaps as the mockup: 16 px at the edges, 10 px between windows.
-            workspaces: Workspaces::new(&workspace_entries(&settings), 16, 10),
+            workspaces: Workspaces::new(
+                &workspace_entries(&settings),
+                crate::layout::OUTER_GAP,
+                crate::layout::INNER_GAP,
+            ),
             screens: Screens::default(),
             lid_inhibitor: LidInhibitor::new(lid_answers),
             nested_panel: None,
@@ -615,6 +621,7 @@ impl Slipstream {
             osd: crate::osd::Osd::new(false),
             exit: None,
             exit_record: None,
+            hidden: None,
             record_due: None,
             saved_record: None,
             unmapped: Vec::new(),
@@ -5151,6 +5158,48 @@ impl Slipstream {
     }
 
     /// Super+M: the focused window pours into a stream of code rain on the right.
+    /// Super+H: every window on this workspace into the code rain, and the same windows back on
+    /// the next press. Windows' "minimise all", which Super+M only does one at a time.
+    ///
+    /// The list is kept rather than emptying the rain on the way back: anything minimised on its
+    /// own before stays where it was put.
+    pub fn hide_all(&mut self) {
+        if self.lock.is_some() {
+            return;
+        }
+        // Anything hidden that is still in the rain comes back, and the list is spent either way:
+        // windows closed while hidden simply drop out of it.
+        let coming_back: Vec<Window> = self
+            .hidden
+            .take()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|window| window.alive() && self.rain.contains(window))
+            .collect();
+        if !coming_back.is_empty() {
+            tracing::info!(
+                windows = coming_back.len(),
+                "bringing the hidden windows back"
+            );
+            for window in coming_back {
+                self.restore(&window);
+            }
+            return;
+        }
+        let active = self.active_workspace();
+        let windows = self.workspaces.get(active).windows();
+        if windows.is_empty() {
+            self.show_toast("Nothing to hide", "No windows are open on this workspace.");
+            return;
+        }
+        tracing::info!(windows = windows.len(), "hiding every window");
+        for window in &windows {
+            self.minimise(window);
+        }
+        self.hidden = Some(windows);
+        self.show_toast("Windows hidden", "Super+H brings them back.");
+    }
+
     pub fn minimise_focused(&mut self) {
         if let Some(window) = self.focused_window() {
             self.minimise(&window);
@@ -5418,6 +5467,7 @@ impl Slipstream {
                 debug::Step::Gravity => self.toggle_gravity(),
                 debug::Step::Minimise => self.minimise_focused(),
                 debug::Step::Restore => self.restore_latest(),
+                debug::Step::HideAll => self.hide_all(),
                 debug::Step::Idle => {
                     let now = self.clock.tick();
                     self.idle.fade(now);

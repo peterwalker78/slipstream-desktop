@@ -17,7 +17,8 @@
 //! routing, wherever `pointer:X,Y` last put the pointer; `button:left+` presses and holds,
 //! `button:left-` lets go, for a drag),
 //! `cycle` or `cycle:N` (Alt held, Tab pressed N times, then Alt let go),
-//! `minimise` and `restore` (Super+M and Super+Shift+M), `idle` (fade the UI out now) and `wake`
+//! `minimise` and `restore` (Super+M and Super+Shift+M), `hideall` (Super+H: every window on the
+//! workspace into the code rain, and the same ones back), `idle` (fade the UI out now) and `wake`
 //! (as any input would), `bullet` (Super+Tab), `bkey:NAME` (a key in bullet time, by xkb name
 //! with optional `shift+` or `ctrl+`, such as `bkey:Right` or `bkey:shift+2`), `bclick:X,Y` (a
 //! click in bullet time, in logical pixels on the screen, the bar's buttons included), `quick` (Super+A), `qkey:NAME` (a key
@@ -106,6 +107,8 @@ pub enum Step {
     Gravity,
     Minimise,
     Restore,
+    /// Super+H: every window on this workspace into the code rain, and back.
+    HideAll,
     Idle,
     Wake,
     /// Alt held, Tab pressed this many times, and Alt let go.
@@ -316,6 +319,7 @@ impl Script {
                     ("lighter", None) => Step::Lighter,
                     ("gravity", None) => Step::Gravity,
                     ("minimise", None) => Step::Minimise,
+                    ("hideall", None) => Step::HideAll,
                     ("restore", None) => Step::Restore,
                     ("idle", None) => Step::Idle,
                     ("wake", None) => Step::Wake,

@@ -56,6 +56,9 @@ pub enum Action {
     Minimise,
     /// Bring back the most recently minimised window.
     Restore,
+    /// Put every window on this workspace into the code rain; again, bring those same windows
+    /// back. Windows' own "minimise all", which Super+M only does one window at a time.
+    HideAll,
     /// Open bullet time, the overview of every workspace, or go back out of it.
     BulletTime,
     /// Open or close quick settings.
@@ -148,6 +151,7 @@ impl Action {
             Action::ToggleGravity => "gravity on, off",
             Action::Minimise => "minimise to the code rain",
             Action::Restore => "bring back the last minimised",
+            Action::HideAll => "hide every window, and back",
             Action::BulletTime => "bullet time",
             Action::QuickSettings => "quick settings",
             Action::NotificationCentre => "notifications",
@@ -180,6 +184,7 @@ impl Action {
             | Action::Run
             | Action::Minimise
             | Action::Restore
+            | Action::HideAll
             | Action::Maximise
             | Action::ToggleFloating
             | Action::SwitchFloatingFocus => Group::AppsAndWindows,
@@ -448,6 +453,9 @@ pub fn defaults() -> Vec<Binding> {
         // Windows' Task View key.
         bind(mod_, Keysym::Tab, Action::BulletTime),
         bind(mod_shift, Keysym::m, Action::Restore),
+        // Windows' own minimise-all key is Super+M, which is one window here, as its restore
+        // key Super+Shift+M is. Super+H is free, and next to them on the keyboard.
+        bind(mod_, Keysym::h, Action::HideAll),
         // Media keys (the Fn row on laptops) need no modifier, as on Windows.
         bind(
             Mods::default(),
@@ -778,6 +786,24 @@ mod tests {
     }
 
     #[test]
+    fn hide_all_is_its_own_key_beside_minimise() {
+        let bindings = defaults();
+        assert_eq!(
+            action_for(&bindings, SUPER, Keysym::h),
+            Some(Action::HideAll)
+        );
+        // Super+M stays one window, as on Windows, and Super+D still only shows the desktop.
+        assert_eq!(
+            action_for(&bindings, SUPER, Keysym::m),
+            Some(Action::Minimise)
+        );
+        assert_eq!(
+            action_for(&bindings, SUPER, Keysym::d),
+            Some(Action::ShowDesktop)
+        );
+    }
+
+    #[test]
     fn mod_arrows_move_focus() {
         let bindings = defaults();
         assert_eq!(
@@ -881,7 +907,10 @@ mod tests {
             ..Mods::default()
         };
         assert!(is_reserved(ctrl, Keysym::space), "input-method switch");
-        assert!(is_reserved(SUPER, Keysym::space), "IBus input-method switch");
+        assert!(
+            is_reserved(SUPER, Keysym::space),
+            "IBus input-method switch"
+        );
         assert!(is_reserved(ctrl_alt, Keysym::F2), "virtual terminal switch");
         // The one chord taken back off the list: nothing below us answers it.
         assert!(!is_reserved(ctrl_alt, Keysym::Delete), "the way out");

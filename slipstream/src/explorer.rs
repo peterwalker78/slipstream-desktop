@@ -554,9 +554,8 @@ impl Explorer {
         let on_command_line = self.mode == Mode::Run;
         // On the command line what is typed is always offered as a command; everywhere else it
         // is the last resort, once no app and no sum has matched.
-        let run = (!query.is_empty()
-            && (on_command_line || (apps.is_empty() && answer.is_none())))
-        .then(|| self.query.trim().to_string());
+        let run = (!query.is_empty() && (on_command_line || (apps.is_empty() && answer.is_none())))
+            .then(|| self.query.trim().to_string());
         // Commands run before, minus the one already typed out in full above.
         let recent_commands: Vec<String> = if on_command_line {
             self.ran
