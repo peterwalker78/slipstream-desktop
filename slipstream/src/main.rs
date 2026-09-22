@@ -33,6 +33,7 @@ mod fallback;
 mod files;
 mod floating;
 mod focus;
+mod gamma;
 mod ghost;
 mod glass;
 mod glmatrix;

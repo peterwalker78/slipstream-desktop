@@ -780,15 +780,65 @@ impl Slipstream {
         }
     }
 
+    /// How many entries a screen's gamma ramp has, or `None` where it has none to give.
+    pub fn gamma_size(&self, output: &Output) -> Option<usize> {
+        let udev = self.udev.as_ref()?;
+        for gpu in udev.gpus.values() {
+            for (crtc, screen) in &gpu.screens {
+                if screen.output == *output {
+                    let length = gpu.manager.device().get_crtc(*crtc).ok()?.gamma_length() as usize;
+                    return (length >= 2).then_some(length);
+                }
+            }
+        }
+        None
+    }
+
+    /// Writes one screen's ramps outright, for a program that has taken its gamma. Returns
+    /// whether the screen took them.
+    pub fn set_output_gamma(
+        &self,
+        output: &Output,
+        red: &[u16],
+        green: &[u16],
+        blue: &[u16],
+    ) -> bool {
+        let Some(udev) = self.udev.as_ref() else {
+            // Nested there are no CRTCs to write to, so a program's ramps are accepted and
+            // ignored rather than reported as a failure it can do nothing about.
+            return true;
+        };
+        for (node, gpu) in &udev.gpus {
+            for (crtc, screen) in &gpu.screens {
+                if screen.output != *output {
+                    continue;
+                }
+                return match gpu.manager.device().set_gamma(*crtc, red, green, blue) {
+                    Ok(()) => true,
+                    Err(err) => {
+                        tracing::warn!(%node, "couldn't set a program's gamma: {err}");
+                        false
+                    }
+                };
+            }
+        }
+        false
+    }
+
     /// Night light on every screen, or off, through each CRTC's gamma ramp. Screens that light up
-    /// later, or come back from another virtual terminal, get it again.
+    /// later, or come back from another virtual terminal, get it again. A screen whose gamma a
+    /// program has taken is left alone until it gives it back.
     pub fn set_night_light(&self, strength: f64) {
         let Some(udev) = self.udev.as_ref() else {
             return;
         };
+        let held = self.gamma.held_outputs();
         for (node, gpu) in &udev.gpus {
             let device = gpu.manager.device();
-            for crtc in gpu.screens.keys() {
+            for (crtc, screen) in &gpu.screens {
+                if held.contains(&screen.output.name()) {
+                    continue;
+                }
                 let length = match device.get_crtc(*crtc) {
                     Ok(info) => info.gamma_length() as usize,
                     Err(err) => {

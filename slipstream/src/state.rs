@@ -334,6 +334,8 @@ pub struct Slipstream {
     pub idle_inhibit_state: IdleInhibitManagerState,
     /// `ext-idle-notify`: what tells other programs the seat has gone quiet.
     pub idle_notifier_state: IdleNotifierState<Slipstream>,
+    /// Which screens' gamma ramps a program of the user's own is driving.
+    pub gamma: crate::gamma::Gamma,
     /// Virtual machines and remote desktops asking for every key (`takeback.rs`).
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     /// Which windows have been told they hold the pointer or the keys, and the one refused.
@@ -475,6 +477,9 @@ impl Slipstream {
         let capture_globals = capture::state(&dh);
 
         // Video players ask for the screen to stay awake, which keeps the UI from fading.
+        // `wlr-gamma-control`: wlsunset and the like drive a screen's ramps themselves, and the
+        // night light stands aside for whichever screens they have taken.
+        crate::gamma::state(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
         // `ext-idle-notify`: swayidle and anything else that waits for the seat to go quiet.
         // Slipstream does its own fading and locking on its own timers; this only tells other
@@ -659,6 +664,7 @@ impl Slipstream {
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
             idle_notifier_state,
+            gamma: crate::gamma::Gamma::default(),
             keyboard_shortcuts_inhibit_state,
             takeback: Default::default(),
             bullet: None,

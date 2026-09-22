@@ -94,6 +94,15 @@ pub fn target(manual: bool, scheduled: Option<(bool, f64)>) -> f64 {
 impl crate::Slipstream {
     /// Once a pass of the event loop: follows the schedule, eases towards the warmth wanted, and
     /// sends it to the screens when it has moved.
+    /// Puts the night light back over a screen a program has just given back: its ramps are
+    /// whatever that program last wrote, and nothing else would write them again until the
+    /// strength next moved, which on a settled evening could be an hour.
+    pub fn restore_night_light(&mut self) {
+        self.night.applied = None;
+        let strength = self.night.current;
+        self.set_night_light(strength);
+    }
+
     pub fn tick_night_light(&mut self) {
         let wall = self.wall();
         let dt = self
