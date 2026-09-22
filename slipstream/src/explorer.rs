@@ -126,6 +126,17 @@ const EMOJI_SHOWN: usize = 6;
 /// Commands the command line remembers, and how many of them it offers back at once.
 const RAN_KEPT: usize = 25;
 const RAN_SHOWN: usize = 5;
+/// The command line's own colour, on its icon and its examples: the action colour, not the
+/// selection's, so the panel reads as doing something rather than finding something.
+const RUN_INK: u32 = 0xffb547ff;
+/// What the command line says for itself while nothing is typed. The last line points back at
+/// the panel it is not, which is the question a Windows user actually has.
+const RUN_BLURB: [&str; 3] = [
+    "Type a command and press Enter. It runs as written,",
+    "arguments and all, even when an app has that name.",
+    "Tap Super instead to search your apps.",
+];
+const RUN_EXAMPLES: [&str; 3] = ["htop", "foot -e journalctl -f", "~/bin/backup --dry-run"];
 /// How long an answer takes to decode when it changes.
 const ANSWER_DECODE: f64 = 0.32;
 
@@ -569,7 +580,11 @@ impl Explorer {
         } else {
             Vec::new()
         };
-        let files = if query.is_empty() {
+        // The command line lists what you have run, and nothing else: recent documents and a
+        // Log out row are the app panel's business, and here they are only in the way.
+        let files = if on_command_line {
+            Vec::new()
+        } else if query.is_empty() {
             catalog.recent.iter().take(3).cloned().collect()
         } else {
             catalog
@@ -587,9 +602,10 @@ impl Explorer {
             emoji: Vec::new(),
             run,
             files,
-            log_out: "log out".contains(&query) || "logout".contains(&query),
+            log_out: !on_command_line && ("log out".contains(&query) || "logout".contains(&query)),
             // Asked for by name, never shown on an empty query: the hint card teaches Super+/.
-            shortcuts: !query.is_empty()
+            shortcuts: !on_command_line
+                && !query.is_empty()
                 && ["keyboard shortcuts", "keys", "help"]
                     .iter()
                     .any(|words| words.contains(&query)),
@@ -931,15 +947,15 @@ impl Explorer {
             panel::GLASS_EDGE,
         );
 
-        // The search row.
+        // The search row. The command line takes the run icon in the action colour rather than
+        // the magnifier: the two panels are the same shape, so what they are for has to read
+        // from the first glance, not from the placeholder.
         let centre = fy + SEARCH_H / 2.0;
-        p.icon(
-            icons::SEARCH,
-            fx + 26.0,
-            centre - 14.0,
-            28.0,
-            Some(0x8f99aaff),
-        );
+        let (glyph, glyph_ink) = match look.mode {
+            Mode::Apps => (icons::SEARCH, 0x8f99aaff),
+            Mode::Run => (icons::RUN, RUN_INK),
+        };
+        p.icon(glyph, fx + 26.0, centre - 14.0, 28.0, Some(glyph_ink));
         let mut x = fx + 26.0 + 28.0 + 16.0;
         x += p.text(
             &look.query,
@@ -956,7 +972,7 @@ impl Explorer {
             p.text(
                 match look.mode {
                     Mode::Apps => "Apps, files, sums, :emoji",
-                    Mode::Run => "A command, with its arguments",
+                    Mode::Run => "A command, and its arguments",
                 },
                 x + 9.0,
                 centre,
@@ -975,7 +991,33 @@ impl Explorer {
         let apps_w = width * 1.6 / 2.6;
         let tile_w = (apps_w - 40.0 - TILE_GAP * (COLUMNS - 1) as f32) / COLUMNS as f32;
         let answering = results.answer.is_some() || look.query.trim_start().starts_with(':');
-        if results.apps.is_empty() && !answering {
+        // The command line explains itself where the apps grid would be. It is the largest thing
+        // on the panel, and on an empty query it had nothing to say but "Looking for apps…",
+        // which is the wrong answer to "what is this and how is it different from Super?".
+        let explaining = look.mode == Mode::Run && look.query.trim().is_empty();
+        if explaining {
+            let heading = Style {
+                tracking: 0.02,
+                ..Style::new(Face::BodyBold, 19.0, 0xe6e9efff)
+            };
+            let body = Style::new(Face::Body, 15.0, 0x8b93a3ff);
+            let mut y = body_y + 44.0;
+            p.text("Run a command", fx + 30.0, y, &heading);
+            y += 30.0;
+            for line in RUN_BLURB {
+                p.text(line, fx + 30.0, y, &body);
+                y += 23.0;
+            }
+            // A few to look at, so the shape of a command is obvious without reading.
+            y += 12.0;
+            let example = Style::new(Face::Mono, 14.0, RUN_INK);
+            for line in RUN_EXAMPLES {
+                let w = text::width(line, &example) + 20.0;
+                p.fill(fx + 30.0, y - 13.0, w, 26.0, 7.0, 0xffffff0f);
+                p.text(line, fx + 40.0, y, &example);
+                y += 34.0;
+            }
+        } else if results.apps.is_empty() && !answering {
             let message = if look.query.trim().is_empty() {
                 "Looking for apps…".to_string()
             } else {
@@ -995,7 +1037,7 @@ impl Explorer {
             .iter()
             .enumerate()
             .skip(first)
-            .take(ROWS * COLUMNS)
+            .take(if explaining { 0 } else { ROWS * COLUMNS })
         {
             let (row, column) = ((index - first) / COLUMNS, index % COLUMNS);
             let x = fx + 20.0 + column as f32 * (tile_w + TILE_GAP);
@@ -1181,8 +1223,9 @@ impl Explorer {
         } else {
             "Files"
         };
-        // A sum or an emoji search has no use for an empty files list.
-        let files_shown = !results.files.is_empty() || !answering;
+        // A sum or an emoji search has no use for an empty files list, and the command line has
+        // no use for one at all.
+        let files_shown = !results.files.is_empty() || !(answering || look.mode == Mode::Run);
         if files_shown {
             y += header(&mut p, row_x, y, files_title);
         }
@@ -1278,13 +1321,23 @@ impl Explorer {
         let foot_y = body_y + BODY_H;
         p.fill(fx, foot_y, width, 1.0, 0.0, 0xffffff10);
         let mut right = fx + width - 22.0;
-        for (keys, label) in [
-            (&["Esc"][..], "clear, close"),
-            (&["Shift+Enter"][..], "new window"),
-            (&["Enter"][..], "open"),
-            (&["Tab"][..], "next"),
-            (&["↑ ↓ ← →"][..], "choose"),
-        ] {
+        let keys: &[(&[&str], &str)] = match look.mode {
+            Mode::Apps => &[
+                (&["Esc"], "clear, close"),
+                (&["Shift+Enter"], "new window"),
+                (&["Enter"], "open"),
+                (&["Tab"], "next"),
+                (&["↑ ↓ ← →"], "choose"),
+            ],
+            // A command has no second window to open, and "open" is the wrong verb for it.
+            Mode::Run => &[
+                (&["Esc"], "clear, close"),
+                (&["Enter"], "run"),
+                (&["Tab"], "next"),
+                (&["↑ ↓"], "choose"),
+            ],
+        };
+        for (keys, label) in keys {
             right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label) - 20.0;
         }
 
@@ -1581,6 +1634,26 @@ mod tests {
         explorer.ran("btop");
         explorer.ran("htop");
         assert_eq!(explorer.ran, ["htop", "btop"]);
+    }
+
+    #[test]
+    fn the_command_line_leaves_out_what_belongs_to_the_apps_panel() {
+        let mut explorer = with_apps(&["Files"]);
+        // The apps panel offers recent files, Log out and the shortcut sheet by name.
+        explorer.open(0.0);
+        let apps = explorer.results();
+        assert!(
+            apps.log_out,
+            "the apps panel offers Log out on an empty query"
+        );
+        // The command line offers commands and nothing else: documents and a row that ends the
+        // session are the other panel's business.
+        explorer.open_run(0.0);
+        let run = explorer.results();
+        assert!(!run.log_out);
+        assert!(run.files.is_empty());
+        type_in(&mut explorer, "help");
+        assert!(!explorer.results().shortcuts);
     }
 
     #[test]
