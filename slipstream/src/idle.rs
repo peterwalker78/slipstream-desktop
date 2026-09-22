@@ -1,15 +1,15 @@
 //! When the UI steps aside for the living wallpaper. After a spell with no input it fades out; any
 //! input brings it straight back, and the input that wakes it goes nowhere, so nothing is typed
-//! blind. It stays up while Caps Lock is on, while a window fills the screen, and while an app asks
-//! for the screen to stay awake (video players do).
+//! blind. It stays up while Awake is on (Caps Lock held down), while a window fills the screen,
+//! and while an app asks for the screen to stay awake (video players do).
 //!
 //! The wait comes from the settings file (`fade-after-secs`, 120 seconds by default; 0 never fades)
 //! and can change while Slipstream runs.
 //!
 //! The same input also counts towards locking the screen by itself (`[lock] after-idle-mins`, off by
 //! default). That wait is wall time since the last input, so bullet time can't stretch it, and
-//! only a fullscreen window or an app asking for the screen to stay awake holds it off. Caps Lock
-//! doesn't, since anyone can leave it on, and nor does an open panel or card, since neither is a
+//! only a fullscreen window or an app asking for the screen to stay awake holds it off. Awake
+//! doesn't, since it's easily left on, and nor does an open panel or card, since neither is a
 //! sign anyone is there.
 
 use std::time::{Duration, Instant};
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn caps_lock_and_friends_keep_the_ui_up() {
+    fn awake_and_friends_keep_the_ui_up() {
         let mut idle = Idle {
             timeout: Some(Duration::ZERO),
             ..Idle::new(false, 120)

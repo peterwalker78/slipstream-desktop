@@ -39,25 +39,30 @@ const MOCKUP_PX: f32 = 0.8;
 const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
 const SHOWN: f64 = 1.2;
-/// Caps Lock and Num Lock stay up longer, since their cards have a note to read as well.
+/// Caps Lock, Num Lock and Awake stay up longer, since their cards have a note to read as well.
 const SHOWN_LOCK_KEY: f64 = 1.7;
 /// A charger's card isn't the answer to a key, so it may not be looked at straight away.
 const SHOWN_POWER: f64 = 2.5;
 /// Charging's colour, as on the bar's battery.
 const MINT: u32 = icons::CHARGING_RGBA;
 
-/// What Caps Lock's card says under its title: on the desktop, what it does to the screensaver;
-/// at the lock screen, how the password is being typed. Every way it can go has a note, so on
-/// and off read alike.
-pub fn caps_lock_note(on: bool, locked: bool, fades: bool, locks_by_itself: bool) -> &'static str {
-    match (on, locked, fades, locks_by_itself) {
-        (true, true, ..) => "Typing in capitals",
-        (false, true, ..) => "Typing in lower case",
-        (true, false, true, true) => "Screensaver paused · lock still on",
-        (true, false, true, false) => "Screensaver paused",
-        (false, false, true, _) => "Screensaver back on",
-        (true, false, false, _) => "Typing in capitals",
-        (false, false, false, _) => "Typing in lower case",
+/// What Caps Lock's card says under its title. Both ways have a note, so on and off read alike.
+pub fn caps_lock_note(on: bool) -> &'static str {
+    if on {
+        "Typing in capitals"
+    } else {
+        "Typing in lower case"
+    }
+}
+
+/// What Awake's card says under its title: what it did to the screensaver, and that the lock
+/// still comes when that's set to.
+pub fn awake_note(on: bool, fades: bool, locks_by_itself: bool) -> &'static str {
+    match (on, fades, locks_by_itself) {
+        (_, false, _) => "Screensaver is off in Settings",
+        (true, true, true) => "Screensaver paused · lock still on",
+        (true, true, false) => "Screensaver paused",
+        (false, true, _) => "Screensaver back on",
     }
 }
 
@@ -94,6 +99,10 @@ pub enum Kind {
     NumLock {
         on: bool,
     },
+    /// Awake, which keeps the UI from fading, and whether it's on.
+    Awake {
+        on: bool,
+    },
     /// A charger was plugged in or pulled out. The level is the battery's charge.
     Power {
         plugged: bool,
@@ -104,7 +113,7 @@ impl Kind {
     /// How long its card stays up after the last press.
     fn shown(self) -> f64 {
         match self {
-            Kind::CapsLock { .. } | Kind::NumLock { .. } => SHOWN_LOCK_KEY,
+            Kind::CapsLock { .. } | Kind::NumLock { .. } | Kind::Awake { .. } => SHOWN_LOCK_KEY,
             Kind::Power { .. } => SHOWN_POWER,
             _ => SHOWN,
         }
@@ -120,6 +129,7 @@ impl Kind {
             Kind::Media { playing: true } => icons::PLAY,
             Kind::Media { playing: false } => icons::PAUSE,
             Kind::CapsLock { .. } | Kind::NumLock { .. } => icons::KEYBOARD,
+            Kind::Awake { .. } => icons::EYE,
             Kind::Power { plugged } => return icons::battery(level, plugged),
         };
         icon.to_string()
@@ -143,6 +153,7 @@ impl Kind {
             Kind::Media { playing: false } => "Paused".into(),
             Kind::CapsLock { on } => format!("Caps Lock {}", if on { "on" } else { "off" }),
             Kind::NumLock { on } => format!("Num Lock {}", if on { "on" } else { "off" }),
+            Kind::Awake { on } => format!("Awake {}", if on { "on" } else { "off" }),
             _ => format!("{level}%"),
         }
     }
@@ -478,6 +489,7 @@ mod tests {
         for on in [true, false] {
             assert_eq!(Kind::CapsLock { on }.shown(), SHOWN_LOCK_KEY);
             assert_eq!(Kind::NumLock { on }.shown(), SHOWN_LOCK_KEY);
+            assert_eq!(Kind::Awake { on }.shown(), SHOWN_LOCK_KEY);
         }
         assert_eq!(Kind::Brightness.shown(), SHOWN);
     }
@@ -487,30 +499,27 @@ mod tests {
         let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
         let bools = [true, false];
         for on in bools {
-            for locked in bools {
-                for fades in bools {
-                    for locking in bools {
-                        let note = caps_lock_note(on, locked, fades, locking);
-                        assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
-                    }
+            for fades in bools {
+                for locking in bools {
+                    let note = awake_note(on, fades, locking);
+                    assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
                 }
             }
-            let note = num_lock_note(on);
-            assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
+            for note in [caps_lock_note(on), num_lock_note(on)] {
+                assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
+            }
         }
     }
 
     #[test]
-    fn caps_lock_going_off_says_so_as_going_on_does() {
+    fn awake_going_off_says_so_as_going_on_does() {
+        assert_eq!(awake_note(true, true, false), "Screensaver paused");
+        assert_eq!(awake_note(false, true, false), "Screensaver back on");
         assert_eq!(
-            caps_lock_note(true, false, true, false),
-            "Screensaver paused"
+            awake_note(true, true, true),
+            "Screensaver paused · lock still on"
         );
-        assert_eq!(
-            caps_lock_note(false, false, true, false),
-            "Screensaver back on"
-        );
-        assert_eq!(caps_lock_note(true, true, true, true), "Typing in capitals");
+        assert_eq!(caps_lock_note(true), "Typing in capitals");
     }
 
     #[test]

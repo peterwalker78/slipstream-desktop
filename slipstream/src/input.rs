@@ -16,11 +16,13 @@ use smithay::{
             RelativeMotionEvent,
         },
     },
+    reexports::calloop::timer::{TimeoutAction, Timer},
     utils::{Logical, Point, SERIAL_COUNTER},
     wayland::{compositor::with_states, seat::WaylandFocus, shell::xdg::XdgToplevelSurfaceData},
 };
 
 use crate::{
+    awake::Step,
     focus::KeyboardFocus,
     keys::{self, Action, Mods},
     state::Slipstream,
@@ -976,8 +978,73 @@ impl Slipstream {
     }
 
     /// A key pressed or let go: from the keyboard, or `injected` by a debug step, which takes the
-    /// same path so a script exercises the real routing.
+    /// same path so a script exercises the real routing. Caps Lock is kept back first, until it's
+    /// clear whether it was tapped or held (`awake.rs`).
     pub fn key_event(
+        &mut self,
+        keycode: Keycode,
+        key_state: KeyState,
+        time: InputTime,
+        injected: bool,
+    ) {
+        let pressed = key_state == KeyState::Pressed;
+        let caps = pressed && self.is_caps_lock(keycode);
+        // A key that wakes the faded UI goes nowhere, so there's nothing to hold for then.
+        let may_hold = self.lock.is_none() && !self.idle.is_faded();
+        match self.caps_key.key(keycode, pressed, time, caps, may_hold) {
+            Step::Pass => {}
+            Step::Wait(press) => {
+                // Kept back from xkb, but still a sign someone is there.
+                self.wake_ui();
+                let _ = self.loop_handle.insert_source(
+                    Timer::from_duration(crate::awake::HOLD),
+                    move |_, _, state| {
+                        state.caps_lock_held(press, injected);
+                        TimeoutAction::Drop
+                    },
+                );
+                return;
+            }
+            Step::Replay(caps, at) => self.route_key(caps, KeyState::Pressed, at, injected),
+            Step::Swallow => {
+                self.wake_ui();
+                return;
+            }
+        }
+        self.route_key(keycode, key_state, time, injected);
+    }
+
+    /// Caps Lock's wait is over. Still down, it's a hold, and toggles Awake; if the lock came up
+    /// meanwhile, the press goes to it as a plain Caps Lock.
+    fn caps_lock_held(&mut self, press: u64, injected: bool) {
+        if self.lock.is_some() {
+            if let Some((keycode, at)) = self.caps_key.settle() {
+                self.route_key(keycode, KeyState::Pressed, at, injected);
+            }
+            return;
+        }
+        if self.caps_key.elapsed(press) {
+            self.set_awake(!self.awake);
+        }
+    }
+
+    /// Whether `keycode` is Caps Lock in the active layout. Checked by symbol, so a layout that
+    /// makes the key something else (Escape, Ctrl) leaves it alone.
+    fn is_caps_lock(&mut self, keycode: Keycode) -> bool {
+        let Some(keyboard) = self.seat.get_keyboard() else {
+            return false;
+        };
+        keyboard.with_xkb_state(self, |context| {
+            let Ok(xkb) = context.xkb().lock() else {
+                return false;
+            };
+            let layout = xkb.active_layout();
+            xkb.raw_syms_for_key_in_layout(keycode, layout)
+                .contains(&Keysym::Caps_Lock)
+        })
+    }
+
+    fn route_key(
         &mut self,
         keycode: Keycode,
         key_state: KeyState,
@@ -1050,14 +1117,7 @@ impl Slipstream {
                     if !pressed && matches!(key, Keysym::Caps_Lock | Keysym::Num_Lock) {
                         if key == Keysym::Caps_Lock {
                             let on = modifiers.caps_lock;
-                            // It holds off the wallpaper fade, not the lock; at the lock screen
-                            // there's no fade to hold off, and the note is about the password.
-                            let note = crate::osd::caps_lock_note(
-                                on,
-                                state.lock.is_some(),
-                                state.idle.fades(),
-                                state.idle.locks_by_itself(),
-                            );
+                            let note = crate::osd::caps_lock_note(on);
                             state.show_osd_with(crate::osd::Kind::CapsLock { on }, note);
                         } else {
                             let on = modifiers.num_lock;

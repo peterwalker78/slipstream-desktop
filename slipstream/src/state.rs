@@ -186,6 +186,10 @@ pub struct Slipstream {
     pub bindings: Vec<keys::Binding>,
     /// Keys whose press ran a binding; their releases are swallowed too.
     pub suppressed_keys: Vec<Keysym>,
+    /// Caps Lock, while it's being told apart as a tap or a hold.
+    pub caps_key: crate::awake::CapsKey,
+    /// Awake is on: the UI doesn't fade to the wallpaper. Held Caps Lock toggles it.
+    pub awake: bool,
     /// Super on its own, on its way to being a tap that opens the explorer.
     pub super_tap: keys::SuperTap,
     /// Running as a window inside another desktop, where Alt stands in for Super.
@@ -578,6 +582,8 @@ impl Slipstream {
 
             bindings: keys::checked(keys::defaults()),
             suppressed_keys: Vec::new(),
+            caps_key: Default::default(),
+            awake: false,
             super_tap: keys::SuperTap::default(),
             nested: false,
             owns_state: true,
@@ -1068,6 +1074,7 @@ impl Slipstream {
             bar::Target::Tray | bar::Target::Meter => self.toggle_quick_settings(),
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
+            bar::Target::Awake => self.set_awake(false),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(
@@ -4610,14 +4617,10 @@ impl Slipstream {
         }
     }
 
-    /// How visible the UI is now. It fades after a while with no input, unless Caps Lock is on,
+    /// How visible the UI is now. It fades after a while with no input, unless Awake is on,
     /// a window fills the screen, or the explorer is open.
     pub fn ui_opacity(&mut self, now: f64) -> f32 {
-        let caps_lock = self
-            .seat
-            .get_keyboard()
-            .is_some_and(|keyboard| keyboard.modifier_state().caps_lock);
-        let keep_up = caps_lock
+        let keep_up = self.awake
             || self.fullscreen_on_screen()
             // A launcher or picker drawn by another program, while it has the keyboard.
             || self.keyboard_layer().is_some()
@@ -4745,6 +4748,13 @@ impl Slipstream {
     }
 
     /// As `show_osd`, with a line under the label.
+    /// Turns Awake on or off, and says so on a card.
+    pub fn set_awake(&mut self, on: bool) {
+        self.awake = on;
+        let note = osd::awake_note(on, self.idle.fades(), self.idle.locks_by_itself());
+        self.show_osd_with(osd::Kind::Awake { on }, note);
+    }
+
     pub fn show_osd_with(&mut self, kind: osd::Kind, detail: &str) {
         if self.quick.is_open() {
             self.osd.hide();

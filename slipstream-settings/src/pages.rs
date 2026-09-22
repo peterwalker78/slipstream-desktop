@@ -627,8 +627,8 @@ fn wallpaper(store: &Store) -> gtk::Widget {
         &idle,
         "Fade to the wallpaper after",
         Some(
-            "Time with no keyboard or mouse input. Caps Lock, a fullscreen window or a playing \
-             video keeps the desktop up.",
+            "Time with no keyboard or mouse input. A fullscreen window or a playing video keeps \
+             the desktop up, and so does Awake: hold Caps Lock down to turn it on or off.",
         ),
         &fade,
     );
@@ -1330,7 +1330,7 @@ fn session(store: &Store) -> gtk::Widget {
         &lock,
         "Lock after",
         Some(
-            "Time with no keyboard or mouse input. A fullscreen window or a playing video holds it off; Caps Lock doesn't. Super+L or the lock in quick settings locks at any time.",
+            "Time with no keyboard or mouse input. A fullscreen window or a playing video holds it off; Awake doesn't. Super+L or the lock in quick settings locks at any time.",
         ),
         &after,
     );

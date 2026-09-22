@@ -60,6 +60,8 @@ pub struct Content {
     pub sharing: bool,
     /// Caps Lock is on: a chip beside the tray says so.
     pub caps_lock: bool,
+    /// Awake is on: a chip beside the tray says so, and a click on it turns it off.
+    pub awake: bool,
     /// What the meter's command last reported, when there is a meter.
     pub meter: Option<meter::Reading>,
 }
@@ -77,6 +79,7 @@ pub enum Target {
     Bell,
     /// The red dot while something is shared.
     Sharing,
+    Awake,
     /// Beside the workspaces: bullet time, as Windows' Task View button.
     Overview,
     /// The meter beside the tray, whose details are in quick settings.
@@ -159,6 +162,8 @@ const INK: u32 = 0xdfe4ecff;
 /// The 1 px ring inside the button of the workspace bullet time started on.
 const HOME_RING: u32 = 0x33ccff99;
 const AMBER: u32 = 0xffb547ff;
+/// Awake's chip: the cyan of the rest of the bar's accents.
+const AWAKE: u32 = 0x33ccffff;
 /// The dot that says the screen is being shared. Red, and nothing else on the bar is.
 const LIVE: u32 = 0xff5a5aff;
 
@@ -417,6 +422,23 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
     }
 
+    // Left of the tray while Awake is on: an open eye and the word, on a faint cyan pill, which
+    // turns it off when clicked.
+    if content.awake {
+        let style = Style {
+            tracking: 0.06,
+            ..Style::new(Face::MonoBold, 12.0, AWAKE)
+        };
+        let word = "AWAKE";
+        let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
+        right -= 8.0 + w;
+        p.fill(right, 8.0, w, 24.0, 12.0, 0x33ccff22);
+        p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0x33ccff70);
+        p.icon(icons::EYE, right + 10.0, 13.0, 14.0, Some(AWAKE));
+        p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
+        target(Target::Awake, right, w);
+    }
+
     // Left of the tray while anything is shared: a red dot and the word, on a faint red pill,
     // which stops every share when clicked.
     if content.sharing {
@@ -498,6 +520,7 @@ mod tests {
             unread: 0,
             sharing: false,
             caps_lock: false,
+            awake: false,
             meter: None,
         }
     }
@@ -523,6 +546,36 @@ mod tests {
         let chips_only = (wide / 3.0 - 8.0) / 5.0 - 6.0 - 16.0;
         assert!(!names_fit(&[chips_only; 5], wide));
         assert!(names_fit(&[chips_only - 10.0; 5], wide));
+    }
+
+    #[test]
+    fn the_awake_chip_shows_only_while_awake_and_sits_beside_caps_lock() {
+        let (_, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        assert!(!quiet.iter().any(|(target, _)| *target == Target::Awake));
+        let both = Content {
+            awake: true,
+            caps_lock: true,
+            sharing: true,
+            ..content()
+        };
+        let (_, targets) = paint(&both, 1536, 1.25).unwrap();
+        let area = |wanted: Target| {
+            targets
+                .iter()
+                .find(|(target, _)| *target == wanted)
+                .map(|(_, area)| *area)
+                .unwrap()
+        };
+        let (awake, dot, tray) = (
+            area(Target::Awake),
+            area(Target::Sharing),
+            area(Target::Tray),
+        );
+        assert!(awake.loc.x + awake.size.w <= tray.loc.x);
+        assert!(
+            dot.loc.x + dot.size.w <= awake.loc.x,
+            "the chips don't overlap"
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ mod anim;
 mod appearance;
 mod apps;
 mod auth;
+mod awake;
 mod bar;
 mod battery;
 mod bullet;

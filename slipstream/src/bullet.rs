@@ -314,7 +314,7 @@ pub enum BarClick {
     Look(usize),
     /// A panel's button: go back out of bullet time with nothing changed, then open the panel.
     Leave,
-    /// Stopping a share needs nothing on screen to change, so the overview stays.
+    /// Stopping a share or Awake needs nothing on screen to change, so the overview stays.
     Stay,
     /// The overview button: back out of bullet time, as Super+Tab does.
     Back,
@@ -323,7 +323,7 @@ pub enum BarClick {
 pub fn bar_click(target: bar::Target) -> BarClick {
     match target {
         bar::Target::Workspace(index) => BarClick::Look(index),
-        bar::Target::Sharing => BarClick::Stay,
+        bar::Target::Sharing | bar::Target::Awake => BarClick::Stay,
         bar::Target::Overview => BarClick::Back,
         bar::Target::Apps
         | bar::Target::Clock
@@ -644,6 +644,7 @@ mod tests {
             assert_eq!(bar_click(panel), BarClick::Leave, "{panel:?}");
         }
         assert_eq!(bar_click(bar::Target::Sharing), BarClick::Stay);
+        assert_eq!(bar_click(bar::Target::Awake), BarClick::Stay);
     }
 
     fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {

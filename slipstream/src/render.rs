@@ -1120,6 +1120,7 @@ pub fn output_elements(
                 .seat
                 .get_keyboard()
                 .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
+            awake: state.awake,
             meter: state.meter.lock().unwrap().clone(),
         };
         elements.extend(
