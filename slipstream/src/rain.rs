@@ -264,7 +264,14 @@ impl Rain {
     }
 
     pub fn contains(&self, window: &Window) -> bool {
-        self.streams.iter().any(|stream| stream.window == *window)
+        self.index_of(window).is_some()
+    }
+
+    /// Which stream is `window`'s, which is also which column it pours into.
+    pub fn index_of(&self, window: &Window) -> Option<usize> {
+        self.streams
+            .iter()
+            .position(|stream| stream.window == *window)
     }
 
     /// Where stream `index` sits on `screen`, below `top`: the column its window pours into.

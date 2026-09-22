@@ -18,6 +18,12 @@ pub const OPEN: f64 = 0.24;
 pub const OPEN_SCALE: f64 = 0.82;
 /// With reduced motion, moves jump and effects become short fades.
 const REDUCED_FADE: f64 = 0.08;
+/// Fades for a window that is travelling while it fades. Flatter than CSS's `ease-in` and
+/// `ease-out`, which still leave it about a third transparent halfway: these hold it above
+/// four fifths opaque to the middle of the journey, so it reads as a window going somewhere
+/// rather than as a ghost crossing whatever is behind it.
+const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
+const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
 /// Space between workspaces as they slide past, in logical pixels: the mockup's 160 stage pixels
 /// at the laptop's 1.25×.
 pub const WORKSPACE_GAP: i32 = 128;
@@ -88,8 +94,14 @@ impl<T: Clone + PartialEq> Motion<T> {
     /// Sends `id` towards `rect`. A window seen for the first time appears there, invisible
     /// until `shown`.
     pub fn place(&mut self, id: &T, rect: Rect, now: f64) {
+        self.place_over(id, rect, now, MOVE);
+    }
+
+    /// `place`, over a given time rather than the usual one: a window pouring into the code rain
+    /// with a screenful of others goes quicker than one leaving on its own.
+    pub fn place_over(&mut self, id: &T, rect: Rect, now: f64, duration: f64) {
         let to = [rect.x as f64, rect.y as f64, rect.w as f64, rect.h as f64];
-        let duration = self.move_duration();
+        let duration = if self.reduced_motion { 0.0 } else { duration };
         let first_scale = if self.reduced_motion { 1.0 } else { OPEN_SCALE };
         match self.entry_mut(id) {
             Some(entry) => entry.rect.retarget(to, now, duration, HYPR),
@@ -130,8 +142,27 @@ impl<T: Clone + PartialEq> Motion<T> {
         }
     }
 
-    /// Fades `id` to `alpha` over `duration` (at most a short fade with reduced motion).
+    /// Fades `id` to `alpha` over `duration`, straight, which is what a fade in place wants.
     pub fn fade(&mut self, id: &T, alpha: f64, now: f64, duration: f64) {
+        self.fade_on(id, alpha, now, duration, Easing::Linear);
+    }
+
+    /// Fades out late: `id` holds its opacity almost all the way and goes out as it arrives.
+    ///
+    /// For a window travelling while it fades. A straight fade leaves it half transparent in the
+    /// middle of the screen, where it reads as the desktop dissolving rather than as that window
+    /// going to that place, and it mixes with whatever it is crossing on the way.
+    pub fn fade_out_landing(&mut self, id: &T, now: f64, duration: f64) {
+        self.fade_on(id, 0.0, now, duration, HOLD_THEN_GO);
+    }
+
+    /// Fades in early: `id` is solid almost at once and travels the rest of the way in view, the
+    /// other half of `fade_out_landing`.
+    pub fn fade_in_leaving(&mut self, id: &T, now: f64, duration: f64) {
+        self.fade_on(id, 1.0, now, duration, ARRIVE_THEN_STAY);
+    }
+
+    fn fade_on(&mut self, id: &T, alpha: f64, now: f64, duration: f64, easing: Easing) {
         let duration = if self.reduced_motion {
             duration.min(REDUCED_FADE)
         } else {
@@ -146,7 +177,7 @@ impl<T: Clone + PartialEq> Motion<T> {
                 entry.waiting = false;
                 entry.scale = Tween::at_rest([1.0]);
             }
-            entry.alpha.retarget([alpha], now, duration, Easing::Linear);
+            entry.alpha.retarget([alpha], now, duration, easing);
         }
     }
 
@@ -212,6 +243,46 @@ impl<T: Clone + PartialEq> Motion<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A window travelling into the code rain has to stay visible for the journey. A straight
+    /// fade leaves it half transparent in the middle of the screen, crossing everything else.
+    #[test]
+    fn a_landing_fade_holds_its_opacity_until_the_end() {
+        let mut motion: Motion<u32> = Motion::new(false);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 10,
+        };
+        motion.place(&1, rect, 0.0);
+        // Solid on the spot, as a window that has been on screen a while is.
+        motion.fade(&1, 1.0, 0.0, 0.0);
+        motion.fade_out_landing(&1, 0.0, 1.0);
+        let alpha = |at: f64| motion.frame(&1, at).unwrap().alpha;
+        assert!(alpha(0.5) > 0.8, "half way it is still nearly solid");
+        assert!(alpha(0.9) < 0.35, "and it is gone as it lands");
+        assert!(alpha(1.0) <= 0.001);
+    }
+
+    #[test]
+    fn a_leaving_fade_is_solid_almost_at_once() {
+        let mut motion: Motion<u32> = Motion::new(false);
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            w: 10,
+            h: 10,
+        };
+        motion.place(&1, rect, 0.0);
+        motion.fade_in_leaving(&1, 0.0, 1.0);
+        assert!(
+            motion.frame(&1, 0.5).unwrap().alpha > 0.8,
+            "solid for most of the way out"
+        );
+    }
+
     use super::*;
 
     const LEFT: Rect = Rect {

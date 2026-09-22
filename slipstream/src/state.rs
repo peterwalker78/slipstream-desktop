@@ -122,6 +122,13 @@ const CATALOGUE_WAIT: f64 = 10.0;
 /// retiles several times over as the client catches up, and none of those are worth a file.
 const RECORD_SETTLE: f64 = 2.0;
 
+/// How long a window takes to pour into its stream in the code rain, on its own and when a whole
+/// workspace goes at once. A screenful moving together needs to be quicker: at the single
+/// window's pace the same motion reads as the desktop sliding away rather than as each window
+/// finding its own stream.
+const POUR: f64 = crate::motion::MOVE;
+const POUR_ALL: f64 = 0.2;
+
 pub struct Slipstream {
     pub start_time: std::time::Instant,
     pub socket_name: OsString,
@@ -5183,9 +5190,7 @@ impl Slipstream {
                 windows = coming_back.len(),
                 "bringing the hidden windows back"
             );
-            for window in coming_back {
-                self.restore(&window);
-            }
+            self.restore_all(&coming_back);
             return;
         }
         let active = self.active_workspace();
@@ -5195,10 +5200,19 @@ impl Slipstream {
             return;
         }
         tracing::info!(windows = windows.len(), "hiding every window");
-        for window in &windows {
-            self.minimise(window);
+        // Every window takes its stream first, then they all pour into their own: aiming each
+        // one as it went would send the first at a column the rest had not been counted into,
+        // and would retile the workspace once per window on the way.
+        let going: Vec<Window> = windows
+            .into_iter()
+            .filter(|window| self.take_into_rain(window))
+            .collect();
+        for window in &going {
+            self.pour_into_stream(window, POUR_ALL);
         }
-        self.hidden = Some(windows);
+        self.retile();
+        self.restore_focus();
+        self.hidden = Some(going);
         self.show_toast("Windows hidden", "Super+H brings them back.");
     }
 
@@ -5210,12 +5224,25 @@ impl Slipstream {
 
     /// Takes `window` out of its layout into the code rain. The app keeps running.
     pub fn minimise(&mut self, window: &Window) {
-        // It pours towards the rain, which is on the leftmost screen whichever screen it was on.
-        let (Some(screen), Some(scale)) = (self.screen_rect(0), self.output_scale()) else {
+        if !self.take_into_rain(window) {
             return;
+        }
+        self.pour_into_stream(window, POUR);
+        self.retile();
+        self.restore_focus();
+    }
+
+    /// Takes `window` off its workspace and gives it a stream, without moving anything yet.
+    ///
+    /// Splitting this from the pouring is what lets a screenful go at once: every window gets its
+    /// stream first, so each is then aimed at the column it will really have, and the tiling area
+    /// gives up its width once rather than once per window. Returns whether it went.
+    fn take_into_rain(&mut self, window: &Window) -> bool {
+        let Some(scale) = self.output_scale() else {
+            return false;
         };
         if self.rain.contains(window) || self.workspaces.find(window).is_none() {
-            return;
+            return false;
         }
         self.fullscreen.retain(|held| held != window);
         self.take_off_workspace(window);
@@ -5223,20 +5250,27 @@ impl Slipstream {
         let icon_px = crate::rain::icon_px(scale);
         let icon = window_app_id(window).and_then(|id| self.explorer.app_icon(&id, icon_px));
         let pid = self.window_pid(window);
-        let top = bar::HEIGHT;
         let now = self.clock.tick();
         self.rain.add(window.clone(), name, icon, pid, now);
-        // It pours into its stream as it fades, while the rest retile into the space it left.
-        let column = Rain::column(self.rain.len() - 1, screen, top);
-        self.motion.place(window, column, now);
-        self.motion.fade(window, 0.0, now, 0.26);
-        self.retile();
-        self.restore_focus();
         tracing::info!(
             window = logged_app(window),
             screen = self.screens.get(0).map(|screen| screen.output.name()),
             "minimised to code rain"
         );
+        true
+    }
+
+    /// Sends `window` into its own stream over `over` seconds, fading over the same time so it is
+    /// still there when it lands: a window that has gone before it arrives reads as the desktop
+    /// clearing, not as that window going into that stream.
+    fn pour_into_stream(&mut self, window: &Window, over: f64) {
+        let (Some(screen), Some(index)) = (self.screen_rect(0), self.rain.index_of(window)) else {
+            return;
+        };
+        let now = self.clock.tick();
+        let column = Rain::column(index, screen, bar::HEIGHT);
+        self.motion.place_over(window, column, now, over);
+        self.motion.fade_out_landing(window, now, over);
     }
 
     /// Super+Shift+M: the most recently minimised window comes back.
@@ -5253,32 +5287,52 @@ impl Slipstream {
     /// A window condenses out of its stream, beside the window you're using on the workspace on
     /// screen, and takes focus.
     pub fn restore(&mut self, window: &Window) {
+        self.restore_all(std::slice::from_ref(window));
+    }
+
+    /// Several windows condense out of their streams together: each starts from the stream it is
+    /// in now, before any of them have left, and the workspace retiles once around all of them
+    /// rather than once per window.
+    pub fn restore_all(&mut self, windows: &[Window]) {
         let Some(screen) = self.screen_rect(0) else {
             return;
         };
-        let Some(index) = self.rain.remove(window) else {
+        // Where each one's stream sits while they are all still in the rain. Taken first,
+        // because every window that leaves shifts the streams still to its left.
+        let from: Vec<(Window, Rect)> = windows
+            .iter()
+            .filter_map(|window| {
+                let index = self.rain.index_of(window)?;
+                Some((window.clone(), Rain::column(index, screen, bar::HEIGHT)))
+            })
+            .collect();
+        if from.is_empty() {
             return;
-        };
+        }
         let area = self.output_area().unwrap_or(screen);
         let now = self.clock.tick();
-        self.motion
-            .jump(window, Rain::column(index, screen, bar::HEIGHT));
-        self.motion.fade(window, 1.0, now, 0.26);
         let active = self.active_workspace();
-        if crate::floating::opens_floating(window) {
-            let size = crate::floating::own_size(window);
-            self.workspaces
-                .get_mut(active)
-                .floating
-                .add(window.clone(), size, None, area);
-        } else {
-            let beside = self.focused_window();
-            self.workspaces
-                .insert(active, window.clone(), beside.as_ref(), area);
+        let beside = self.focused_window();
+        for (window, column) in &from {
+            self.rain.remove(window);
+            self.motion.jump(window, *column);
+            self.motion.fade_in_leaving(window, now, 0.26);
+            if crate::floating::opens_floating(window) {
+                let size = crate::floating::own_size(window);
+                self.workspaces
+                    .get_mut(active)
+                    .floating
+                    .add(window.clone(), size, None, area);
+            } else {
+                self.workspaces
+                    .insert(active, window.clone(), beside.as_ref(), area);
+            }
+            tracing::info!(window = logged_app(window), "restored from code rain");
         }
         self.retile();
-        self.focus_window(window);
-        tracing::info!(window = logged_app(window), "restored from code rain");
+        if let Some((window, _)) = from.last() {
+            self.focus_window(&window.clone());
+        }
     }
 
     /// The minimised window whose stream is under `pos`. The rain is drawn on the leftmost
