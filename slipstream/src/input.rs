@@ -21,7 +21,6 @@ use smithay::{
 };
 
 use crate::{
-    exit::Intent,
     focus::KeyboardFocus,
     keys::{self, Action, Mods},
     state::Slipstream,
@@ -68,10 +67,7 @@ enum KeyUse {
 impl Slipstream {
     fn run_action(&mut self, action: Action) {
         match action {
-            Action::Quit => {
-                tracing::info!("quit requested from the keyboard");
-                self.begin_exit(Intent::LogOut);
-            }
+            Action::WayOut => self.open_way_out(),
             Action::Focus(direction) => self.focus_direction(direction),
             Action::MoveTile(direction) => self.move_tile(direction),
             Action::Resize(how) => self.resize_focused(how),
@@ -105,6 +101,7 @@ impl Slipstream {
             Action::Brightness(percent) => self.change_brightness(percent),
             Action::CycleWindows { forward } => self.cycle_windows(forward),
             Action::Explorer => self.toggle_explorer(),
+            Action::Run => self.toggle_run(),
             Action::Weigh { heavier } => self.weigh(heavier),
             Action::ToggleGravity => self.toggle_gravity(),
             Action::Minimise => self.minimise_focused(),
@@ -159,8 +156,9 @@ impl Slipstream {
         self.run_action(action)
     }
 
-    /// Super tapped on its own: whatever Super+Space does now. The lock, a card or bullet time
-    /// keeps the keys to itself, so there it does nothing.
+    /// Super tapped on its own: the app explorer, as the Windows key opens Start. It is no
+    /// binding — nothing is held with it — so the action is named here. The lock, a card or
+    /// bullet time keeps the keys to itself, so there it does nothing.
     fn super_tapped(&mut self) {
         let keys_taken = self.lock.is_some()
             || self.share.is_some()
@@ -171,14 +169,8 @@ impl Slipstream {
         if keys_taken {
             return;
         }
-        let logo = Mods {
-            logo: true,
-            ..Mods::default()
-        };
-        if let Some(action) = keys::action_for(&self.bindings, logo, Keysym::space) {
-            tracing::info!(?action, "Super tapped");
-            self.run_bound(action);
-        }
+        tracing::info!("Super tapped");
+        self.run_bound(Action::Explorer);
     }
 
     /// The app id of the window with keyboard focus, if it has one.
@@ -1201,7 +1193,7 @@ impl Slipstream {
                         return FilterResult::Intercept(Some(KeyUse::Sheet(sym, ch)));
                     }
                     // Open quick settings takes every key as well, but bindings still work:
-                    // Super+A closes it, and Super+Space opens the explorer instead.
+                    // Super+A closes it, and a tapped Super opens the explorer instead.
                     if pressed && state.quick.is_open() {
                         state.suppressed_keys.push(key);
                         if let Some(action) = keys::action_for(&state.bindings, mods, key) {

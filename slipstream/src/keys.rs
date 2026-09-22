@@ -10,8 +10,8 @@ use crate::layout::{Direction, Resize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Stop the compositor cleanly.
-    Quit,
+    /// Open the way out: lock, log out, restart or shut down, chosen on a card.
+    WayOut,
     /// Move keyboard focus to the neighbouring tiled window.
     Focus(Direction),
     /// Swap the focused window with the tiled window in that direction, so a tile can be moved
@@ -44,6 +44,9 @@ pub enum Action {
     CycleWindows { forward: bool },
     /// Open or close the app explorer.
     Explorer,
+    /// Open the explorer on its command line, as Windows' Run box: what is typed is a command,
+    /// with its arguments, even when an app of that name is installed.
+    Run,
     /// Gravity: make the focused window heavier (towards the centre) or lighter (out to the edge,
     /// then into the code rain).
     Weigh { heavier: bool },
@@ -119,7 +122,7 @@ impl Action {
     /// one thing say both, so their keys share a row.
     pub fn describe(self) -> &'static str {
         match self {
-            Action::Quit => "log out",
+            Action::WayOut => "lock, log out, restart, shut down",
             Action::Focus(_) => "move focus",
             Action::MoveTile(_) => "move the window",
             Action::Resize(Resize::Wider | Resize::Narrower) => "narrower, wider",
@@ -139,7 +142,8 @@ impl Action {
             Action::ToggleMute { microphone: true } => "mute the microphone",
             Action::Brightness(_) => "brightness up, down",
             Action::CycleWindows { .. } => "switch window",
-            Action::Explorer => "apps, and run a command",
+            Action::Explorer => "apps",
+            Action::Run => "run a command",
             Action::Weigh { .. } => "heavier, lighter",
             Action::ToggleGravity => "gravity on, off",
             Action::Minimise => "minimise to the code rain",
@@ -173,6 +177,7 @@ impl Action {
             | Action::Launch(_)
             | Action::CycleWindows { .. }
             | Action::Explorer
+            | Action::Run
             | Action::Minimise
             | Action::Restore
             | Action::Maximise
@@ -190,7 +195,7 @@ impl Action {
             | Action::SwapScreens
             | Action::ShowDesktop => Group::WorkspacesAndArranging,
             Action::BulletTime => Group::BulletTime,
-            Action::Quit
+            Action::WayOut
             | Action::SwitchVt(_)
             | Action::Volume(_)
             | Action::ToggleMute { .. }
@@ -331,10 +336,17 @@ pub fn defaults() -> Vec<Binding> {
         alt: true,
         ..Mods::default()
     };
+    let ctrl_alt = Mods {
+        ctrl: true,
+        alt: true,
+        ..Mods::default()
+    };
     let alt_shift = Mods { shift: true, ..alt };
     let bind = |mods, key, action| Binding { mods, key, action };
     let mut bindings = vec![
-        bind(mod_shift, Keysym::Escape, Action::Quit),
+        // Windows' own security screen, on the chord every Windows user already reaches for
+        // under stress. The kernel never sees it: libinput hands it to us first.
+        bind(ctrl_alt, Keysym::Delete, Action::WayOut),
         // A game holding the pointer, or a virtual machine holding every key, gives them back.
         bind(mod_, Keysym::Escape, Action::TakeBack),
         // Interim: once bullet time exists, its arrow keys move focus and Mod+arrows snap
@@ -396,10 +408,9 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::e, Action::Launch(App::Files)),
         bind(mod_, Keysym::i, Action::Launch(App::Settings)),
         bind(mod_, Keysym::b, Action::Launch(App::Browser)),
-        // The app explorer. Super+R opens it too, as Windows' Run: Enter on a query that matches
-        // no app runs it as a command. Intent takes Super+R later.
-        bind(mod_, Keysym::space, Action::Explorer),
-        bind(mod_, Keysym::r, Action::Explorer),
+        // The app explorer, on a tapped Super as Windows opens Start. Super+Space is IBus's to
+        // switch input methods, and a tapped Super already does this.
+        bind(mod_, Keysym::r, Action::Run),
         // Windows' quick settings and notification centre keys.
         // Windows' own display key: Win+P is where a Windows user looks for anything to do with
         // screens. With one screen it says there's nowhere to go.
@@ -619,17 +630,19 @@ const MODIFIER_KEYS: [Keysym; 9] = [
 /// Combinations that belong to something other than the window manager.
 pub fn is_reserved(mods: Mods, key: Keysym) -> bool {
     let f_key = F_KEYS.contains(&key);
-    // Ctrl+Alt+F1–F12 switch virtual terminals; Ctrl+Alt+Del is the expected escape chord.
-    if mods.ctrl && mods.alt && (f_key || key == Keysym::Delete) {
+    // Ctrl+Alt+F1–F12 switch virtual terminals. Ctrl+Alt+Del is not reserved: it is the chord a
+    // Windows user reaches for under stress, the kernel never sees it while we hold the keyboard
+    // through libinput, and leaving it unanswered is worse than answering it.
+    if mods.ctrl && mods.alt && f_key {
         return true;
     }
     // Alt+SysRq is the kernel's emergency interface.
     if mods.alt && (key == Keysym::Sys_Req || key == Keysym::Print) {
         return true;
     }
-    // Input-method and layout switching (Ctrl+Space, Alt+Shift, Ctrl+Shift). IBus uses
-    // Super+Space too, but here it opens the explorer.
-    if mods.ctrl && key == Keysym::space {
+    // Input-method and layout switching: Ctrl+Space, Alt+Shift, Ctrl+Shift, and IBus's
+    // Super+Space, which a tapped Super already covers here.
+    if (mods.ctrl || mods.logo) && key == Keysym::space {
         return true;
     }
     if MODIFIER_KEYS.contains(&key) || key == Keysym::Menu {
@@ -729,16 +742,24 @@ mod tests {
     }
 
     #[test]
-    fn quit_needs_the_full_chord() {
+    fn the_way_out_is_on_ctrl_alt_del_alone() {
         let bindings = defaults();
+        let ctrl_alt = Mods {
+            ctrl: true,
+            alt: true,
+            ..Mods::default()
+        };
+        assert_eq!(
+            action_for(&bindings, ctrl_alt, Keysym::Delete),
+            Some(Action::WayOut)
+        );
+        // Nothing on Escape ends the session any more: Super+Shift+Esc is gone, and quick
+        // settings has the same destinations for the pointer.
         let super_shift = Mods {
             shift: true,
             ..SUPER
         };
-        assert_eq!(
-            action_for(&bindings, super_shift, Keysym::Escape),
-            Some(Action::Quit)
-        );
+        assert_eq!(action_for(&bindings, super_shift, Keysym::Escape), None);
         assert_eq!(action_for(&bindings, Mods::default(), Keysym::Escape), None);
         // Super+Esc on its own takes the mouse and keys back; it never logs out.
         assert_eq!(
@@ -815,30 +836,24 @@ mod tests {
             action_for(&bindings, SUPER, Keysym::e),
             Some(Action::Launch(App::Files))
         );
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::r),
-            Some(Action::Explorer)
-        );
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::space),
-            Some(Action::Explorer)
-        );
+        assert_eq!(action_for(&bindings, SUPER, Keysym::r), Some(Action::Run));
+        // Super+Space is the input methods' again: a tapped Super opens the explorer.
+        assert_eq!(action_for(&bindings, SUPER, Keysym::space), None);
     }
 
     #[test]
     fn nested_alt_stands_in_for_super() {
-        let alt_shift = ModifiersState {
+        let alt = ModifiersState {
             alt: true,
-            shift: true,
             ..ModifiersState::default()
         };
-        let nested = Mods::from_state(&alt_shift, true);
+        let nested = Mods::from_state(&alt, true);
         assert_eq!(
-            action_for(&defaults(), nested, Keysym::Escape),
-            Some(Action::Quit)
+            action_for(&defaults(), nested, Keysym::Right),
+            Some(Action::Focus(Direction::Right))
         );
-        let hardware = Mods::from_state(&alt_shift, false);
-        assert_eq!(action_for(&defaults(), hardware, Keysym::Escape), None);
+        let hardware = Mods::from_state(&alt, false);
+        assert_eq!(action_for(&defaults(), hardware, Keysym::Right), None);
     }
 
     #[test]
@@ -866,7 +881,10 @@ mod tests {
             ..Mods::default()
         };
         assert!(is_reserved(ctrl, Keysym::space), "input-method switch");
+        assert!(is_reserved(SUPER, Keysym::space), "IBus input-method switch");
         assert!(is_reserved(ctrl_alt, Keysym::F2), "virtual terminal switch");
+        // The one chord taken back off the list: nothing below us answers it.
+        assert!(!is_reserved(ctrl_alt, Keysym::Delete), "the way out");
         assert!(is_reserved(ctrl_shift, Keysym::c), "terminal copy");
         assert!(is_reserved(shift, Keysym::Tab), "Steam overlay");
         assert!(is_reserved(alt, Keysym::Left), "browser back");
@@ -896,7 +914,6 @@ mod tests {
             (SUPER, Keysym::Next),
             (SUPER, Keysym::t),
             (SUPER, Keysym::r),
-            (SUPER, Keysym::space),
             (SUPER, Keysym::i),
             (SUPER, Keysym::a),
             (SUPER, Keysym::n),
@@ -915,10 +932,10 @@ mod tests {
                 ..Mods::default()
             },
             key: Keysym::space,
-            action: Action::Quit,
+            action: Action::Explorer,
         };
-        let quit = defaults()[0];
-        assert_eq!(checked(vec![input_method_switch, quit]), vec![quit]);
+        let way_out = defaults()[0];
+        assert_eq!(checked(vec![input_method_switch, way_out]), vec![way_out]);
     }
 
     #[test]

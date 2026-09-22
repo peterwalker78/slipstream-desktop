@@ -6,7 +6,8 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 
 | Keys | What they do |
 |---|---|
-| Super+Space, Super+R | App explorer |
+| Super, tapped on its own | App explorer |
+| Super+R | Run a command, with its arguments |
 | Super+Return, Super+E, Super+I | Terminal, files, Settings |
 | Super+B | A new window of your default browser |
 | Alt+Tab, Alt+Shift+Tab | Switch windows |
@@ -29,7 +30,7 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 | Super+L | Lock |
 | Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
 | Caps Lock | Keeps the screensaver off while it's on (the screen still locks) |
-| Super+Shift+Esc | Log out |
+| Ctrl+Alt+Del | The way out: lock, log out, restart, shut down |
 | Super+/ | Every key |
 
 Ctrl+Alt+F1–F12 switch virtual terminals as usual. Keys that input methods, screen readers and games rely on are left alone.

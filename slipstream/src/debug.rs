@@ -4,7 +4,8 @@
 //! many milliseconds after start. Steps: `ws:N` (switch to workspace N), `move:N` (move the
 //! focused window to workspace N), `close`, `shot:PATH` (save the next rendered frame as a PNG),
 //! `run:COMMAND` (start a program the way key bindings do, so X11 apps get XWayland's display),
-//! `explore` (open or close the app explorer), `type:TEXT` and `key:NAME` (type into the open
+//! `explore` (open or close the app explorer), `runbox` (the same panel on its command line, as
+//! Super+R opens it), `type:TEXT` and `key:NAME` (type into the open
 //! explorer, or press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`),
 //! `heavier`,
 //! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
@@ -25,8 +26,9 @@
 //! (the same for the notification centre, Super+N), `notify:APP|TITLE|BODY` (a notification, as
 //! if an app had sent one), `critical:APP|TITLE|BODY` (a critical one, which wakes the faded UI),
 //! `wallpaper:ID` (show one living-wallpaper variation now, by its id in
-//! the settings file), `logout`, `restart` and `shutdown` (the way out's overlay, as
-//! Super+Shift+Esc and quick settings open it) with `xkey:NAME` for a key in it and `xclick:X,Y`
+//! the settings file), `wayout` (the way out on its chooser, as Ctrl+Alt+Del opens it), `logout`,
+//! `restart` and `shutdown` (the same overlay with its destination already named, as quick
+//! settings' power buttons open it) with `xkey:NAME` for a key in it and `xclick:X,Y`
 //! for a click on one of its buttons, `drag:X1,Y1 X2,Y2` (a press, a drag and a release, as
 //! selecting text in a terminal does), `okey:NAME` and `oclick:X,Y` for the offer at login that
 //! asks whether to put the last layout back, `share:KINDS` (the screen-sharing picker, as the
@@ -89,6 +91,8 @@ pub enum Step {
     Screenshot(String),
     Run(String),
     Explore,
+    /// The explorer on its command line, as Super+R opens it.
+    RunBox,
     Type(String),
     Key(String),
     MoveTile(Direction),
@@ -141,6 +145,8 @@ pub enum Step {
     /// The volume or brightness display, as a keypress would put it up. It only draws the card:
     /// nothing is muted and no level is changed, so a nested run can't touch the real machine.
     Osd(String),
+    /// The way out on its chooser, as Ctrl+Alt+Del opens it.
+    WayOut,
     LogOut,
     Restart,
     ShutDown,
@@ -286,6 +292,7 @@ impl Script {
                     ("shot", Some(path)) => Step::Screenshot(path.to_string()),
                     ("run", Some(command)) => Step::Run(command.to_string()),
                     ("explore", None) => Step::Explore,
+                    ("runbox", None) => Step::RunBox,
                     ("type", Some(text)) => Step::Type(text.to_string()),
                     ("key", Some(name)) => Step::Key(name.to_string()),
                     ("tile", Some(direction)) => Step::MoveTile(match direction.trim() {
@@ -402,6 +409,7 @@ impl Script {
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
                     ("swapscreens", None) => Step::SwapScreens,
+                    ("wayout", None) => Step::WayOut,
                     ("logout", None) => Step::LogOut,
                     ("restart", None) => Step::Restart,
                     ("shutdown", None) => Step::ShutDown,

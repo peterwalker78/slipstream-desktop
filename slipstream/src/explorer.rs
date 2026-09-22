@@ -1,4 +1,4 @@
-//! The app explorer on Super+Space. Type to search the installed apps, arrow keys to choose, Enter
+//! The app explorer on a tapped Super. Type to search the installed apps, arrow keys to choose, Enter
 //! to open, Esc to close. While it's open it takes every key, so nothing reaches the focused app.
 //!
 //! Its side column lists recent files and a log-out action. With a query that matches no app,
@@ -76,6 +76,17 @@ pub enum Item {
     Emoji(&'static str, &'static str),
 }
 
+/// What the explorer was opened for. The rows are the same either way; what changes is which
+/// one Enter lands on, and whether a command has to fail to find an app before it is offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// A tapped Super: apps first, a command only when nothing matches.
+    Apps,
+    /// Super+R: a command line. What is typed runs as it is written, arguments and all, even
+    /// when an app of that name is installed, and what was run before is offered back.
+    Run,
+}
+
 pub enum Outcome {
     Nothing,
     Close,
@@ -112,6 +123,9 @@ struct Catalog {
 
 /// How many emoji a `:` query lists.
 const EMOJI_SHOWN: usize = 6;
+/// Commands the command line remembers, and how many of them it offers back at once.
+const RAN_KEPT: usize = 25;
+const RAN_SHOWN: usize = 5;
 /// How long an answer takes to decode when it changes.
 const ANSWER_DECODE: f64 = 0.32;
 
@@ -122,6 +136,8 @@ const RECENT: usize = 24;
 type RecentReader = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
 
 struct Results {
+    /// Commands run before that match what's typed, newest first. The command line only.
+    recent_commands: Vec<String>,
     apps: Vec<App>,
     answer: Option<crate::calc::Answer>,
     emoji: Vec<(&'static str, &'static str)>,
@@ -132,6 +148,18 @@ struct Results {
 }
 
 impl Results {
+    /// The row Enter lands on before anything is moved. On the command line that is the command
+    /// itself, whatever apps happen to match what's typed; everywhere else it is the first app.
+    fn first_selection(&self, on_command_line: bool) -> usize {
+        if !on_command_line {
+            return 0;
+        }
+        self.items()
+            .iter()
+            .position(|item| matches!(item, Item::Run(_)))
+            .unwrap_or(0)
+    }
+
     /// Everything selectable, in selection order.
     fn items(&self) -> Vec<Item> {
         let mut items: Vec<Item> = self.apps.iter().cloned().map(Item::App).collect();
@@ -142,6 +170,7 @@ impl Results {
                 .map(|(emoji, name)| Item::Emoji(emoji, name)),
         );
         items.extend(self.run.clone().map(Item::Run));
+        items.extend(self.recent_commands.iter().cloned().map(Item::Run));
         items.extend(self.files.iter().cloned().map(Item::File));
         if self.log_out {
             items.push(Item::LogOut);
@@ -165,6 +194,10 @@ const CARET_COLOUR: u32 = 0xffb547ff;
 #[derive(Clone, PartialEq)]
 struct Look {
     query: String,
+    /// Which panel this is: the command line draws its own placeholder and its own rows.
+    mode: Mode,
+    /// How many commands have been run, so the list under the command line repaints.
+    ran: usize,
     selected: usize,
     scroll: usize,
     version: u64,
@@ -180,6 +213,10 @@ struct Look {
 
 pub struct Explorer {
     open: bool,
+    mode: Mode,
+    /// Commands run from the command line, newest first, newest wins on a repeat. This session
+    /// only: a command line that remembered across logins would outlive the reason for it.
+    ran: Vec<String>,
     query: String,
     selected: usize,
     /// The first row of apps showing.
@@ -219,7 +256,7 @@ impl Explorer {
 
     pub fn new(reduced_motion: bool) -> Self {
         let mut explorer = Self::idle(reduced_motion);
-        // Read the apps and the recent files now, so the first Super+Space finds them.
+        // Read the apps and the recent files now, so the first tap of Super finds them.
         explorer.rescan();
         explorer.read_recent();
         explorer
@@ -229,6 +266,8 @@ impl Explorer {
     fn idle(reduced_motion: bool) -> Self {
         Self {
             open: false,
+            mode: Mode::Apps,
+            ran: Vec::new(),
             query: String::new(),
             selected: 0,
             scroll: 0,
@@ -305,7 +344,33 @@ impl Explorer {
     }
 
     pub fn open(&mut self, now: f64) {
+        self.open_in(Mode::Apps, now);
+    }
+
+    /// Super+R: the same panel on its command line.
+    pub fn open_run(&mut self, now: f64) {
+        self.open_in(Mode::Run, now);
+    }
+
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// A command was run, so it is offered back the next time. The newest wins on a repeat, and
+    /// the list is capped: a command line is a shortcut, not an archive.
+    pub fn ran(&mut self, command: &str) {
+        let command = command.trim();
+        if command.is_empty() {
+            return;
+        }
+        self.ran.retain(|been| been != command);
+        self.ran.insert(0, command.to_string());
+        self.ran.truncate(RAN_KEPT);
+    }
+
+    fn open_in(&mut self, mode: Mode, now: f64) {
         self.open = true;
+        self.mode = mode;
         self.query.clear();
         self.selected = 0;
         self.scroll = 0;
@@ -469,6 +534,7 @@ impl Explorer {
         // `:` and a word looks for emoji and nothing else.
         if let Some(words) = self.query.trim_start().strip_prefix(':') {
             return Results {
+                recent_commands: Vec::new(),
                 apps: Vec::new(),
                 answer: None,
                 emoji: crate::emoji::search(words, EMOJI_SHOWN),
@@ -485,8 +551,25 @@ impl Explorer {
             .into_iter()
             .cloned()
             .collect();
-        let run = (!query.is_empty() && apps.is_empty() && answer.is_none())
-            .then(|| self.query.trim().to_string());
+        let on_command_line = self.mode == Mode::Run;
+        // On the command line what is typed is always offered as a command; everywhere else it
+        // is the last resort, once no app and no sum has matched.
+        let run = (!query.is_empty()
+            && (on_command_line || (apps.is_empty() && answer.is_none())))
+        .then(|| self.query.trim().to_string());
+        // Commands run before, minus the one already typed out in full above.
+        let recent_commands: Vec<String> = if on_command_line {
+            self.ran
+                .iter()
+                .filter(|been| {
+                    been.to_lowercase().contains(&query) && Some(been.as_str()) != run.as_deref()
+                })
+                .take(RAN_SHOWN)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let files = if query.is_empty() {
             catalog.recent.iter().take(3).cloned().collect()
         } else {
@@ -499,6 +582,7 @@ impl Explorer {
                 .collect()
         };
         Results {
+            recent_commands,
             apps,
             answer,
             emoji: Vec::new(),
@@ -513,6 +597,12 @@ impl Explorer {
         }
     }
 
+    /// Back to the row Enter lands on for what is typed now: the first app, or, on the command
+    /// line, the command itself, so an app of the same name never takes the keystroke.
+    fn reset_selection(&mut self) {
+        self.selected = self.results().first_selection(self.mode == Mode::Run);
+    }
+
     /// A key while the explorer is open, with the modifiers held. `ch` is the character it types,
     /// if any; nothing types while a chord is held.
     pub fn key(&mut self, sym: Keysym, ch: Option<char>, mods: Mods) -> Outcome {
@@ -524,7 +614,7 @@ impl Explorer {
             // Esc backs out one level: a query first, then the explorer.
             Keysym::Escape if !self.query.is_empty() => {
                 self.query.clear();
-                self.selected = 0;
+                self.reset_selection();
                 self.scroll = 0;
                 return Outcome::Nothing;
             }
@@ -539,11 +629,11 @@ impl Explorer {
             // Ctrl+Backspace and Ctrl+U clear the query, as in a shell or a browser's address bar.
             Keysym::BackSpace | Keysym::u if mods.ctrl => {
                 self.query.clear();
-                self.selected = 0;
+                self.reset_selection();
             }
             Keysym::BackSpace => {
                 self.query.pop();
-                self.selected = 0;
+                self.reset_selection();
             }
             Keysym::Left => self.selected = at.saturating_sub(1),
             Keysym::Right => self.selected += 1,
@@ -594,7 +684,7 @@ impl Explorer {
             _ => match ch {
                 Some(ch) if !ch.is_control() => {
                     self.query.push(ch);
-                    self.selected = 0;
+                    self.reset_selection();
                 }
                 _ => return Outcome::Nothing,
             },
@@ -672,6 +762,8 @@ impl Explorer {
             let catalog = self.catalog.lock().unwrap();
             Look {
                 query: self.query.clone(),
+                mode: self.mode,
+                ran: self.ran.len(),
                 selected: self.selected,
                 scroll: self.scroll,
                 version: catalog.version,
@@ -863,13 +955,20 @@ impl Explorer {
         ));
         if look.query.is_empty() {
             p.text(
-                "Apps, files, sums, :emoji",
+                match look.mode {
+                    Mode::Apps => "Apps, files, sums, :emoji",
+                    Mode::Run => "A command, with its arguments",
+                },
                 x + 9.0,
                 centre,
                 &Style::new(Face::Body, 27.0, panel::PLACEHOLDER),
             );
         }
-        panel::key_hint(&mut p, fx + width - 26.0, centre, &["Super+Space"], "");
+        let own_key = match look.mode {
+            Mode::Apps => "Super",
+            Mode::Run => "Super+R",
+        };
+        panel::key_hint(&mut p, fx + width - 26.0, centre, &[own_key], "");
         p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, 0xffffff12);
 
         // The apps grid.
@@ -1050,6 +1149,34 @@ impl Explorer {
             y += ROW_H + 3.0;
             index += 1;
         }
+        // The commands run before, under the one being typed. Only the command line has any.
+        if !results.recent_commands.is_empty() {
+            y += header(&mut p, row_x, y, "Ran before");
+        }
+        for command in &results.recent_commands {
+            side_row(
+                &mut p,
+                row_x,
+                y,
+                row_w,
+                &Row {
+                    icon: icons::RUN,
+                    label: command.clone(),
+                    trailing: (index == look.selected).then(|| "⏎".to_string()),
+                    keycap: true,
+                    selected: index == look.selected,
+                    dim: false,
+                    glyph: None,
+                },
+                look.ring,
+            );
+            targets.push((
+                Item::Run(command.clone()),
+                on_screen(row_x, y, row_w, ROW_H),
+            ));
+            y += ROW_H + 3.0;
+            index += 1;
+        }
         let files_title = if look.query.trim().is_empty() {
             "Recent files"
         } else {
@@ -1116,7 +1243,7 @@ impl Explorer {
                 &Row {
                     icon: icons::POWER,
                     label: "Log out".into(),
-                    trailing: Some("Super+Shift+Esc".into()),
+                    trailing: Some("Ctrl+Alt+Del".into()),
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,
@@ -1402,6 +1529,68 @@ mod tests {
             })
             .collect();
         explorer
+    }
+
+    /// Types a query into an open explorer, a character at a time, as a person would.
+    fn type_in(explorer: &mut Explorer, query: &str) {
+        for ch in query.chars() {
+            explorer.key(Keysym::NoSymbol, Some(ch), Mods::default());
+        }
+    }
+
+    #[test]
+    fn the_command_line_runs_what_is_typed_even_when_an_app_matches() {
+        let mut explorer = with_apps(&["Files", "Firefox"]);
+        // On the apps panel, an app that matches takes the keystroke.
+        explorer.open(0.0);
+        type_in(&mut explorer, "firefox");
+        assert!(matches!(selected(&explorer), Some(Item::App(_))));
+        // On the command line the same query runs instead, and the app is still listed under
+        // it, so the panel is not two different things.
+        explorer.open_run(0.0);
+        type_in(&mut explorer, "firefox");
+        assert_eq!(selected(&explorer), Some(Item::Run("firefox".into())));
+        let items = explorer.results().items();
+        assert!(items.iter().any(|item| matches!(item, Item::App(_))));
+        // Arguments come through as written; no app search can carry those.
+        type_in(&mut explorer, " --private-window");
+        assert_eq!(
+            selected(&explorer),
+            Some(Item::Run("firefox --private-window".into()))
+        );
+    }
+
+    #[test]
+    fn the_command_line_offers_back_what_was_run() {
+        let mut explorer = with_apps(&["Files"]);
+        explorer.ran("htop -d 5");
+        explorer.ran("journalctl -f");
+        explorer.open_run(0.0);
+        type_in(&mut explorer, "ht");
+        let items = explorer.results().items();
+        // What is typed comes first; the command run before is offered under it.
+        assert_eq!(items.first(), Some(&Item::Run("ht".into())));
+        assert!(items.contains(&Item::Run("htop -d 5".into())));
+        // The one that doesn't match what's typed stays out of the way.
+        assert!(!items.contains(&Item::Run("journalctl -f".into())));
+    }
+
+    #[test]
+    fn running_the_same_command_twice_keeps_one_row() {
+        let mut explorer = with_apps(&[]);
+        explorer.ran("htop");
+        explorer.ran("btop");
+        explorer.ran("htop");
+        assert_eq!(explorer.ran, ["htop", "btop"]);
+    }
+
+    #[test]
+    fn the_apps_panel_still_needs_a_command_to_match_nothing() {
+        let mut explorer = with_apps(&["Files"]);
+        explorer.open(0.0);
+        type_in(&mut explorer, "files");
+        // An app matched, so nothing is offered to run.
+        assert!(explorer.results().run.is_none());
     }
 
     fn selected(explorer: &Explorer) -> Option<Item> {

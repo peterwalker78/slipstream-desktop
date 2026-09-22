@@ -1,6 +1,9 @@
-//! The way out: Log out, Restart and Shut down all come through here.
+//! The way out: Lock, Log out, Restart and Shut down all come through here.
 //!
-//! One state machine, one overlay, three destinations. It asks first, then asks every window to
+//! Ctrl+Alt+Del opens it on a chooser, as Windows' own security screen does; quick settings'
+//! power buttons skip the chooser and name their destination outright.
+//!
+//! One state machine, one overlay, four destinations. It asks first, then asks every window to
 //! close and gives the apps a moment to take it — a moment it spends *out of the way*, taking no
 //! keys, so an app's own "save changes?" prompt can be answered. Anything still there when the
 //! grace runs out is named, and the answer is to go anyway, to stay, or to wait a little longer.
@@ -69,6 +72,50 @@ impl Intent {
     }
 }
 
+/// A row on the chooser: every way out of the session, in the order the card lists them. Lock
+/// comes first because it is the one that changes nothing, and the one pressed most.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Way {
+    Lock,
+    LogOut,
+    Restart,
+    ShutDown,
+}
+
+impl Way {
+    pub const ALL: [Way; 4] = [Way::Lock, Way::LogOut, Way::Restart, Way::ShutDown];
+
+    /// The row's name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Way::Lock => "Lock",
+            Way::LogOut => "Log out",
+            Way::Restart => "Restart",
+            Way::ShutDown => "Shut down",
+        }
+    }
+
+    /// What it does to what's open, beside the name.
+    pub fn note(self) -> &'static str {
+        match self {
+            Way::Lock => "everything keeps running",
+            Way::LogOut => "closes every window",
+            Way::Restart => "closes everything and starts again",
+            Way::ShutDown => "closes everything and powers off",
+        }
+    }
+
+    /// Where the session goes, or nothing for the one that only covers the screen.
+    pub fn intent(self) -> Option<Intent> {
+        match self {
+            Way::Lock => None,
+            Way::LogOut => Some(Intent::LogOut),
+            Way::Restart => Some(Intent::Restart),
+            Way::ShutDown => Some(Intent::ShutDown),
+        }
+    }
+}
+
 /// A window that is open, as the overlay sees it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Open<W> {
@@ -88,6 +135,8 @@ pub enum Act<W> {
     Close(Vec<W>),
     /// The overlay is finished and nothing happens. Focus is where it was.
     Cancel,
+    /// Lock the screen and put the overlay away: the one way out that keeps the session.
+    Lock,
     /// The point of no return has passed: end the session.
     Go(Intent),
     /// The switch on the card was turned, and the setting should follow it.
@@ -96,6 +145,9 @@ pub enum Act<W> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {
+    /// Modal: which way out, with a row highlighted. Ctrl+Alt+Del starts here; the power buttons
+    /// in quick settings name their destination and start at `Asking`.
+    Choosing { selected: usize },
     /// Modal: naming what's open, waiting for Enter or Esc.
     Asking,
     /// Not modal: the close requests are out, and a save prompt must be able to take keys.
@@ -163,9 +215,38 @@ impl<W: Clone + PartialEq> Exit<W> {
         reduced_motion: bool,
         remember: bool,
     ) -> Self {
+        Self::in_phase(Phase::Asking, intent, open, now, reduced_motion, remember)
+    }
+
+    /// The overlay on its chooser: every way out, nothing decided yet. Lock is the row the
+    /// keyboard starts on, so Ctrl+Alt+Del then Enter is the harmless answer.
+    pub fn choosing(
+        open: Vec<Open<W>>,
+        now: f64,
+        reduced_motion: bool,
+        remember: bool,
+    ) -> Self {
+        Self::in_phase(
+            Phase::Choosing { selected: 0 },
+            Intent::LogOut,
+            open,
+            now,
+            reduced_motion,
+            remember,
+        )
+    }
+
+    fn in_phase(
+        phase: Phase,
+        intent: Intent,
+        open: Vec<Open<W>>,
+        now: f64,
+        reduced_motion: bool,
+        remember: bool,
+    ) -> Self {
         Self {
             intent,
-            phase: Phase::Asking,
+            phase,
             left: open.clone(),
             asked: open,
             prompting: Vec::new(),
@@ -188,7 +269,10 @@ impl<W: Clone + PartialEq> Exit<W> {
     /// Whether the overlay takes every key. It doesn't while the apps are closing: an app's own
     /// save prompt needs Tab, Enter and Esc more than the overlay does.
     pub fn modal(&self) -> bool {
-        matches!(self.phase, Phase::Asking | Phase::StillHere)
+        matches!(
+            self.phase,
+            Phase::Choosing { .. } | Phase::Asking | Phase::StillHere
+        )
     }
 
     /// Whether the screen is fading out, or already black.
@@ -237,7 +321,7 @@ impl<W: Clone + PartialEq> Exit<W> {
             })
             .collect();
         match self.phase {
-            Phase::Asking | Phase::Done => Act::Nothing,
+            Phase::Choosing { .. } | Phase::Asking | Phase::Done => Act::Nothing,
             Phase::Closing { until } | Phase::Waiting { until } => {
                 if self.left.is_empty() {
                     self.start_going(now);
@@ -264,6 +348,25 @@ impl<W: Clone + PartialEq> Exit<W> {
 
     /// A key while the overlay is modal. Enter goes on, Esc stays, whichever card is up.
     pub fn key(&mut self, sym: Keysym, now: f64) -> Act<W> {
+        // The chooser moves with the arrows and Tab, as every other list does, and takes no
+        // letter keys: `W` and `R` belong to the cards further on.
+        if let Phase::Choosing { selected } = self.phase {
+            let step = |by: isize| {
+                let count = Way::ALL.len() as isize;
+                (selected as isize + by).rem_euclid(count) as usize
+            };
+            let moved = match sym {
+                Keysym::Down | Keysym::Tab => Some(step(1)),
+                Keysym::Up | Keysym::ISO_Left_Tab => Some(step(-1)),
+                Keysym::Home => Some(0),
+                Keysym::End => Some(Way::ALL.len() - 1),
+                _ => None,
+            };
+            if let Some(selected) = moved {
+                self.phase = Phase::Choosing { selected };
+                return Act::Nothing;
+            }
+        }
         let which = match sym {
             // Enter only, never Space: this card ends the session, and a space typed as it comes
             // up must not answer it.
@@ -280,6 +383,30 @@ impl<W: Clone + PartialEq> Exit<W> {
     /// through here together, so the two can never drift apart.
     fn press(&mut self, which: Button, now: f64) -> Act<W> {
         match (self.phase, which) {
+            // A click lands on a row before it goes: on a card that can power the machine off,
+            // the first click chooses and the second agrees.
+            (Phase::Choosing { selected }, Button::Row(row)) if row != selected => {
+                self.phase = Phase::Choosing { selected: row };
+                Act::Nothing
+            }
+            (Phase::Choosing { selected }, Button::Go | Button::Row(_)) => {
+                let way = Way::ALL[selected];
+                tracing::info!(way = way.name(), "the way out: chosen");
+                match way.intent() {
+                    // Locking asks nothing further: nothing closes, so there is nothing to warn
+                    // about, and the card goes as the lock comes up.
+                    None => Act::Lock,
+                    Some(intent) => {
+                        self.intent = intent;
+                        self.enter(Phase::Asking, now);
+                        Act::Nothing
+                    }
+                }
+            }
+            (Phase::Choosing { .. }, Button::Stay) => {
+                tracing::info!("the way out: closed without choosing");
+                Act::Cancel
+            }
             (Phase::Asking, Button::Go) => {
                 let windows: Vec<W> = self.asked.iter().map(|open| open.window.clone()).collect();
                 self.enter(Phase::Closing { until: now + GRACE }, now);
@@ -359,8 +486,9 @@ impl<W: Clone + PartialEq> Exit<W> {
     }
 
     /// What the overlay is showing now.
-    fn shape(&self, now: f64) -> Shape {
+    fn shape(&self, now: f64, ring: u32) -> Shape {
         match self.phase {
+            Phase::Choosing { selected } => Shape::Card(self.choose_card(selected, ring)),
             Phase::Asking => Shape::Card(self.ask_card()),
             Phase::StillHere => Shape::Card(self.still_here_card()),
             Phase::Closing { until } | Phase::Waiting { until } => {
@@ -382,6 +510,41 @@ impl<W: Clone + PartialEq> Exit<W> {
                 })
             }
             Phase::Going { .. } | Phase::Done => Shape::Blank,
+        }
+    }
+
+    /// The chooser: every way out, one per row, with what each does to what's open. No window is
+    /// named here — that is the next card's job, once a destination has been picked.
+    fn choose_card(&self, selected: usize, ring: u32) -> Card {
+        Card {
+            title: "Way out".to_string(),
+            note: "Choose what to do with this session.".to_string(),
+            rows: Way::ALL
+                .iter()
+                .map(|way| Row {
+                    name: way.name().to_string(),
+                    title: way.note().to_string(),
+                    note: None,
+                })
+                .collect(),
+            more: None,
+            remember: None,
+            buttons: vec![
+                Btn {
+                    which: Button::Stay,
+                    label: "Back".to_string(),
+                    key: "ESC".to_string(),
+                    primary: false,
+                },
+                Btn {
+                    which: Button::Go,
+                    label: Way::ALL[selected].name().to_string(),
+                    key: "⏎".to_string(),
+                    primary: true,
+                },
+            ],
+            hover: self.hovered,
+            selected: Some((selected, ring)),
         }
     }
 
@@ -481,12 +644,13 @@ impl<W: Clone + PartialEq> Exit<W> {
         screen: Size<i32, Logical>,
         scale: f64,
         now: f64,
+        ring: u32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let shape = self.shape(now);
+        let shape = self.shape(now, ring);
         if shape == Shape::Blank {
             self.shown = None;
             self.painted = None;
@@ -614,6 +778,89 @@ mod tests {
         }
     }
 
+    /// Any ring colour: what the chooser draws round the row the keyboard is on.
+    const RING: u32 = 0x7fe3ffcc;
+
+    fn chooser() -> Exit<u32> {
+        Exit::choosing(vec![open(1, "Konsole")], 0.0, false, false)
+    }
+
+    /// Which row the chooser is on, by name.
+    fn on(exit: &Exit<u32>) -> &'static str {
+        match exit.phase {
+            Phase::Choosing { selected } => Way::ALL[selected].name(),
+            other => panic!("not choosing: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_chooser_starts_on_the_harmless_answer() {
+        let mut exit = chooser();
+        assert!(exit.modal(), "it takes every key while it asks");
+        assert_eq!(on(&exit), "Lock");
+        // Enter on the first row locks, and never touches what's open.
+        assert_eq!(exit.key(Keysym::Return, 0.0), Act::Lock);
+    }
+
+    #[test]
+    fn the_chooser_walks_its_rows_and_wraps() {
+        let mut exit = chooser();
+        exit.key(Keysym::Down, 0.0);
+        assert_eq!(on(&exit), "Log out");
+        exit.key(Keysym::Up, 0.0);
+        exit.key(Keysym::Up, 0.0);
+        assert_eq!(on(&exit), "Shut down", "up from the first wraps to the last");
+        exit.key(Keysym::Home, 0.0);
+        assert_eq!(on(&exit), "Lock");
+        exit.key(Keysym::Tab, 0.0);
+        assert_eq!(on(&exit), "Log out");
+        exit.key(Keysym::ISO_Left_Tab, 0.0);
+        assert_eq!(on(&exit), "Lock");
+    }
+
+    #[test]
+    fn choosing_a_destination_goes_on_to_the_card_that_asks() {
+        let mut exit = chooser();
+        exit.key(Keysym::End, 0.0);
+        assert_eq!(on(&exit), "Shut down");
+        assert_eq!(exit.key(Keysym::Return, 0.0), Act::Nothing);
+        // The usual card, now naming where the session is going. Nothing has closed yet.
+        assert_eq!(exit.phase, Phase::Asking);
+        assert_eq!(exit.intent, Intent::ShutDown);
+        let Shape::Card(card) = exit.shape(0.0, RING) else {
+            panic!("the card should be up");
+        };
+        assert_eq!(card.title, "Shut down");
+    }
+
+    #[test]
+    fn esc_on_the_chooser_changes_nothing() {
+        let mut exit = chooser();
+        exit.key(Keysym::Down, 0.0);
+        assert_eq!(exit.key(Keysym::Escape, 0.0), Act::Cancel);
+    }
+
+    #[test]
+    fn the_chooser_takes_no_letter_keys() {
+        let mut exit = chooser();
+        // `W` and `R` answer the cards further on; here they must not.
+        assert_eq!(exit.key(Keysym::w, 0.0), Act::Nothing);
+        assert_eq!(exit.key(Keysym::r, 0.0), Act::Nothing);
+        assert_eq!(on(&exit), "Lock");
+    }
+
+    #[test]
+    fn a_click_chooses_before_it_agrees() {
+        let mut exit = chooser();
+        // The first click on Shut down only moves the keyboard to it.
+        assert_eq!(exit.press(Button::Row(3), 0.0), Act::Nothing);
+        assert_eq!(on(&exit), "Shut down");
+        // The second agrees, and the usual card asks about what's open.
+        assert_eq!(exit.press(Button::Row(3), 0.0), Act::Nothing);
+        assert_eq!(exit.intent, Intent::ShutDown);
+        assert_eq!(exit.phase, Phase::Asking);
+    }
+
     fn exit() -> Exit<u32> {
         Exit::new(
             Intent::LogOut,
@@ -628,7 +875,7 @@ mod tests {
     /// screen: what a click is measured against.
     fn laid_out(exit: &mut Exit<u32>) -> Vec<(Button, f64, f64)> {
         let screen = Size::<i32, Logical>::from((1536, 960));
-        let Shape::Card(card) = exit.shape(0.0) else {
+        let Shape::Card(card) = exit.shape(0.0, RING) else {
             panic!("the card should be up");
         };
         let (painted, hits) = card::paint(&card, 1.25);

@@ -249,7 +249,7 @@ pub struct Slipstream {
     pub clock: anim::Clock,
     /// Where windows are drawn on their way to where the layout put them.
     pub motion: Motion<Window>,
-    /// The app explorer (Super+Space).
+    /// The app explorer (a tapped Super, or Super+R on its command line).
     pub explorer: Explorer,
     /// Quick settings (Super+A).
     pub quick: crate::quick::QuickSettings,
@@ -273,7 +273,7 @@ pub struct Slipstream {
     pub toast: Toast,
     /// The volume and brightness display, low on the screen.
     pub osd: crate::osd::Osd,
-    /// The way out, while it's on screen: Super+Shift+Esc, or Log out, Restart or Shut down.
+    /// The way out, while it's on screen: Ctrl+Alt+Del, or Log out, Restart or Shut down.
     pub exit: Option<Exit<Window>>,
     /// What was open when the way out's card went up, ready to be written down if the switch on
     /// it is on. Taken then rather than at the end, because by the end the windows have gone.
@@ -3046,8 +3046,28 @@ impl Slipstream {
             .collect()
     }
 
-    /// Super+Shift+Esc, or Log out, Restart or Shut down: the way out asks first, then gives the
+    /// Ctrl+Alt+Del, or Log out, Restart or Shut down: the way out asks first, then gives the
     /// apps a moment to close themselves. Only the watchdog's emergency quit skips it.
+    /// Ctrl+Alt+Del: the way out, on its chooser. Pressed again while it is up, it closes, as
+    /// every other panel's own key does.
+    pub fn open_way_out(&mut self) {
+        if self.exit.is_some() {
+            self.cancel_exit();
+            return;
+        }
+        self.close_panels();
+        let open = self.mapped_windows();
+        tracing::info!(windows = open.len(), "the way out: asking which");
+        let wall = self.wall();
+        self.exit_record = Some(self.take_record());
+        self.exit = Some(Exit::choosing(
+            open,
+            wall,
+            self.clock.reduced_motion,
+            self.settings.session.remember,
+        ));
+    }
+
     pub fn begin_exit(&mut self, intent: Intent) {
         if self.exit.is_some() {
             return;
@@ -3720,6 +3740,12 @@ impl Slipstream {
             Act::Cancel => {
                 self.exit = None;
                 self.exit_record = None;
+            }
+            // The one answer that keeps the session: the card goes and the lock comes up.
+            Act::Lock => {
+                self.exit = None;
+                self.exit_record = None;
+                self.lock_now();
             }
             // The switch on the card is the setting, so it is still on the next time.
             Act::Remember(on) => {
@@ -4795,12 +4821,24 @@ impl Slipstream {
     }
 
     pub fn toggle_explorer(&mut self) {
-        if self.explorer.is_open() {
+        if self.explorer.is_open() && self.explorer.mode() == crate::explorer::Mode::Apps {
             self.explorer.close();
         } else {
             self.close_panels();
             let now = self.clock.tick();
             self.explorer.open(now);
+        }
+    }
+
+    /// Super+R: the explorer on its command line. Pressed while the apps panel is up it changes
+    /// to the command line rather than closing, so the two keys swap without a round trip.
+    pub fn toggle_run(&mut self) {
+        if self.explorer.is_open() && self.explorer.mode() == crate::explorer::Mode::Run {
+            self.explorer.close();
+        } else {
+            self.close_panels();
+            let now = self.clock.tick();
+            self.explorer.open_run(now);
         }
     }
 
@@ -4865,7 +4903,10 @@ impl Slipstream {
                 }
             }
             Item::File(path) => self.open_path(&path),
-            Item::Run(query) => self.run_query(&query),
+            Item::Run(query) => {
+                self.explorer.ran(&query);
+                self.run_query(&query)
+            }
             Item::Shortcuts => self.toggle_sheet(),
             Item::Answer(answer) => {
                 tracing::info!("copied an answer from the explorer");
@@ -5271,6 +5312,7 @@ impl Slipstream {
                 debug::Step::NextScreen => self.focus_next_screen(),
                 debug::Step::MoveToNextScreen => self.move_focused_to_next_screen(),
                 debug::Step::SwapScreens => self.swap_with_next_screen(),
+                debug::Step::WayOut => self.open_way_out(),
                 debug::Step::LogOut => self.begin_exit(Intent::LogOut),
                 debug::Step::Restart => self.begin_exit(Intent::Restart),
                 debug::Step::ShutDown => self.begin_exit(Intent::ShutDown),
@@ -5353,6 +5395,7 @@ impl Slipstream {
                 }
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
+                debug::Step::RunBox => self.toggle_run(),
                 // Key steps act only on an open panel. A closed one keeps its last selection, and a
                 // mistimed step would otherwise press it.
                 debug::Step::Type(_) | debug::Step::Key(_) if !self.explorer.is_open() => {

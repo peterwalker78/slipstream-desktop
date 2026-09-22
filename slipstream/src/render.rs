@@ -226,7 +226,8 @@ fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: 
 /// arranging what's open on the right.
 const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
     &[
-        (&["Super", "Super+Space"], "apps"),
+        (&["Super"], "apps"),
+        (&["Super+R"], "run a command"),
         (&["Super+Return"], "terminal"),
         (&["Super+E"], "files"),
         (&["Super+I"], "settings"),
@@ -250,7 +251,7 @@ const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
         (&["Super+PgUp", "Super+PgDn"], "heavier, lighter"),
         (&["Super+M", "Super+Shift+M"], "minimise, bring back"),
         (&["Super+A", "Super+N"], "quick settings, notices"),
-        (&["Super+L", "Super+Shift+Esc"], "lock, log out"),
+        (&["Super+L", "Ctrl+Alt+Del"], "lock, the way out"),
         (&["Super+/"], "every key"),
     ],
 ];
@@ -1015,10 +1016,11 @@ pub fn output_elements(
     // The way out: the ask card in the middle of the screen, or the slim one while the apps are
     // closing. It draws whatever else is up, and the fade to black goes over everything below.
     if first_output && state.exit.is_some() {
+        let ring = state.panel_ring();
         let mut exit = state.exit.take();
         if let Some(exit) = exit.as_mut() {
             elements.extend(
-                exit.element(renderer, output_geo.size, scale.x, wall)
+                exit.element(renderer, output_geo.size, scale.x, wall, ring)
                     .map(OutputElement::Memory),
             );
         }

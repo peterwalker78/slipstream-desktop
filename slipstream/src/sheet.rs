@@ -145,6 +145,9 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
             bindings: Vec::new(),
         };
         match section.group {
+            // A tapped Super is no binding — nothing is held with it — so the sheet says it
+            // here, at the top, where the key that opens most things belongs.
+            Group::AppsAndWindows => section.rows.insert(0, fixed(&["Super"], "apps")),
             Group::BulletTime => section
                 .rows
                 .extend(bullet::KEYS.iter().map(|row| fixed(&[row.keys], row.does))),
@@ -536,7 +539,8 @@ mod tests {
         assert_eq!(row("narrower, wider"), ["Super+[ ]"]);
         assert_eq!(row("shorter, taller"), ["Super+Shift+[ ]"]);
         assert_eq!(row("switch window"), ["Alt+Tab", "Alt+Shift+Tab"]);
-        assert_eq!(row("apps, and run a command"), ["Super+Space", "Super+R"]);
+        assert_eq!(row("apps"), ["Super"]);
+        assert_eq!(row("run a command"), ["Super+R"]);
         assert_eq!(row("maximise"), ["Super+F"]);
         assert_eq!(row("every key"), ["Super+/"]);
         assert_eq!(row("jump to a label"), ["J K L…"]);
