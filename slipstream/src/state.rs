@@ -37,6 +37,7 @@ use smithay::{
         foreign_toplevel_list::ForeignToplevelListState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
+        idle_notify::IdleNotifierState,
         image_capture_source::{
             ImageCaptureSourceState, OutputCaptureSourceState, ToplevelCaptureSourceState,
         },
@@ -331,6 +332,8 @@ pub struct Slipstream {
     /// What a new screen's wallpaper starts from.
     wallpaper: slipstream_config::Wallpaper,
     pub idle_inhibit_state: IdleInhibitManagerState,
+    /// `ext-idle-notify`: what tells other programs the seat has gone quiet.
+    pub idle_notifier_state: IdleNotifierState<Slipstream>,
     /// Virtual machines and remote desktops asking for every key (`takeback.rs`).
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     /// Which windows have been told they hold the pointer or the keys, and the one refused.
@@ -473,6 +476,10 @@ impl Slipstream {
 
         // Video players ask for the screen to stay awake, which keeps the UI from fading.
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        // `ext-idle-notify`: swayidle and anything else that waits for the seat to go quiet.
+        // Slipstream does its own fading and locking on its own timers; this only tells other
+        // programs what the seat is doing, and honours the same inhibitors we do.
+        let idle_notifier_state = IdleNotifierState::<Self>::new(&dh, event_loop.handle());
 
         // Games: relative motion for mouse look, and the pointer locked or confined to their
         // window. Touchpad swipes and pinches reach apps too (zooming a page or a picture).
@@ -651,6 +658,7 @@ impl Slipstream {
             savers: HashMap::new(),
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
+            idle_notifier_state,
             keyboard_shortcuts_inhibit_state,
             takeback: Default::default(),
             bullet: None,
@@ -4586,8 +4594,19 @@ impl Slipstream {
 
     /// Any input. Returns true if the UI was faded out, so the input only brings it back.
     pub fn wake_ui(&mut self) -> bool {
+        // Other programs waiting on `ext-idle-notify` hear about the same input we do, from the
+        // one place every input path already passes through.
+        let seat = self.seat.clone();
+        self.idle_notifier_state.notify_activity(&seat);
         let now = self.clock.tick();
         self.idle.input(now)
+    }
+
+    /// Keeps `ext-idle-notify` in step with the idle inhibitors an app holds: while one is held
+    /// nothing may be told the seat has gone quiet, which is what the inhibitor is for.
+    pub fn follow_idle_inhibitors(&mut self) {
+        let inhibited = self.idle.inhibitors.iter().any(|s| s.alive());
+        self.idle_notifier_state.set_is_inhibited(inhibited);
     }
 
     /// Faces for characters the embedded fonts lack have landed: everything painted with text

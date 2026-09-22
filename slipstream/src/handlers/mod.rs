@@ -20,6 +20,7 @@ use smithay::utils::Serial;
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::fractional_scale::{FractionalScaleHandler, with_fractional_scale};
 use smithay::wayland::idle_inhibit::IdleInhibitHandler;
+use smithay::wayland::idle_notify::{IdleNotifierHandler, IdleNotifierState};
 use smithay::wayland::output::OutputHandler;
 use smithay::input::pointer::PointerHandle;
 use smithay::wayland::keyboard_shortcuts_inhibit::{
@@ -92,16 +93,26 @@ impl KeyboardShortcutsInhibitHandler for Slipstream {
     }
 }
 
-/// Apps playing video ask for the screen to stay awake; while any does, the UI doesn't fade.
+/// `ext-idle-notify`: swayidle and the like wait on this for the seat to go quiet.
+impl IdleNotifierHandler for Slipstream {
+    fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
+        &mut self.idle_notifier_state
+    }
+}
+
+/// Apps playing video ask for the screen to stay awake; while any does, the UI doesn't fade, and
+/// nothing waiting on `ext-idle-notify` is told the seat has gone quiet either.
 impl IdleInhibitHandler for Slipstream {
     fn inhibit(&mut self, surface: WlSurface) {
         self.idle.inhibitors.push(surface);
+        self.follow_idle_inhibitors();
     }
 
     fn uninhibit(&mut self, surface: WlSurface) {
         self.idle
             .inhibitors
             .retain(|inhibitor| *inhibitor != surface);
+        self.follow_idle_inhibitors();
     }
 }
 
