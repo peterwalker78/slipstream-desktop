@@ -107,10 +107,8 @@ pub struct Chrome {
     /// One per distant window drawn this frame.
     dims: Vec<SolidColorBuffer>,
     tags: HashMap<Rung, Painted>,
-    hint: Option<Painted>,
-    /// The key hint on its plate, for a screen where the logo leaves no room below it, and the
-    /// side padding it was painted with.
-    hint_plate: Option<(f32, Painted)>,
+    /// The keyboard-tips prompt on an empty workspace.
+    tips: Option<Painted>,
     /// Bullet time's key legend along the foot of the screen.
     legend: Option<paint::Painted>,
     /// Bullet time's overlays.
@@ -137,8 +135,7 @@ impl Default for Chrome {
             ring: std::array::from_fn(|_| SolidColorBuffer::new((0, 0), FOCUS)),
             dims: Vec::new(),
             tags: HashMap::new(),
-            hint: None,
-            hint_plate: None,
+            tips: None,
             legend: None,
             overview: Overview::default(),
             stage: tilt::Stage::default(),
@@ -222,49 +219,30 @@ fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: 
     (index as f64 - camera) * step + (here - origin) as f64
 }
 
-/// The everyday keys, shown on an empty workspace in two columns: getting about on the left,
-/// arranging what's open on the right.
-const HINT_COLUMNS: [&[(&[&str], &str)]; 2] = [
-    &[
-        (&["Super"], "apps"),
-        (&["Super+R"], "run a command"),
-        (&["Super+Return"], "terminal"),
-        (&["Super+E"], "files"),
-        (&["Super+I"], "settings"),
-        (&["Super+B"], "browser"),
-        (&["Alt+Tab"], "switch window"),
-        (&["Super+Tab"], "bullet time"),
-        (&["Super+← → ↑ ↓"], "move focus"),
-        (&["Super+Alt+← → ↑ ↓"], "move the window"),
-        (&["Super+P", "Super+Shift+P"], "next screen, send there"),
-        (&["Alt+F4"], "close window"),
-        (&["Caps Lock"], "screensaver off"),
-    ],
-    &[
-        (&["Super+1–9"], "go to a workspace"),
-        (&["Super+Ctrl+← →"], "previous, next workspace"),
-        (&["Super+Shift+1–9"], "send window there"),
-        (&["Super+Shift+← →"], "send to previous, next"),
-        (&["Super+F"], "maximise"),
-        (&["Super+[ ]"], "narrower, wider"),
-        (&["Super+T"], "gravity on, off"),
-        (&["Super+PgUp", "Super+PgDn"], "heavier, lighter"),
-        (&["Super+M", "Super+Shift+M"], "minimise, bring back"),
-        (&["Super+H"], "hide every window, and back"),
-        (&["Super+A", "Super+N"], "quick settings, notices"),
-        (&["Super+L", "Ctrl+Alt+Del"], "lock, the way out"),
-        (&["Super+/"], "every key"),
-    ],
-];
+/// The prompt on an empty workspace: where to find every key, and nothing else. It used to be
+/// the whole key table, which covered most of the wallpaper on an empty workspace — the one
+/// moment the wallpaper is all there is to look at. Super+/ already lists every key, so the
+/// empty workspace only has to say so.
+const TIPS_TEXT: &str = "Keyboard tips";
+const TIPS_KEY: &str = "Super+/";
+/// Where it floats: this far down the screen, so it sits in the lower third clear of the
+/// wallpaper's logo, and drifts this far either side of that over `TIPS_DRIFT` seconds.
+const TIPS_DOWN: f64 = 0.72;
+const TIPS_FLOAT_PX: f64 = 4.0;
+const TIPS_DRIFT: f64 = 5.0;
+/// How far its glow breathes, and over how long.
+const TIPS_DIM: f32 = 0.15;
+const TIPS_BREATH: f64 = 4.0;
+/// The pill: its height, the padding at its ends, and the gap between the words and the key.
+const TIPS_H: f32 = 34.0;
+const TIPS_PAD: f32 = 16.0;
+const TIPS_GAP: f32 = 12.0;
+/// The glow: how many rings are drawn around the pill, how far apart, and the colour they fade
+/// out from. Painted once into the buffer; only its opacity moves.
+const TIPS_RINGS: i32 = 7;
+const TIPS_RING_STEP: f32 = 1.6;
+const TIPS_GLOW: u32 = 0x3cf0c0ff;
 
-/// Row pitch, and the gap between a column's keys and what they do.
-const HINT_ROW: f32 = 25.0;
-const HINT_GAP: f32 = 20.0;
-/// Between two keycaps on one line.
-const HINT_CAP_GAP: f32 = 6.0;
-/// Between the two columns.
-const HINT_COLUMN_GAP: f32 = 34.0;
-const HINT_TOP: f32 = 76.0;
 /// Bullet time's key legend, a pill of its keys laid out in mockup pixels, painted at `scale`.
 fn paint_legend(scale: f64) -> Option<paint::Painted> {
     const MOCKUP_PX: f32 = 0.8;
@@ -288,70 +266,60 @@ fn paint_legend(scale: f64) -> Option<paint::Painted> {
     })
 }
 
-/// Around the card on its plate, where the screen is wide enough.
-const HINT_PLATE_PAD: f32 = 28.0;
-
-/// The key hint, laid out in logical pixels, painted at `scale`. With a `plate`, on a dark rounded
-/// plate that keeps it readable over the wallpaper's logo, padded by that much at the sides and
-/// `HINT_PLATE_PAD` above and below.
-fn paint_hint(scale: f64, plate: Option<f32>) -> Option<(Pixmap, Size<i32, Logical>)> {
-    let action = Style::new(Face::Mono, 15.0, 0x8f98a8ff);
-    // Keycaps side by side, a little apart.
-    let caps_width = |caps: &[&str]| {
-        caps.iter().map(|cap| paint::keycap_width(cap)).sum::<f32>()
-            + HINT_CAP_GAP * caps.len().saturating_sub(1) as f32
-    };
-    // Each column is as wide as its own widest keys and its own widest action, so the two
-    // inner edges line up whatever the text says.
-    let widest = |column: &&[(&[&str], &str)]| {
-        column
-            .iter()
-            .fold((0.0_f32, 0.0_f32), |(k, a), (caps, label)| {
-                (k.max(caps_width(caps)), a.max(text::width(label, &action)))
-            })
-    };
-    let columns: Vec<(f32, f32)> = HINT_COLUMNS.iter().map(widest).collect();
-    let column_w: Vec<f32> = columns.iter().map(|(k, a)| k + HINT_GAP + a).collect();
-    let rows = HINT_COLUMNS[0].len().max(HINT_COLUMNS[1].len()) as f32;
-    let card_w = (column_w.iter().sum::<f32>() + HINT_COLUMN_GAP).ceil();
-    let card_h = (HINT_TOP + (rows - 0.5) * HINT_ROW + 14.0).ceil();
-    let (pad_x, pad) = plate.map_or((0.0, 0.0), |pad_x| (pad_x, HINT_PLATE_PAD));
-    let size =
-        Size::<i32, Logical>::from(((card_w + 2.0 * pad_x) as i32, (card_h + 2.0 * pad) as i32));
+/// The keyboard-tips prompt, laid out in logical pixels and painted at `scale`: a glass pill
+/// saying what to press, inside a soft glow drawn as rings fading outwards. The glow is baked in
+/// and the whole thing is faded in and out as it floats, so nothing repaints per frame.
+fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
+    let words = Style::new(Face::Mono, 14.0, 0xdce3ecff);
+    let pill_w = (TIPS_PAD
+        + text::width(TIPS_TEXT, &words)
+        + TIPS_GAP
+        + paint::keycap_width(TIPS_KEY)
+        + TIPS_PAD)
+        .ceil();
+    // Room around the pill for the glow to fade out into.
+    let halo = TIPS_RINGS as f32 * TIPS_RING_STEP;
+    let size = Size::<i32, Logical>::from((
+        (pill_w + 2.0 * halo).ceil() as i32,
+        (TIPS_H + 2.0 * halo).ceil() as i32,
+    ));
     let mut p = Painter::new(
         (size.w as f64 * scale).round() as u32,
         (size.h as f64 * scale).round() as u32,
         scale as f32,
     )?;
-    if plate.is_some() {
-        p.fill(0.0, 0.0, size.w as f32, size.h as f32, 16.0, 0x0b0d12e0);
+    // Rings outwards from the pill's edge, each fainter than the last.
+    for ring in (1..=TIPS_RINGS).rev() {
+        let grow = ring as f32 * TIPS_RING_STEP;
+        let alpha = 0x30 / (ring as u32 + 1);
+        let radius = (TIPS_H + 2.0 * grow) / 2.0;
+        p.border(
+            halo - grow,
+            halo - grow,
+            pill_w + 2.0 * grow,
+            TIPS_H + 2.0 * grow,
+            radius,
+            TIPS_RING_STEP,
+            (TIPS_GLOW & 0xffffff00) | alpha,
+        );
     }
-    let title = Style {
-        tracking: 0.25,
-        ..Style::new(Face::MonoBold, 30.0, 0x3cf0c0ff)
-    };
-    let title_w = p.text_on("SLIPSTREAM", pad_x, pad + 32.0, &title);
-    p.text_on(
-        "BETA",
-        pad_x + title_w + 4.0,
-        pad + 30.0,
-        &Style::new(Face::MonoBold, 12.0, 0xffb547ff),
+    p.fill(halo, halo, pill_w, TIPS_H, TIPS_H / 2.0, 0x0b0d12e0);
+    p.border(
+        halo,
+        halo,
+        pill_w,
+        TIPS_H,
+        TIPS_H / 2.0,
+        1.0,
+        (TIPS_GLOW & 0xffffff00) | 0x66,
     );
-    p.fill(pad_x, pad + 50.0, card_w, 1.0, 0.0, 0x222a36ff);
-    let mut x = pad_x;
-    for (column, ((key_w, _), width)) in
-        HINT_COLUMNS.iter().zip(columns.iter().zip(column_w.iter()))
-    {
-        for (row, (caps, label)) in column.iter().enumerate() {
-            let centre = pad + HINT_TOP + row as f32 * HINT_ROW;
-            let mut cap_x = x;
-            for cap in caps.iter() {
-                cap_x += p.keycap(cap, cap_x, centre) + HINT_CAP_GAP;
-            }
-            p.text(label, x + key_w + HINT_GAP, centre, &action);
-        }
-        x += width + HINT_COLUMN_GAP;
-    }
+    let centre = halo + TIPS_H / 2.0;
+    p.text(TIPS_TEXT, halo + TIPS_PAD, centre, &words);
+    p.keycap(
+        TIPS_KEY,
+        halo + TIPS_PAD + text::width(TIPS_TEXT, &words) + TIPS_GAP,
+        centre,
+    );
     Some((p.pixmap, size))
 }
 
@@ -361,8 +329,7 @@ impl Chrome {
         self.bar.forget_painted_text();
         self.overview.forget_painted_text();
         self.tags.clear();
-        self.hint = None;
-        self.hint_plate = None;
+        self.tips = None;
         self.legend = None;
     }
 
@@ -469,55 +436,45 @@ impl Chrome {
             .collect()
     }
 
-    /// The key hint, centred below the bar on its workspace, which is `dx` from the screen while
-    /// sliding. Painted again whenever the scale changes.
-    fn hint<R>(
+    /// The keyboard-tips prompt, floating in the lower third of an empty workspace, which is `dx`
+    /// from the screen while sliding. `drifting` is wall time, to float and breathe by, and
+    /// `None` under reduced motion, which holds it still at full strength: it drifts a few pixels
+    /// up and down and its glow breathes, so it reads as hovering rather than stuck to the
+    /// wallpaper. Painted again whenever the scale changes.
+    fn tips<R>(
         &mut self,
         renderer: &mut R,
         screen: Size<i32, Logical>,
         dx: f64,
         scale: Scale<f64>,
         alpha: f32,
-        below: Option<f64>,
+        drifting: Option<f64>,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         if self
-            .hint
+            .tips
             .as_ref()
             .is_none_or(|(painted_at, ..)| *painted_at != scale.x)
         {
-            let (pixmap, size) = paint_hint(scale.x, None)?;
-            self.hint = Some((scale.x, paint::buffer(&pixmap), size));
+            let (pixmap, size) = paint_tips(scale.x)?;
+            self.tips = Some((scale.x, paint::buffer(&pixmap), size));
         }
-        let plain = self.hint.as_ref()?.2;
-        // Under the wallpaper's logo when there's room; otherwise centred, on a plate, since it
-        // is over the logo.
-        let under_logo = below
-            .map(|top| top + 24.0)
-            .filter(|top| top + (plain.h as f64) < screen.h as f64);
-        let ((_, buffer, size), top) = match under_logo {
-            Some(top) => (self.hint.as_ref()?, top),
-            None => {
-                // The plate's sides give way on a screen too narrow for all of it.
-                let pad_x = ((screen.w - plain.w) as f32 / 2.0)
-                    .clamp(0.0, HINT_PLATE_PAD)
-                    .floor();
-                if self
-                    .hint_plate
-                    .as_ref()
-                    .is_none_or(|(pad, (painted_at, ..))| *painted_at != scale.x || *pad != pad_x)
-                {
-                    let (pixmap, size) = paint_hint(scale.x, Some(pad_x))?;
-                    self.hint_plate = Some((pad_x, (scale.x, paint::buffer(&pixmap), size)));
-                }
-                let (_, plated) = self.hint_plate.as_ref()?;
-                let top = ((screen.h + bar::HEIGHT - plated.2.h) / 2).max(bar::HEIGHT);
-                (plated, top as f64)
+        let (_, buffer, size) = self.tips.as_ref()?;
+        let (float, breath) = match drifting {
+            None => (0.0, 1.0),
+            Some(now) => {
+                let turn = std::f64::consts::TAU;
+                (
+                    (now / TIPS_DRIFT * turn).sin() * TIPS_FLOAT_PX,
+                    1.0 - TIPS_DIM as f64 * (0.5 - 0.5 * (now / TIPS_BREATH * turn).cos()),
+                )
             }
         };
+        let top = (screen.h as f64 * TIPS_DOWN - size.h as f64 / 2.0 + float)
+            .clamp(bar::HEIGHT as f64, (screen.h - size.h).max(0) as f64);
         let device = (
             (size.w as f64 * scale.x).round(),
             (size.h as f64 * scale.x).round(),
@@ -531,7 +488,7 @@ impl Chrome {
             renderer,
             location,
             buffer,
-            Some(alpha),
+            Some(alpha * breath as f32),
             Some(Rectangle::from_size(device.into())),
             Some(*size),
             Kind::Unspecified,
@@ -1730,7 +1687,7 @@ pub fn output_elements(
         None => elements.append(&mut world),
     }
 
-    // The key hint, unless the explorer or bullet time is open over it.
+    // The keyboard-tips prompt, unless the explorer or bullet time is open over it.
     if tiling_output
         && ui > 0.0
         && zoomed_out <= 0.0
@@ -1738,10 +1695,16 @@ pub fn output_elements(
         && !state.explorer.is_open()
         && !state.sheet.is_open()
     {
-        let below = saver.logo_bottom(scale.x);
         elements.extend(
             chrome
-                .hint(renderer, output_geo.size, active_dx, scale, ui_alpha, below)
+                .tips(
+                    renderer,
+                    output_geo.size,
+                    active_dx,
+                    scale,
+                    ui_alpha,
+                    (!state.clock.reduced_motion).then_some(wall),
+                )
                 .map(OutputElement::Memory),
         );
     }
@@ -2215,7 +2178,7 @@ mod tests {
 
     #[test]
     fn the_key_hint_is_painted_at_the_screen_scale() {
-        let (pixmap, size) = paint_hint(1.25, Some(HINT_PLATE_PAD)).unwrap();
+        let (pixmap, size) = paint_tips(1.25).unwrap();
         assert_eq!(
             (pixmap.width(), pixmap.height()),
             (

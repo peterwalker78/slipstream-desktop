@@ -1,13 +1,17 @@
 //! Gravity, the arrangements beside tiling. Super+PgUp and Super+PgDn move the focused window one
 //! rung along a fixed ladder of layouts, lightest first:
 //!
-//! distant · orbit · grid · tiling · centre · wide · spotlight
+//! distant · orbit · grid · centre · wide · spotlight
 //!
 //! Every press moves exactly one rung, and the opposite key steps straight back, so the same keys
-//! from the same layout always give the same result. The ends stop rather than wrap. Tiling is
-//! the middle: heavier gives the window the centre, then more of the screen; lighter makes every
-//! window the same size, then puts the window in orbit around another, then off to the strip
-//! along the bottom.
+//! from the same layout always give the same result. The ends stop rather than wrap. Heavier
+//! gives the window the centre, then more of the screen; lighter makes every window the same
+//! size, then puts the window in orbit around another, then off to the strip along the bottom.
+//!
+//! **Tiling is not a rung.** It sat in the middle of the ladder once, which made stepping past
+//! the middle turn gravity off and on again — a confusing way back to tiling, and a toast every
+//! time. Super+T is the way back. From tiling these keys turn gravity on at the end they point
+//! at: heavier gives the window the centre, lighter puts every window in the grid.
 //!
 //! Windows keep their order from the tiling tree in every layout, so focusing another window never
 //! moves anything. Pure logic, generic over the window type, so it's unit-tested without Wayland.
@@ -23,7 +27,8 @@ pub enum Rung {
     Orbit,
     /// Every window the same size, in an even grid.
     Grid,
-    /// Gravity off: the tiling tree.
+    /// Gravity off: the tiling tree. Not on the ladder — Super+T is the way to it and back — but
+    /// still what every window is on while gravity is off, and what a record calls that.
     Tiling,
     /// The middle of the screen, the others in columns either side.
     Centre,
@@ -34,12 +39,11 @@ pub enum Rung {
 }
 
 impl Rung {
-    /// Lightest first.
-    pub const LADDER: [Rung; 7] = [
+    /// Lightest first. Tiling is deliberately absent: gravity is either on or off.
+    pub const LADDER: [Rung; 6] = [
         Rung::Distant,
         Rung::Orbit,
         Rung::Grid,
-        Rung::Tiling,
         Rung::Centre,
         Rung::Wide,
         Rung::Spotlight,
@@ -58,17 +62,18 @@ impl Rung {
     }
 
     /// `label` read back, from a recorded layout. Anything else is no rung at all rather than a
-    /// guess: a hand-edited record shouldn't rearrange a workspace.
+    /// guess: a hand-edited record shouldn't rearrange a workspace. Tiling is read back as well
+    /// as the ladder's rungs, since that is what a record calls a window with gravity off.
     pub fn from_label(label: &str) -> Option<Self> {
-        Self::LADDER.into_iter().find(|rung| rung.label() == label)
+        Self::LADDER
+            .into_iter()
+            .chain([Rung::Tiling])
+            .find(|rung| rung.label() == label)
     }
 
-    /// Its place on the ladder, from 0 for the lightest.
-    pub fn position(self) -> usize {
-        Self::LADDER
-            .iter()
-            .position(|rung| *rung == self)
-            .unwrap_or(0)
+    /// Its place on the ladder, from 0 for the lightest, or `None` for tiling, which is off it.
+    pub fn position(self) -> Option<usize> {
+        Self::LADDER.iter().position(|rung| *rung == self)
     }
 }
 
@@ -209,11 +214,30 @@ impl<T: Clone + PartialEq> Gravity<T> {
             return Step::Alone;
         }
         let rung = self.rung(id);
+        // Tiling is off the ladder, so from it these keys turn gravity on at the end they point
+        // at rather than stepping: heavier takes the centre, lighter goes to the grid.
+        if rung == Rung::Tiling {
+            return if heavier {
+                self.mode = Mode::Mass {
+                    centre: id.clone(),
+                    shape: Shape::Centre,
+                    distant: Vec::new(),
+                };
+                Step::Moved(Rung::Centre)
+            } else {
+                self.mode = Mode::Grid;
+                self.slots.clear();
+                Step::Moved(Rung::Grid)
+            };
+        }
+        let at = rung
+            .position()
+            .expect("every rung but tiling is on the ladder");
         let to = match (rung, heavier) {
             (Rung::Spotlight, true) => return Step::Heaviest,
             (Rung::Distant, false) => return Step::Lightest,
-            (rung, true) => Rung::LADDER[rung.position() + 1],
-            (rung, false) => Rung::LADDER[rung.position() - 1],
+            (_, true) => Rung::LADDER[at + 1],
+            (_, false) => Rung::LADDER[at - 1],
         };
         match (rung, to) {
             (Rung::Distant, Rung::Orbit) => {
@@ -230,7 +254,6 @@ impl<T: Clone + PartialEq> Gravity<T> {
                 self.mode = Mode::Grid;
                 self.slots.clear();
             }
-            (_, Rung::Tiling) => self.off(),
             (Rung::Grid, Rung::Orbit) => {
                 self.mode = Mode::Mass {
                     centre: others[0].clone(),
@@ -238,7 +261,9 @@ impl<T: Clone + PartialEq> Gravity<T> {
                     distant: Vec::new(),
                 };
             }
-            (Rung::Tiling, Rung::Centre) => {
+            // Heavier out of the grid: this window takes the centre and the rest orbit it. The
+            // ladder's two halves meet here now that tiling is not between them.
+            (Rung::Grid, Rung::Centre) => {
                 self.mode = Mode::Mass {
                     centre: id.clone(),
                     shape: Shape::Centre,
@@ -518,6 +543,42 @@ mod tests {
     }
 
     #[test]
+    fn tiling_is_never_a_step() {
+        let all = ["a", "b", "c", "d"];
+        assert!(!Rung::LADDER.contains(&Rung::Tiling));
+        // Walking the whole ladder both ways never reports tiling, so gravity is never turned
+        // off and on again in passing, and nothing announces it.
+        let mut gravity = Gravity::default();
+        let mut seen = Vec::new();
+        for heavier in [false, false, false, true, true, true, true, true, true] {
+            if let Step::Moved(rung) = step(&mut gravity, &all, "a", heavier) {
+                seen.push(rung);
+            }
+        }
+        assert!(
+            !seen.contains(&Rung::Tiling),
+            "stepped through tiling: {seen:?}"
+        );
+        assert!(gravity.is_on(), "the ladder never turns gravity off");
+    }
+
+    #[test]
+    fn the_first_press_from_tiling_enters_the_ladder_at_the_end_it_points_at() {
+        let all = ["a", "b", "c"];
+        // Heavier takes the centre; lighter goes to the grid. Neither passes through the other.
+        let mut heavier = Gravity::default();
+        assert_eq!(
+            step(&mut heavier, &all, "a", true),
+            Step::Moved(Rung::Centre)
+        );
+        let mut lighter = Gravity::default();
+        assert_eq!(
+            step(&mut lighter, &all, "a", false),
+            Step::Moved(Rung::Grid)
+        );
+    }
+
+    #[test]
     fn heavier_climbs_every_rung_from_the_bottom_to_the_top_in_order() {
         let all = ["a", "b", "c", "d"];
         let mut gravity = Gravity::default();
@@ -556,15 +617,21 @@ mod tests {
     #[test]
     fn the_opposite_key_always_steps_straight_back() {
         let all = ["a", "b", "c", "d", "e"];
+        let grid = Rung::Grid.position().unwrap();
+        let centre = Rung::Centre.position().unwrap();
         for start in 0..Rung::LADDER.len() {
-            // Walk "c" to each rung from tiling, then check a step each way from there comes back.
+            // Walk "c" to each rung, then check a step each way from there comes back. Gravity
+            // starts off, and the first press enters the ladder: lighter at the grid, heavier at
+            // the centre.
             let mut gravity = Gravity::default();
-            let tiling = Rung::Tiling.position();
-            for _ in start..tiling {
-                step(&mut gravity, &all, "c", false);
-            }
-            for _ in tiling..start {
-                step(&mut gravity, &all, "c", true);
+            if start <= grid {
+                for _ in start..=grid {
+                    step(&mut gravity, &all, "c", false);
+                }
+            } else {
+                for _ in centre..=start {
+                    step(&mut gravity, &all, "c", true);
+                }
             }
             assert_eq!(gravity.rung(&"c"), Rung::LADDER[start]);
             for heavier in [true, false] {
@@ -626,9 +693,8 @@ mod tests {
             sizes.push(area(&mut gravity));
         }
         assert!(sizes.windows(2).all(|pair| pair[0] < pair[1]), "{sizes:?}");
-        // Below tiling: orbit is smaller than a grid cell, and the grid smaller than the centre.
-        // (A lone distant window spans the strip's whole width, so it isn't compared.)
-        step(&mut gravity, &all, "a", false);
+        // Below the centre: orbit is smaller than a grid cell, and the grid smaller than the
+        // centre. (A lone distant window spans the strip's whole width, so it isn't compared.)
         step(&mut gravity, &all, "a", false);
         step(&mut gravity, &all, "a", false);
         step(&mut gravity, &all, "a", false);
@@ -719,14 +785,15 @@ mod tests {
             rect_of(&rects, "b").y > 550,
             "the strip runs along the bottom"
         );
-        // Heavier twice from orbit: the grid, then tiling.
+        // Heavier twice from orbit: the grid, then the centre. Tiling is not on the way, so
+        // gravity stays on throughout.
         step(&mut gravity, &all, "b", true);
         assert_eq!(step(&mut gravity, &all, "b", true), Step::Moved(Rung::Grid));
         assert_eq!(
             step(&mut gravity, &all, "b", true),
-            Step::Moved(Rung::Tiling)
+            Step::Moved(Rung::Centre)
         );
-        assert!(!gravity.is_on());
+        assert!(gravity.is_on());
     }
 
     #[test]

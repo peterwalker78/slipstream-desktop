@@ -21,7 +21,7 @@ The things you'd expect any desktop to do, each done the Slipstream way.
 
 ## Gravity
 
-Tiling isn't all or nothing. **Super+T** turns gravity on, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · tiling · centre · wide · spotlight*. One rung per press, always reversible.
+Tiling isn't all or nothing. **Super+T** turns gravity on and off, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · centre · wide · spotlight*. One rung per press, always reversible. From plain tiling the first press turns gravity on at the end it points at: heavier gives the window the centre, lighter puts every window in the grid.
 
 ## The code rain, in full
 

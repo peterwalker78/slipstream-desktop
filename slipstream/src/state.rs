@@ -3918,8 +3918,10 @@ impl Slipstream {
         }
     }
 
-    /// Tags the window with its new rung, or says why nothing moved. Leaving tiling also says
-    /// what happened, since a stray press rearranges every window on the workspace.
+    /// Tags the window with its new rung, or says why nothing moved. Turning gravity on also says
+    /// what happened, since a stray press rearranges every window on the workspace. Stepping
+    /// within the ladder says nothing: the tag on the window is the answer, and tiling is no
+    /// longer a rung to pass through, so there is nothing else to announce.
     fn report_step(&mut self, window: &Window, from: Rung, step: Step) {
         let name = self.window_name(window);
         match step {
@@ -3928,11 +3930,11 @@ impl Slipstream {
                 match (from, rung) {
                     (Rung::Tiling, Rung::Centre) => self.show_toast(
                         "Gravity on",
-                        &format!("{name} is the centre. Super+PgDn steps back to tiling."),
+                        &format!("{name} is the centre. Super+T goes back to tiling."),
                     ),
                     (Rung::Tiling, Rung::Grid) => self.show_toast(
                         "Grid",
-                        "Every window the same size. Super+PgUp steps back to tiling.",
+                        "Every window the same size. Super+T goes back to tiling.",
                     ),
                     _ => {}
                 }
