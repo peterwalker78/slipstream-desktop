@@ -1,5 +1,4 @@
-//! Holding Caps Lock down keeps the desktop awake: the UI stops fading to the wallpaper until it's
-//! held again. A tap is still Caps Lock.
+//! Holding Caps Lock down keeps the desktop awake until it's held again. A tap is still Caps Lock.
 //!
 //! xkb changes its state the moment it sees a key, before any filter can look at it, so Caps Lock's
 //! press is kept back from it until the press turns out to be a tap or a hold. Let go before
@@ -9,8 +8,9 @@
 //! with Caps Lock sent first, so a capital rolled straight into still comes out capital and
 //! Caps Lock chords (a screen reader's) still work.
 //!
-//! Awake holds off the fade only, never the lock: it's easily left on, and a desk left awake
-//! mustn't be left unlocked too.
+//! Awake holds off everything idle does: the fade, the lock by itself, and other programs told
+//! the seat has gone quiet. Since it's easily left on, it ends with the sitting: locking on
+//! purpose, suspending or shutting the lid turns it off, and it never outlasts the session.
 
 use std::time::Duration;
 

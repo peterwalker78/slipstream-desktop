@@ -55,14 +55,12 @@ pub fn caps_lock_note(on: bool) -> &'static str {
     }
 }
 
-/// What Awake's card says under its title: what it did to the screensaver, and that the lock
-/// still comes when that's set to.
-pub fn awake_note(on: bool, fades: bool, locks_by_itself: bool) -> &'static str {
-    match (on, fades, locks_by_itself) {
-        (_, false, _) => "Screensaver is off in Settings",
-        (true, true, true) => "Screensaver paused · lock still on",
-        (true, true, false) => "Screensaver paused",
-        (false, true, _) => "Screensaver back on",
+/// What Awake's card says under its title: on, what ends it besides another hold.
+pub fn awake_note(on: bool) -> &'static str {
+    if on {
+        "Screen stays on until you lock it"
+    } else {
+        "Screen can go idle again"
     }
 }
 
@@ -499,13 +497,7 @@ mod tests {
         let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
         let bools = [true, false];
         for on in bools {
-            for fades in bools {
-                for locking in bools {
-                    let note = awake_note(on, fades, locking);
-                    assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
-                }
-            }
-            for note in [caps_lock_note(on), num_lock_note(on)] {
+            for note in [caps_lock_note(on), num_lock_note(on), awake_note(on)] {
                 assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
             }
         }
@@ -513,12 +505,8 @@ mod tests {
 
     #[test]
     fn awake_going_off_says_so_as_going_on_does() {
-        assert_eq!(awake_note(true, true, false), "Screensaver paused");
-        assert_eq!(awake_note(false, true, false), "Screensaver back on");
-        assert_eq!(
-            awake_note(true, true, true),
-            "Screensaver paused · lock still on"
-        );
+        assert_eq!(awake_note(true), "Screen stays on until you lock it");
+        assert_eq!(awake_note(false), "Screen can go idle again");
         assert_eq!(caps_lock_note(true), "Typing in capitals");
     }
 

@@ -513,6 +513,7 @@ impl Slipstream {
         }
         self.lid_closed = closed;
         if closed {
+            self.end_awake();
             self.put_the_panel_out();
         } else {
             self.light_the_panel();

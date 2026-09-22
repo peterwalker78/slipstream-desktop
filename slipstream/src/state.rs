@@ -4611,7 +4611,7 @@ impl Slipstream {
     /// Keeps `ext-idle-notify` in step with the idle inhibitors an app holds: while one is held
     /// nothing may be told the seat has gone quiet, which is what the inhibitor is for.
     pub fn follow_idle_inhibitors(&mut self) {
-        let inhibited = self.idle.inhibitors.iter().any(|s| s.alive());
+        let inhibited = self.awake || self.idle.inhibitors.iter().any(|s| s.alive());
         self.idle_notifier_state.set_is_inhibited(inhibited);
     }
 
@@ -4776,8 +4776,18 @@ impl Slipstream {
     /// Turns Awake on or off, and says so on a card.
     pub fn set_awake(&mut self, on: bool) {
         self.awake = on;
-        let note = osd::awake_note(on, self.idle.fades(), self.idle.locks_by_itself());
-        self.show_osd_with(osd::Kind::Awake { on }, note);
+        self.follow_idle_inhibitors();
+        self.show_osd_with(osd::Kind::Awake { on }, osd::awake_note(on));
+    }
+
+    /// Awake ends with the sitting: locking on purpose, suspending, or shutting the lid. No
+    /// card; the pill going is enough, and there may be no screen to show one on.
+    pub fn end_awake(&mut self) {
+        if self.awake {
+            tracing::info!("Awake off");
+            self.awake = false;
+            self.follow_idle_inhibitors();
+        }
     }
 
     pub fn show_osd_with(&mut self, kind: osd::Kind, detail: &str) {

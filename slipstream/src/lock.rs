@@ -932,6 +932,10 @@ impl Slipstream {
         smithay::wayland::selection::data_device::set_data_device_focus(&dh, &self.seat, None);
         smithay::wayland::selection::primary_selection::set_primary_focus(&dh, &self.seat, None);
         self.logind.locked_hint(true);
+        // Locking on purpose means leaving; Awake goes with it.
+        if reason == Reason::Asked {
+            self.end_awake();
+        }
         tracing::info!(?reason, "locked");
         true
     }
@@ -996,9 +1000,8 @@ impl Slipstream {
     /// sleep waiting on the lock is let go once every screen has drawn it.
     pub fn tick_lock(&mut self) {
         let now = std::time::Instant::now();
-        // Awake keeps the wallpaper from fading but never holds off the lock: it's easily left
-        // on, so it mustn't leave an unattended desktop unlocked.
-        let held = self.fullscreen_on_screen();
+        // Awake holds the lock off as it does the fade; it ends itself when the sitting does.
+        let held = self.awake || self.fullscreen_on_screen();
         if self.lock.is_none() && self.idle.lock_due(now, held) {
             tracing::info!("idle long enough to lock");
             self.idle.restart_lock_wait(now);
@@ -1030,6 +1033,9 @@ impl Slipstream {
     /// Something logind said about this session.
     pub fn logind_event(&mut self, event: crate::logind::Event) {
         use crate::logind::{Event, Response};
+        if matches!(event, Event::Sleep(true)) {
+            self.end_awake();
+        }
         match crate::logind::respond(&event, self.settings.lock.before_sleep) {
             Response::Lock => {
                 self.lock_now();

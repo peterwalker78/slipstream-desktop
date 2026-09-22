@@ -157,7 +157,7 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
                 fixed(&["Tab", "← → ↑ ↓"], "in a panel: move"),
                 fixed(&["Enter"], "in a panel: press"),
                 fixed(&["Home End", "PgUp PgDn"], "in a panel: jump"),
-                fixed(&["Caps Lock"], "keep the screensaver off (not the lock)"),
+                fixed(&["Caps Lock"], "hold: Awake, the screen stays on"),
             ]),
             _ => {}
         }

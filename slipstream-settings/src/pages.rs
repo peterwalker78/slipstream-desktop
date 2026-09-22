@@ -1330,7 +1330,7 @@ fn session(store: &Store) -> gtk::Widget {
         &lock,
         "Lock after",
         Some(
-            "Time with no keyboard or mouse input. A fullscreen window or a playing video holds it off; Awake doesn't. Super+L or the lock in quick settings locks at any time.",
+            "Time with no keyboard or mouse input. A fullscreen window, a playing video or Awake (hold Caps Lock) holds it off. Super+L or the lock in quick settings locks at any time, and ends Awake.",
         ),
         &after,
     );

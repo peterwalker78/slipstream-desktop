@@ -8,8 +8,7 @@
 //!
 //! The same input also counts towards locking the screen by itself (`[lock] after-idle-mins`, off by
 //! default). That wait is wall time since the last input, so bullet time can't stretch it, and
-//! only a fullscreen window or an app asking for the screen to stay awake holds it off. Awake
-//! doesn't, since it's easily left on, and nor does an open panel or card, since neither is a
+//! only Awake, a fullscreen window or an app asking for the screen to stay awake holds it off, and nor does an open panel or card, since neither is a
 //! sign anyone is there.
 
 use std::time::{Duration, Instant};
@@ -71,8 +70,8 @@ impl Idle {
     }
 
     /// Whether the screen should lock by itself at `now`: its wait has passed with no input,
-    /// and nothing has held it off in that time — `held` (a fullscreen window) or an app asking
-    /// for the screen to stay awake.
+    /// and nothing has held it off in that time — `held` (Awake, or a fullscreen window) or an app
+    /// asking for the screen to stay awake.
     pub fn lock_due(&mut self, now: Instant, held: bool) -> bool {
         self.inhibitors.retain(|surface| surface.alive());
         if held || !self.inhibitors.is_empty() {
