@@ -19,6 +19,9 @@ pub enum Action {
     MoveTile(Direction),
     /// Move the split beside the focused tile: wider or narrower, taller or shorter.
     Resize(Resize),
+    /// Turn the split the focused window sits in, and everything inside it, so rows become
+    /// columns and columns become rows.
+    Rotate,
     /// Go to workspace 1–5.
     Workspace(u8),
     /// Go to the previous (−1) or next (+1) workspace.
@@ -130,6 +133,7 @@ impl Action {
             Action::MoveTile(_) => "move the window",
             Action::Resize(Resize::Wider | Resize::Narrower) => "narrower, wider",
             Action::Resize(Resize::Taller | Resize::Shorter) => "shorter, taller",
+            Action::Rotate => "turn the layout on its side",
             Action::Workspace(_) => "go to a workspace",
             Action::WorkspaceBy(_) => "previous, next workspace",
             Action::MoveToWorkspace(_) => "send window to a workspace",
@@ -189,6 +193,7 @@ impl Action {
             | Action::ToggleFloating
             | Action::SwitchFloatingFocus => Group::AppsAndWindows,
             Action::Resize(_)
+            | Action::Rotate
             | Action::Workspace(_)
             | Action::WorkspaceBy(_)
             | Action::MoveToWorkspace(_)
@@ -445,6 +450,9 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::Prior, Action::Weigh { heavier: true }),
         bind(mod_, Keysym::Next, Action::Weigh { heavier: false }),
         bind(mod_, Keysym::t, Action::ToggleGravity),
+        // Turning the layout: beside Super+R, which runs a command, and the only key for it.
+        // Windows has no equivalent, so this is a new key for a new idea; Super+/ carries it.
+        bind(mod_shift, Keysym::r, Action::Rotate),
         // Fill the tiling area, keeping the neighbours' tiles underneath. gamescope keeps Super+F
         // while it's focused (`passes_to_gamescope`).
         bind(mod_, Keysym::f, Action::Maximise),

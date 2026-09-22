@@ -73,6 +73,7 @@ impl Slipstream {
             Action::Focus(direction) => self.focus_direction(direction),
             Action::MoveTile(direction) => self.move_tile(direction),
             Action::Resize(how) => self.resize_focused(how),
+            Action::Rotate => self.rotate_layout(),
             Action::Workspace(n) => {
                 if let Some(index) = self.workspace_for_key(n) {
                     self.switch_workspace(index)

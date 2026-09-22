@@ -2076,6 +2076,46 @@ impl Slipstream {
 
     /// Super+[ ] and Super+Shift+[ ]: the split beside the focused tile moves a step, on the
     /// press, and the tiles glide to their new sizes.
+    /// Super+Shift+R: turns the split the focused window sits in, and everything inside it, so
+    /// rows become columns and columns become rows.
+    ///
+    /// The tiling tree can reach a shape there is otherwise no way out of — one wide tile along
+    /// the top with two side by side under it, when what you want is the wide one down a side
+    /// and the pair stacked on the other. Moving tiles about can't fix that, because every
+    /// arrangement of the same tree has the same splits; the split itself has to turn.
+    pub fn rotate_layout(&mut self) {
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        if self.workspaces.is_floating(&window) {
+            self.show_toast(
+                "This window floats",
+                "Super+Shift+V puts it back in the tiling.",
+            );
+            return;
+        }
+        let ws = self.current_workspace();
+        if ws.gravity.is_on() {
+            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
+            return;
+        }
+        let active = self.active_workspace();
+        if !self
+            .workspaces
+            .get_mut(active)
+            .layout
+            .rotate_around(&window)
+        {
+            self.show_toast(
+                "Nothing to turn",
+                "A window on its own already fills the workspace.",
+            );
+            return;
+        }
+        tracing::info!(window = logged_app(&window), "turned the layout");
+        self.retile();
+    }
+
     pub fn resize_focused(&mut self, how: layout::Resize) {
         use layout::{Resize, Resized};
         let (Some(area), Some(window)) = (self.output_area(), self.focused_window()) else {

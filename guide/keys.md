@@ -15,6 +15,7 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 | Super+arrows | Move focus |
 | Super+Alt+arrows | Move the tile |
 | Super+[ and ], with Shift for height | Resize |
+| Super+Shift+R | Turn the layout on its side: rows become columns |
 | Super+F | Fill the screen, and back |
 | Super+M, Super+Shift+M | Minimise to the code rain, bring back |
 | Super+H | Hide every window on the workspace; again, bring them back |
