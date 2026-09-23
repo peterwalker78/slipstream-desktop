@@ -61,6 +61,7 @@ Slipstream is a complete desktop session of its own — compositor, bar, notific
 
 - **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
 - **App explorer** (tap Super): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it.
+- **A tour** (Super+/, then Enter): six lessons on what tiling is — windows sharing the screen, moving between them, moving one, turning the layout, putting them away — each one drawn happening rather than listed. It uses abstract tiles, so it never rearranges your actual work.
 - **Hide everything** (Super+H): every window on the workspace pours into the code rain at once, and the same windows come back on the next press. Windows' "minimise all", where Super+M is one window.
 - **The way out** (Ctrl+Alt+Del): lock, log out, restart or shut down, on one card. Every app is asked to close first, and anything that doesn't is named.
 - **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.

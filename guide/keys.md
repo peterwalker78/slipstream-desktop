@@ -1,6 +1,7 @@
 # Every key
 
-Super+/ shows this list inside Slipstream, whenever you forget one.
+Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter there for the
+tour: six lessons on what tiling is, each one drawn happening.
 
 [← back to the README](../README.md)
 
@@ -32,6 +33,6 @@ Super+/ shows this list inside Slipstream, whenever you forget one.
 | Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
 | Caps Lock | Keeps the screensaver off while it's on (the screen still locks) |
 | Ctrl+Alt+Del | The way out: lock, log out, restart, shut down |
-| Super+/ | Every key |
+| Super+/ | Every key, and Enter there starts the tour |
 
 Ctrl+Alt+F1–F12 switch virtual terminals as usual. Keys that input methods, screen readers and games rely on are left alone.
