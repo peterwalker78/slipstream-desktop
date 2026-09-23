@@ -73,6 +73,7 @@ mod render;
 mod restore;
 mod saver;
 mod screen;
+mod screencopy;
 mod screenshot;
 mod session;
 mod settings;

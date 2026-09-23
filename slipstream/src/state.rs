@@ -336,6 +336,8 @@ pub struct Slipstream {
     pub idle_notifier_state: IdleNotifierState<Slipstream>,
     /// Which screens' gamma ramps a program of the user's own is driving.
     pub gamma: crate::gamma::Gamma,
+    /// Screen captures asked for through `wlr-screencopy`, waiting for their screen to draw.
+    pub screencopy: crate::screencopy::Screencopy,
     /// Virtual machines and remote desktops asking for every key (`takeback.rs`).
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     /// Which windows have been told they hold the pointer or the keys, and the one refused.
@@ -480,6 +482,9 @@ impl Slipstream {
         // `wlr-gamma-control`: wlsunset and the like drive a screen's ramps themselves, and the
         // night light stands aside for whichever screens they have taken.
         crate::gamma::state(&dh);
+        // `wlr-screencopy`: grim, wf-recorder and the screenshot scripts people already have.
+        // Offered to every client, and refused unless the program has been allowed (`screencopy.rs`).
+        crate::screencopy::state(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
         // `ext-idle-notify`: swayidle and anything else that waits for the seat to go quiet.
         // Slipstream does its own fading and locking on its own timers; this only tells other
@@ -665,6 +670,7 @@ impl Slipstream {
             idle_inhibit_state,
             idle_notifier_state,
             gamma: crate::gamma::Gamma::default(),
+            screencopy: crate::screencopy::Screencopy::default(),
             keyboard_shortcuts_inhibit_state,
             takeback: Default::default(),
             bullet: None,
@@ -2581,6 +2587,8 @@ impl Slipstream {
     /// screen returns.
     pub fn screen_disconnected(&mut self, output: &Output) {
         let was_focused = self.screens.focused_output().as_ref() == Some(output);
+        // Captures waiting on it will never be filled; the programs asking are told now.
+        self.fail_screencopy_on(output);
         let Some(lost) = self.screens.remove(output) else {
             return;
         };
@@ -5997,6 +6005,11 @@ pub struct ClientState {
     pub may_type: bool,
     /// Whether the client may draw layer surfaces (`layers::client_may_draw`): likewise.
     pub may_draw_layers: bool,
+    /// What to call this client on a card that asks about it, and the path an answer is
+    /// remembered against. `None` for a sandboxed client, one `/proc` couldn't be read for, or
+    /// one whose executable anyone could rewrite — none of which can be asked about, because
+    /// there is nothing to name and nothing safe to remember.
+    pub asks_as: Option<(String, std::path::PathBuf)>,
 }
 
 impl ClientState {
@@ -6004,7 +6017,11 @@ impl ClientState {
     /// everything it may reach.
     pub fn for_connection(stream: &UnixStream) -> Self {
         let peer = capture::unsandboxed_peer(stream);
+        let asks_as = peer
+            .as_ref()
+            .and_then(|peer| Some((peer.name()?, peer.settled_exe()?.to_path_buf())));
         Self {
+            asks_as,
             may_capture: capture::client_may_capture(peer.as_ref()),
             may_control_clipboard: clipboard::client_may_control(peer.as_ref()),
             may_type: crate::ime::client_may_type(peer.as_ref()),

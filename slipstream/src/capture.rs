@@ -64,7 +64,7 @@ use smithay::{
     output::Output,
     reexports::{
         rustix,
-        wayland_server::{Client, protocol::wl_shm},
+        wayland_server::{Client, protocol::wl_buffer::WlBuffer, protocol::wl_shm},
     },
     utils::{Buffer as BufferCoords, Physical, Rectangle, Size, Transform},
     wayland::{
@@ -197,6 +197,27 @@ pub struct Peer {
     exe: Option<PathBuf>,
     /// Its executable is the portal's (`is_portal_executable`).
     portal: bool,
+    /// Its executable is a regular file owned by root that nobody else can write
+    /// (`is_settled_executable`), so a path remembered for it means the same program tomorrow.
+    settled: bool,
+}
+
+impl Peer {
+    /// The path its executable was started from, for naming it on a card and for remembering an
+    /// answer about it. `None` where `/proc` couldn't be read, and **`None` for anything a user
+    /// could rewrite**: an answer remembered against a path anyone can overwrite is a standing
+    /// permission for whatever is put there next.
+    pub fn settled_exe(&self) -> Option<&Path> {
+        self.settled.then_some(self.exe.as_deref()).flatten()
+    }
+
+    /// What to call it on a card: the executable's own name, never the whole path.
+    pub fn name(&self) -> Option<String> {
+        self.exe
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+    }
 }
 
 /// The connecting process, only when it is still running, its root filesystem could be opened,
@@ -246,10 +267,14 @@ pub fn unsandboxed_peer(stream: &UnixStream) -> Option<Peer> {
         (Some(path), Some((uid, mode))) => is_portal_executable(path, uid, mode),
         _ => false,
     };
+    let settled = owner.is_some_and(|(uid, mode)| is_settled_executable(uid, mode));
+    // Without the marker, so a program upgraded since it started isn't a different one.
+    let exe = path.map(|path| without_deleted(&path).to_path_buf());
     Some(Peer {
         pid,
-        exe: path,
+        exe,
         portal,
+        settled,
     })
 }
 
@@ -269,13 +294,30 @@ fn root_is_unsandboxed(root: &OwnedFd) -> bool {
 /// writable by group or others, so nobody but root can have put it there. A binary replaced since
 /// it started reads as `… (deleted)`, which still counts.
 fn is_portal_executable(path: &Path, uid: u32, mode: u32) -> bool {
-    let bytes = path.as_os_str().as_bytes();
-    let path = Path::new(OsStr::from_bytes(
-        bytes.strip_suffix(b" (deleted)").unwrap_or(bytes),
-    ));
+    is_settled_executable(uid, mode)
+        && without_deleted(path).file_name() == Some(OsStr::new(PORTAL))
+}
+
+/// Whether an executable is one whose path can be written down and trusted again later: a regular
+/// file, owned by root, that group and others can't write.
+///
+/// The test `is_portal_executable` makes about the portal, without the name. An answer remembered
+/// against a path anyone can overwrite — anything under a home directory, say — would be a
+/// standing permission for whatever program is put there next, which is the whole value of the
+/// answer given away.
+fn is_settled_executable(uid: u32, mode: u32) -> bool {
     let regular = mode & libc::S_IFMT == libc::S_IFREG;
     let writable_by_others = mode & 0o022 != 0;
-    regular && uid == 0 && !writable_by_others && path.file_name() == Some(OsStr::new(PORTAL))
+    regular && uid == 0 && !writable_by_others
+}
+
+/// A path with `/proc`'s ` (deleted)` marker taken off: a binary replaced since it started still
+/// names the program it is.
+fn without_deleted(path: &Path) -> &Path {
+    let bytes = path.as_os_str().as_bytes();
+    Path::new(OsStr::from_bytes(
+        bytes.strip_suffix(b" (deleted)").unwrap_or(bytes),
+    ))
 }
 
 /// A pidfd for the process at the other end of `stream`: `SO_PEERPIDFD`, which names exactly the
@@ -487,7 +529,9 @@ impl Slipstream {
         size: Size<i32, Physical>,
         scale: f64,
     ) {
-        if self.captures.pending.is_empty() {
+        // Either protocol's frames are filled from the same draw, so a screen being recorded
+        // twice over still costs one read-back.
+        if self.captures.pending.is_empty() && !self.screencopy.wants(output) {
             return;
         }
         let presented = self.start_time.elapsed();
@@ -507,24 +551,44 @@ impl Slipstream {
         for (window, frame) in windows {
             self.serve_window(renderer, output, &window, frame, presented);
         }
-        if waiting.is_empty() {
+        let screencopy = self.screencopy.wants(output);
+        if waiting.is_empty() && !screencopy {
             return;
         }
         // One draw fills every frame waiting on this screen, however many clients are recording.
-        let pixels = match draw_offscreen(renderer, elements, size, scale) {
+        let transform = output.current_transform();
+        let pixels = match draw_offscreen(renderer, elements, size, scale, transform) {
             Ok(pixels) => pixels,
             Err(err) => {
                 tracing::warn!(output = output.name(), "capture failed: {err}");
                 for frame in waiting {
                     frame.fail(CaptureFailureReason::Unknown);
                 }
+                self.fail_screencopy_on(output);
                 return;
             }
         };
+        if screencopy {
+            // Programs that asked for no pointer get a second draw with the cursor left out —
+            // `grim` asks for none by default, and a screenshot with an uninvited pointer in it
+            // is a bug. At most two draws, however many programs are recording.
+            let plain = self.screencopy.wants_without_cursor(output).then(|| {
+                let bare: Vec<&OutputElement> = elements
+                    .iter()
+                    .filter(|element| {
+                        smithay::backend::renderer::element::Element::kind(*element)
+                            != smithay::backend::renderer::element::Kind::Cursor
+                    })
+                    .collect();
+                draw_offscreen(renderer, &bare, size, scale, transform).ok()
+            });
+            self.serve_screencopy(output, &pixels, plain.flatten().as_deref(), size, presented);
+        }
         for frame in waiting {
-            match copy_into(&frame, &pixels, size) {
+            match copy_into(&frame.buffer(), &pixels, size) {
                 Ok(()) => frame.success(Transform::Normal, None, presented),
-                Err(reason) => frame.fail(reason),
+                Err(CopyError::Constraints) => frame.fail(CaptureFailureReason::BufferConstraints),
+                Err(CopyError::NotShm) => frame.fail(CaptureFailureReason::Unknown),
             }
         }
     }
@@ -575,9 +639,10 @@ impl Slipstream {
         // While locked a window's capture is black, at its size: nothing of it is read.
         if self.lock.is_some() {
             let black = [0, 0, 0, 0xff].repeat((size.w * size.h).max(0) as usize);
-            match copy_into(&frame, &black, size) {
+            match copy_into(&frame.buffer(), &black, size) {
                 Ok(()) => frame.success(Transform::Normal, None, presented),
-                Err(reason) => frame.fail(reason),
+                Err(CopyError::Constraints) => frame.fail(CaptureFailureReason::BufferConstraints),
+                Err(CopyError::NotShm) => frame.fail(CaptureFailureReason::Unknown),
             }
             return;
         }
@@ -596,8 +661,8 @@ impl Slipstream {
             );
         let elements: Vec<OutputElement> =
             surfaces.into_iter().map(OutputElement::Surface).collect();
-        match draw_offscreen(renderer, &elements, size, scale) {
-            Ok(pixels) => match copy_into(&frame, &pixels, size) {
+        match draw_offscreen(renderer, &elements, size, scale, Transform::Normal) {
+            Ok(pixels) => match copy_into(&frame.buffer(), &pixels, size) {
                 Ok(()) => {
                     frame.success(Transform::Normal, None, presented);
                     // A shared window off screen gets no frames from any screen; this capture is
@@ -606,7 +671,8 @@ impl Slipstream {
                         Some(output.clone())
                     });
                 }
-                Err(reason) => frame.fail(reason),
+                Err(CopyError::Constraints) => frame.fail(CaptureFailureReason::BufferConstraints),
+                Err(CopyError::NotShm) => frame.fail(CaptureFailureReason::Unknown),
             },
             Err(err) => {
                 tracing::warn!("window capture failed: {err}");
@@ -682,16 +748,24 @@ impl Slipstream {
 
 /// The screen drawn again into an offscreen texture, as bytes. The same path as the `shot:` debug
 /// step, which is what makes this the milestone it is: nothing new has to be right for it to work.
-fn draw_offscreen(
+fn draw_offscreen<E>(
     renderer: &mut GlesRenderer,
-    elements: &[OutputElement],
+    elements: &[E],
     size: Size<i32, Physical>,
     scale: f64,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    transform: Transform,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>>
+where
+    E: smithay::backend::renderer::element::Element
+        + smithay::backend::renderer::element::RenderElement<GlesRenderer>,
+{
     let buffer_size = Size::<i32, BufferCoords>::from((size.w, size.h));
     let mut texture: GlesTexture = renderer.create_buffer(Fourcc::Argb8888, buffer_size)?;
     let mut target = renderer.bind(&mut texture)?;
-    let mut damage = OutputDamageTracker::new(size, scale, Transform::Normal);
+    // The screen's own transform, not `Normal`: a capture is handed over in the orientation the
+    // screen is in, and the program reading it turns that back using `wl_output.transform`. A
+    // buffer drawn upright for a screen that says it is flipped comes out upside down.
+    let mut damage = OutputDamageTracker::new(size, scale, transform);
     damage.render_output(
         renderer,
         &mut target,
@@ -706,29 +780,79 @@ fn draw_offscreen(
 
 /// Copies the screen into one client's buffer, a row at a time: the client's stride is its own
 /// business and is often wider than the picture.
-fn copy_into(
-    frame: &Frame,
-    pixels: &[u8],
-    size: Size<i32, Physical>,
-) -> Result<(), CaptureFailureReason> {
-    let buffer = frame.buffer();
-    with_buffer_contents_mut(&buffer, |ptr, len, data| {
-        if !FORMATS.contains(&data.format) || data.width < size.w || data.height < size.h {
-            return Err(CaptureFailureReason::BufferConstraints);
+/// Why a client's buffer couldn't be filled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyError {
+    /// Not a shared-memory buffer at all, or its pool has gone.
+    NotShm,
+    /// The wrong format, or too small for what was asked for.
+    Constraints,
+}
+
+/// Whether a client's buffer is one that can be filled at all: shared memory, in a format the
+/// renderer's pixels go straight into. Checked before anything is promised about a capture, so a
+/// buffer of the wrong kind is answered as the protocol error it is rather than a late failure.
+pub fn buffer_is_usable(buffer: &WlBuffer) -> Result<(), CopyError> {
+    smithay::wayland::shm::with_buffer_contents(buffer, |_, _, data| {
+        if FORMATS.contains(&data.format) {
+            Ok(())
+        } else {
+            Err(CopyError::Constraints)
         }
-        let row = size.w as usize * 4;
+    })
+    .unwrap_or(Err(CopyError::NotShm))
+}
+
+/// `pixels` in full, into a client's buffer.
+fn copy_into(buffer: &WlBuffer, pixels: &[u8], size: Size<i32, Physical>) -> Result<(), CopyError> {
+    copy_region_into(buffer, pixels, size, Rectangle::from_size(size))
+}
+
+/// Part of `pixels` into a client's buffer: the rectangle `region` out of a picture `src` across,
+/// row by row.
+///
+/// `pixels` is what the renderer handed back — four bytes a pixel, tightly packed, top row first.
+/// The client's buffer may be wider than the rows going into it (a stride of its own choosing),
+/// so each row is placed on its own rather than the whole thing copied at once.
+pub fn copy_region_into(
+    buffer: &WlBuffer,
+    pixels: &[u8],
+    src: Size<i32, Physical>,
+    region: Rectangle<i32, Physical>,
+) -> Result<(), CopyError> {
+    if region.size.w <= 0 || region.size.h <= 0 {
+        return Err(CopyError::Constraints);
+    }
+    with_buffer_contents_mut(buffer, |ptr, len, data| {
+        if !FORMATS.contains(&data.format)
+            || data.width < region.size.w
+            || data.height < region.size.h
+        {
+            return Err(CopyError::Constraints);
+        }
+        let row = region.size.w as usize * 4;
+        let src_row = src.w as usize * 4;
         let stride = data.stride as usize;
         let offset = data.offset as usize;
-        let rows = size.h as usize;
-        if stride < row || offset + stride * rows > len || pixels.len() < row * rows {
-            return Err(CaptureFailureReason::BufferConstraints);
+        let rows = region.size.h as usize;
+        // Every row of the region has to be inside the picture, and inside the client's pool.
+        let last = (region.loc.y as usize + rows).saturating_sub(1);
+        let past_source = last * src_row + region.loc.x as usize * 4 + row;
+        if stride < row
+            || offset + stride * rows > len
+            || region.loc.x < 0
+            || region.loc.y < 0
+            || past_source > pixels.len()
+        {
+            return Err(CopyError::Constraints);
         }
         for y in 0..rows {
-            // Safety: the bounds above put every row inside the pool, and the pool is mapped for
-            // as long as this closure runs.
+            let from = (region.loc.y as usize + y) * src_row + region.loc.x as usize * 4;
+            // Safety: the bounds above put every row inside the pool and inside the picture, and
+            // the pool is mapped for as long as this closure runs.
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    pixels[y * row..].as_ptr(),
+                    pixels[from..].as_ptr(),
                     ptr.add(offset + y * stride),
                     row,
                 );
@@ -736,7 +860,7 @@ fn copy_into(
         }
         Ok(())
     })
-    .unwrap_or(Err(CaptureFailureReason::Unknown))
+    .unwrap_or(Err(CopyError::NotShm))
 }
 
 /// The globals, made once at startup. `new_with_filter` rather than `new`, so they are offered
@@ -774,6 +898,9 @@ impl Slipstream {
     /// changes mode mid-share would otherwise go on offering the size it had when the share
     /// started, and every frame after it would fail on the constraints.
     pub fn capture_size_changed(&mut self, output: &Output) {
+        // A screencopy frame was told a size when its buffer was described, and there is no way
+        // to tell it a new one: it is failed, and the program asks again.
+        self.fail_screencopy_on(output);
         let Some(size) = output.current_mode().map(|mode| mode.size) else {
             return;
         };
@@ -883,10 +1010,51 @@ mod tests {
             pid: 4242,
             exe: Some(PathBuf::from("/usr/libexec/example")),
             portal,
+            settled: true,
         };
         assert!(client_may_capture(Some(&peer(true))));
         assert!(!client_may_capture(Some(&peer(false))));
         assert!(!client_may_capture(None), "no proof, no capture");
+    }
+
+    /// An answer is remembered against a path, so the path has to mean the same program later.
+    #[test]
+    fn only_an_executable_nobody_else_can_write_is_worth_remembering() {
+        let root_only = libc::S_IFREG | 0o755;
+        assert!(is_settled_executable(0, root_only));
+        // Owned by the user, so the user can put anything there tomorrow.
+        assert!(!is_settled_executable(1000, root_only));
+        // Root's, but group or world writable.
+        assert!(!is_settled_executable(0, libc::S_IFREG | 0o775));
+        assert!(!is_settled_executable(0, libc::S_IFREG | 0o777));
+        // Not a regular file at all.
+        assert!(!is_settled_executable(0, libc::S_IFLNK | 0o755));
+
+        let settled = |settled| Peer {
+            pid: 7,
+            exe: Some(PathBuf::from("/usr/bin/example")),
+            portal: false,
+            settled,
+        };
+        assert_eq!(
+            settled(true).settled_exe(),
+            Some(Path::new("/usr/bin/example"))
+        );
+        assert_eq!(settled(false).settled_exe(), None, "nothing to remember");
+        // It can still be named on a card either way.
+        assert_eq!(settled(false).name().as_deref(), Some("example"));
+    }
+
+    #[test]
+    fn a_program_replaced_since_it_started_is_still_the_same_program() {
+        assert_eq!(
+            without_deleted(Path::new("/usr/bin/grim (deleted)")),
+            Path::new("/usr/bin/grim")
+        );
+        assert_eq!(
+            without_deleted(Path::new("/usr/bin/grim")),
+            Path::new("/usr/bin/grim")
+        );
     }
 
     #[test]

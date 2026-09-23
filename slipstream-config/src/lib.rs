@@ -45,6 +45,9 @@
 //! selected-tile = "#42d3ff"
 //! bullet-time = "#ffb547"
 //!
+//! [privacy]
+//! screen-capture-allowed = ["/usr/bin/wf-recorder"]
+//!
 //! [[workspaces.list]]
 //! id = 1
 //! name = "Mail"
@@ -97,6 +100,7 @@ pub struct Settings {
     pub lock: Lock,
     pub sound: Sound,
     pub clipboard: Clipboard,
+    pub privacy: Privacy,
     pub meter: Meter,
     pub workspaces: Workspaces,
 }
@@ -738,6 +742,39 @@ pub struct Session {
     pub reopen_without_asking: bool,
 }
 
+/// What programs are allowed to do without being asked again.
+///
+/// Only the compositor's own card adds to these lists, when someone answers "Always allow". The
+/// Settings app can take an entry away; it can never put one in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Privacy {
+    /// Programs allowed to record the screen without asking, by the full path of the executable
+    /// that asked, as `/proc/<pid>/exe` gives it. Empty to begin with: every program asks the
+    /// first time. Take an entry away to be asked again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub screen_capture_allowed: Vec<String>,
+}
+
+impl Privacy {
+    /// Whether this executable has been allowed to record the screen already.
+    pub fn allows_capture(&self, exe: &str) -> bool {
+        self.screen_capture_allowed.iter().any(|it| it == exe)
+    }
+
+    /// Remembers this executable. Saying yes twice doesn't list it twice.
+    pub fn allow_capture(&mut self, exe: String) {
+        if !self.allows_capture(&exe) {
+            self.screen_capture_allowed.push(exe);
+        }
+    }
+
+    /// Forgets it, so it is asked again the next time.
+    pub fn forget_capture(&mut self, exe: &str) {
+        self.screen_capture_allowed.retain(|it| it != exe);
+    }
+}
+
 /// The clipboard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -1343,6 +1380,9 @@ mod tests {
             },
             sound: Sound { volume_blip: false },
             clipboard: Clipboard { history: false },
+            privacy: Privacy {
+                screen_capture_allowed: vec!["/usr/bin/made-up-recorder".into()],
+            },
             meter: Meter {
                 command: "df --output=pcent /home | report".into(),
                 every_secs: 300,
@@ -1369,6 +1409,10 @@ mod tests {
         assert!(text.contains("change-every-mins = 5"), "{text}");
         assert!(text.contains("night-light = true"), "{text}");
         assert!(
+            text.contains(r#"screen-capture-allowed = ["/usr/bin/made-up-recorder"]"#),
+            "{text}"
+        );
+        assert!(
             text.contains(r#"night-light-schedule = "custom""#),
             "{text}"
         );
@@ -1376,5 +1420,26 @@ mod tests {
         assert!(text.contains("history = false"), "{text}");
         assert!(text.contains(r##"selected-tile = "#b794ff""##), "{text}");
         assert_eq!(parse(&format!("{HEADER}{text}")).unwrap(), settings);
+    }
+
+    #[test]
+    fn the_capture_allowlist_holds_each_program_once_and_can_forget_one() {
+        let mut privacy = Privacy::default();
+        assert!(!privacy.allows_capture("/usr/bin/grim"));
+        privacy.allow_capture("/usr/bin/grim".into());
+        privacy.allow_capture("/usr/bin/grim".into());
+        assert_eq!(privacy.screen_capture_allowed, ["/usr/bin/grim"]);
+        assert!(privacy.allows_capture("/usr/bin/grim"));
+        // A different path is a different program, even with the same name.
+        assert!(!privacy.allows_capture("/home/someone/bin/grim"));
+        privacy.forget_capture("/usr/bin/grim");
+        assert!(!privacy.allows_capture("/usr/bin/grim"));
+        assert!(privacy.screen_capture_allowed.is_empty());
+    }
+
+    #[test]
+    fn an_empty_allowlist_is_left_out_of_the_file() {
+        let text = toml::to_string(&Settings::default()).unwrap();
+        assert!(!text.contains("screen-capture-allowed"), "{text}");
     }
 }

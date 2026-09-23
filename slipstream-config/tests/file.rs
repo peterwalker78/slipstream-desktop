@@ -62,6 +62,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
         },
         sound: Sound { volume_blip: false },
         clipboard: Clipboard { history: false },
+        privacy: Default::default(),
         meter: Meter {
             command: "quota --json".into(),
             every_secs: 120,

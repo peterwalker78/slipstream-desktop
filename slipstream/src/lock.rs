@@ -879,6 +879,8 @@ impl Slipstream {
             tracing::info!("sharing declined: the screen locked");
             picker.answer(false);
         }
+        // Nothing waiting on a screen may be filled from a frame drawn before the lock went up.
+        self.fail_screencopy_for_the_lock();
         let serial = SERIAL_COUNTER.next_serial();
         let time = smithay::backend::input::InputTime::now();
         let pointer = self.seat.get_pointer().unwrap();
