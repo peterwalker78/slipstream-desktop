@@ -88,6 +88,7 @@ mod takeback;
 mod text;
 mod tilt;
 mod toast;
+mod tour;
 mod udev;
 mod usage;
 mod watch;

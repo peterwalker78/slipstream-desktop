@@ -4,7 +4,8 @@
 //! many milliseconds after start. Steps: `ws:N` (switch to workspace N), `move:N` (move the
 //! focused window to workspace N), `close`, `shot:PATH` (save the next rendered frame as a PNG),
 //! `run:COMMAND` (start a program the way key bindings do, so X11 apps get XWayland's display),
-//! `explore` (open or close the app explorer), `type:TEXT` and `key:NAME` (type into the open
+//! `explore` (open or close the app explorer), `hkey:NAME` (a key in the shortcut sheet, which is
+//! how the tour is stepped through), `type:TEXT` and `key:NAME` (type into the open
 //! explorer, or press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`),
 //! `heavier`,
 //! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
@@ -91,6 +92,8 @@ pub enum Step {
     Screenshot(String),
     Run(String),
     Explore,
+    /// A key in the shortcut sheet, by its xkb name: what steps through the tour.
+    SheetKey(String),
     Type(String),
     Key(String),
     MoveTile(Direction),
@@ -292,6 +295,7 @@ impl Script {
                     ("shot", Some(path)) => Step::Screenshot(path.to_string()),
                     ("run", Some(command)) => Step::Run(command.to_string()),
                     ("explore", None) => Step::Explore,
+                    ("hkey", Some(name)) => Step::SheetKey(name.to_string()),
                     ("type", Some(text)) => Step::Type(text.to_string()),
                     ("key", Some(name)) => Step::Key(name.to_string()),
                     ("tile", Some(direction)) => Step::MoveTile(match direction.trim() {

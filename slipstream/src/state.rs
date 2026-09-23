@@ -5592,6 +5592,10 @@ impl Slipstream {
                 }
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
+                debug::Step::SheetKey(name) => {
+                    let sym = xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS);
+                    self.sheet_key(sym, None);
+                }
                 // Key steps act only on an open panel. A closed one keeps its last selection, and a
                 // mistimed step would otherwise press it.
                 debug::Step::Type(_) | debug::Step::Key(_) if !self.explorer.is_open() => {
