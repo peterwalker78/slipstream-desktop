@@ -79,14 +79,23 @@ jobs:
               --title "Slipstream $version beta" --notes-file notes.md \
               || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
-          # Take any file of the same name off first. `--clobber` is meant to do this and does
-          # not always: uploading over an asset that is already there answers 422 and fails the
-          # job, so a re-run of a release that got as far as uploading could never succeed.
+          # One file at a time, and a file already on the release is left alone rather than
+          # replaced. `--clobber` is meant to replace one and does not reliably: uploading over
+          # an asset that is there answers 422, which failed the job and meant a release that
+          # got as far as uploading could never be re-run. Deleting first doesn't help either —
+          # GitHub can go on reporting an asset that has just been removed. What matters is that
+          # the file ends up on the release, so "it is already there" is success, not failure.
           for file in dist/*.tar.gz dist/*.sha256; do
-            gh release delete-asset "$TAG" "$(basename "$file")" \
-              --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || :
+            name=$(basename "$file")
+            if out=$(gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$file" 2>&1); then
+              echo "uploaded $name"
+            elif printf '%s' "$out" | grep -q "already exists"; then
+              echo "$name is already on the release"
+            else
+              printf '%s\n' "$out" >&2
+              exit 1
+            fi
           done
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/*.sha256
 
   # Install what was just published on each distribution, as a person would.
   distributions:
