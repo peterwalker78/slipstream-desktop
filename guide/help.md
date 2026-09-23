@@ -10,6 +10,23 @@
 - **No login screen appears at all:** the machine logs someone in automatically. `scripts/install-session --check` says which setting does it and how to change it.
 - **Anything else:** `scripts/install-session --check` reports what the system is missing.
 
+## A program is asking to record your screen
+
+Slipstream asks before any program can see your screen. A card names the program and offers
+**just this once** or **always allow**; Esc says no. Nothing is recorded until you answer, so a
+tool simply waits.
+
+The card can only name a program it can identify, and it will not remember an answer against a
+program anyone could replace — so a script in your home directory is refused outright rather than
+asked about. That is deliberate: an answer remembered against a file you can rewrite would be a
+standing permission for whatever is put there next.
+
+**Settings → Privacy** lists what has been allowed, and the bin beside each one makes it ask
+again next time. Nothing is ever added there except by answering the card.
+
+Screen *sharing* — for a call, through the portal — is a separate thing, with its own picker and
+the red pill on the bar that stops it.
+
 ## Adding apps that come with your desktop
 
 Apps that go with your desktop but are projects of their own are installed and kept up to date as Flatpaks by `scripts/install-extras`, which the installer runs for you at the end (and `update-session` runs on every rebuild). Slipstream ships one, Glimmerwood, described in `extras/glimmerwood.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):

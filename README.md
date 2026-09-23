@@ -117,6 +117,8 @@ Read, learn or make something and it brightens and gives off little motes of lig
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
+- **A tour that shows you, rather than telling you.** Six lessons on what tiling actually is, each one drawn happening. Super+/, then Enter.
+- **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools — and nothing records your screen without asking you first, by name.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
 

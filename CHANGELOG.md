@@ -2,7 +2,75 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-23
+
+- **A tour that shows you what tiling is.** Super+/, then Enter. Six lessons — windows sharing the
+  screen, moving between them, moving one, turning the layout, putting them away, and where every
+  other key lives — each one drawn happening rather than listed. It uses abstract tiles, so it
+  never touches your real windows, and each lesson loops while you read it. The prompt on an empty
+  workspace says where to find it.
+
+- **Screenshot and screen-recording tools work.** `grim`, `wf-recorder` and the scripts built on
+  them speak `wlr-screencopy`, which Slipstream didn't serve, so none of them ran. They do now —
+  **and nothing records your screen without asking.** A program that asks puts up a card naming
+  it, offering "just this once" or "always allow"; until you answer, it simply waits. What has
+  been allowed is listed in Settings → Privacy, where an answer can be taken back. A program that
+  can't be identified is refused rather than asked about, and an answer is never remembered
+  against a program that anyone could replace. Tools that need dmabuf, `wl-screenrec` among them,
+  still don't work.
+
+- **Resolution, refresh rate and scale, per screen**, in Settings → Screens. Slipstream couldn't
+  change any of them before: a screen ran at whatever mode it asked for, at a scale worked out
+  from its size, and nothing could say otherwise. Both settings default to Automatic, which is
+  exactly what happened before. A mode a screen turns out not to have is ignored rather than
+  applied, so settings carried to another desk can't blank a monitor.
+
+- **Ctrl+Alt+Del opens the way out** — lock, log out, restart or shut down, on one card, starting
+  on Lock. It was the one chord nothing answered: the kernel never sees it once Slipstream has the
+  keyboard, so it did nothing at all, which is the worst thing for the key people reach for when
+  something has gone wrong. **Super+Shift+Esc no longer logs out**; quick settings has the same
+  four destinations for the mouse.
+
+- **Super+R turns the layout on its side**, rows becoming columns. The tiling tree could reach a
+  shape there was no way out of — one wide tile along the top with two side by side under it, when
+  what you wanted was the wide one down a side and the pair stacked on the other. Moving tiles
+  about could never fix it, because every arrangement of the same tree has the same splits. From
+  the wide window it turns the whole arrangement; from one of the pair it swaps just that pair.
+  Twice puts it back exactly.
+
+- **Super+H hides every window on the workspace** into the code rain at once, and the same windows
+  come back on the next press. Windows' "minimise all", where Super+M is one window. Each window
+  flies into its own stream rather than fading out on the way.
+
+- **Hold Caps Lock for Awake**, which keeps the screen on: no wallpaper fade, no idle lock, and
+  nothing else on the machine is told you've gone quiet. A tap is still plain Caps Lock. It ends
+  by itself when you lock, log out, close the lid or the machine sleeps.
+
+- **Super+Space belongs to input methods again.** A tapped Super already opened the app explorer,
+  so the binding was a duplicate that cost IBus its key for nothing.
+
+- **The Run box is gone.** Super+R opened the same explorer a tapped Super does, so it was a second
+  way to the same panel. Typing something no app matches still offers to run it, exactly as before.
+
+- **Gravity's ladder no longer passes through tiling.** It sat in the middle, so stepping past the
+  middle turned gravity off and on again — a confusing way back to tiling, and a message every
+  time. The ladder is distant, orbit, grid, centre, wide, spotlight, and Super+T is the way back.
+
+- **An empty workspace shows a small prompt instead of the whole key table.** The table had grown
+  to two columns of thirteen rows and covered most of the wallpaper, on the one screen where the
+  wallpaper is all there is to look at.
+
+- **The Super+/ sheet no longer lists the laptop's own keys** — play, pause, volume, mute,
+  brightness. They have pictures on them and work the same everywhere, so they filled a column
+  with what nobody came to look up.
+
+- **Colour-temperature and idle tools work:** `wlsunset` and `gammastep` can drive a screen's
+  colour, and Slipstream's own night light steps aside for whichever screens they've taken and
+  comes back when they let go. `swayidle` and anything else waiting for an idle seat is told.
+
+- **Windows stay solid as they fly into the code rain.** They faded out over the journey, so they
+  crossed the screen half transparent and mixed with whatever was behind them; they now hold their
+  opacity almost all the way and go out as they land.
 
 - **Super+B opens a browser window.** Whichever browser the desktop is set to open a web page
   with: `$BROWSER` if it names one, else the default the rest of the machine follows, read from
