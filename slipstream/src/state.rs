@@ -3723,10 +3723,11 @@ impl Slipstream {
     }
 
     pub fn share_key(&mut self, sym: Keysym, shift: bool) {
+        let now = self.wall();
         let Some(picker) = self.share.as_mut() else {
             return;
         };
-        let act = picker.key(sym, shift);
+        let act = picker.key(sym, shift, now);
         self.act_on_share(act);
     }
 
@@ -3752,17 +3753,30 @@ impl Slipstream {
     }
 
     fn act_on_share(&mut self, act: share::Act) {
-        let share = match act {
+        let yes = match act {
             share::Act::Nothing => return,
             share::Act::Share => true,
             share::Act::Cancel => false,
         };
-        if let Some(picker) = self.share.take() {
-            match picker.chosen() {
-                Some(choice) if share => tracing::info!(source = ?choice.source, "sharing"),
-                _ => tracing::info!("sharing declined"),
+        let Some(picker) = self.share.take() else {
+            return;
+        };
+        match picker.asking.clone() {
+            // A program asked to record the screen itself. Its frames have been waiting on this.
+            share::Asking::Capture { exe, .. } => {
+                if yes {
+                    self.allow_capture(exe, picker.remembers());
+                } else {
+                    self.refuse_capture(exe);
+                }
             }
-            picker.answer(share);
+            share::Asking::Portal => {
+                match picker.chosen() {
+                    Some(choice) if yes => tracing::info!(source = ?choice.source, "sharing"),
+                    _ => tracing::info!("sharing declined"),
+                }
+                picker.answer(yes);
+            }
         }
     }
 

@@ -103,8 +103,31 @@ pub enum Act {
     Cancel,
 }
 
+/// What the card is asking about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Asking {
+    /// The portal's chooser wants a screen or a window named, for an app that asked to share.
+    Portal,
+    /// A program has asked to record the screen itself, and its frames wait on the answer.
+    Capture {
+        /// What to call it: the executable's own name.
+        program: String,
+        /// The path an "always" answer is remembered against.
+        exe: PathBuf,
+    },
+}
+
+/// How long a card raised by a program ignores the keyboard.
+///
+/// It appears unprompted — a script in the background can put it there — and a key already on
+/// its way to whatever was focused must never land on it as an answer.
+const DEAF: f64 = 1.5;
+
 /// The card, while an app waits for an answer.
 pub struct Picker {
+    pub asking: Asking,
+    /// Keys before this are ignored, for a card nobody asked to see.
+    deaf_until: f64,
     choices: Vec<Choice>,
     /// What each row says: the name, and what it is.
     rows: Vec<Row>,
@@ -136,6 +159,8 @@ impl Picker {
         reduced_motion: bool,
     ) -> Self {
         Self {
+            asking: Asking::Portal,
+            deaf_until: 0.0,
             choices,
             rows,
             selected: 0,
@@ -151,7 +176,39 @@ impl Picker {
         }
     }
 
-    pub fn key(&mut self, sym: Keysym, shift: bool) -> Act {
+    /// The card a program gets when it asks to record the screen: the same shape as the portal's,
+    /// so the two questions about the screen look like each other.
+    pub fn for_capture(program: String, exe: PathBuf, now: f64, reduced_motion: bool) -> Self {
+        let rows = vec![
+            Row {
+                name: "Just this once".to_string(),
+                title: "until you log out".to_string(),
+                note: None,
+            },
+            Row {
+                name: format!("Always allow {program}"),
+                title: "until you take it back in Settings".to_string(),
+                note: None,
+            },
+        ];
+        Self {
+            asking: Asking::Capture { program, exe },
+            deaf_until: now + DEAF,
+            ..Self::new(Vec::new(), rows, None, now, reduced_motion)
+        }
+    }
+
+    /// Whether the answer chosen is the one that remembers.
+    pub fn remembers(&self) -> bool {
+        self.selected == 1
+    }
+
+    /// A key, at wall time `now`. A card nobody asked to see ignores keys for its first moment:
+    /// `DEAF`, above.
+    pub fn key(&mut self, sym: Keysym, shift: bool, now: f64) -> Act {
+        if now < self.deaf_until {
+            return Act::Nothing;
+        }
         match sym {
             // Enter only, never Space: the picker appears by itself, and a space typed into a chat
             // just as it does must not share the screen.
@@ -167,13 +224,19 @@ impl Picker {
                 })
             }
             Keysym::Home => self.select(0),
-            Keysym::End => self.select(self.choices.len().saturating_sub(1)),
+            Keysym::End => self.select(self.count().saturating_sub(1)),
             _ => Act::Nothing,
         }
     }
 
+    /// How many rows there are to move between. The rows, not the choices: the card that asks
+    /// about a program has answers rather than screens to pick from, and no choices at all.
+    fn count(&self) -> usize {
+        self.rows.len()
+    }
+
     fn step(&mut self, by: isize) -> Act {
-        let count = self.choices.len() as isize;
+        let count = self.count() as isize;
         if count > 0 {
             self.select((self.selected as isize + by).rem_euclid(count) as usize);
         }
@@ -181,7 +244,7 @@ impl Picker {
     }
 
     fn select(&mut self, index: usize) -> Act {
-        self.selected = index.min(self.choices.len().saturating_sub(1));
+        self.selected = index.min(self.count().saturating_sub(1));
         if self.selected < self.top {
             self.top = self.selected;
         } else if self.selected >= self.top + VISIBLE {
@@ -246,6 +309,34 @@ impl Picker {
     }
 
     fn card(&self, ring: u32) -> Card {
+        if let Asking::Capture { program, .. } = &self.asking {
+            return Card {
+                title: "Record your screen?".to_string(),
+                note: format!(
+                    "{program} is asking to record this screen. It sees everything on it, \
+                     including other apps, until you close it."
+                ),
+                rows: self.rows.clone(),
+                more: None,
+                remember: None,
+                buttons: vec![
+                    Btn {
+                        which: Button::Stay,
+                        label: "No".to_string(),
+                        key: "ESC".to_string(),
+                        primary: false,
+                    },
+                    Btn {
+                        which: Button::Go,
+                        label: "Allow".to_string(),
+                        key: "⏎".to_string(),
+                        primary: true,
+                    },
+                ],
+                hover: self.hovered,
+                selected: Some((self.selected, ring)),
+            };
+        }
         let windows = self
             .choices
             .iter()
@@ -504,6 +595,48 @@ pub fn choose() -> i32 {
 
 #[cfg(test)]
 mod tests {
+
+    /// The card that asks about a program appears unprompted — a script in the background can
+    /// put it there — so a key already on its way must not answer it.
+    #[test]
+    fn a_card_nobody_asked_for_is_deaf_at_first() {
+        let mut picker = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 100.0, false);
+        assert_eq!(
+            picker.key(Keysym::Return, false, 100.1),
+            Act::Nothing,
+            "a keystroke already in flight does not allow it"
+        );
+        assert_eq!(picker.key(Keysym::Return, false, 100.0 + DEAF), Act::Share);
+    }
+
+    #[test]
+    fn the_capture_card_moves_between_its_two_answers() {
+        let mut picker = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 0.0, false);
+        let now = DEAF + 1.0;
+        // It starts on the answer that grants the least.
+        assert!(!picker.remembers());
+        picker.key(Keysym::Down, false, now);
+        assert!(
+            picker.remembers(),
+            "the second answer is the one that lasts"
+        );
+        picker.key(Keysym::Down, false, now);
+        assert!(!picker.remembers(), "and it wraps");
+        picker.key(Keysym::Up, false, now);
+        assert!(picker.remembers());
+    }
+
+    #[test]
+    fn the_capture_card_says_which_program_asked() {
+        let picker = Picker::for_capture("wf-recorder".into(), "/usr/bin/wf".into(), 0.0, false);
+        let card = picker.card(0x7fe3ffcc);
+        assert_eq!(card.title, "Record your screen?");
+        assert!(card.note.contains("wf-recorder"), "{}", card.note);
+        assert!(
+            card.rows.iter().any(|row| row.name.contains("wf-recorder")),
+            "the lasting answer names it too"
+        );
+    }
     use super::*;
 
     fn picker(count: usize) -> Picker {
@@ -551,13 +684,13 @@ mod tests {
     #[test]
     fn arrows_wrap_and_the_list_scrolls_with_them() {
         let mut picker = picker(12);
-        assert_eq!(picker.key(Keysym::Up, false), Act::Nothing);
+        assert_eq!(picker.key(Keysym::Up, false, 0.0), Act::Nothing);
         assert_eq!(picker.selected, 11, "up from the first wraps to the last");
         assert_eq!(picker.top, 12 - VISIBLE, "and the last is in view");
-        picker.key(Keysym::Down, false);
+        picker.key(Keysym::Down, false, 0.0);
         assert_eq!((picker.selected, picker.top), (0, 0));
-        assert_eq!(picker.key(Keysym::Return, false), Act::Share);
-        assert_eq!(picker.key(Keysym::Escape, false), Act::Cancel);
+        assert_eq!(picker.key(Keysym::Return, false, 0.0), Act::Share);
+        assert_eq!(picker.key(Keysym::Escape, false, 0.0), Act::Cancel);
     }
 
     #[test]
@@ -566,7 +699,7 @@ mod tests {
             let (ours, mut theirs) = UnixStream::pair().expect("a socket pair");
             let mut picker = picker(3);
             picker.reply = Some(ours);
-            picker.key(Keysym::Down, false);
+            picker.key(Keysym::Down, false, 0.0);
             picker.answer(share);
             let mut got = String::new();
             theirs.read_to_string(&mut got).unwrap();

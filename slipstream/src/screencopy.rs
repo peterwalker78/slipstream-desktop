@@ -76,6 +76,35 @@ pub struct FrameData {
     used: AtomicBool,
 }
 
+/// What to do about a program that has asked for the screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Verdict {
+    Allowed,
+    /// Put this program on a card and hold its frames until it is answered.
+    Ask {
+        program: String,
+        exe: PathBuf,
+    },
+    No,
+}
+
+/// Tells a client what buffer to make. Sent once a frame is allowed, which may be now or once a
+/// card has been answered.
+fn describe_buffer(frame: &ZwlrScreencopyFrameV1, region: Rectangle<i32, Physical>) {
+    // Four bytes a pixel, packed, which is what the renderer hands back and what
+    // `copy_region_into` writes. A client may choose a wider stride of its own.
+    frame.buffer(
+        wl_shm::Format::Xrgb8888,
+        region.size.w as u32,
+        region.size.h as u32,
+        region.size.w as u32 * 4,
+    );
+    // Only version three knows this, and it is what says "that is every kind we have".
+    if frame.version() >= 3 {
+        frame.buffer_done();
+    }
+}
+
 /// A frame waiting for the screen it follows to be drawn.
 struct Waiting {
     frame: ZwlrScreencopyFrameV1,
@@ -89,9 +118,12 @@ struct Waiting {
 #[derive(Default)]
 pub struct Screencopy {
     waiting: Vec<Waiting>,
-    /// Programs allowed for this session only, by the "Allow once" answer. The settings file
+    /// Programs allowed for this session only, by the "Just this once" answer. The settings file
     /// holds the ones allowed for good.
     once: Vec<PathBuf>,
+    /// Frames whose program is being asked about, held until the card is answered. Their clients
+    /// have been told nothing yet, so they are simply waiting.
+    asked_about: Vec<(PathBuf, ZwlrScreencopyFrameV1)>,
 }
 
 impl Screencopy {
@@ -121,6 +153,21 @@ impl Screencopy {
         if !self.once.contains(&exe) {
             self.once.push(exe);
         }
+    }
+
+    /// Whether a program is already being asked about, so a second frame from it joins the queue
+    /// rather than raising a second card.
+    fn already_asking(&self, exe: &Path) -> bool {
+        self.asked_about.iter().any(|(waiting, _)| waiting == exe)
+    }
+
+    /// The frames held for `exe`, taken off the queue.
+    fn answered(&mut self, exe: &Path) -> Vec<ZwlrScreencopyFrameV1> {
+        let (mine, rest) = std::mem::take(&mut self.asked_about)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(waiting, _)| waiting == exe);
+        self.asked_about = rest;
+        mine.into_iter().map(|(_, frame)| frame).collect()
     }
 
     fn allowed_once(&self, exe: &Path) -> bool {
@@ -265,8 +312,8 @@ impl Dispatch<ZwlrScreencopyFrameV1, FrameData> for Slipstream {
 }
 
 impl Slipstream {
-    /// A program has asked for a screen. Judges it first and makes the frame object once, either
-    /// describing the buffer to make or refusing outright.
+    /// A program has asked for a screen. Judges it first and makes the frame object once, then
+    /// either describes the buffer to make, holds the frame while the card asks, or refuses.
     fn begin_screencopy(
         &mut self,
         client: &Client,
@@ -276,10 +323,10 @@ impl Slipstream {
         output: &smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
         region: Option<Rectangle<i32, smithay::utils::Logical>>,
     ) {
-        let allowed = self.judge_screencopy(client, output, region);
-        let Some((output, region, size)) = allowed else {
-            // Refused: an inert frame, told so at once. `used` starts spent, so a copy on it
-            // does nothing rather than reaching for a screen it was never given.
+        let (verdict, place) = self.judge_screencopy(client, output, region);
+        let Some((output, region, size)) = place else {
+            // Refused outright: an inert frame, told so at once. `used` starts spent, so a copy
+            // on it does nothing rather than reaching for a screen it was never given.
             let frame = data_init.init(
                 frame,
                 FrameData {
@@ -303,39 +350,92 @@ impl Slipstream {
                 used: AtomicBool::new(false),
             },
         );
-        // Four bytes a pixel, packed, which is what the renderer hands back and what
-        // `copy_region_into` writes. A client may choose a wider stride of its own.
-        frame.buffer(
-            wl_shm::Format::Xrgb8888,
-            region.size.w as u32,
-            region.size.h as u32,
-            region.size.w as u32 * 4,
-        );
-        // Only version three knows this, and it is what says "that is every kind we have".
-        if frame.version() >= 3 {
-            frame.buffer_done();
+        match verdict {
+            Verdict::Allowed => describe_buffer(&frame, region),
+            // Held: the client is told nothing until the card is answered, so it simply waits.
+            Verdict::Ask { program, exe } => {
+                if !self.screencopy.already_asking(&exe) {
+                    self.ask_about_capture(program, exe.clone());
+                }
+                self.screencopy.asked_about.push((exe, frame));
+            }
+            Verdict::No => frame.failed(),
         }
     }
 
-    /// Whether this request is allowed, and what it would capture: the screen, the region in its
-    /// own pixels, and the size that region was worked out against.
+    /// Raises the card that asks whether a program may record the screen.
+    fn ask_about_capture(&mut self, program: String, exe: PathBuf) {
+        let now = self.wall();
+        self.close_panels();
+        self.share = Some(crate::share::Picker::for_capture(
+            program.clone(),
+            exe,
+            now,
+            self.clock.reduced_motion,
+        ));
+        self.wake_ui();
+        tracing::info!(program, "asking whether this program may record the screen");
+    }
+
+    /// The card was answered. `remember` writes the program down; otherwise it is allowed for
+    /// this session only. Every frame held for it is then described, and its client goes on.
+    pub fn allow_capture(&mut self, exe: PathBuf, remember: bool) {
+        if remember {
+            let path = exe.to_string_lossy().into_owned();
+            self.change_settings(move |file| file.privacy.allow_capture(path.clone()));
+        } else {
+            self.screencopy.allow_once(exe.clone());
+        }
+        let held = self.screencopy.answered(&exe);
+        tracing::info!(
+            frames = held.len(),
+            remember,
+            "a program may record the screen"
+        );
+        for frame in held {
+            match frame.data::<FrameData>() {
+                Some(data) => describe_buffer(&frame, data.region),
+                None => frame.failed(),
+            }
+        }
+    }
+
+    /// The card was refused, or went away: every frame held for that program is failed, and its
+    /// client learns it got nothing.
+    pub fn refuse_capture(&mut self, exe: PathBuf) {
+        let held = self.screencopy.answered(&exe);
+        if !held.is_empty() {
+            tracing::info!(frames = held.len(), "a program may not record the screen");
+        }
+        for frame in held {
+            frame.failed();
+        }
+    }
+
+    /// What to do about this request, and what it would capture: the screen, the region in its
+    /// own pixels, and the size that region was worked out against. A place of `None` is a
+    /// refusal there is nothing to ask about.
     #[allow(clippy::type_complexity)]
     fn judge_screencopy(
         &mut self,
         client: &Client,
         output: &smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
         region: Option<Rectangle<i32, smithay::utils::Logical>>,
-    ) -> Option<(Output, Rectangle<i32, Physical>, Size<i32, Physical>)> {
-        let output = Output::from_resource(output)?;
-        let size = screen_size(&output)?;
-        // Behind the lock there is nothing to give and nothing to ask.
-        if self.lock.is_some() {
-            tracing::info!("a screen capture was refused: the screen is locked");
-            return None;
+    ) -> (
+        Verdict,
+        Option<(Output, Rectangle<i32, Physical>, Size<i32, Physical>)>,
+    ) {
+        let nowhere = (Verdict::No, None);
+        let verdict = self.may_capture_screen(client);
+        if verdict == Verdict::No {
+            return nowhere;
         }
-        if !self.may_capture_screen(client) {
-            return None;
-        }
+        let (Some(output), ()) = (Output::from_resource(output), ()) else {
+            return nowhere;
+        };
+        let Some(size) = screen_size(&output) else {
+            return nowhere;
+        };
         // The region arrives in the screen's logical pixels and may be anywhere; the protocol
         // says to clip it to the screen rather than complain about it.
         let scale = output.current_scale().fractional_scale();
@@ -343,40 +443,53 @@ impl Slipstream {
             None => Rectangle::from_size(size),
             Some(asked) => {
                 let whole = Rectangle::from_size(size.to_f64().to_logical(scale).to_i32_round());
-                asked
-                    .intersection(whole)?
-                    .to_f64()
-                    .to_physical(scale)
-                    .to_i32_round()
+                match asked.intersection(whole) {
+                    Some(clipped) => clipped.to_f64().to_physical(scale).to_i32_round(),
+                    None => return nowhere,
+                }
             }
         };
-        (region.size.w > 0 && region.size.h > 0).then_some((output, region, size))
+        match region.size.w > 0 && region.size.h > 0 {
+            true => (verdict, Some((output, region, size))),
+            false => nowhere,
+        }
     }
 
-    /// Whether this client may have the screen: allowed for good in the settings, allowed for
-    /// this session, or, nested with `SLIPSTREAM_CAPTURE_ANYONE=1`, anyone unsandboxed.
-    fn may_capture_screen(&mut self, client: &Client) -> bool {
+    /// What to do about this client: allowed for good in the settings, allowed for this session,
+    /// the portal (which asks its own way), or a program to put on the card.
+    fn may_capture_screen(&mut self, client: &Client) -> Verdict {
+        // Behind the lock there is nothing to give and nothing to ask: a card there would take
+        // the first Enter after unlocking.
+        if self.lock.is_some() {
+            tracing::info!("a screen capture was refused: the screen is locked");
+            return Verdict::No;
+        }
         let named = client
             .get_data::<crate::state::ClientState>()
             .and_then(|state| state.asks_as.clone());
-        let Some((name, exe)) = named else {
+        let Some((program, exe)) = named else {
             // Nothing that can be named can be asked about, and nothing unnamed is allowed.
             tracing::info!("a screen capture was refused: the program couldn't be identified");
-            return false;
+            return Verdict::No;
         };
         let path = exe.to_string_lossy().into_owned();
         if self.settings.privacy.allows_capture(&path) || self.screencopy.allowed_once(&exe) {
-            return true;
+            return Verdict::Allowed;
         }
+        // The portal has its own consent, through the share picker.
         if crate::capture::may_capture(client) {
-            // The portal, which has asked its own way.
-            return true;
+            return Verdict::Allowed;
         }
-        tracing::info!(
-            program = name,
-            "a screen capture was refused: not allowed yet"
-        );
-        false
+        // One card at a time. A second program asking while one is up is refused rather than
+        // queued: a queue of consent cards is a thing people click through.
+        if self.share.is_some() && !self.screencopy.already_asking(&exe) {
+            tracing::info!(
+                program,
+                "a screen capture was refused: already asking about another"
+            );
+            return Verdict::No;
+        }
+        Verdict::Ask { program, exe }
     }
 
     /// Fills every frame waiting on this screen from the pixels just drawn for it.
