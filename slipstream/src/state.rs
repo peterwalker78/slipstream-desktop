@@ -1301,6 +1301,10 @@ impl Slipstream {
     /// left edge, then the others in the order they connected. The code rain stays on the panel,
     /// whichever order the screens lit up in, the lid opening included.
     fn arrange_screens(&mut self) {
+        // Modes and scales first: both change how big a screen is, and where the screens sit is
+        // worked out from their sizes. Doing it here covers every way a screen's size can change
+        // — starting up, plugging one in, or a choice made in Settings — from one place.
+        self.follow_screen_settings();
         let lit: Vec<Placing> = self
             .screen_order
             .iter()
@@ -2571,6 +2575,15 @@ impl Slipstream {
             self.known
                 .set_lit(&monitor, &output.name(), &label, size.w, size.h);
         }
+        // What it can do and what it is doing. Only the compositor can read a connector's modes,
+        // and the Settings app has to offer them, so they go through the file with the rest.
+        let running = output
+            .current_mode()
+            .map(|mode| crate::screen::mode_label(&mode))
+            .unwrap_or_default();
+        let scale = output.current_scale().fractional_scale();
+        self.known
+            .set_modes(&monitor, self.screen_modes(output), &running, scale);
         if before.as_ref() == self.known.get(&monitor) {
             return;
         }
@@ -4943,6 +4956,52 @@ impl Slipstream {
         }
     }
 
+    /// Puts every lit screen into the mode and scale the settings ask for. A screen with nothing
+    /// said about it keeps the mode it chose for itself and the scale worked out from its size.
+    pub fn follow_screen_settings(&mut self) {
+        let screens: Vec<Output> = self
+            .screens
+            .iter()
+            .map(|screen| screen.output.clone())
+            .collect();
+        for output in screens {
+            let monitor = self.monitor_id(&output);
+            let place = self.settings.display.place(&monitor);
+            let (mode, scale) = (place.mode, place.scale);
+            if !mode.is_empty() {
+                self.set_screen_mode(&output, &mode);
+            }
+            self.set_screen_scale(&output, scale);
+        }
+    }
+
+    /// Scales a screen by `scale`, or works it out from the screen itself where it is zero.
+    ///
+    /// Everything that follows from a screen's size follows from here: the windows are told their
+    /// new scale so their text is drawn sharply, and anything recording the screen is told, since
+    /// a capture sized for the old scale would fail every frame after this.
+    pub fn set_screen_scale(&mut self, output: &Output, scale: f64) {
+        let want = match scale {
+            0.0 => self.automatic_scale(output),
+            given => given.clamp(
+                slipstream_config::SCALE_RANGE.0,
+                slipstream_config::SCALE_RANGE.1,
+            ),
+        };
+        if (output.current_scale().fractional_scale() - want).abs() < 0.001 {
+            return;
+        }
+        output.change_current_state(
+            None,
+            None,
+            Some(smithay::output::Scale::Fractional(want)),
+            None,
+        );
+        tracing::info!(screen = output.name(), scale = want, "scaled a screen");
+        self.update_window_scales();
+        self.capture_size_changed(output);
+    }
+
     pub fn toggle_explorer(&mut self) {
         if self.explorer.is_open() {
             self.explorer.close();
@@ -6141,6 +6200,7 @@ mod tests {
                     monitor: name.to_string(),
                     position: *position,
                     align: *align,
+                    ..Default::default()
                 },
             })
             .collect();

@@ -781,6 +781,114 @@ impl Slipstream {
         }
     }
 
+    /// The scale a screen gets when nothing has been said about it: worked out from how many
+    /// pixels it has across how many millimetres, which is what it was given when it lit up.
+    pub fn automatic_scale(&self, output: &Output) -> f64 {
+        let width_px = output.current_mode().map(|mode| mode.size.w).unwrap_or(0);
+        let width_mm = output.physical_properties().size.w.max(0) as u32;
+        output_scale(width_px, width_mm)
+    }
+
+    /// Puts a screen into `mode`, on the hardware. Whether it took.
+    ///
+    /// A modeset while the session is away from this virtual terminal would fail and could leave
+    /// the screen dark, so it is refused rather than attempted; the mode is applied again when
+    /// the session comes back and the screen is set up afresh.
+    pub fn set_screen_mode(&mut self, output: &Output, want: &str) -> bool {
+        let Some(udev) = self.udev.as_mut() else {
+            return false;
+        };
+        if !udev.session.is_active() {
+            tracing::info!("not changing a screen's mode while the session is away");
+            return false;
+        }
+        let name = output.name();
+        for (node, gpu) in udev.gpus.iter_mut() {
+            let Some(screen) = gpu
+                .screens
+                .values_mut()
+                .find(|screen| screen.output == *output)
+            else {
+                continue;
+            };
+            let Some(drm) = screen.connector.modes().iter().copied().find(|drm| {
+                let mode = Mode::from(*drm);
+                slipstream_config::screens::ScreenMode {
+                    width: mode.size.w,
+                    height: mode.size.h,
+                    refresh: mode.refresh,
+                    preferred: false,
+                }
+                .matches(want)
+            }) else {
+                tracing::warn!(screen = name, want, "this screen has no such mode");
+                return false;
+            };
+            let mode = Mode::from(drm);
+            if output.current_mode() == Some(mode) {
+                return true;
+            }
+            let before = output.current_mode();
+            match screen.drm_output.use_mode(
+                drm,
+                &mut gpu.renderer,
+                &DrmOutputRenderElements::<_, crate::render::OutputElement>::default(),
+            ) {
+                Ok(()) => {
+                    output.change_current_state(Some(mode), None, None, None);
+                    tracing::info!(screen = name, mode = want, %node, "changed a screen's mode");
+                    return true;
+                }
+                Err(err) => {
+                    // A mode the hardware can't drive alongside the others leaves the screen
+                    // where it was rather than dark.
+                    tracing::warn!(screen = name, want, "couldn't change the mode: {err}");
+                    if let Some(before) = before {
+                        output.change_current_state(Some(before), None, None, None);
+                    }
+                    return false;
+                }
+            }
+        }
+        false
+    }
+
+    /// Every mode a screen offers, as its connector last reported them. Nested there is only the
+    /// window's own size, which is not a mode anybody can change.
+    pub fn screen_modes(&self, output: &Output) -> Vec<slipstream_config::screens::ScreenMode> {
+        let Some(udev) = self.udev.as_ref() else {
+            return Vec::new();
+        };
+        for gpu in udev.gpus.values() {
+            for screen in gpu.screens.values() {
+                if screen.output != *output {
+                    continue;
+                }
+                let mut modes: Vec<_> = screen
+                    .connector
+                    .modes()
+                    .iter()
+                    .map(|drm| {
+                        let mode = Mode::from(*drm);
+                        slipstream_config::screens::ScreenMode {
+                            width: mode.size.w,
+                            height: mode.size.h,
+                            refresh: mode.refresh,
+                            preferred: drm.mode_type().contains(ModeTypeFlags::PREFERRED),
+                        }
+                    })
+                    .collect();
+                // Biggest first, then fastest: the order the Settings app offers them in.
+                modes.sort_by_key(|mode| {
+                    std::cmp::Reverse((mode.width * mode.height, mode.refresh))
+                });
+                modes.dedup();
+                return modes;
+            }
+        }
+        Vec::new()
+    }
+
     /// How many entries a screen's gamma ramp has, or `None` where it has none to give.
     pub fn gamma_size(&self, output: &Output) -> Option<usize> {
         let udev = self.udev.as_ref()?;
@@ -929,8 +1037,9 @@ fn output_scale(width_px: i32, width_mm: u32) -> f64 {
         .unwrap_or_else(|| scale_for_density(width_px, width_mm))
 }
 
-/// Until there's a settings page: 1.25 on a 14" 1920×1200 laptop panel, 2 on 4K laptops, 1 on
-/// ordinary desktop monitors. Screens that don't report a size (projectors, some VMs) get 1.
+/// What a screen gets when nothing in Settings says otherwise: 1.25 on a 14" 1920×1200 laptop
+/// panel, 2 on 4K laptops, 1 on ordinary desktop monitors. Screens that don't report a size
+/// (projectors, some VMs) get 1.
 fn scale_for_density(width_px: i32, width_mm: u32) -> f64 {
     if width_mm == 0 {
         return 1.0;

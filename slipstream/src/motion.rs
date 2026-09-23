@@ -283,8 +283,6 @@ mod tests {
         );
     }
 
-    use super::*;
-
     const LEFT: Rect = Rect {
         x: 16,
         y: 16,

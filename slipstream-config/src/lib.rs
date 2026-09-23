@@ -87,7 +87,8 @@ const HEADER: &str = "\
 
 ";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// No `Eq`: a screen's scale is a float.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Settings {
     pub appearance: Appearance,
@@ -462,7 +463,8 @@ pub struct Motion {
 }
 
 /// The screens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// No `Eq`: its screens carry a scale, which is a float.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Display {
     /// Night light: warmer colours on every screen. On a schedule, Slipstream turns it on and off
@@ -482,7 +484,8 @@ pub struct Display {
 }
 
 /// Where one screen sits against the one before it in the row.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+// No `Eq`: a scale is a float.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct ScreenPlace {
     /// The screen this is about, as `screens.toml` knows it: what its EDID says, else its
@@ -490,7 +493,24 @@ pub struct ScreenPlace {
     pub monitor: String,
     pub position: Position,
     pub align: Align,
+    /// The mode to run it in, as `1920x1080@60` or just `1920x1080` for any rate at that size.
+    /// Empty leaves it on the one the screen itself asks for. A mode the screen turns out not to
+    /// have is ignored, so a file carried to another desk doesn't blank a monitor.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mode: String,
+    /// What to scale it by. Zero works it out from the screen's own size and resolution, which is
+    /// what Slipstream does with no say in it.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub scale: f64,
 }
+
+fn is_zero(scale: &f64) -> bool {
+    *scale == 0.0
+}
+
+/// The scales a screen may be set to. Below a half nothing is readable and above four nothing
+/// fits; the same range the automatic one is clamped to.
+pub const SCALE_RANGE: (f64, f64) = (0.5, 4.0);
 
 /// Which side of the screen before it a screen sits on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -570,15 +590,40 @@ impl Display {
     }
 
     /// Records where `monitor` sits, replacing what was there.
-    pub fn set_place(&mut self, place: ScreenPlace) {
-        match self
-            .screens
-            .iter_mut()
-            .find(|held| held.monitor == place.monitor)
-        {
-            Some(slot) => *slot = place,
-            None => self.screens.push(place),
+    /// Where `monitor` sits. Leaves whatever else is set for it — a screen's mode and scale are
+    /// nothing to do with where it is, and rewriting the whole entry would drop them every time
+    /// the arrangement changed.
+    pub fn set_place(&mut self, monitor: &str, position: Position, align: Align) {
+        let slot = self.entry(monitor);
+        slot.position = position;
+        slot.align = align;
+    }
+
+    /// The mode to run `monitor` in, as `1920x1080@60`. Empty goes back to the screen's own
+    /// preferred mode.
+    pub fn set_mode(&mut self, monitor: &str, mode: &str) {
+        self.entry(monitor).mode = mode.to_string();
+    }
+
+    /// What to scale `monitor` by. Zero goes back to working it out from the screen itself.
+    pub fn set_scale(&mut self, monitor: &str, scale: f64) {
+        self.entry(monitor).scale = if scale == 0.0 {
+            0.0
+        } else {
+            scale.clamp(SCALE_RANGE.0, SCALE_RANGE.1)
+        };
+    }
+
+    /// What is set for `monitor`, making an entry for it if there is none yet.
+    fn entry(&mut self, monitor: &str) -> &mut ScreenPlace {
+        if let Some(index) = self.screens.iter().position(|held| held.monitor == monitor) {
+            return &mut self.screens[index];
         }
+        self.screens.push(ScreenPlace {
+            monitor: monitor.to_string(),
+            ..ScreenPlace::default()
+        });
+        self.screens.last_mut().expect("just pushed")
     }
 }
 
@@ -1365,6 +1410,8 @@ mod tests {
                     monitor: "Made Up MU27 0001".into(),
                     position: Position::Above,
                     align: Align::Centre,
+                    mode: "2560x1440@144".into(),
+                    scale: 1.25,
                 }],
             },
             notifications: Notifications {
@@ -1408,6 +1455,7 @@ mod tests {
         );
         assert!(text.contains("change-every-mins = 5"), "{text}");
         assert!(text.contains("night-light = true"), "{text}");
+        assert!(text.contains(r#"mode = "2560x1440@144""#), "{text}");
         assert!(
             text.contains(r#"screen-capture-allowed = ["/usr/bin/made-up-recorder"]"#),
             "{text}"
@@ -1441,5 +1489,33 @@ mod tests {
     fn an_empty_allowlist_is_left_out_of_the_file() {
         let text = toml::to_string(&Settings::default()).unwrap();
         assert!(!text.contains("screen-capture-allowed"), "{text}");
+    }
+    #[test]
+    fn a_screens_place_mode_and_scale_dont_overwrite_each_other() {
+        let mut display = Display::default();
+        display.set_place("MU27", Position::Above, Align::Centre);
+        display.set_mode("MU27", "2560x1440@144");
+        display.set_scale("MU27", 1.5);
+        // Moving it about must not forget what it is set to, and vice versa.
+        display.set_place("MU27", Position::LeftOf, Align::End);
+        let place = display.place("MU27");
+        assert_eq!(place.position, Position::LeftOf);
+        assert_eq!(place.align, Align::End);
+        assert_eq!(place.mode, "2560x1440@144");
+        assert_eq!(place.scale, 1.5);
+        // One entry per screen, however many times it is set.
+        assert_eq!(display.screens.len(), 1);
+    }
+
+    #[test]
+    fn a_scale_is_kept_inside_what_can_be_read() {
+        let mut display = Display::default();
+        display.set_scale("MU27", 99.0);
+        assert_eq!(display.place("MU27").scale, SCALE_RANGE.1);
+        display.set_scale("MU27", 0.01);
+        assert_eq!(display.place("MU27").scale, SCALE_RANGE.0);
+        // Zero is not a scale: it means work it out from the screen.
+        display.set_scale("MU27", 0.0);
+        assert_eq!(display.place("MU27").scale, 0.0);
     }
 }

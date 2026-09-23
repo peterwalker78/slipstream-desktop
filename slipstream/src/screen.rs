@@ -30,6 +30,17 @@ impl Named for &str {
     }
 }
 
+/// How a mode is written down, for the Settings app and for a hand-edited settings file.
+pub fn mode_label(mode: &smithay::output::Mode) -> String {
+    slipstream_config::screens::ScreenMode {
+        width: mode.size.w,
+        height: mode.size.h,
+        refresh: mode.refresh,
+        preferred: false,
+    }
+    .label()
+}
+
 /// One screen: an output, and the workspace it is showing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Screen<O> {
