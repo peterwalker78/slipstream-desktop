@@ -132,6 +132,13 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
         })
         .collect();
     for binding in bindings {
+        // The laptop's own keys are left out: play, volume, mute and brightness have pictures on
+        // them and work the same on every machine anyone has used. Listing them fills a column
+        // with things nobody came here to look up. Print stays — that it saves a screenshot to
+        // Pictures and copies it is not written on the key.
+        if keys::is_hardware_key(binding.key) {
+            continue;
+        }
         let group = binding.action.group();
         let does = binding.action.describe();
         let Some(section) = sections.iter_mut().find(|section| section.group == group) else {
@@ -706,7 +713,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_binding_appears_once() {
+    fn every_binding_appears_once_but_the_laptops_own_keys() {
         let bindings = keys::checked(keys::defaults());
         let sections = sections(&bindings);
         for binding in &bindings {
@@ -715,8 +722,22 @@ mod tests {
                 .flat_map(|section| &section.rows)
                 .filter(|row| row.bindings.contains(&(binding.mods, binding.key)))
                 .count();
-            assert_eq!(rows, 1, "{binding:?}");
+            // Play, volume, mute and brightness have pictures on them and are the same on every
+            // machine; the sheet is for the keys that aren't written on the keyboard.
+            let want = usize::from(!keys::is_hardware_key(binding.key));
+            assert_eq!(rows, want, "{binding:?}");
         }
+        // And at least one of each, so this is testing something.
+        assert!(bindings.iter().any(|b| keys::is_hardware_key(b.key)));
+        assert!(bindings.iter().any(|b| !keys::is_hardware_key(b.key)));
+        // Print is not one of them: that it saves to Pictures and copies isn't on the key.
+        assert!(
+            sections
+                .iter()
+                .flat_map(|section| &section.rows)
+                .any(|row| row.does == "screenshot"),
+            "Print still belongs on the sheet"
+        );
         let groups: Vec<Group> = sections.iter().map(|section| section.group).collect();
         assert_eq!(groups, Group::ALL);
         let row = |does: &str| {

@@ -225,6 +225,11 @@ fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: 
 /// empty workspace only has to say so.
 const TIPS_TEXT: &str = "Keyboard tips";
 const TIPS_KEY: &str = "Super+/";
+/// Under the pill: how to get the tour, which nothing else says. Quieter than the pill, because
+/// it is the second thing to read, not a second pill.
+const TIPS_UNDER: &str = "then Enter for the tour";
+const TIPS_UNDER_GAP: f32 = 10.0;
+const TIPS_UNDER_H: f32 = 17.0;
 /// Where it floats: this far down the screen, so it sits in the lower third clear of the
 /// wallpaper's logo, and drifts this far either side of that over `TIPS_DRIFT` seconds.
 const TIPS_DOWN: f64 = 0.72;
@@ -279,9 +284,14 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         .ceil();
     // Room around the pill for the glow to fade out into.
     let halo = TIPS_RINGS as f32 * TIPS_RING_STEP;
+    let under = Style::new(Face::Body, 13.0, 0x7f8a9bff);
+    let under_w = text::width(TIPS_UNDER, &under);
+    // The line underneath may be wider than the pill; the pill then sits in the middle of it.
+    let widest = pill_w.max(under_w);
+    let pill_x = halo + (widest - pill_w) / 2.0;
     let size = Size::<i32, Logical>::from((
-        (pill_w + 2.0 * halo).ceil() as i32,
-        (TIPS_H + 2.0 * halo).ceil() as i32,
+        (widest + 2.0 * halo).ceil() as i32,
+        (TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H + 2.0 * halo).ceil() as i32,
     ));
     let mut p = Painter::new(
         (size.w as f64 * scale).round() as u32,
@@ -294,7 +304,7 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         let alpha = 0x30 / (ring as u32 + 1);
         let radius = (TIPS_H + 2.0 * grow) / 2.0;
         p.border(
-            halo - grow,
+            pill_x - grow,
             halo - grow,
             pill_w + 2.0 * grow,
             TIPS_H + 2.0 * grow,
@@ -303,9 +313,9 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
             (TIPS_GLOW & 0xffffff00) | alpha,
         );
     }
-    p.fill(halo, halo, pill_w, TIPS_H, TIPS_H / 2.0, 0x0b0d12e0);
+    p.fill(pill_x, halo, pill_w, TIPS_H, TIPS_H / 2.0, 0x0b0d12e0);
     p.border(
-        halo,
+        pill_x,
         halo,
         pill_w,
         TIPS_H,
@@ -314,11 +324,17 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         (TIPS_GLOW & 0xffffff00) | 0x66,
     );
     let centre = halo + TIPS_H / 2.0;
-    p.text(TIPS_TEXT, halo + TIPS_PAD, centre, &words);
+    p.text(TIPS_TEXT, pill_x + TIPS_PAD, centre, &words);
     p.keycap(
         TIPS_KEY,
-        halo + TIPS_PAD + text::width(TIPS_TEXT, &words) + TIPS_GAP,
+        pill_x + TIPS_PAD + text::width(TIPS_TEXT, &words) + TIPS_GAP,
         centre,
+    );
+    p.text(
+        TIPS_UNDER,
+        halo + (widest - under_w) / 2.0,
+        halo + TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H / 2.0,
+        &under,
     );
     Some((p.pixmap, size))
 }
