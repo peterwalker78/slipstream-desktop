@@ -76,17 +76,6 @@ pub enum Item {
     Emoji(&'static str, &'static str),
 }
 
-/// What the explorer was opened for. The rows are the same either way; what changes is which
-/// one Enter lands on, and whether a command has to fail to find an app before it is offered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    /// A tapped Super: apps first, a command only when nothing matches.
-    Apps,
-    /// Super+R: a command line. What is typed runs as it is written, arguments and all, even
-    /// when an app of that name is installed, and what was run before is offered back.
-    Run,
-}
-
 pub enum Outcome {
     Nothing,
     Close,
@@ -123,20 +112,6 @@ struct Catalog {
 
 /// How many emoji a `:` query lists.
 const EMOJI_SHOWN: usize = 6;
-/// Commands the command line remembers, and how many of them it offers back at once.
-const RAN_KEPT: usize = 25;
-const RAN_SHOWN: usize = 5;
-/// The command line's own colour, on its icon and its examples: the action colour, not the
-/// selection's, so the panel reads as doing something rather than finding something.
-const RUN_INK: u32 = 0xffb547ff;
-/// What the command line says for itself while nothing is typed. The last line points back at
-/// the panel it is not, which is the question a Windows user actually has.
-const RUN_BLURB: [&str; 3] = [
-    "Type a command and press Enter. It runs as written,",
-    "arguments and all, even when an app has that name.",
-    "Tap Super instead to search your apps.",
-];
-const RUN_EXAMPLES: [&str; 3] = ["htop", "foot -e journalctl -f", "~/bin/backup --dry-run"];
 /// How long an answer takes to decode when it changes.
 const ANSWER_DECODE: f64 = 0.32;
 
@@ -147,8 +122,6 @@ const RECENT: usize = 24;
 type RecentReader = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
 
 struct Results {
-    /// Commands run before that match what's typed, newest first. The command line only.
-    recent_commands: Vec<String>,
     apps: Vec<App>,
     answer: Option<crate::calc::Answer>,
     emoji: Vec<(&'static str, &'static str)>,
@@ -159,18 +132,6 @@ struct Results {
 }
 
 impl Results {
-    /// The row Enter lands on before anything is moved. On the command line that is the command
-    /// itself, whatever apps happen to match what's typed; everywhere else it is the first app.
-    fn first_selection(&self, on_command_line: bool) -> usize {
-        if !on_command_line {
-            return 0;
-        }
-        self.items()
-            .iter()
-            .position(|item| matches!(item, Item::Run(_)))
-            .unwrap_or(0)
-    }
-
     /// Everything selectable, in selection order.
     fn items(&self) -> Vec<Item> {
         let mut items: Vec<Item> = self.apps.iter().cloned().map(Item::App).collect();
@@ -181,7 +142,6 @@ impl Results {
                 .map(|(emoji, name)| Item::Emoji(emoji, name)),
         );
         items.extend(self.run.clone().map(Item::Run));
-        items.extend(self.recent_commands.iter().cloned().map(Item::Run));
         items.extend(self.files.iter().cloned().map(Item::File));
         if self.log_out {
             items.push(Item::LogOut);
@@ -205,10 +165,6 @@ const CARET_COLOUR: u32 = 0xffb547ff;
 #[derive(Clone, PartialEq)]
 struct Look {
     query: String,
-    /// Which panel this is: the command line draws its own placeholder and its own rows.
-    mode: Mode,
-    /// How many commands have been run, so the list under the command line repaints.
-    ran: usize,
     selected: usize,
     scroll: usize,
     version: u64,
@@ -224,10 +180,6 @@ struct Look {
 
 pub struct Explorer {
     open: bool,
-    mode: Mode,
-    /// Commands run from the command line, newest first, newest wins on a repeat. This session
-    /// only: a command line that remembered across logins would outlive the reason for it.
-    ran: Vec<String>,
     query: String,
     selected: usize,
     /// The first row of apps showing.
@@ -277,8 +229,6 @@ impl Explorer {
     fn idle(reduced_motion: bool) -> Self {
         Self {
             open: false,
-            mode: Mode::Apps,
-            ran: Vec::new(),
             query: String::new(),
             selected: 0,
             scroll: 0,
@@ -355,33 +305,7 @@ impl Explorer {
     }
 
     pub fn open(&mut self, now: f64) {
-        self.open_in(Mode::Apps, now);
-    }
-
-    /// Super+R: the same panel on its command line.
-    pub fn open_run(&mut self, now: f64) {
-        self.open_in(Mode::Run, now);
-    }
-
-    pub fn mode(&self) -> Mode {
-        self.mode
-    }
-
-    /// A command was run, so it is offered back the next time. The newest wins on a repeat, and
-    /// the list is capped: a command line is a shortcut, not an archive.
-    pub fn ran(&mut self, command: &str) {
-        let command = command.trim();
-        if command.is_empty() {
-            return;
-        }
-        self.ran.retain(|been| been != command);
-        self.ran.insert(0, command.to_string());
-        self.ran.truncate(RAN_KEPT);
-    }
-
-    fn open_in(&mut self, mode: Mode, now: f64) {
         self.open = true;
-        self.mode = mode;
         self.query.clear();
         self.selected = 0;
         self.scroll = 0;
@@ -545,7 +469,6 @@ impl Explorer {
         // `:` and a word looks for emoji and nothing else.
         if let Some(words) = self.query.trim_start().strip_prefix(':') {
             return Results {
-                recent_commands: Vec::new(),
                 apps: Vec::new(),
                 answer: None,
                 emoji: crate::emoji::search(words, EMOJI_SHOWN),
@@ -562,29 +485,11 @@ impl Explorer {
             .into_iter()
             .cloned()
             .collect();
-        let on_command_line = self.mode == Mode::Run;
-        // On the command line what is typed is always offered as a command; everywhere else it
-        // is the last resort, once no app and no sum has matched.
-        let run = (!query.is_empty() && (on_command_line || (apps.is_empty() && answer.is_none())))
+        // What is typed is offered as a command only as the last resort, once no app and no sum
+        // has matched.
+        let run = (!query.is_empty() && apps.is_empty() && answer.is_none())
             .then(|| self.query.trim().to_string());
-        // Commands run before, minus the one already typed out in full above.
-        let recent_commands: Vec<String> = if on_command_line {
-            self.ran
-                .iter()
-                .filter(|been| {
-                    been.to_lowercase().contains(&query) && Some(been.as_str()) != run.as_deref()
-                })
-                .take(RAN_SHOWN)
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        // The command line lists what you have run, and nothing else: recent documents and a
-        // Log out row are the app panel's business, and here they are only in the way.
-        let files = if on_command_line {
-            Vec::new()
-        } else if query.is_empty() {
+        let files = if query.is_empty() {
             catalog.recent.iter().take(3).cloned().collect()
         } else {
             catalog
@@ -596,26 +501,23 @@ impl Explorer {
                 .collect()
         };
         Results {
-            recent_commands,
             apps,
             answer,
             emoji: Vec::new(),
             run,
             files,
-            log_out: !on_command_line && ("log out".contains(&query) || "logout".contains(&query)),
+            log_out: "log out".contains(&query) || "logout".contains(&query),
             // Asked for by name, never shown on an empty query: the hint card teaches Super+/.
-            shortcuts: !on_command_line
-                && !query.is_empty()
+            shortcuts: !query.is_empty()
                 && ["keyboard shortcuts", "keys", "help"]
                     .iter()
                     .any(|words| words.contains(&query)),
         }
     }
 
-    /// Back to the row Enter lands on for what is typed now: the first app, or, on the command
-    /// line, the command itself, so an app of the same name never takes the keystroke.
+    /// Back to the row Enter lands on for what is typed now: the first one.
     fn reset_selection(&mut self) {
-        self.selected = self.results().first_selection(self.mode == Mode::Run);
+        self.selected = 0;
     }
 
     /// A key while the explorer is open, with the modifiers held. `ch` is the character it types,
@@ -777,8 +679,6 @@ impl Explorer {
             let catalog = self.catalog.lock().unwrap();
             Look {
                 query: self.query.clone(),
-                mode: self.mode,
-                ran: self.ran.len(),
                 selected: self.selected,
                 scroll: self.scroll,
                 version: catalog.version,
@@ -947,15 +847,15 @@ impl Explorer {
             panel::GLASS_EDGE,
         );
 
-        // The search row. The command line takes the run icon in the action colour rather than
-        // the magnifier: the two panels are the same shape, so what they are for has to read
-        // from the first glance, not from the placeholder.
+        // The search row.
         let centre = fy + SEARCH_H / 2.0;
-        let (glyph, glyph_ink) = match look.mode {
-            Mode::Apps => (icons::SEARCH, 0x8f99aaff),
-            Mode::Run => (icons::RUN, RUN_INK),
-        };
-        p.icon(glyph, fx + 26.0, centre - 14.0, 28.0, Some(glyph_ink));
+        p.icon(
+            icons::SEARCH,
+            fx + 26.0,
+            centre - 14.0,
+            28.0,
+            Some(0x8f99aaff),
+        );
         let mut x = fx + 26.0 + 28.0 + 16.0;
         x += p.text(
             &look.query,
@@ -970,20 +870,13 @@ impl Explorer {
         ));
         if look.query.is_empty() {
             p.text(
-                match look.mode {
-                    Mode::Apps => "Apps, files, sums, :emoji",
-                    Mode::Run => "A command, and its arguments",
-                },
+                "Apps, files, sums, :emoji",
                 x + 9.0,
                 centre,
                 &Style::new(Face::Body, 27.0, panel::PLACEHOLDER),
             );
         }
-        let own_key = match look.mode {
-            Mode::Apps => "Super",
-            Mode::Run => "Super+R",
-        };
-        panel::key_hint(&mut p, fx + width - 26.0, centre, &[own_key], "");
+        panel::key_hint(&mut p, fx + width - 26.0, centre, &["Super"], "");
         p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, 0xffffff12);
 
         // The apps grid.
@@ -991,33 +884,7 @@ impl Explorer {
         let apps_w = width * 1.6 / 2.6;
         let tile_w = (apps_w - 40.0 - TILE_GAP * (COLUMNS - 1) as f32) / COLUMNS as f32;
         let answering = results.answer.is_some() || look.query.trim_start().starts_with(':');
-        // The command line explains itself where the apps grid would be. It is the largest thing
-        // on the panel, and on an empty query it had nothing to say but "Looking for apps…",
-        // which is the wrong answer to "what is this and how is it different from Super?".
-        let explaining = look.mode == Mode::Run && look.query.trim().is_empty();
-        if explaining {
-            let heading = Style {
-                tracking: 0.02,
-                ..Style::new(Face::BodyBold, 19.0, 0xe6e9efff)
-            };
-            let body = Style::new(Face::Body, 15.0, 0x8b93a3ff);
-            let mut y = body_y + 44.0;
-            p.text("Run a command", fx + 30.0, y, &heading);
-            y += 30.0;
-            for line in RUN_BLURB {
-                p.text(line, fx + 30.0, y, &body);
-                y += 23.0;
-            }
-            // A few to look at, so the shape of a command is obvious without reading.
-            y += 12.0;
-            let example = Style::new(Face::Mono, 14.0, RUN_INK);
-            for line in RUN_EXAMPLES {
-                let w = text::width(line, &example) + 20.0;
-                p.fill(fx + 30.0, y - 13.0, w, 26.0, 7.0, 0xffffff0f);
-                p.text(line, fx + 40.0, y, &example);
-                y += 34.0;
-            }
-        } else if results.apps.is_empty() && !answering {
+        if results.apps.is_empty() && !answering {
             let message = if look.query.trim().is_empty() {
                 "Looking for apps…".to_string()
             } else {
@@ -1037,7 +904,7 @@ impl Explorer {
             .iter()
             .enumerate()
             .skip(first)
-            .take(if explaining { 0 } else { ROWS * COLUMNS })
+            .take(ROWS * COLUMNS)
         {
             let (row, column) = ((index - first) / COLUMNS, index % COLUMNS);
             let x = fx + 20.0 + column as f32 * (tile_w + TILE_GAP);
@@ -1190,42 +1057,13 @@ impl Explorer {
             y += ROW_H + 3.0;
             index += 1;
         }
-        // The commands run before, under the one being typed. Only the command line has any.
-        if !results.recent_commands.is_empty() {
-            y += header(&mut p, row_x, y, "Ran before");
-        }
-        for command in &results.recent_commands {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: icons::RUN,
-                    label: command.clone(),
-                    trailing: (index == look.selected).then(|| "⏎".to_string()),
-                    keycap: true,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((
-                Item::Run(command.clone()),
-                on_screen(row_x, y, row_w, ROW_H),
-            ));
-            y += ROW_H + 3.0;
-            index += 1;
-        }
         let files_title = if look.query.trim().is_empty() {
             "Recent files"
         } else {
             "Files"
         };
-        // A sum or an emoji search has no use for an empty files list, and the command line has
-        // no use for one at all.
-        let files_shown = !results.files.is_empty() || !(answering || look.mode == Mode::Run);
+        // A sum or an emoji search has no use for an empty files list.
+        let files_shown = !results.files.is_empty() || !answering;
         if files_shown {
             y += header(&mut p, row_x, y, files_title);
         }
@@ -1321,22 +1159,13 @@ impl Explorer {
         let foot_y = body_y + BODY_H;
         p.fill(fx, foot_y, width, 1.0, 0.0, 0xffffff10);
         let mut right = fx + width - 22.0;
-        let keys: &[(&[&str], &str)] = match look.mode {
-            Mode::Apps => &[
-                (&["Esc"], "clear, close"),
-                (&["Shift+Enter"], "new window"),
-                (&["Enter"], "open"),
-                (&["Tab"], "next"),
-                (&["↑ ↓ ← →"], "choose"),
-            ],
-            // A command has no second window to open, and "open" is the wrong verb for it.
-            Mode::Run => &[
-                (&["Esc"], "clear, close"),
-                (&["Enter"], "run"),
-                (&["Tab"], "next"),
-                (&["↑ ↓"], "choose"),
-            ],
-        };
+        let keys: &[(&[&str], &str)] = &[
+            (&["Esc"], "clear, close"),
+            (&["Shift+Enter"], "new window"),
+            (&["Enter"], "open"),
+            (&["Tab"], "next"),
+            (&["↑ ↓ ← →"], "choose"),
+        ];
         for (keys, label) in keys {
             right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label) - 20.0;
         }
@@ -1591,73 +1420,7 @@ mod tests {
     }
 
     #[test]
-    fn the_command_line_runs_what_is_typed_even_when_an_app_matches() {
-        let mut explorer = with_apps(&["Files", "Firefox"]);
-        // On the apps panel, an app that matches takes the keystroke.
-        explorer.open(0.0);
-        type_in(&mut explorer, "firefox");
-        assert!(matches!(selected(&explorer), Some(Item::App(_))));
-        // On the command line the same query runs instead, and the app is still listed under
-        // it, so the panel is not two different things.
-        explorer.open_run(0.0);
-        type_in(&mut explorer, "firefox");
-        assert_eq!(selected(&explorer), Some(Item::Run("firefox".into())));
-        let items = explorer.results().items();
-        assert!(items.iter().any(|item| matches!(item, Item::App(_))));
-        // Arguments come through as written; no app search can carry those.
-        type_in(&mut explorer, " --private-window");
-        assert_eq!(
-            selected(&explorer),
-            Some(Item::Run("firefox --private-window".into()))
-        );
-    }
-
-    #[test]
-    fn the_command_line_offers_back_what_was_run() {
-        let mut explorer = with_apps(&["Files"]);
-        explorer.ran("htop -d 5");
-        explorer.ran("journalctl -f");
-        explorer.open_run(0.0);
-        type_in(&mut explorer, "ht");
-        let items = explorer.results().items();
-        // What is typed comes first; the command run before is offered under it.
-        assert_eq!(items.first(), Some(&Item::Run("ht".into())));
-        assert!(items.contains(&Item::Run("htop -d 5".into())));
-        // The one that doesn't match what's typed stays out of the way.
-        assert!(!items.contains(&Item::Run("journalctl -f".into())));
-    }
-
-    #[test]
-    fn running_the_same_command_twice_keeps_one_row() {
-        let mut explorer = with_apps(&[]);
-        explorer.ran("htop");
-        explorer.ran("btop");
-        explorer.ran("htop");
-        assert_eq!(explorer.ran, ["htop", "btop"]);
-    }
-
-    #[test]
-    fn the_command_line_leaves_out_what_belongs_to_the_apps_panel() {
-        let mut explorer = with_apps(&["Files"]);
-        // The apps panel offers recent files, Log out and the shortcut sheet by name.
-        explorer.open(0.0);
-        let apps = explorer.results();
-        assert!(
-            apps.log_out,
-            "the apps panel offers Log out on an empty query"
-        );
-        // The command line offers commands and nothing else: documents and a row that ends the
-        // session are the other panel's business.
-        explorer.open_run(0.0);
-        let run = explorer.results();
-        assert!(!run.log_out);
-        assert!(run.files.is_empty());
-        type_in(&mut explorer, "help");
-        assert!(!explorer.results().shortcuts);
-    }
-
-    #[test]
-    fn the_apps_panel_still_needs_a_command_to_match_nothing() {
+    fn a_command_is_offered_only_when_no_app_matches() {
         let mut explorer = with_apps(&["Files"]);
         explorer.open(0.0);
         type_in(&mut explorer, "files");

@@ -104,7 +104,6 @@ impl Slipstream {
             Action::Brightness(percent) => self.change_brightness(percent),
             Action::CycleWindows { forward } => self.cycle_windows(forward),
             Action::Explorer => self.toggle_explorer(),
-            Action::Run => self.toggle_run(),
             Action::Weigh { heavier } => self.weigh(heavier),
             Action::ToggleGravity => self.toggle_gravity(),
             Action::Minimise => self.minimise_focused(),

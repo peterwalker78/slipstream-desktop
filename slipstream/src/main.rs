@@ -302,7 +302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         udev::run(&mut event_loop, &mut state)?;
         tracing::info!(
             "Slipstream is running on WAYLAND_DISPLAY={}. Super+Return opens a terminal, Super+E \
-             files, Super+R a command; Ctrl+Alt+Del is the way out",
+             files, a tapped Super the apps; Ctrl+Alt+Del is the way out",
             state.socket_name.to_string_lossy()
         );
     } else {

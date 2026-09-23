@@ -261,7 +261,7 @@ pub struct Slipstream {
     pub clock: anim::Clock,
     /// Where windows are drawn on their way to where the layout put them.
     pub motion: Motion<Window>,
-    /// The app explorer (a tapped Super, or Super+R on its command line).
+    /// The app explorer, on a tapped Super.
     pub explorer: Explorer,
     /// Quick settings (Super+A).
     pub quick: crate::quick::QuickSettings,
@@ -2082,7 +2082,7 @@ impl Slipstream {
 
     /// Super+[ ] and Super+Shift+[ ]: the split beside the focused tile moves a step, on the
     /// press, and the tiles glide to their new sizes.
-    /// Super+Shift+R: turns the split the focused window sits in, and everything inside it, so
+    /// Super+R: turns the split the focused window sits in, and everything inside it, so
     /// rows become columns and columns become rows.
     ///
     /// The tiling tree can reach a shape there is otherwise no way out of — one wide tile along
@@ -4944,24 +4944,12 @@ impl Slipstream {
     }
 
     pub fn toggle_explorer(&mut self) {
-        if self.explorer.is_open() && self.explorer.mode() == crate::explorer::Mode::Apps {
+        if self.explorer.is_open() {
             self.explorer.close();
         } else {
             self.close_panels();
             let now = self.clock.tick();
             self.explorer.open(now);
-        }
-    }
-
-    /// Super+R: the explorer on its command line. Pressed while the apps panel is up it changes
-    /// to the command line rather than closing, so the two keys swap without a round trip.
-    pub fn toggle_run(&mut self) {
-        if self.explorer.is_open() && self.explorer.mode() == crate::explorer::Mode::Run {
-            self.explorer.close();
-        } else {
-            self.close_panels();
-            let now = self.clock.tick();
-            self.explorer.open_run(now);
         }
     }
 
@@ -5026,10 +5014,7 @@ impl Slipstream {
                 }
             }
             Item::File(path) => self.open_path(&path),
-            Item::Run(query) => {
-                self.explorer.ran(&query);
-                self.run_query(&query)
-            }
+            Item::Run(query) => self.run_query(&query),
             Item::Shortcuts => self.toggle_sheet(),
             Item::Answer(answer) => {
                 tracing::info!("copied an answer from the explorer");
@@ -5607,7 +5592,6 @@ impl Slipstream {
                 }
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
-                debug::Step::RunBox => self.toggle_run(),
                 // Key steps act only on an open panel. A closed one keeps its last selection, and a
                 // mistimed step would otherwise press it.
                 debug::Step::Type(_) | debug::Step::Key(_) if !self.explorer.is_open() => {

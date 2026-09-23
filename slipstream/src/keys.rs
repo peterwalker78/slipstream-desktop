@@ -47,9 +47,6 @@ pub enum Action {
     CycleWindows { forward: bool },
     /// Open or close the app explorer.
     Explorer,
-    /// Open the explorer on its command line, as Windows' Run box: what is typed is a command,
-    /// with its arguments, even when an app of that name is installed.
-    Run,
     /// Gravity: make the focused window heavier (towards the centre) or lighter (out to the edge,
     /// then into the code rain).
     Weigh { heavier: bool },
@@ -150,7 +147,6 @@ impl Action {
             Action::Brightness(_) => "brightness up, down",
             Action::CycleWindows { .. } => "switch window",
             Action::Explorer => "apps",
-            Action::Run => "run a command",
             Action::Weigh { .. } => "heavier, lighter",
             Action::ToggleGravity => "gravity on, off",
             Action::Minimise => "minimise to the code rain",
@@ -185,7 +181,6 @@ impl Action {
             | Action::Launch(_)
             | Action::CycleWindows { .. }
             | Action::Explorer
-            | Action::Run
             | Action::Minimise
             | Action::Restore
             | Action::HideAll
@@ -420,7 +415,6 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::b, Action::Launch(App::Browser)),
         // The app explorer, on a tapped Super as Windows opens Start. Super+Space is IBus's to
         // switch input methods, and a tapped Super already does this.
-        bind(mod_, Keysym::r, Action::Run),
         // Windows' quick settings and notification centre keys.
         // Windows' own display key: Win+P is where a Windows user looks for anything to do with
         // screens. With one screen it says there's nowhere to go.
@@ -450,9 +444,9 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::Prior, Action::Weigh { heavier: true }),
         bind(mod_, Keysym::Next, Action::Weigh { heavier: false }),
         bind(mod_, Keysym::t, Action::ToggleGravity),
-        // Turning the layout: beside Super+R, which runs a command, and the only key for it.
-        // Windows has no equivalent, so this is a new key for a new idea; Super+/ carries it.
-        bind(mod_shift, Keysym::r, Action::Rotate),
+        // Turning the layout. Windows has no equivalent, so this is a new key for a new idea;
+        // Super+/ carries it.
+        bind(mod_, Keysym::r, Action::Rotate),
         // Fill the tiling area, keeping the neighbours' tiles underneath. gamescope keeps Super+F
         // while it's focused (`passes_to_gamescope`).
         bind(mod_, Keysym::f, Action::Maximise),
@@ -870,7 +864,10 @@ mod tests {
             action_for(&bindings, SUPER, Keysym::e),
             Some(Action::Launch(App::Files))
         );
-        assert_eq!(action_for(&bindings, SUPER, Keysym::r), Some(Action::Run));
+        assert_eq!(
+            action_for(&bindings, SUPER, Keysym::r),
+            Some(Action::Rotate)
+        );
         // Super+Space is the input methods' again: a tapped Super opens the explorer.
         assert_eq!(action_for(&bindings, SUPER, Keysym::space), None);
     }
