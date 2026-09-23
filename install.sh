@@ -95,26 +95,12 @@ if [ -z "$tag" ]; then
     exit 1
 fi
 
-# GitHub's by-tag view of a release can lag behind its own uploads by a few seconds, so a
-# release published a moment ago can read as having no files at all. Ask a few times before
-# believing it: a fresh release is exactly when someone is most likely to be installing.
-name=
-for attempt in 1 2 3 4 5; do
-    name=$(fetch "$releases_api/tags/$tag" \
-        | sed -n 's/.*"name": *"\(slipstream-[^"]*-linux-'"$arch"'\.tar\.gz\)".*/\1/p' | head -n1)
-    if [ -n "$name" ]; then
-        break
-    fi
-    if [ "$attempt" -lt 5 ]; then
-        sleep 5
-    fi
-done
-if [ -z "$name" ]; then
-    echo "install.sh: release $tag has no download for $arch." >&2
-    echo "  If it was published in the last minute, its files may still be going up." >&2
-    echo "  https://github.com/$project/releases" >&2
-    exit 1
-fi
+# The file is named after the release, so the name is worked out from the tag rather than asked
+# for. GitHub's by-tag view of a release has been seen reporting a release as having no files at
+# all, for a long time, while those same files downloaded perfectly well from the address below —
+# so asking it whether a download exists is a question that can be answered wrongly. Downloading
+# it and finding out is not.
+name=slipstream-${tag#v}-linux-$arch.tar.gz
 base=https://github.com/$project/releases/download/$tag
 
 work=${dir:-${XDG_CACHE_HOME:-$HOME/.cache}/slipstream-install}
@@ -122,7 +108,14 @@ mkdir -p "$work"
 cd "$work"
 
 echo "Downloading $name"
-fetch_to "$base/$name" "$name"
+if ! fetch_to "$base/$name" "$name"; then
+    echo >&2
+    echo "install.sh: release $tag has no download for $arch." >&2
+    echo "  If it was published in the last few minutes its files may still be going up." >&2
+    echo "  Otherwise, see what that release has:" >&2
+    echo "  https://github.com/$project/releases/tag/$tag" >&2
+    exit 1
+fi
 fetch_to "$base/$name.sha256" "$name.sha256"
 if ! sha256sum -c "$name.sha256" >/dev/null 2>&1; then
     echo "install.sh: $name doesn't match its published checksum, so it wasn't unpacked." >&2
