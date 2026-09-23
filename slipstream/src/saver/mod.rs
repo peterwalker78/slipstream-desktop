@@ -1226,13 +1226,6 @@ impl Saver {
         }
     }
 
-    /// The bottom of the logo in logical pixels from the top of the screen, once laid out.
-    pub fn logo_bottom(&self, scale: f64) -> Option<f64> {
-        let layout = self.layout.as_ref()?;
-        let rows = (layout.logo.1 + layout.logo.3).max(0) as usize;
-        Some((layout.origin.1 + rows * layout.cell_h) as f64 / scale)
-    }
-
     /// The wallpaper for a screen `size` logical pixels big, at `alpha`. While `paused` (under a
     /// fullscreen window) it keeps its last frame. With `tween` (bullet time slowing the clock, so
     /// a step lasts many frames) cells fade from one step to the next rather than switching.

@@ -105,10 +105,6 @@ impl Screencopy {
         })
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.waiting.is_empty()
-    }
-
     /// Whether anything waiting on this screen asked for the pointer to be left out, which needs
     /// a draw of its own.
     pub fn wants_without_cursor(&self, output: &Output) -> bool {
@@ -483,10 +479,5 @@ mod tests {
         assert!(screencopy.allowed_once(&grim));
         // A program of the same name somewhere else is a different program.
         assert!(!screencopy.allowed_once(Path::new("/home/someone/bin/grim")));
-    }
-
-    #[test]
-    fn nothing_is_waiting_to_begin_with() {
-        assert!(Screencopy::default().is_empty());
     }
 }
