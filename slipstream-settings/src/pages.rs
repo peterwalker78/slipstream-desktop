@@ -23,7 +23,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 10] = [
+pub const PAGES: [Page; 11] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -98,6 +98,16 @@ pub const PAGES: [Page; 10] = [
             "view-grid-symbolic",
         ],
         build: workspaces,
+    },
+    Page {
+        id: "privacy",
+        title: "Privacy",
+        icons: &[
+            "preferences-system-privacy-symbolic",
+            "channel-secure-symbolic",
+            "security-high-symbolic",
+        ],
+        build: privacy,
     },
     Page {
         id: "session",
@@ -1268,6 +1278,69 @@ fn fill_workspaces(card: &gtk::Box, store: &Store) {
 }
 
 /// Logging out: whether the layout is written down, and whether it comes back without asking.
+fn privacy(store: &Store) -> gtk::Widget {
+    let page = page(
+        "Privacy",
+        "What programs have been allowed to do without asking again. Nothing is added here: \
+         Slipstream asks when a program first tries, and this is where an answer is taken back.",
+    );
+    let group = group(&page, "Screen recording");
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .build();
+    fill_capture_allowed(&card, store);
+    group.append(&card);
+    page.upcast()
+}
+
+/// The allowed programs, built again from the file whenever one is taken away.
+fn fill_capture_allowed(card: &gtk::Box, store: &Store) {
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+    let allowed = store.get().privacy.screen_capture_allowed;
+    if allowed.is_empty() {
+        row(
+            card,
+            "No programs are allowed",
+            Some(
+                "A program that asks to record the screen puts up a card naming it. Answer \
+                 \u{201c}Always allow\u{201d} and it appears here.",
+            ),
+            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+        );
+        return;
+    }
+    let refill = {
+        let card = card.clone();
+        let store = store.clone();
+        move || {
+            let card = card.clone();
+            let store = store.clone();
+            gtk::glib::idle_add_local_once(move || fill_capture_allowed(&card, &store));
+        }
+    };
+    for exe in allowed {
+        // The program's own name reads as the answer given; the path is what was written down,
+        // and two programs of the same name in different places are not the same allowance.
+        let name = exe.rsplit('/').next().unwrap_or(&exe).to_string();
+        let delete = gtk::Button::from_icon_name("user-trash-symbolic");
+        delete.set_tooltip_text(Some("Ask again next time"));
+        delete.add_css_class("flat");
+        {
+            let store = store.clone();
+            let refill = refill.clone();
+            let exe = exe.clone();
+            delete.connect_clicked(move |_| {
+                let exe = exe.clone();
+                store.change(move |settings| settings.privacy.forget_capture(&exe));
+                refill();
+            });
+        }
+        row(card, &name, Some(&exe), &delete);
+    }
+}
+
 fn session(store: &Store) -> gtk::Widget {
     let page = page(
         "Session",
