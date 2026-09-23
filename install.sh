@@ -95,10 +95,24 @@ if [ -z "$tag" ]; then
     exit 1
 fi
 
-name=$(fetch "$releases_api/tags/$tag" \
-    | sed -n 's/.*"name": *"\(slipstream-[^"]*-linux-'"$arch"'\.tar\.gz\)".*/\1/p' | head -n1)
+# GitHub's by-tag view of a release can lag behind its own uploads by a few seconds, so a
+# release published a moment ago can read as having no files at all. Ask a few times before
+# believing it: a fresh release is exactly when someone is most likely to be installing.
+name=
+for attempt in 1 2 3 4 5; do
+    name=$(fetch "$releases_api/tags/$tag" \
+        | sed -n 's/.*"name": *"\(slipstream-[^"]*-linux-'"$arch"'\.tar\.gz\)".*/\1/p' | head -n1)
+    if [ -n "$name" ]; then
+        break
+    fi
+    if [ "$attempt" -lt 5 ]; then
+        sleep 5
+    fi
+done
 if [ -z "$name" ]; then
     echo "install.sh: release $tag has no download for $arch." >&2
+    echo "  If it was published in the last minute, its files may still be going up." >&2
+    echo "  https://github.com/$project/releases" >&2
     exit 1
 fi
 base=https://github.com/$project/releases/download/$tag

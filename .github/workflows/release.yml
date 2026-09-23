@@ -79,7 +79,14 @@ jobs:
               --title "Slipstream $version beta" --notes-file notes.md \
               || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.tar.gz dist/*.sha256
+          # Take any file of the same name off first. `--clobber` is meant to do this and does
+          # not always: uploading over an asset that is already there answers 422 and fails the
+          # job, so a re-run of a release that got as far as uploading could never succeed.
+          for file in dist/*.tar.gz dist/*.sha256; do
+            gh release delete-asset "$TAG" "$(basename "$file")" \
+              --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || :
+          done
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/*.sha256
 
   # Install what was just published on each distribution, as a person would.
   distributions:
