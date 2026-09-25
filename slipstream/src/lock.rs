@@ -952,11 +952,18 @@ impl Slipstream {
         let now = self.wall();
         let facts = self.lock_facts();
         self.unlocking = Some(lock.leave(&facts, now));
+        // The desktop condenses out of the code rain behind the lock as it goes.
+        if self.settings.motion.rain_transitions && !self.clock.reduced_motion {
+            self.arrival = Some((Some(now), false));
+        }
         HELD.store(false, Ordering::Relaxed);
         // SAFETY: prctl with PR_SET_DUMPABLE and a plain integer.
         unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 1) };
         self.logind.locked_hint(false);
         tracing::info!("unlocked");
+        // Every window back in place at once, so the desktop comes back whole rather than one
+        // window at a time as each app next draws.
+        self.retile();
         self.wake_ui();
         match remembered.filter(|window| window.alive() && self.workspaces.find(window).is_some()) {
             Some(window) => self.focus_window(&window),

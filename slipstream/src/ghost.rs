@@ -51,11 +51,14 @@ pub struct Picture {
 pub struct Ghost {
     pieces: Vec<Piece>,
     /// Where the window was drawn, in the space's logical pixels.
-    rect: Rectangle<f64, Logical>,
+    pub rect: Rectangle<f64, Logical>,
     /// The window's own size, which the pieces are laid out in.
     own: Size<i32, Logical>,
-    started: f64,
+    pub started: f64,
     reduced_motion: bool,
+    /// Read out into falling code rather than faded (`fx.rs`), and the picture that's drawn from.
+    pub rain: bool,
+    pub texture: Option<(GlesTexture, Size<i32, Physical>)>,
 }
 
 impl Picture {
@@ -134,12 +137,24 @@ impl Ghost {
             own: picture.own,
             started: now,
             reduced_motion,
+            rain: false,
+            texture: None,
+        }
+    }
+
+    /// The same, falling away as code.
+    pub fn falling(picture: Picture, rect: Rectangle<f64, Logical>, now: f64) -> Self {
+        Self {
+            rain: true,
+            ..Self::new(picture, rect, now, false)
         }
     }
 
     /// How far through its fade, from 0 to 1.
     fn progress(&self, now: f64) -> f64 {
-        let length = if self.reduced_motion {
+        let length = if self.rain {
+            crate::fx::DEREZ
+        } else if self.reduced_motion {
             REDUCED_FADE
         } else {
             FADE
@@ -154,6 +169,16 @@ impl Ghost {
     /// Whether any of it is on a screen at `screen`, in the space's logical pixels.
     pub fn overlaps(&self, screen: Rectangle<f64, Logical>) -> bool {
         self.rect.overlaps(screen)
+    }
+
+    /// Its pieces whole and still, laid out from the window's own corner at the size it was drawn,
+    /// for the falling code to be read from.
+    pub fn still_elements(
+        &self,
+        context: &ContextId<GlesTexture>,
+        scale: Scale<f64>,
+    ) -> Vec<TextureRenderElement<GlesTexture>> {
+        self.pieces_at(context, Point::default(), (1.0, 1.0), scale, None)
     }
 
     /// Its pieces for a screen whose corner is at `origin`, at `scale`, front first.
@@ -171,15 +196,27 @@ impl Ghost {
         } else {
             1.0 - (1.0 - END_SCALE) * HYPR.at(t).clamp(0.0, 1.0)
         };
-        // The window's own size to where it was drawn, then the shrink about its middle.
-        let stretch = (
-            self.rect.size.w / self.own.w.max(1) as f64 * shrink,
-            self.rect.size.h / self.own.h.max(1) as f64 * shrink,
-        );
         let corner = Point::<f64, Logical>::from((
             self.rect.loc.x + self.rect.size.w * (1.0 - shrink) / 2.0,
             self.rect.loc.y + self.rect.size.h * (1.0 - shrink) / 2.0,
         )) - origin;
+        self.pieces_at(context, corner, (shrink, shrink), scale, Some(alpha))
+    }
+
+    /// The pieces with the window's corner at `corner`, stretched from the window's own size to
+    /// where it was drawn and then by `shrink`.
+    fn pieces_at(
+        &self,
+        context: &ContextId<GlesTexture>,
+        corner: Point<f64, Logical>,
+        shrink: (f64, f64),
+        scale: Scale<f64>,
+        alpha: Option<f32>,
+    ) -> Vec<TextureRenderElement<GlesTexture>> {
+        let stretch = (
+            self.rect.size.w / self.own.w.max(1) as f64 * shrink.0,
+            self.rect.size.h / self.own.h.max(1) as f64 * shrink.1,
+        );
         self.pieces
             .iter()
             .rev()
@@ -200,7 +237,7 @@ impl Ghost {
                     piece.texture.clone(),
                     piece.buffer_scale,
                     piece.transform,
-                    Some(alpha),
+                    alpha,
                     Some(piece.src),
                     Some(size),
                     None,

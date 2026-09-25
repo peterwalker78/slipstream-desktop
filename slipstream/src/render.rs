@@ -126,6 +126,16 @@ pub struct Chrome {
     /// The desktop as it comes back from behind the lock, and whether that texture failed.
     unlock: Option<(GlesTexture, Size<i32, Physical>)>,
     unlock_broken: bool,
+    /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
+    panes: crate::pane::Panes,
+    /// The rain transitions: arrival and derez.
+    fx: crate::fx::Fx,
+    /// Windows' wakes as they move.
+    wakes: crate::wake::Wakes,
+    /// The dark behind Alt+Tab's deck.
+    deck_dim: SolidColorBuffer,
+    /// The name under the deck's front pane, and what it says.
+    deck_label: Option<(String, paint::Painted)>,
 }
 
 impl Default for Chrome {
@@ -141,6 +151,11 @@ impl Default for Chrome {
             stage: tilt::Stage::default(),
             glass: crate::glass::Glass::default(),
             blackout: SolidColorBuffer::new((0, 0), BLACK),
+            panes: crate::pane::Panes::default(),
+            fx: crate::fx::Fx::default(),
+            wakes: crate::wake::Wakes::default(),
+            deck_dim: SolidColorBuffer::new((0, 0), BLACK),
+            deck_label: None,
             flash: SolidColorBuffer::new((0, 0), WHITE),
             veil: SolidColorBuffer::new((0, 0), veil_colour()),
             unlock: None,
@@ -707,6 +722,7 @@ pub fn output_elements(
     // Bullet time, the panels and the cards are drawn where the keyboard is.
     let first_output = state.screens.focused_output().as_ref() == Some(output);
     chrome.overview.begin();
+    chrome.panes.begin();
     chrome.overview.set_accent(state.bullet_rgb);
     if first_output && state.bullet.is_some() {
         state.overview_hits.clear();
@@ -926,8 +942,17 @@ pub fn output_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // Alt+Tab's deck of glass panes, drawn with the windows below; the flat card stands in where
+    // panes can't be drawn.
+    let deck_shown = first_output
+        && state.deck.is_some()
+        && !state.clock.reduced_motion
+        && chrome.panes.ready(renderer);
+    if first_output && !deck_shown {
+        state.deck = None;
+    }
     // Alt+Tab's switcher, on the screen the keyboard is on.
-    if first_output && state.switcher.is_some() {
+    if first_output && state.switcher.is_some() && !deck_shown {
         elements.extend(
             state
                 .switcher_element(renderer, output_geo.size, scale.x)
@@ -1146,6 +1171,8 @@ pub fn output_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // The deck goes just behind the bar, in front of everything else of the desktop's.
+    let behind_bar = elements.len();
     // Bullet time's hints over the code rain's streams, on the screen the rain is drawn on, and
     // the vignette, behind the bar.
     if (first_output || rain_output) && zoomed_out > 0.0 && ui > 0.0 {
@@ -1237,13 +1264,24 @@ pub fn output_elements(
     // A window's place is on the screen its workspace is laid out for; it's drawn where it sits on
     // that screen, as far from this screen's view as its workspace is. The ones on a workspace
     // another screen is showing land off the side of this one, which is where they belong.
-    let offset = |index: usize| {
+    //
+    // A workspace switch flies in formation: each window follows the view a little behind the
+    // one leading the travel (`Motion::camera_in_formation`). Not in bullet time, whose overview
+    // pans as one.
+    let formation = |index: usize, place: f64, at: f64| {
+        let camera = if zoomed_out > 0.0 {
+            state.motion.camera(&name, at)
+        } else {
+            state.motion.camera_in_formation(&name, at, place)
+        };
         let origin = state
             .screen_rect_for_workspace(index)
             .map_or(output_geo.loc.x, |rect| rect.x);
         shift_for_workspace(index, camera, step, output_geo.loc.x, origin)
     };
-    let mut windows: Vec<(Window, f64)> = state
+    // The trailing end of a formation is still on its way after the view has arrived.
+    let trailing = [0.0, 1.0].map(|place| state.motion.camera_in_formation(&name, wall, place));
+    let mut windows: Vec<(Window, Option<usize>)> = state
         .space
         .elements()
         .rev()
@@ -1256,22 +1294,22 @@ pub fn output_elements(
                 .screens
                 .showing(index)
                 .is_some_and(|showing| Some(showing) != screen_index);
-            (!elsewhere || zoomed_out > 0.0).then(|| (window.clone(), offset(index)))
+            (!elsewhere || zoomed_out > 0.0).then(|| (window.clone(), Some(index)))
         })
         .collect();
     for index in
         (0..state.workspaces.count()).filter(|index| state.screens.showing(*index).is_none())
     {
-        let dx = offset(index);
         // Zoomed out, neighbouring workspaces come into view.
-        if ((index as f64 - camera) * step).abs() * zoom < step {
+        let in_view = |camera: f64| ((index as f64 - camera) * step).abs() * zoom < step;
+        if in_view(camera) || trailing.into_iter().any(in_view) {
             // Front to back: the floating windows, front-most first, then the tiles.
             let ws = state.workspaces.get(index);
             let floating = ws.floating.windows().into_iter().rev();
             windows.extend(
                 floating
                     .chain(ws.layout.windows())
-                    .map(|window| (window, dx)),
+                    .map(|window| (window, Some(index))),
             );
         }
     }
@@ -1281,24 +1319,80 @@ pub fn output_elements(
             .rain
             .arriving(now)
             .into_iter()
-            .map(|window| (window, active_dx)),
+            .map(|window| (window, None)),
     );
     // Fully faded, only the wallpaper is drawn.
     if ui <= 0.0 {
         windows.clear();
     }
+    // How far along its workspace each window is drawn, now and a frame ago (for its wake).
+    let frame_ago = 1.0 / 60.0;
+    let windows: Vec<(Window, f64, f64)> = windows
+        .into_iter()
+        .map(|(window, index)| {
+            let (dx, dx_before) = match index {
+                Some(index) => {
+                    let place = state.motion.frame(&window, now).map_or(0.5, |frame| {
+                        (frame.rect[0] + frame.rect[2] / 2.0 - output_geo.loc.x as f64)
+                            / output_geo.size.w.max(1) as f64
+                    });
+                    (
+                        formation(index, place, wall),
+                        formation(index, place, wall - frame_ago),
+                    )
+                }
+                None => (active_dx, active_dx),
+            };
+            (window, dx, dx_before)
+        })
+        .collect();
     state
         .tags
         .retain(|(window, _, at)| now - at < TAG_SHOWN && window.alive());
     let mut dimmed = 0;
     // Windows drawn here that the space doesn't hold get frame callbacks too (`drawn_off_space`).
-    for (window, _) in &windows {
+    for (window, ..) in &windows {
         if state.space.element_geometry(window).is_none() && !state.drawn_off_space.contains(window)
         {
             state.drawn_off_space.push(window.clone());
         }
     }
-    for (window, dx) in windows {
+    // Two tiles passing through each other, drawn as panes after the rest (`pane::Pass`).
+    let passing = state
+        .pass
+        .as_ref()
+        .filter(|pass| !pass.done(now) && zoomed_out <= 0.0 && !state.clock.reduced_motion)
+        .filter(|pass| state.workspaces.find(&pass.front) == Some(active))
+        .map(|pass| (pass.front.clone(), pass.back.clone()));
+    let passing = passing.filter(|_| chrome.panes.ready(renderer));
+    let in_deck: Vec<Window> = if deck_shown {
+        state
+            .deck
+            .as_ref()
+            .filter(|deck| deck.visible(wall))
+            .map(|deck| deck.windows.clone())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    // The deck's windows are drawn wherever they live, so they keep drawing too.
+    for window in &in_deck {
+        if state.space.element_geometry(window).is_none() && !state.drawn_off_space.contains(window)
+        {
+            state.drawn_off_space.push(window.clone());
+        }
+    }
+    // Wakes go behind every window.
+    let mut wakes: Vec<OutputElement> = Vec::new();
+    let waking = zoomed_out <= 0.0 && ui >= 1.0 && !state.clock.reduced_motion;
+    for (window, dx, dx_before) in windows {
+        if in_deck.contains(&window)
+            || passing
+                .as_ref()
+                .is_some_and(|(front, back)| *front == window || *back == window)
+        {
+            continue;
+        }
         let own = window.geometry();
         // A window is kept inside the tiling area of the screen its own workspace is on, which
         // is not this screen's when it belongs to the one next door.
@@ -1574,7 +1668,119 @@ pub fn output_elements(
         } else {
             world.extend(surfaces.into_iter().map(OutputElement::Surface));
         }
+        // Moving fast, it leaves a wake.
+        if waking && s == 1.0 {
+            let before = state
+                .motion
+                .frame(&window, now - frame_ago)
+                .map_or(frame.rect, |before| before.rect);
+            let velocity = (
+                (frame.rect[0] + dx - before[0] - dx_before) / frame_ago,
+                (frame.rect[1] - before[1]) / frame_ago,
+            );
+            wakes.extend(
+                chrome
+                    .wakes
+                    .elements(
+                        renderer,
+                        shown,
+                        velocity,
+                        wake_seed(&window),
+                        scale.x,
+                        alpha,
+                    )
+                    .into_iter()
+                    .map(OutputElement::Memory),
+            );
+        }
     }
+    world.append(&mut wakes);
+
+    // Tiles passing through each other, in front of the other windows.
+    if let (Some((front_window, back_window)), Some(pass)) = (passing.as_ref(), state.pass.as_ref())
+    {
+        let screen = (output_geo.size.w as f64, output_geo.size.h as f64);
+        let camera = crate::pane::Camera::for_screen(screen.0, screen.1);
+        let origin = (output_geo.loc.x as f64, output_geo.loc.y as f64);
+        let (front, back, deep) = pass.poses(now, screen.0, origin);
+        let (axis, forward) = pass.leading();
+        let end = if forward { 1.0 } else { 0.0 };
+        let edge_at = match axis {
+            crate::pane::Axis::Across => {
+                crate::pane::project(&front, &camera, (end, 0.5)).map(|(x, _)| x)
+            }
+            crate::pane::Axis::Down => {
+                crate::pane::project(&front, &camera, (0.5, end)).map(|(_, y)| y)
+            }
+        };
+        let deep = deep as f32;
+        let front_look = crate::pane::Look {
+            alpha: ui_alpha,
+            ring: Some((state.ring_rgb, RING_ALPHA)),
+            edge: Some((axis, forward, 0.95 * deep)),
+            ..Default::default()
+        };
+        let back_look = crate::pane::Look {
+            alpha: ui_alpha,
+            shade: 0.25 * deep,
+            band: edge_at.map(|at| (axis, at, 150.0, 0.34 * deep)),
+            ..Default::default()
+        };
+        let pieces: Vec<OutputElement> = [
+            chrome.panes.element(
+                renderer,
+                front_window,
+                &front,
+                &camera,
+                output_geo.size,
+                scale.x,
+                &front_look,
+            ),
+            chrome.panes.element(
+                renderer,
+                back_window,
+                &back,
+                &camera,
+                output_geo.size,
+                scale.x,
+                &back_look,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .map(OutputElement::Shaded)
+        .collect();
+        world.splice(0..0, pieces);
+    }
+    if state.pass.as_ref().is_some_and(|pass| pass.done(now)) {
+        state.pass = None;
+    }
+
+    // Alt+Tab's deck, just behind the bar.
+    let mut deck_elements: Vec<OutputElement> = Vec::new();
+    if deck_shown && let Some(mut deck) = state.deck.take() {
+        if deck.visible(wall) {
+            deck_elements = deck_elements_for(
+                state,
+                &mut chrome,
+                renderer,
+                &mut deck,
+                output,
+                output_geo,
+                scale.x,
+                now,
+                wall,
+                camera,
+                step,
+                rain_output,
+                ui_alpha,
+            );
+        }
+        if !deck.done(wall) {
+            state.deck = Some(deck);
+        }
+    }
+    elements.splice(behind_bar..behind_bar, deck_elements);
 
     // Bullet time: every workspace in view gets its frame, number and caption, behind its windows.
     if let (true, true, Some(area)) = (first_output && ui > 0.0, zoomed_out > 0.0, area_local) {
@@ -1652,13 +1858,42 @@ pub fn output_elements(
     if zoomed_out <= 0.0 {
         let context = renderer.context_id();
         let screen = output_geo.to_f64();
-        let pieces: Vec<OutputElement> = state
+        let falling = state.ghosts.iter().any(|ghost| ghost.rain) && chrome.fx.ready(renderer);
+        let mut pieces: Vec<OutputElement> = Vec::new();
+        for ghost in state
             .ghosts
-            .iter()
+            .iter_mut()
             .filter(|ghost| ghost.overlaps(screen))
-            .flat_map(|ghost| ghost.elements(&context, screen.loc, scale, now))
-            .map(OutputElement::Texture)
-            .collect();
+        {
+            // Read out into falling code, where the rain transitions are on.
+            if ghost.rain && falling {
+                let still: Vec<OutputElement> = ghost
+                    .still_elements(&context, scale)
+                    .into_iter()
+                    .map(OutputElement::Texture)
+                    .collect();
+                let rect = Rectangle::new(ghost.rect.loc - screen.loc, ghost.rect.size);
+                let t = now - ghost.started;
+                if let Some(element) = chrome.fx.derez(
+                    renderer,
+                    &mut ghost.texture,
+                    still,
+                    rect,
+                    screen.size.h,
+                    scale.x,
+                    t,
+                ) {
+                    pieces.push(OutputElement::Shaded(element));
+                }
+                continue;
+            }
+            pieces.extend(
+                ghost
+                    .elements(&context, screen.loc, scale, now)
+                    .into_iter()
+                    .map(OutputElement::Texture),
+            );
+        }
         world.splice(0..0, pieces);
     }
     state.ghosts.retain(|ghost| !ghost.done(now));
@@ -1759,7 +1994,30 @@ pub fn output_elements(
 
     // Coming back from the lock, the desktop is drawn whole into a texture that grows into place
     // and brightens, while the lock's card and veil fade in front of it.
-    if tiling_output && !glass {
+    // Arriving, at login or unlock, the desktop condenses out of the code rain instead.
+    let arriving = match state.arrival {
+        Some((None, dark)) if tiling_output => {
+            state.arrival = Some((Some(wall), dark));
+            Some((0.0, dark))
+        }
+        Some((Some(start), dark)) => Some((wall - start, dark)),
+        _ => None,
+    };
+    let arriving = arriving.filter(|(t, _)| *t < crate::fx::ARRIVAL);
+    if state.arrival.is_some() && arriving.is_none() && tiling_output {
+        state.arrival = None;
+    }
+    let arriving = arriving.filter(|_| tiling_output && !glass && chrome.fx.ready(renderer));
+    if let Some((t, dark)) = arriving {
+        let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
+        if let Some(element) =
+            chrome
+                .fx
+                .arrival(renderer, pane, output_geo.size, physical, scale.x, t, dark)
+        {
+            elements.push(OutputElement::Shaded(element));
+        }
+    } else if tiling_output && !glass {
         if let Some((zoom, opacity)) = state.unlocking.as_ref().map(|u| u.desktop(wall)) {
             let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
             match unlock_zoom(
@@ -1868,6 +2126,7 @@ pub fn output_elements(
             );
         }
     }
+    chrome.panes.finish();
     state.chromes.insert(name.clone(), chrome);
     state.savers.insert(name, saver);
     elements
@@ -2033,6 +2292,204 @@ fn unlock_zoom(
         None,
         Kind::Unspecified,
     ))
+}
+
+/// A number for `window` that stays the same from frame to frame, so its wake keeps its streaks.
+fn wake_seed(window: &Window) -> u64 {
+    use smithay::{reexports::wayland_server::Resource, wayland::seat::WaylandFocus};
+    window
+        .wl_surface()
+        .map_or(7, |surface| u64::from(surface.id().protocol_id()))
+}
+
+/// Alt+Tab's deck on the screen `output`: each window's pane, nearest first, the name of the one
+/// at the front, and the dark behind them all. The panes lift from where their windows are drawn
+/// and fly back there.
+#[allow(clippy::too_many_arguments)]
+fn deck_elements_for(
+    state: &mut Slipstream,
+    chrome: &mut Chrome,
+    renderer: &mut GlesRenderer,
+    deck: &mut crate::deck::Deck<Window>,
+    output: &Output,
+    output_geo: Rectangle<i32, Logical>,
+    scale: f64,
+    now: f64,
+    wall: f64,
+    camera: f64,
+    step: f64,
+    rain_output: bool,
+    ui_alpha: f32,
+) -> Vec<OutputElement> {
+    use crate::pane::{Look, Pose};
+    let _ = output;
+    let screen = (output_geo.size.w as f64, output_geo.size.h as f64);
+    let eye = crate::deck::camera(screen);
+    let off_screen = Pose {
+        z: 3.0 * screen.0,
+        ..Pose::flat([
+            screen.0 * 0.25,
+            screen.1 * 0.25,
+            screen.0 * 0.5,
+            screen.1 * 0.5,
+        ])
+    };
+    // Where each window is drawn now, which is where its pane lifts from and lands.
+    let live: Vec<Pose> = deck
+        .windows
+        .iter()
+        .map(|window| {
+            if rain_output && let Some(stream) = state.rain.index_of(window) {
+                let screen_rect = Rect {
+                    x: 0,
+                    y: 0,
+                    w: output_geo.size.w,
+                    h: output_geo.size.h,
+                };
+                let column = Rain::column(stream, screen_rect, bar::HEIGHT);
+                let w = column.w as f64;
+                return Pose::flat([column.x as f64, column.y as f64, w, w * 0.75]);
+            }
+            let (Some(index), Some(frame)) = (
+                state.workspaces.find(window),
+                state.motion.frame(window, now),
+            ) else {
+                return off_screen;
+            };
+            let origin = state
+                .screen_rect_for_workspace(index)
+                .map_or(output_geo.loc.x, |rect| rect.x);
+            let dx = shift_for_workspace(index, camera, step, output_geo.loc.x, origin);
+            let own = window.geometry().size;
+            let [x, y, w, h] = frame.rect;
+            let (w, h) = if frame.moving {
+                (w, h)
+            } else {
+                (own.w as f64, own.h as f64)
+            };
+            Pose::flat([
+                x + dx - output_geo.loc.x as f64,
+                y - output_geo.loc.y as f64,
+                w,
+                h,
+            ])
+        })
+        .collect();
+    let releasing = deck.releasing();
+    let mut panes: Vec<(usize, Pose, f32, f32)> = Vec::new();
+    for (i, window) in deck.windows.iter().enumerate() {
+        if !window.alive() {
+            continue;
+        }
+        let own = window.geometry().size;
+        let (pose, alpha, shade) = deck.pose(
+            i,
+            live[i],
+            (own.w.max(1) as f64, own.h.max(1) as f64),
+            screen,
+            wall,
+        );
+        panes.push((i, pose, alpha, shade));
+    }
+    if !releasing {
+        for (i, pose, ..) in &panes {
+            deck.last[*i] = Some(*pose);
+        }
+    }
+    // Nearest first, as elements go front to back.
+    panes.sort_by(|a, b| a.1.z.total_cmp(&b.1.z));
+    let mut elements = Vec::new();
+    let mut hits = Vec::new();
+    for (i, pose, alpha, shade) in &panes {
+        let ring = (!releasing && *i == deck.front()).then_some((state.ring_rgb, 0.9));
+        let look = Look {
+            alpha: alpha * ui_alpha,
+            ring,
+            shade: *shade,
+            ..Default::default()
+        };
+        if let Some(element) = chrome.panes.element(
+            renderer,
+            &deck.windows[*i],
+            pose,
+            &eye,
+            output_geo.size,
+            scale,
+            &look,
+        ) {
+            elements.push(OutputElement::Shaded(element));
+        }
+        if *alpha > 0.5
+            && let Some(bounds) = crate::pane::bounds(pose, &eye, 0.0)
+        {
+            hits.push((*i, bounds));
+        }
+    }
+    let dim = deck.dim(wall) as f32;
+    // The front pane's name, under it.
+    if !releasing
+        && let Some((_, front, ..)) = panes.iter().find(|(i, ..)| *i == deck.front())
+        && let Some((x, y)) = crate::pane::project(front, &eye, (0.5, 1.0))
+    {
+        let window = &deck.windows[deck.front()];
+        let place = if state.rain.contains(window) {
+            "in the rain".to_string()
+        } else {
+            state
+                .workspaces
+                .find(window)
+                .map(|index| format!("workspace {}", state.workspaces.label(index)))
+                .unwrap_or_default()
+        };
+        let label = format!("{}  ·  {place}", state.stream_name(window));
+        if chrome
+            .deck_label
+            .as_ref()
+            .is_none_or(|(said, painted)| *said != label || painted.scale != scale)
+        {
+            chrome.deck_label = paint_deck_label(&label, scale).map(|painted| (label, painted));
+        }
+        if let Some((_, painted)) = chrome.deck_label.as_ref() {
+            let at = Point::<f64, Logical>::from((
+                (x - painted.logical.w as f64 / 2.0).max(8.0),
+                y + 22.0,
+            ));
+            elements.splice(
+                0..0,
+                painted
+                    .element(renderer, at, dim * ui_alpha)
+                    .map(OutputElement::Memory),
+            );
+        }
+    }
+    chrome.deck_dim.update(output_geo.size, BLACK);
+    elements.push(OutputElement::Solid(SolidColorRenderElement::from_buffer(
+        &chrome.deck_dim,
+        Point::<i32, Physical>::from((0, 0)),
+        Scale::from(scale),
+        0.62 * dim * ui_alpha,
+        Kind::Unspecified,
+    )));
+    if let Some(switcher) = state.switcher.as_mut() {
+        switcher.set_hits(hits);
+    }
+    elements
+}
+
+/// The deck's name tag: the front window's name and where it lives, on a dark pill.
+fn paint_deck_label(label: &str, scale: f64) -> Option<paint::Painted> {
+    let style = Style::new(Face::Display, 22.0, 0xeef1f6ff);
+    let width = text::width(label, &style) + 40.0;
+    let height = 44.0;
+    paint::Painted::new(
+        Size::from((width.ceil() as i32, height as i32)),
+        scale,
+        |p| {
+            p.fill(0.0, 0.0, width, height, 12.0, 0x10131aee);
+            p.border(0.0, 0.0, width, height, 12.0, 1.0, 0xffffff1c);
+            p.text(label, 20.0, height / 2.0, &style);
+        },
+    )
 }
 
 /// How far a window may overhang the tiling area before it is scaled into it: enough for the

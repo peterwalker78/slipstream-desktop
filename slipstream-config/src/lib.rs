@@ -13,6 +13,7 @@
 //!
 //! [motion]
 //! reduced = false
+//! rain-transitions = true
 //!
 //! [display]
 //! night-light = false
@@ -455,11 +456,23 @@ pub fn workspace_label(name: &str, index: usize) -> String {
 }
 
 /// How windows and effects move.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Motion {
     /// Reduced motion: moves jump, and every effect becomes a short fade.
     pub reduced: bool,
+    /// The desktop condenses out of the code rain at login and unlock, and a closed window is
+    /// read out into falling code. Off, both are plain fades. Reduced motion turns them off too.
+    pub rain_transitions: bool,
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        Self {
+            reduced: false,
+            rain_transitions: true,
+        }
+    }
 }
 
 /// The screens.
@@ -1073,6 +1086,7 @@ mod tests {
         assert_eq!(settings.wallpaper.variations, ["slipstream"]);
         assert_eq!(settings.wallpaper.change_every_mins, 10);
         assert!(!settings.motion.reduced);
+        assert!(settings.motion.rain_transitions);
         assert!(!settings.display.night_light);
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);
@@ -1400,7 +1414,10 @@ mod tests {
                 variations: vec!["vortex".into(), "slipstream".into()],
                 change_every_mins: 5,
             },
-            motion: Motion { reduced: true },
+            motion: Motion {
+                reduced: true,
+                ..Motion::default()
+            },
             display: Display {
                 night_light: true,
                 night_light_schedule: NightSchedule::Custom,

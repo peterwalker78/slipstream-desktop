@@ -35,7 +35,10 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             variations: vec!["decode".into()],
             change_every_mins: 30,
         },
-        motion: Motion { reduced: true },
+        motion: Motion {
+            reduced: true,
+            rain_transitions: false,
+        },
         display: Display {
             night_light: true,
             night_light_schedule: NightSchedule::Sunset,

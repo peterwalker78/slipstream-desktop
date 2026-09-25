@@ -200,6 +200,22 @@ fn appearance(store: &Store) -> gtk::Widget {
         Some("Windows jump into place and effects become short fades"),
         &reduced,
     );
+    let rain = gtk::Switch::new();
+    rain.set_active(store.get().motion.rain_transitions);
+    let rain_store = store.clone();
+    rain.connect_active_notify(move |rain| {
+        let on = rain.is_active();
+        rain_store.change(|settings| settings.motion.rain_transitions = on);
+    });
+    row(
+        &motion,
+        "Rain transitions",
+        Some(
+            "The desktop condenses out of the code rain when you log in or unlock, and closed \
+             windows fall away into it",
+        ),
+        &rain,
+    );
 
     night_light(&page, store);
     page.upcast()

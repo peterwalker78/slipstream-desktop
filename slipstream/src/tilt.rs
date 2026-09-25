@@ -104,7 +104,7 @@ impl Tilt {
     }
 }
 
-fn apply(m: &[f64; 9], x: f64, y: f64) -> Option<(f64, f64)> {
+pub(crate) fn apply(m: &[f64; 9], x: f64, y: f64) -> Option<(f64, f64)> {
     let w = m[6] * x + m[7] * y + m[8];
     (w > 1e-9).then(|| {
         (
@@ -114,7 +114,7 @@ fn apply(m: &[f64; 9], x: f64, y: f64) -> Option<(f64, f64)> {
     })
 }
 
-fn invert(m: &[f64; 9]) -> Option<[f64; 9]> {
+pub(crate) fn invert(m: &[f64; 9]) -> Option<[f64; 9]> {
     let [a, b, c, d, e, f, g, h, i] = *m;
     let (ei_fh, fg_di, dh_eg) = (e * i - f * h, f * g - d * i, d * h - e * g);
     let det = a * ei_fh + b * fg_di + c * dh_eg;

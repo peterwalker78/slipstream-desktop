@@ -147,6 +147,17 @@ impl<W: Clone + PartialEq> Switcher<W> {
             .map(|(index, _)| *index)
     }
 
+    /// Where the selection is, counting from the most recently used.
+    pub fn selected_index(&self) -> usize {
+        self.selected
+    }
+
+    /// Where each window was drawn, for clicks, when something other than the card drew them:
+    /// front-most first.
+    pub fn set_hits(&mut self, hits: Vec<(usize, Rectangle<f64, Logical>)>) {
+        self.hits = hits;
+    }
+
     pub fn select(&mut self, index: usize) {
         if index < self.windows.len() {
             self.selected = index;

@@ -799,6 +799,10 @@ impl Slipstream {
                     });
                 if let (Some(tile), Some(switcher)) = (tile, self.switcher.as_mut()) {
                     switcher.select(tile);
+                    let now = self.wall();
+                    if let Some(deck) = self.deck.as_mut() {
+                        deck.select(tile, now);
+                    }
                     self.finish_cycle();
                 }
             }

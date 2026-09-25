@@ -24,6 +24,12 @@ const REDUCED_FADE: f64 = 0.08;
 /// rather than as a ghost crossing whatever is behind it.
 const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
+/// How far behind the leading window the last one in a formation sets off, in seconds: on a
+/// workspace switch the window at the front of the travel goes first and the rest draft in
+/// behind it.
+pub const FORMATION: f64 = 0.08;
+/// The same for windows moving together in a retile, which travel less far.
+pub const RETILE_FORMATION: f64 = 0.05;
 /// Space between workspaces as they slide past, in logical pixels: the mockup's 160 stage pixels
 /// at the laptop's 1.25×.
 pub const WORKSPACE_GAP: i32 = 128;
@@ -210,6 +216,44 @@ impl<T: Clone + PartialEq> Motion<T> {
         let duration = self.move_duration();
         self.camera_mut(screen)
             .retarget([index as f64], now, duration, HYPR);
+    }
+
+    /// Where `screen`'s view is for a window `place` of the way across the screen (0 at the left
+    /// edge, 1 at the right): the window at the front of the travel moves with the view and those
+    /// behind follow a little later, so a workspace flies in formation rather than as one sheet.
+    pub fn camera_in_formation(&self, screen: &str, now: f64, place: f64) -> f64 {
+        let Some((_, camera)) = self.cameras.iter().find(|(name, _)| name == screen) else {
+            return 0.0;
+        };
+        let travel = camera.to[0] - camera.from[0];
+        if self.reduced_motion || travel == 0.0 {
+            return camera.value(now)[0];
+        }
+        // Going to a higher workspace the windows travel left, so the leftmost leads.
+        let behind = if travel > 0.0 { place } else { 1.0 - place };
+        camera.value(now - behind.clamp(0.0, 1.0) * FORMATION)[0]
+    }
+
+    /// Holds `id` where it is for `delay` before its glide sets off: windows moving together
+    /// leave one after another, the leader first.
+    pub fn hold(&mut self, id: &T, now: f64, delay: f64) {
+        if self.reduced_motion || delay <= 0.0 {
+            return;
+        }
+        if let Some(entry) = self.entry_mut(id)
+            && entry.rect.start == now
+            && !entry.rect.done(now)
+        {
+            entry.rect.start = now + delay;
+        }
+    }
+
+    /// Where `id` is headed, x, y, w and h.
+    pub fn target(&self, id: &T) -> Option<[f64; 4]> {
+        self.entries
+            .iter()
+            .find(|entry| &entry.id == id)
+            .map(|entry| entry.rect.to)
     }
 
     /// Where `screen`'s view is, in workspaces. A screen nobody has slid yet is on its own
@@ -404,6 +448,39 @@ mod tests {
 
         motion.slide_to("eDP-1", 3, 1.0);
         assert_eq!(motion.camera("eDP-1", 1.0), 3.0);
+    }
+
+    #[test]
+    fn the_window_leading_a_switch_goes_first() {
+        let mut motion: Motion<&str> = Motion::new(false);
+        motion.slide_to("eDP-1", 1, 1.0);
+        let mid = 1.0 + MOVE / 2.0;
+        // Travelling left, the leftmost window is at the front.
+        let left = motion.camera_in_formation("eDP-1", mid, 0.0);
+        let right = motion.camera_in_formation("eDP-1", mid, 1.0);
+        assert_eq!(left, motion.camera("eDP-1", mid));
+        assert!(right < left, "the window behind is still catching up");
+        assert_eq!(
+            motion.camera_in_formation("eDP-1", 1.0 + MOVE + FORMATION, 1.0),
+            1.0
+        );
+        // And coming back the other way, the rightmost leads.
+        motion.slide_to("eDP-1", 0, 5.0);
+        let mid = 5.0 + MOVE / 2.0;
+        assert!(
+            motion.camera_in_formation("eDP-1", mid, 0.0)
+                > motion.camera_in_formation("eDP-1", mid, 1.0)
+        );
+    }
+
+    #[test]
+    fn a_held_window_waits_then_glides() {
+        let mut motion = opened(false);
+        motion.place(&"a", RIGHT, 1.0);
+        motion.hold(&"a", 1.0, 0.05);
+        assert_eq!(motion.frame(&"a", 1.04).unwrap().rect[0], 16.0);
+        assert_eq!(motion.frame(&"a", 1.05 + MOVE).unwrap().rect[0], 526.0);
+        assert_eq!(motion.target(&"a"), Some([526.0, 16.0, 500.0, 600.0]));
     }
 
     #[test]

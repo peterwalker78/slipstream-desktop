@@ -398,6 +398,13 @@ pub struct Slipstream {
     pub lock: Option<crate::lock::Lock<Window>>,
     /// The lock going away, while it fades.
     pub unlocking: Option<crate::lock::Unlocking>,
+    /// The desktop condensing out of the code rain, at login and unlock (`fx.rs`): when it began
+    /// on wall time (`None` until the first frame is drawn), and whether it rises out of black.
+    pub arrival: Option<(Option<f64>, bool)>,
+    /// Alt+Tab's deck of glass panes, while it's open and while its panes fly home (`deck.rs`).
+    pub deck: Option<crate::deck::Deck<Window>>,
+    /// Two tiles passing through each other as they trade places (`pane.rs`).
+    pub pass: Option<crate::pane::Pass<Window>>,
     /// Where password checks answer, with their numbers.
     pub lock_answers: channel::Sender<(u64, crate::auth::Verdict)>,
     /// The session's line to logind, for locking, unlocking and sleep (`logind.rs`).
@@ -559,6 +566,7 @@ impl Slipstream {
         let bullet_rgb = settings.borders.bullet_time_rgb();
 
         let reduced_motion = settings.motion.reduced;
+        let arrive = settings.motion.rain_transitions && !reduced_motion;
         let mut state = Self {
             start_time,
             display_handle: dh,
@@ -698,6 +706,9 @@ impl Slipstream {
             power_answers,
             lock: None,
             unlocking: None,
+            arrival: arrive.then_some((None, true)),
+            deck: None,
+            pass: None,
             lock_answers,
             logind: Default::default(),
             sleep_delay: Default::default(),
@@ -1176,6 +1187,8 @@ impl Slipstream {
             .iter()
             .map(|(window, _)| (window.clone(), min_size(window)))
             .collect();
+        // Windows moving together leave in formation, the one furthest along the way first.
+        let mut moving: Vec<(Window, [f64; 4], Rect)> = Vec::new();
         for (window, tile) in rects {
             let full_rect = fullscreens
                 .iter()
@@ -1191,6 +1204,12 @@ impl Slipstream {
             configure(&window, asked, full);
             // The space holds the real position for input; the drawing glides there, except
             // while a gap is dragged, when the tiles keep up with the pointer.
+            if let Some(frame) = self.motion.frame(&window, now)
+                && self.motion.target(&window)
+                    != Some([r.x as f64, r.y as f64, r.w as f64, r.h as f64])
+            {
+                moving.push((window.clone(), frame.rect, r));
+            }
             self.motion.place(&window, r, now);
             if matches!(self.drag, Some(crate::grabs::Drag::Gap { .. })) {
                 self.motion.jump(&window, r);
@@ -1202,6 +1221,11 @@ impl Slipstream {
                 self.space.relocate_element(&window, (r.x, r.y));
             } else {
                 self.space.map_element(window, (r.x, r.y), false);
+            }
+        }
+        if !matches!(self.drag, Some(crate::grabs::Drag::Gap { .. })) {
+            for (window, delay) in formation(&moving) {
+                self.motion.hold(&window, now, delay);
             }
         }
         self.floating_sizes = floats
@@ -1689,6 +1713,17 @@ impl Slipstream {
             && !switcher.forget(window)
         {
             self.switcher = None;
+            self.deck = None;
+        }
+        if let Some(deck) = self.deck.as_mut() {
+            deck.forget(window);
+        }
+        if self
+            .pass
+            .as_ref()
+            .is_some_and(|pass| pass.front == *window || pass.back == *window)
+        {
+            self.pass = None;
         }
         let was_on = self.take_off_workspace(window);
         self.rain.remove(window);
@@ -2078,8 +2113,30 @@ impl Slipstream {
             }
             return;
         };
+        let now = self.clock.tick();
+        let before = (
+            self.motion.frame(&current, now).map(|frame| frame.rect),
+            self.motion.frame(&next, now).map(|frame| frame.rect),
+        );
         if self.current_workspace_mut().layout.swap(&current, &next) {
             self.retile();
+            // The two pass through each other as panes of glass on their way.
+            self.pass = match (
+                before,
+                self.motion.target(&current),
+                self.motion.target(&next),
+            ) {
+                ((Some(a), Some(b)), Some(to_a), Some(to_b)) if !self.clock.reduced_motion => {
+                    Some(crate::pane::Pass::new(
+                        current.clone(),
+                        next.clone(),
+                        [a, b],
+                        [to_a, to_b],
+                        now,
+                    ))
+                }
+                _ => None,
+            };
             tracing::info!(?direction, "moved window within the workspace");
         }
     }
@@ -2965,6 +3022,11 @@ impl Slipstream {
         }
         if let Some(switcher) = self.switcher.as_mut() {
             switcher.step(forward);
+            let selected = switcher.selected_index();
+            let now = self.wall();
+            if let Some(deck) = self.deck.as_mut() {
+                deck.select(selected, now);
+            }
             return;
         }
         let open = self.all_open_windows();
@@ -2984,6 +3046,19 @@ impl Slipstream {
         let now = self.wall();
         self.switcher =
             crate::switcher::Switcher::start(windows, forward, now, self.clock.reduced_motion);
+        // The windows lift into a deck of glass panes once Alt has been held a moment; with
+        // reduced motion the switcher's flat card stands in.
+        self.deck = self
+            .switcher
+            .as_ref()
+            .filter(|_| !self.clock.reduced_motion)
+            .map(|switcher| {
+                crate::deck::Deck::new(
+                    switcher.windows().to_vec(),
+                    switcher.selected_index(),
+                    now + crate::switcher::APPEAR,
+                )
+            });
     }
 
     /// Ends the way out while it is still asking, as Esc on its card does.
@@ -3009,6 +3084,12 @@ impl Slipstream {
         let Some(switcher) = self.switcher.take() else {
             return;
         };
+        // A deck that was showing flies its panes home; a quick flip never showed one.
+        let now = self.wall();
+        match self.deck.as_mut() {
+            Some(deck) if deck.visible(now) && self.lock.is_none() => deck.release(now),
+            _ => self.deck = None,
+        }
         if self.lock.is_some() {
             return;
         }
@@ -4738,7 +4819,8 @@ impl Slipstream {
             || self.history.is_open()
             || self.restoring.is_some()
             || self.lock.is_some()
-            || self.unlocking.is_some();
+            || self.unlocking.is_some()
+            || self.arrival.is_some();
         let opacity = self.idle.update(now, keep_up) as f32;
         // Pop-ups that arrived while it was faded show now it's coming back, and ones that
         // arrived while you typed show at the pause.
@@ -5296,8 +5378,12 @@ impl Slipstream {
             return;
         };
         let reduced = self.clock.reduced_motion;
-        self.ghosts
-            .push(crate::ghost::Ghost::new(picture, rect, now, reduced));
+        let ghost = if self.settings.motion.rain_transitions && !reduced {
+            crate::ghost::Ghost::falling(picture, rect, now)
+        } else {
+            crate::ghost::Ghost::new(picture, rect, now, reduced)
+        };
+        self.ghosts.push(ghost);
     }
 
     /// Takes out any stream whose window has gone without the compositor hearing of it, so a
@@ -5364,7 +5450,6 @@ impl Slipstream {
         self.retile();
         self.restore_focus();
         self.hidden = Some(going);
-        self.show_toast("Windows hidden", "Super+H brings them back.");
     }
 
     pub fn minimise_focused(&mut self) {
@@ -5718,6 +5803,10 @@ impl Slipstream {
                     }
                     self.finish_cycle();
                 }
+                debug::Step::Tab => self.cycle_windows(true),
+                debug::Step::LetGo => self.finish_cycle(),
+                debug::Step::Unlock => self.unlock(),
+                debug::Step::Arrive => self.arrival = Some((None, true)),
                 debug::Step::Bullet => self.toggle_bullet_time(),
                 debug::Step::BulletKey(name) => {
                     let (mods, key) = debug::mods_and_key(&name);
@@ -6097,8 +6186,73 @@ impl ClientData for ClientState {
     fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
 }
 
+/// How long each of a set of windows moving together waits before it sets off: the one furthest
+/// along the way they are all going leads, and the rest follow it, up to
+/// `motion::RETILE_FORMATION` behind. `moving` is each window with where it's drawn now and where
+/// it's going. A window moving on its own doesn't wait.
+fn formation<W: Clone>(moving: &[(W, [f64; 4], Rect)]) -> Vec<(W, f64)> {
+    if moving.len() < 2 {
+        return Vec::new();
+    }
+    let centre = |r: [f64; 4]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+    let (mut dx, mut dy) = (0.0, 0.0);
+    for (_, from, to) in moving {
+        let (fx, fy) = centre(*from);
+        let (tx, ty) = centre([to.x as f64, to.y as f64, to.w as f64, to.h as f64]);
+        dx += tx - fx;
+        dy += ty - fy;
+    }
+    let length = (dx * dx + dy * dy).sqrt();
+    if length < 1.0 {
+        return Vec::new();
+    }
+    let (ux, uy) = (dx / length, dy / length);
+    let along: Vec<f64> = moving
+        .iter()
+        .map(|(_, from, _)| {
+            let (x, y) = centre(*from);
+            x * ux + y * uy
+        })
+        .collect();
+    let (low, high) = along
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), a| (lo.min(*a), hi.max(*a)));
+    let span = (high - low).max(1.0);
+    moving
+        .iter()
+        .zip(along)
+        .map(|((window, ..), a)| {
+            (
+                window.clone(),
+                (high - a) / span * crate::motion::RETILE_FORMATION,
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_moving_together_follow_the_one_furthest_along() {
+        let at = |x: i32| Rect {
+            x,
+            y: 0,
+            w: 100,
+            h: 100,
+        };
+        let moving = [
+            ("left", [0.0, 0.0, 100.0, 100.0], at(300)),
+            ("right", [200.0, 0.0, 100.0, 100.0], at(500)),
+        ];
+        let delays = formation(&moving);
+        assert_eq!(delays[1], ("right", 0.0), "the one at the front goes first");
+        assert_eq!(delays[0], ("left", crate::motion::RETILE_FORMATION));
+        assert!(
+            formation(&moving[..1]).is_empty(),
+            "a window alone doesn't wait"
+        );
+    }
+
     #[test]
     fn a_window_that_wont_fit_its_tile_is_asked_for_the_tile_s_shape() {
         let tile = Rect {
