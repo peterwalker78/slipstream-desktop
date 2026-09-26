@@ -65,6 +65,12 @@ const GAIN: f32 = 2.5;
 const STILL_QUIET: f32 = 0.6;
 const STILL_BUSY: f32 = 1.0;
 
+/// A glyph's size in whole pixels for a band `width` pixels wide, as the band draws it.
+pub fn glyph_size(width: f32) -> (usize, usize) {
+    let (w, h) = cell_size(width);
+    (w.round() as usize, h.round() as usize)
+}
+
 /// A cell's width and height in pixels for a band `width` pixels wide.
 fn cell_size(width: f32) -> (f32, f32) {
     let w = width / COLUMNS as f32;

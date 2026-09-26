@@ -1187,8 +1187,6 @@ impl Slipstream {
             .iter()
             .map(|(window, _)| (window.clone(), min_size(window)))
             .collect();
-        // Windows moving together leave in formation, the one furthest along the way first.
-        let mut moving: Vec<(Window, [f64; 4], Rect)> = Vec::new();
         for (window, tile) in rects {
             let full_rect = fullscreens
                 .iter()
@@ -1204,12 +1202,6 @@ impl Slipstream {
             configure(&window, asked, full);
             // The space holds the real position for input; the drawing glides there, except
             // while a gap is dragged, when the tiles keep up with the pointer.
-            if let Some(frame) = self.motion.frame(&window, now)
-                && self.motion.target(&window)
-                    != Some([r.x as f64, r.y as f64, r.w as f64, r.h as f64])
-            {
-                moving.push((window.clone(), frame.rect, r));
-            }
             self.motion.place(&window, r, now);
             if matches!(self.drag, Some(crate::grabs::Drag::Gap { .. })) {
                 self.motion.jump(&window, r);
@@ -1221,11 +1213,6 @@ impl Slipstream {
                 self.space.relocate_element(&window, (r.x, r.y));
             } else {
                 self.space.map_element(window, (r.x, r.y), false);
-            }
-        }
-        if !matches!(self.drag, Some(crate::grabs::Drag::Gap { .. })) {
-            for (window, delay) in formation(&moving) {
-                self.motion.hold(&window, now, delay);
             }
         }
         self.floating_sizes = floats
@@ -6186,73 +6173,8 @@ impl ClientData for ClientState {
     fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
 }
 
-/// How long each of a set of windows moving together waits before it sets off: the one furthest
-/// along the way they are all going leads, and the rest follow it, up to
-/// `motion::RETILE_FORMATION` behind. `moving` is each window with where it's drawn now and where
-/// it's going. A window moving on its own doesn't wait.
-fn formation<W: Clone>(moving: &[(W, [f64; 4], Rect)]) -> Vec<(W, f64)> {
-    if moving.len() < 2 {
-        return Vec::new();
-    }
-    let centre = |r: [f64; 4]| (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
-    let (mut dx, mut dy) = (0.0, 0.0);
-    for (_, from, to) in moving {
-        let (fx, fy) = centre(*from);
-        let (tx, ty) = centre([to.x as f64, to.y as f64, to.w as f64, to.h as f64]);
-        dx += tx - fx;
-        dy += ty - fy;
-    }
-    let length = (dx * dx + dy * dy).sqrt();
-    if length < 1.0 {
-        return Vec::new();
-    }
-    let (ux, uy) = (dx / length, dy / length);
-    let along: Vec<f64> = moving
-        .iter()
-        .map(|(_, from, _)| {
-            let (x, y) = centre(*from);
-            x * ux + y * uy
-        })
-        .collect();
-    let (low, high) = along
-        .iter()
-        .fold((f64::MAX, f64::MIN), |(lo, hi), a| (lo.min(*a), hi.max(*a)));
-    let span = (high - low).max(1.0);
-    moving
-        .iter()
-        .zip(along)
-        .map(|((window, ..), a)| {
-            (
-                window.clone(),
-                (high - a) / span * crate::motion::RETILE_FORMATION,
-            )
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn windows_moving_together_follow_the_one_furthest_along() {
-        let at = |x: i32| Rect {
-            x,
-            y: 0,
-            w: 100,
-            h: 100,
-        };
-        let moving = [
-            ("left", [0.0, 0.0, 100.0, 100.0], at(300)),
-            ("right", [200.0, 0.0, 100.0, 100.0], at(500)),
-        ];
-        let delays = formation(&moving);
-        assert_eq!(delays[1], ("right", 0.0), "the one at the front goes first");
-        assert_eq!(delays[0], ("left", crate::motion::RETILE_FORMATION));
-        assert!(
-            formation(&moving[..1]).is_empty(),
-            "a window alone doesn't wait"
-        );
-    }
-
     #[test]
     fn a_window_that_wont_fit_its_tile_is_asked_for_the_tile_s_shape() {
         let tile = Rect {

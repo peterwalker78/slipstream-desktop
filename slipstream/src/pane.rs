@@ -397,7 +397,7 @@ impl Panes {
 }
 
 /// How long two tiles take to pass through each other, in animation seconds.
-pub const PASS: f64 = 0.5;
+pub const PASS: f64 = 0.5 / 3.0;
 
 /// Two tiles trading places by passing through each other: the one being moved comes forward and
 /// the one it swaps with falls back, each turning a little on the way, so they cross as two
@@ -457,10 +457,10 @@ impl<W> Pass<W> {
                 std::array::from_fn(|k| self.from[i][k] + (self.to[i][k] - self.from[i][k]) * p);
             Pose::flat([r[0] - origin.0, r[1] - origin.1, r[2], r[3]])
         };
-        let turn = 0.2 * deep * sign;
+        let turn = 0.1 * deep * sign;
         let (mut front, mut back) = (at(0), at(1));
-        front.z = -0.13 * width * deep;
-        back.z = 0.21 * width * deep;
+        front.z = -0.05 * width * deep;
+        back.z = 0.08 * width * deep;
         match self.axis {
             Axis::Across => {
                 front.yaw = turn;
@@ -656,7 +656,7 @@ mod tests {
             (front.x - Pose::flat(right).x).abs() < 1e-9
                 && (back.x - Pose::flat(left).x).abs() < 1e-9
         );
-        assert!(pass.done(1.0 + PASS));
+        assert!(pass.done(1.0 + PASS + 1e-9));
         assert_eq!(pass.leading(), (Axis::Across, true));
     }
 

@@ -12,15 +12,15 @@ use crate::{
 };
 
 /// Lifting out of place into the deck.
-const OPEN: f64 = 0.45;
+const OPEN: f64 = 0.225;
 /// Each Tab's turn of the deck.
-const STEP: f64 = 0.42;
+const STEP: f64 = 0.21;
 /// Flying back when Alt is let go.
-pub const RELEASE: f64 = 0.5;
+pub const RELEASE: f64 = 0.25;
 /// The panes not chosen follow the chosen one back this much later.
-const FOLLOW: f64 = 0.06;
+const FOLLOW: f64 = 0.03;
 /// Each pane further back lifts out a little later than the one in front.
-const STAGGER: f64 = 0.05;
+const STAGGER: f64 = 0.025;
 /// How many panes deep the deck is seen; any further back fade into the dark.
 const DEPTH: f64 = 4.6;
 
@@ -130,7 +130,7 @@ impl<W: Clone + PartialEq> Deck<W> {
     /// How dark the desktop behind the deck is, 0 to 1.
     pub fn dim(&self, now: f64) -> f64 {
         match &self.released {
-            Some((at, _)) => 1.0 - Easing::OutCubic.at((now - at) / (RELEASE - 0.05)),
+            Some((at, _)) => 1.0 - Easing::OutCubic.at((now - at) / (RELEASE * 0.9)),
             None => Easing::OutCubic.at((now - self.opened) / OPEN),
         }
     }

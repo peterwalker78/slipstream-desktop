@@ -130,8 +130,6 @@ pub struct Chrome {
     panes: crate::pane::Panes,
     /// The rain transitions: arrival and derez.
     fx: crate::fx::Fx,
-    /// Windows' wakes as they move.
-    wakes: crate::wake::Wakes,
     /// The dark behind Alt+Tab's deck.
     deck_dim: SolidColorBuffer,
     /// The name under the deck's front pane, and what it says.
@@ -153,7 +151,6 @@ impl Default for Chrome {
             blackout: SolidColorBuffer::new((0, 0), BLACK),
             panes: crate::pane::Panes::default(),
             fx: crate::fx::Fx::default(),
-            wakes: crate::wake::Wakes::default(),
             deck_dim: SolidColorBuffer::new((0, 0), BLACK),
             deck_label: None,
             flash: SolidColorBuffer::new((0, 0), WHITE),
@@ -1264,23 +1261,12 @@ pub fn output_elements(
     // A window's place is on the screen its workspace is laid out for; it's drawn where it sits on
     // that screen, as far from this screen's view as its workspace is. The ones on a workspace
     // another screen is showing land off the side of this one, which is where they belong.
-    //
-    // A workspace switch flies in formation: each window follows the view a little behind the
-    // one leading the travel (`Motion::camera_in_formation`). Not in bullet time, whose overview
-    // pans as one.
-    let formation = |index: usize, place: f64, at: f64| {
-        let camera = if zoomed_out > 0.0 {
-            state.motion.camera(&name, at)
-        } else {
-            state.motion.camera_in_formation(&name, at, place)
-        };
+    let offset = |index: usize| {
         let origin = state
             .screen_rect_for_workspace(index)
             .map_or(output_geo.loc.x, |rect| rect.x);
         shift_for_workspace(index, camera, step, output_geo.loc.x, origin)
     };
-    // The trailing end of a formation is still on its way after the view has arrived.
-    let trailing = [0.0, 1.0].map(|place| state.motion.camera_in_formation(&name, wall, place));
     let mut windows: Vec<(Window, Option<usize>)> = state
         .space
         .elements()
@@ -1301,8 +1287,7 @@ pub fn output_elements(
         (0..state.workspaces.count()).filter(|index| state.screens.showing(*index).is_none())
     {
         // Zoomed out, neighbouring workspaces come into view.
-        let in_view = |camera: f64| ((index as f64 - camera) * step).abs() * zoom < step;
-        if in_view(camera) || trailing.into_iter().any(in_view) {
+        if ((index as f64 - camera) * step).abs() * zoom < step {
             // Front to back: the floating windows, front-most first, then the tiles.
             let ws = state.workspaces.get(index);
             let floating = ws.floating.windows().into_iter().rev();
@@ -1325,25 +1310,12 @@ pub fn output_elements(
     if ui <= 0.0 {
         windows.clear();
     }
-    // How far along its workspace each window is drawn, now and a frame ago (for its wake).
-    let frame_ago = 1.0 / 60.0;
-    let windows: Vec<(Window, f64, f64)> = windows
+    // How far along its workspace each window is drawn.
+    let windows: Vec<(Window, f64)> = windows
         .into_iter()
         .map(|(window, index)| {
-            let (dx, dx_before) = match index {
-                Some(index) => {
-                    let place = state.motion.frame(&window, now).map_or(0.5, |frame| {
-                        (frame.rect[0] + frame.rect[2] / 2.0 - output_geo.loc.x as f64)
-                            / output_geo.size.w.max(1) as f64
-                    });
-                    (
-                        formation(index, place, wall),
-                        formation(index, place, wall - frame_ago),
-                    )
-                }
-                None => (active_dx, active_dx),
-            };
-            (window, dx, dx_before)
+            let dx = index.map_or(active_dx, offset);
+            (window, dx)
         })
         .collect();
     state
@@ -1382,10 +1354,7 @@ pub fn output_elements(
             state.drawn_off_space.push(window.clone());
         }
     }
-    // Wakes go behind every window.
-    let mut wakes: Vec<OutputElement> = Vec::new();
-    let waking = zoomed_out <= 0.0 && ui >= 1.0 && !state.clock.reduced_motion;
-    for (window, dx, dx_before) in windows {
+    for (window, dx) in windows {
         if in_deck.contains(&window)
             || passing
                 .as_ref()
@@ -1668,33 +1637,7 @@ pub fn output_elements(
         } else {
             world.extend(surfaces.into_iter().map(OutputElement::Surface));
         }
-        // Moving fast, it leaves a wake.
-        if waking && s == 1.0 {
-            let before = state
-                .motion
-                .frame(&window, now - frame_ago)
-                .map_or(frame.rect, |before| before.rect);
-            let velocity = (
-                (frame.rect[0] + dx - before[0] - dx_before) / frame_ago,
-                (frame.rect[1] - before[1]) / frame_ago,
-            );
-            wakes.extend(
-                chrome
-                    .wakes
-                    .elements(
-                        renderer,
-                        shown,
-                        velocity,
-                        wake_seed(&window),
-                        scale.x,
-                        alpha,
-                    )
-                    .into_iter()
-                    .map(OutputElement::Memory),
-            );
-        }
     }
-    world.append(&mut wakes);
 
     // Tiles passing through each other, in front of the other windows.
     if let (Some((front_window, back_window)), Some(pass)) = (passing.as_ref(), state.pass.as_ref())
@@ -2292,14 +2235,6 @@ fn unlock_zoom(
         None,
         Kind::Unspecified,
     ))
-}
-
-/// A number for `window` that stays the same from frame to frame, so its wake keeps its streaks.
-fn wake_seed(window: &Window) -> u64 {
-    use smithay::{reexports::wayland_server::Resource, wayland::seat::WaylandFocus};
-    window
-        .wl_surface()
-        .map_or(7, |surface| u64::from(surface.id().protocol_id()))
 }
 
 /// Alt+Tab's deck on the screen `output`: each window's pane, nearest first, the name of the one

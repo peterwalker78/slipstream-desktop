@@ -94,7 +94,6 @@ mod toast;
 mod tour;
 mod udev;
 mod usage;
-mod wake;
 mod watch;
 mod winit;
 mod workspace;

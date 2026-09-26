@@ -149,6 +149,15 @@ impl Card {
 /// under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP` above the foot of a screen
 /// `screen_h` logical pixels tall. The size is in whole logical pixels, so the buffer is shown one
 /// to one.
+/// The size, in screen pixels at `scale`, that the code rain's glyphs are drawn at: a third of a
+/// stream card's inner width across, in GLMatrix's cell proportions. Anything else drawn as rain
+/// uses this, so it is the same rain.
+pub fn glyph_size(scale: f64) -> (usize, usize) {
+    let card = ((BUTTON_W * MOCKUP_PX * HEADER).round() as f64 * scale).round() as i32;
+    let inset = (CARD_INSET * scale).floor().max(1.0) as i32;
+    crate::glmatrix::glyph_size((card - 2 * inset).max(3) as f32)
+}
+
 fn card_frame(
     button: Point<i32, Physical>,
     button_h: f32,
@@ -696,6 +705,12 @@ pub fn stream_hit(count: usize, x: f64, y: f64, screen: Rect, top: i32) -> Optio
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_rain_s_glyph_size_is_a_third_of_a_stream_s_inner_width() {
+        assert_eq!(glyph_size(1.0), (10, 15));
+        assert_eq!(glyph_size(1.25), crate::glmatrix::glyph_size(40.0));
+    }
+
     use super::*;
 
     #[test]
