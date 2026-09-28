@@ -9,7 +9,7 @@
 use resvg::tiny_skia::Pixmap;
 
 use crate::{
-    glmatrix::{QUIET, colour_for},
+    glmatrix::{QUIET, colour_for, speed_for},
     text::{self, Face, Style},
 };
 
@@ -23,27 +23,27 @@ const WARM_TICKS: usize = 90;
 const EASE: f64 = 2.0;
 /// How long the name keeps glowing after light has passed over it, in seconds.
 const GLOW: f64 = 0.45;
-/// Streaks' speed in logical pixels a second at middle depth: at rest, and the extra flat out.
-const SPEED_REST: f32 = 46.0;
-const SPEED_BUSY: f32 = 460.0;
+/// Streaks fall as fast as the code rain's heads do, on its own curve of load: about five of its
+/// 15-pixel cells a second at its speed of 1, over the 0.88 an average streak's depth gives.
+const SPEED: f32 = 84.0;
 /// Streaks begun a second across a card: at rest, and the extra flat out.
-const RATE_REST: f32 = 1.0;
-const RATE_BUSY: f32 = 24.0;
+const RATE_REST: f32 = 0.5;
+const RATE_BUSY: f32 = 11.0;
 /// A streak's length in logical pixels, from farthest to nearest, and the part that grows with
 /// its speed, in seconds.
-const LEN_FAR: f32 = 5.0;
-const LEN_NEAR: f32 = 16.0;
-const LEN_SPEED: f32 = 0.08;
+const LEN_FAR: f32 = 8.0;
+const LEN_NEAR: f32 = 26.0;
+const LEN_SPEED: f32 = 0.12;
 /// A streak's width in logical pixels, farthest to nearest, and its head's glow radius.
-const WIDTH_FAR: f32 = 1.0;
-const WIDTH_NEAR: f32 = 3.4;
-const HEAD_FAR: f32 = 1.6;
-const HEAD_NEAR: f32 = 4.2;
+const WIDTH_FAR: f32 = 1.4;
+const WIDTH_NEAR: f32 = 4.6;
+const HEAD_FAR: f32 = 2.2;
+const HEAD_NEAR: f32 = 5.6;
 /// The faint trail behind each streak: how many of its lengths long, and how bright.
 const TRAIL: f32 = 3.0;
 const TRAIL_LIGHT: f32 = 0.12;
 /// Bloom: how far the light spreads, in logical pixels, and how much of it is added back.
-const BLOOM: f32 = 3.2;
+const BLOOM: f32 = 4.0;
 const BLOOM_LIGHT: f32 = 0.6;
 /// The name: its size and letter spacing, where it starts below the top of the card in logical
 /// pixels, and how bright it is at rest and fully lit.
@@ -183,7 +183,7 @@ impl Streaks {
             self.spawn -= 1.0;
             // Most streaks are far away, a few near.
             let near = self.random().powf(1.4);
-            let speed = (SPEED_REST + SPEED_BUSY * load) * scale * (0.5 + 0.9 * near);
+            let speed = SPEED * speed_for(load) * scale * (0.5 + 0.9 * near);
             let x = self.random() * self.width as f32;
             self.streaks.push(Streak {
                 x,

@@ -473,7 +473,7 @@ const float WAKE = 0.4;
 // How far into the distance the pane draws back as it leaves.
 const float RECEDE = 0.08;
 // Three layers of streaks, each in cells this many logical pixels wide, some left empty.
-const float CELL = 9.0;
+const float CELL = 22.0;
 const float EMPTY = 0.3;
 
 // How far the pane has dropped, `u` seconds in, and how large it is.
@@ -498,7 +498,7 @@ vec4 pane_at(vec2 p, float u) {
 
 // One layer's streak at `px`, if its cell has one.
 vec3 streak(vec2 px, float layer) {
-    float cw = (CELL - 2.0 * layer) * unit;
+    float cw = (CELL - 5.0 * layer) * unit;
     float off = hash(vec2(layer, 3.0)) * cw;
     float cell = floor((px.x + off) / cw);
     float seed = layer * 7.0;
@@ -514,11 +514,11 @@ vec3 streak(vec2 px, float layer) {
     if (u <= LEAN) {
         return vec3(0.0);
     }
-    float head = pane_y(u) + 2.0 * unit;
+    float head = pane_y(u) + 5.0 * unit;
     float speed = gravity * (u - LEAN);
-    float len = (24.0 + 90.0 * near) * unit + speed * 0.06;
-    float width = mix(1.0, 3.6, near) * unit;
-    float radius = mix(1.8, 4.6, near) * unit;
+    float len = (60.0 + 220.0 * near) * unit + speed * 0.08;
+    float width = mix(2.5, 9.0, near) * unit;
+    float radius = mix(4.5, 11.0, near) * unit;
     float dx = abs(px.x - cx);
     // The tail, brightening towards the head, and the head's glow.
     float along = (px.y - (head - len)) / len;
