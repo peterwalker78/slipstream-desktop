@@ -789,13 +789,28 @@ fn ink_cell(
 ) {
     let rgb = cell.rgb;
     let (half_w, half_h) = (w / 2, h / 2);
+    if let Some(lit) = quarters(cell.ch) {
+        if lit == [true; 4] {
+            ink_fill(pixels, width, x0, y0, w, h, rgb, weight);
+            return;
+        }
+        for (at, _) in lit.iter().enumerate().filter(|(_, on)| **on) {
+            let (x, qw) = if at % 2 == 1 {
+                (x0 + half_w, w - half_w)
+            } else {
+                (x0, half_w)
+            };
+            let (y, qh) = if at >= 2 {
+                (y0 + half_h, h - half_h)
+            } else {
+                (y0, half_h)
+            };
+            ink_fill(pixels, width, x, y, qw, qh, rgb, weight);
+        }
+        return;
+    }
     match cell.ch {
         ' ' => {}
-        '█' => ink_fill(pixels, width, x0, y0, w, h, rgb, weight),
-        '▀' => ink_fill(pixels, width, x0, y0, w, half_h, rgb, weight),
-        '▄' => ink_fill(pixels, width, x0, y0 + half_h, w, h - half_h, rgb, weight),
-        '▌' => ink_fill(pixels, width, x0, y0, half_w, h, rgb, weight),
-        '▐' => ink_fill(pixels, width, x0 + half_w, y0, w - half_w, h, rgb, weight),
         // Shades fill the cell at a fraction of the ink, which is what they look like in a
         // terminal and several times cheaper than a glyph.
         '░' => ink_fill(pixels, width, x0, y0, w, h, rgb, weight * 0.25),
@@ -885,6 +900,29 @@ fn braille(dots: u8) -> char {
     char::from_u32(0x2800 + bits).unwrap_or(' ')
 }
 
+/// The quarters of its cell a block character covers: top left, top right, bottom left, bottom
+/// right. The logo is drawn in these, and anything else is not a block.
+fn quarters(ch: char) -> Option<[bool; 4]> {
+    Some(match ch {
+        '█' => [true, true, true, true],
+        '▀' => [true, true, false, false],
+        '▄' => [false, false, true, true],
+        '▌' => [true, false, true, false],
+        '▐' => [false, true, false, true],
+        '▘' => [true, false, false, false],
+        '▝' => [false, true, false, false],
+        '▖' => [false, false, true, false],
+        '▗' => [false, false, false, true],
+        '▚' => [true, false, false, true],
+        '▞' => [false, true, true, false],
+        '▛' => [true, true, true, false],
+        '▜' => [true, true, false, true],
+        '▙' => [true, false, true, true],
+        '▟' => [false, true, true, true],
+        _ => return None,
+    })
+}
+
 /// One Braille dot of the logo: where it is, in dots across and down the screen, and how far
 /// across the logo it sits, 0 to 1.
 #[derive(Debug, Clone, Copy)]
@@ -894,7 +932,8 @@ struct LogoDot {
     across: f32,
 }
 
-/// Every Braille dot the logo's letters cover, with half blocks covering half their cell.
+/// Every Braille dot the logo's letters cover, with a part block covering only its part of the
+/// cell.
 fn logo_dots(layout: &Layout) -> Vec<LogoDot> {
     let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
     let mut dots = Vec::new();
@@ -903,16 +942,10 @@ fn logo_dots(layout: &Layout) -> Vec<LogoDot> {
             continue;
         }
         let across = (letter.col - lx) as f32 / lw as f32;
+        let lit = quarters(letter.ch).unwrap_or([true; 4]);
         for down in 0..4 {
             for side in 0..2 {
-                let on = match letter.ch {
-                    '▀' => down < 2,
-                    '▄' => down >= 2,
-                    '▌' => side == 0,
-                    '▐' => side == 1,
-                    _ => true,
-                };
-                if on {
+                if lit[down / 2 * 2 + side] {
                     dots.push(LogoDot {
                         x: letter.col as usize * 2 + side,
                         y: letter.row as usize * 4 + down,

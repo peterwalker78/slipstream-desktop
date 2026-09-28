@@ -9,7 +9,7 @@
 //! density comes from. Now and then a falcon passes through and the flock parts round it. At the
 //! end of the turn the birds land back on their own dots, left of the logo first.
 
-use super::{BG, Frame, Grid, Layout, Variation, WHITE, braille, gradient, hash01, mix};
+use super::{BG, Frame, Grid, Layout, Variation, WHITE, braille, gradient, hash01, logo_dots, mix};
 
 /// One turn, in seconds of the animation clock.
 const APPEAR: f64 = 1.5;
@@ -104,29 +104,10 @@ impl Murmuration {
         self.ink.resize(self.w * self.h, BG);
         self.last = None;
 
-        let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
-        let mut homes = vec![];
-        for letter in &layout.letters {
-            let across = (letter.col - lx) as f32 / lw as f32;
-            for down in 0..4 {
-                for side in 0..2 {
-                    let on = match letter.ch {
-                        '▀' => down < 2,
-                        '▄' => down >= 2,
-                        '▌' => side == 0,
-                        '▐' => side == 1,
-                        _ => true,
-                    };
-                    if on {
-                        let home = (
-                            (letter.col * 2 + side) as f32,
-                            (letter.row * 4 + down) as f32,
-                        );
-                        homes.push((home, across));
-                    }
-                }
-            }
-        }
+        let homes: Vec<_> = logo_dots(layout)
+            .into_iter()
+            .map(|dot| ((dot.x as f32, dot.y as f32), dot.across))
+            .collect();
         let each = BIRDS_PER_DOT.min(MOST_BIRDS / homes.len().max(1)).max(1);
         let salt = self.seed ^ turn.wrapping_mul(0x9e37_79b9_7f4a_7c15);
         self.birds.clear();

@@ -16,7 +16,8 @@
 //! they do. At the end of the turn the particles find their letters again.
 
 use super::{
-    AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01, mix,
+    AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01,
+    logo_dots, mix,
 };
 
 /// One turn, in seconds of the animation clock.
@@ -112,39 +113,18 @@ impl Attractor {
         self.orbit = (0.1, 0.1);
 
         // A particle for every dot of every letter.
-        let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
         self.particles.clear();
-        for letter in &layout.letters {
-            let across = (letter.col - lx) as f32 / lw as f32;
-            let rgb = gradient(across);
-            for down in 0..4 {
-                for side in 0..2 {
-                    let on = match letter.ch {
-                        '▀' => down < 2,
-                        '▄' => down >= 2,
-                        '▌' => side == 0,
-                        '▐' => side == 1,
-                        _ => true,
-                    };
-                    if !on {
-                        continue;
-                    }
-                    let home = (
-                        (letter.col * 2 + side) as f32,
-                        (letter.row * 4 + down) as f32,
-                    );
-                    let n = self.particles.len() as u64;
-                    self.particles.push(Particle {
-                        home,
-                        rgb,
-                        orbit: (
-                            hash01(n ^ self.seed) * 2.0 - 1.0,
-                            hash01(n.wrapping_mul(31) ^ self.seed) * 2.0 - 1.0,
-                        ),
-                        across,
-                    });
-                }
-            }
+        for dot in logo_dots(layout) {
+            let n = self.particles.len() as u64;
+            self.particles.push(Particle {
+                home: (dot.x as f32, dot.y as f32),
+                rgb: gradient(dot.across),
+                orbit: (
+                    hash01(n ^ self.seed) * 2.0 - 1.0,
+                    hash01(n.wrapping_mul(31) ^ self.seed) * 2.0 - 1.0,
+                ),
+                across: dot.across,
+            });
         }
         self.turn = Some(turn);
     }

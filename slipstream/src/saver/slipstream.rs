@@ -1,5 +1,5 @@
-//! The living wallpaper's first variation: the SLIPSTREAM logo, in FIGlet block letters, centred
-//! on a dark screen and animated character by character through a cycle of effects.
+//! The living wallpaper's first variation: the SLIPSTREAM logo, in block letters, centred on a
+//! dark screen and animated character by character through a cycle of effects.
 //!
 //! The effects are about slipstreams. Stream lines flow across the screen, bend clear of the logo,
 //! brighten as they squeeze past it and ripple in its wake, and each leaves a fading streakline of
