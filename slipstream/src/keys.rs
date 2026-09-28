@@ -47,10 +47,11 @@ pub enum Action {
     CycleWindows { forward: bool },
     /// Open or close the app explorer.
     Explorer,
-    /// Gravity: make the focused window heavier (towards the centre) or lighter (out to the edge,
-    /// then into the code rain).
+    /// Gravity: make the focused window heavier (towards the centre) or lighter (out to the strip
+    /// along the bottom).
     Weigh { heavier: bool },
-    /// Gravity on (with the focused window as the centre) or back to tiling.
+    /// Gravity on, at the arrangement last kept, or back to tiling; held, the arrangements side by
+    /// side.
     ToggleGravity,
     /// Minimise the focused window into the code rain.
     Minimise,
@@ -148,7 +149,7 @@ impl Action {
             Action::CycleWindows { .. } => "switch window",
             Action::Explorer => "apps",
             Action::Weigh { .. } => "heavier, lighter",
-            Action::ToggleGravity => "gravity on, off",
+            Action::ToggleGravity => "gravity on, off; hold to choose",
             Action::Minimise => "minimise to the code rain",
             Action::Restore => "bring back the last minimised",
             Action::HideAll => "hide every window, and back",

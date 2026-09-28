@@ -210,6 +210,10 @@ pub struct Slipstream {
     pub focus_history: Vec<Window>,
     /// Alt+Tab's switcher, while Alt is held (`switcher.rs`).
     pub switcher: Option<crate::switcher::Switcher<Window>>,
+    /// Gravity's arrangements, while Super is held after Super+T (`arrange.rs`).
+    pub arrange: Option<crate::arrange::Arrange<Window>>,
+    /// The arrangement a quick Super+T turns gravity on at: the last one kept.
+    pub arrangement: Rung,
     /// The windows filling a screen at their own request (F11, video, games). At most one per
     /// workspace, so a video can fill one screen while another is worked on.
     pub fullscreen: Vec<Window>,
@@ -614,6 +618,8 @@ impl Slipstream {
             pending_focus: None,
             focus_history: Vec::new(),
             switcher: None,
+            arrange: None,
+            arrangement: Rung::Centre,
             fullscreen: Vec::new(),
             refloat: Vec::new(),
             floating_sizes: Vec::new(),
@@ -4029,13 +4035,12 @@ impl Slipstream {
             .filter(|other| other != window)
             .collect();
         others.sort_by_key(|other| recency(&history, other));
-        let from = ws.gravity.rung(window);
         let step = ws.gravity.step(window, heavier, &others);
         if matches!(step, Step::Moved(_)) {
             // Gravity takes over the sizes, so a maximise ends rather than coming back after it.
             ws.maximised = None;
         }
-        self.report_step(window, from, step);
+        self.report_step(window, step);
         self.retile();
     }
 
@@ -4066,57 +4071,177 @@ impl Slipstream {
         tracing::info!(window = logged_app(&window), maximised, "maximise");
     }
 
-    /// Super+T: gravity on, with the focused window as the centre, or back to tiling.
+    /// Super+T. A quick press turns gravity on, at the arrangement last kept, or back to tiling;
+    /// with Super held the arrangements appear side by side, and each further T moves along
+    /// them (`arrange.rs`).
     pub fn toggle_gravity(&mut self) {
-        let gravity = &mut self.current_workspace_mut().gravity;
-        if gravity.is_on() {
-            gravity.off();
-            self.show_toast(
-                "Dwindle tiling",
-                "Back to dwindle tiling. Weights are cleared.",
-            );
-            if let Some(window) = self.focused_window() {
-                self.tag(window, Rung::Tiling);
-            }
-            self.retile();
+        if self.arrange.is_some() {
+            self.step_arrangement(true);
+            return;
+        }
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        let Some(index) = self.workspaces.find(&window) else {
+            return;
+        };
+        if self.workspaces.is_floating(&window) {
+            return;
+        }
+        let ws = self.workspaces.get_mut(index);
+        // One window looks the same in every arrangement.
+        if ws.layout.windows().len() < 2 && !ws.gravity.is_on() {
+            return;
+        }
+        let to = if ws.gravity.is_on() {
+            Rung::Tiling
         } else {
-            self.weigh(true);
+            self.arrangement
+        };
+        let before = (ws.gravity.clone(), ws.maximised.clone());
+        self.arrange = Some(crate::arrange::Arrange::start(
+            to,
+            window.clone(),
+            index,
+            before,
+            self.wall(),
+            self.clock.reduced_motion,
+        ));
+        self.arrange_to(to);
+    }
+
+    /// The next arrangement along the strip, or the one before, put in force at once.
+    pub fn step_arrangement(&mut self, forward: bool) {
+        if let Some(rung) = self.arrange.as_mut().map(|arrange| arrange.step(forward)) {
+            self.arrange_to(rung);
         }
     }
 
-    /// Tags the window with its new rung, or says why nothing moved. Turning gravity on also says
-    /// what happened, since a stray press rearranges every window on the workspace. Stepping
-    /// within the ladder says nothing: the tag on the window is the answer, and tiling is no
-    /// longer a rung to pass through, so there is nothing else to announce.
-    fn report_step(&mut self, window: &Window, from: Rung, step: Step) {
-        let name = self.window_name(window);
-        match step {
-            Step::Moved(rung) => {
-                self.tag(window.clone(), rung);
-                match (from, rung) {
-                    (Rung::Tiling, Rung::Centre) => self.show_toast(
-                        "Gravity on",
-                        &format!("{name} is the centre. Super+T goes back to tiling."),
-                    ),
-                    (Rung::Tiling, Rung::Grid) => self.show_toast(
-                        "Grid",
-                        "Every window the same size. Super+T goes back to tiling.",
-                    ),
-                    _ => {}
-                }
-            }
-            Step::Heaviest => self.show_toast(
-                "As heavy as it goes",
-                &format!("{name} is in the spotlight. Super+PgDn makes it lighter."),
-            ),
-            Step::Lightest => self.show_toast(
-                "As light as it goes",
-                &format!("Super+M sends {name} to the code rain. Super+PgUp makes it heavier."),
-            ),
-            Step::Alone => self.show_toast(
-                "Nothing to arrange",
-                &format!("{name} is the only window here."),
-            ),
+    /// A tile of the strip clicked: that arrangement, kept.
+    pub fn pick_arrangement(&mut self, index: usize) {
+        if let Some(rung) = self
+            .arrange
+            .as_mut()
+            .and_then(|arrange| arrange.select(index))
+        {
+            self.arrange_to(rung);
+            self.finish_arrangement();
+        }
+    }
+
+    fn arrange_to(&mut self, rung: Rung) {
+        let Some((window, index)) = self
+            .arrange
+            .as_ref()
+            .map(|arrange| (arrange.window.clone(), arrange.workspace))
+        else {
+            return;
+        };
+        if !window.alive() || self.workspaces.find(&window) != Some(index) {
+            self.arrange = None;
+            return;
+        }
+        let ws = self.workspaces.get_mut(index);
+        ws.gravity.arrange(&window, rung);
+        if rung != Rung::Tiling {
+            // Gravity takes over the sizes, so a maximise ends rather than coming back after it.
+            ws.maximised = None;
+        }
+        self.tag(window, rung);
+        self.retile();
+    }
+
+    /// Super let go: the arrangement on the strip stays, and a quick Super+T turns gravity on at
+    /// it next time.
+    pub fn finish_arrangement(&mut self) {
+        let Some(arrange) = self.arrange.take() else {
+            return;
+        };
+        let rung = self
+            .workspaces
+            .get_mut(arrange.workspace)
+            .gravity
+            .rung(&arrange.window);
+        if matches!(
+            rung,
+            Rung::Grid | Rung::Centre | Rung::Wide | Rung::Spotlight
+        ) {
+            self.arrangement = rung;
+        }
+    }
+
+    /// Esc with Super held: the workspace goes back to how it was before Super+T.
+    pub fn cancel_arrangement(&mut self) {
+        let Some(arrange) = self.arrange.take() else {
+            return;
+        };
+        let (gravity, maximised) = arrange.before;
+        let ws = self.workspaces.get_mut(arrange.workspace);
+        ws.gravity = gravity;
+        ws.maximised = maximised;
+        let rung = ws.gravity.rung(&arrange.window);
+        if arrange.window.alive() {
+            self.tag(arrange.window, rung);
+        }
+        self.retile();
+    }
+
+    /// The strip's element, once Super has been held long enough, for a screen `screen` big.
+    pub fn arrange_element<R>(
+        &mut self,
+        renderer: &mut R,
+        screen: smithay::utils::Size<i32, smithay::utils::Logical>,
+        scale: f64,
+    ) -> Option<smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement<R>>
+    where
+        R: smithay::backend::renderer::Renderer + smithay::backend::renderer::ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let now = self.wall();
+        let mut arrange = self.arrange.take()?;
+        let element = if arrange.visible(now) {
+            let pictures = self.arrangement_pictures(&arrange.window, arrange.workspace);
+            let ring = self.panel_ring();
+            arrange.element(renderer, screen, scale, now, ring, pictures)
+        } else {
+            None
+        };
+        self.arrange = Some(arrange);
+        element
+    }
+
+    /// Each arrangement on the strip as it would place this workspace's windows, `window` marked.
+    fn arrangement_pictures(
+        &mut self,
+        window: &Window,
+        index: usize,
+    ) -> Vec<Vec<crate::arrange::Pane>> {
+        let Some(area) = self.area_for_workspace(index) else {
+            return Vec::new();
+        };
+        let ws = self.workspaces.get_mut(index);
+        let windows = ws.layout.windows();
+        let (outer, inner) = (ws.layout.outer_gap, ws.layout.inner_gap);
+        crate::arrange::CHOICES
+            .iter()
+            .map(|rung| {
+                let rects = if *rung == Rung::Tiling {
+                    ws.layout.rects_within(area, &min_size)
+                } else {
+                    let mut gravity = ws.gravity.clone();
+                    gravity.arrange(window, *rung);
+                    gravity.rects(&windows, area, outer, inner)
+                };
+                crate::arrange::picture(&rects, area, Some(window))
+            })
+            .collect()
+    }
+
+    /// Tags the window with its new rung. The tag is the whole answer: a step past either end of
+    /// the ladder, or with nothing else to arrange, changes nothing and says nothing.
+    fn report_step(&mut self, window: &Window, step: Step) {
+        if let Step::Moved(rung) = step {
+            self.tag(window.clone(), rung);
         }
     }
 

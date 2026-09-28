@@ -11,6 +11,7 @@ mod alert;
 mod anim;
 mod appearance;
 mod apps;
+mod arrange;
 mod auth;
 mod awake;
 mod bar;

@@ -58,6 +58,9 @@ enum KeyUse {
     CancelDrag,
     /// Esc while Alt+Tab's switcher is up.
     CancelSwitch,
+    /// Esc, or an arrow, while gravity's arrangements are up.
+    CancelArrange,
+    StepArrange(bool),
     /// A key for the shortcut sheet, with the character it types.
     Sheet(Keysym, Option<char>),
     /// A key while a snip is being chosen.
@@ -214,6 +217,7 @@ impl Slipstream {
     pub fn pointer_blocked(&self) -> bool {
         self.lock.is_some()
             || self.switcher.is_some()
+            || self.arrange.is_some()
             || self.explorer.is_open()
             || self.sheet.is_open()
             || self.history.is_open()
@@ -274,6 +278,7 @@ impl Slipstream {
             || self.connect.is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.switcher.is_some()
+            || self.arrange.is_some()
             || self.bullet.is_some()
         {
             Overlay::Card
@@ -785,6 +790,25 @@ impl Slipstream {
             return;
         }
 
+        // Gravity's arrangements take every click while they're up: one on a tile keeps it.
+        if self.arrange.is_some() {
+            if button_state == ButtonState::Pressed {
+                let pos = pointer.current_location();
+                let tile = self
+                    .arrange
+                    .as_ref()
+                    .filter(|arrange| arrange.visible(self.wall()))
+                    .and_then(|arrange| {
+                        let screen = self.focused_screen_geometry()?;
+                        arrange.tile_at(pos - screen.loc.to_f64())
+                    });
+                if let Some(tile) = tile {
+                    self.pick_arrangement(tile);
+                }
+            }
+            return;
+        }
+
         // Alt+Tab's switcher takes every click while it's up: one on a tile goes to that window.
         if self.switcher.is_some() {
             if button_state == ButtonState::Pressed {
@@ -1284,6 +1308,20 @@ impl Slipstream {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::CancelSwitch));
                     }
+                    // With Super still held after Super+T, Esc puts the workspace back and the
+                    // arrows move along the arrangements.
+                    if pressed && state.arrange.is_some() {
+                        let arrange_key = match key {
+                            Keysym::Escape => Some(KeyUse::CancelArrange),
+                            Keysym::Left => Some(KeyUse::StepArrange(false)),
+                            Keysym::Right => Some(KeyUse::StepArrange(true)),
+                            _ => None,
+                        };
+                        if let Some(arrange_key) = arrange_key {
+                            state.suppressed_keys.push(key);
+                            return FilterResult::Intercept(Some(arrange_key));
+                        }
+                    }
                     // An app holding the shortcuts (a virtual machine, a remote desktop) gets every
                     // key but the one that takes them back. The hardware keys (volume, brightness,
                     // media) stay the laptop's.
@@ -1333,6 +1371,8 @@ impl Slipstream {
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),
             Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),
             Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
+            Some(Some(KeyUse::CancelArrange)) => self.cancel_arrangement(),
+            Some(Some(KeyUse::StepArrange(forward))) => self.step_arrangement(forward),
             Some(Some(KeyUse::Sheet(sym, ch))) => self.sheet_key(sym, ch),
             Some(Some(KeyUse::Snip(sym))) => self.snip_key(sym),
             Some(Some(KeyUse::History(sym))) => self.history_key(sym),
@@ -1363,6 +1403,16 @@ impl Slipstream {
         // Alt+Tab settles when Alt is let go, as on Windows.
         if self.switcher.is_some() && !self.seat.get_keyboard().unwrap().modifier_state().alt {
             self.finish_cycle();
+        }
+        // Gravity's arrangement settles when Super is let go.
+        if self.arrange.is_some()
+            && !Mods::from_state(
+                &self.seat.get_keyboard().unwrap().modifier_state(),
+                self.nested,
+            )
+            .logo
+        {
+            self.finish_arrangement();
         }
     }
 

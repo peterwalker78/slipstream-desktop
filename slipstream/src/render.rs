@@ -956,6 +956,14 @@ pub fn output_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // Gravity's arrangements, while Super is held after Super+T.
+    if first_output && state.arrange.is_some() {
+        elements.extend(
+            state
+                .arrange_element(renderer, output_geo.size, scale.x)
+                .map(OutputElement::Memory),
+        );
+    }
     // The low battery card, above everything but the lock.
     if first_output && state.battery.card.is_some() {
         let mut card = state.battery.card.take();

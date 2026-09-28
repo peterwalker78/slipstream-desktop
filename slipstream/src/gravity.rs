@@ -284,6 +284,34 @@ impl<T: Clone + PartialEq> Gravity<T> {
         Step::Moved(to)
     }
 
+    /// Puts the workspace straight into an arrangement, with `id` as the window that gets the
+    /// space: tiling (gravity off), the grid, or `id` at the centre, wide or in the spotlight.
+    /// Windows already sent to the strip along the bottom stay there. Any other rung is a
+    /// window's own weight rather than an arrangement, and changes nothing.
+    pub fn arrange(&mut self, id: &T, rung: Rung) {
+        let shape = match rung {
+            Rung::Tiling => return self.off(),
+            Rung::Grid => {
+                self.mode = Mode::Grid;
+                self.slots.clear();
+                return;
+            }
+            Rung::Centre => Shape::Centre,
+            Rung::Wide => Shape::Wide,
+            Rung::Spotlight => Shape::Spotlight,
+            Rung::Orbit | Rung::Distant => return,
+        };
+        let distant = match &self.mode {
+            Mode::Mass { distant, .. } => distant.iter().filter(|w| *w != id).cloned().collect(),
+            _ => Vec::new(),
+        };
+        self.mode = Mode::Mass {
+            centre: id.clone(),
+            shape,
+            distant,
+        };
+    }
+
     /// Whether `id` is pinned to its orbit slot.
     pub fn is_pinned(&self, id: &T) -> bool {
         self.pinned.contains(id)
@@ -929,5 +957,27 @@ mod tests {
         // "a" opens, earlier in the tree; unpinned, "c" would move down a slot.
         let second = gravity.rects(&["a", "z", "b", "c"], AREA, 16, 10);
         assert_eq!(rect_of(&first, "c").x, rect_of(&second, "c").x);
+    }
+
+    #[test]
+    fn an_arrangement_is_one_move_and_keeps_the_strip() {
+        let all = ["a", "b", "c", "d"];
+        let mut gravity = Gravity::default();
+        gravity.arrange(&"a", Rung::Wide);
+        assert_eq!(gravity.rung(&"a"), Rung::Wide);
+        assert_eq!(gravity.rung(&"b"), Rung::Orbit);
+        // Send "d" to the strip, then change the arrangement around "b": "d" stays down there.
+        step(&mut gravity, &all, "d", false);
+        assert_eq!(gravity.rung(&"d"), Rung::Distant);
+        gravity.arrange(&"b", Rung::Spotlight);
+        assert_eq!(gravity.rung(&"b"), Rung::Spotlight);
+        assert_eq!(gravity.rung(&"d"), Rung::Distant);
+        gravity.arrange(&"b", Rung::Grid);
+        assert_eq!(gravity.rung(&"a"), Rung::Grid);
+        gravity.arrange(&"b", Rung::Tiling);
+        assert!(!gravity.is_on());
+        // A window's own weight isn't an arrangement.
+        gravity.arrange(&"b", Rung::Orbit);
+        assert!(!gravity.is_on());
     }
 }

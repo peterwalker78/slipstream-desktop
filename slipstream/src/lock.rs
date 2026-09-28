@@ -869,6 +869,8 @@ impl Slipstream {
         self.close_panels();
         // Alt+Tab's switcher goes without switching: nothing is focused or restored under the lock.
         self.cancel_cycle();
+        // Gravity's arrangement stays as the strip last showed it.
+        self.finish_arrangement();
         self.leave_bullet_time_now();
         // A screenshot asked for just before is never taken of the lock, nor flashes over it.
         self.screenshot_requests.clear();
