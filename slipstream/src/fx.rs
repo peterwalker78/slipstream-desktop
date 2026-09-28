@@ -5,9 +5,9 @@
 //! mode's 26 glyphs, drawn from the rain's own font, so one texture carries both and the shader
 //! needs nothing else.
 //!
-//! Wake, with Slipstream's own effects: the window, still one rigid pane, is caught by the air and
-//! swept away downwind, leaving a slipstream behind it: its own content drawn out into streaks of
-//! light that turn to the rain's green and break up in the turbulence as they fade.
+//! Wake, with Slipstream's own effects: the window, still one rigid pane, drops away off the bottom
+//! of the screen, leaving a slipstream behind it: its own content drawn out into streaks of light in
+//! the streams' lanes and slits, turning to the rain's green as they fade.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -44,13 +44,11 @@ const PACE: f64 = 1.25;
 pub const DEREZ: f64 = 1.2 / PACE;
 /// How fast falling glyphs speed up, in logical pixels a second a second.
 const GRAVITY: f64 = 3400.0;
-/// How long a closed window takes to be swept away, in animation seconds: it lets go after 0.06 s,
-/// is off the screen 0.42 s later, and its wake has faded 0.4 s after that. The shader has the same
+/// How long a closed window takes to drop away, in animation seconds: it lets go after 0.06 s, is
+/// off the screen 0.42 s later, and its wake has faded 0.4 s after that. The shader has the same
 /// numbers.
 pub const WAKE: f64 = 0.88;
 const WAKE_GO: f64 = 0.42;
-/// How far below the window its wake may drift, in logical pixels.
-const WAKE_DRIFT: f64 = 90.0;
 
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
@@ -178,9 +176,8 @@ impl Fx {
     }
 
     /// A closed window's last picture, `elements` laid out from its corner, falling away in
-    /// `effects` `t` seconds in. It was drawn at `rect` on a screen whose right and bottom edges are
-    /// `right` and `bottom`, all in the screen's own logical pixels: code falls off the bottom, and
-    /// a swept window leaves by the right.
+    /// `effects` `t` seconds in. It was drawn at `rect` on a screen whose bottom edge is `bottom`,
+    /// both in the screen's own logical pixels; what falls, falls off that edge.
     #[allow(clippy::too_many_arguments)]
     pub fn fall(
         &mut self,
@@ -189,7 +186,6 @@ impl Fx {
         texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
         mut elements: Vec<OutputElement>,
         rect: Rectangle<f64, Logical>,
-        right: f64,
         bottom: f64,
         scale: f64,
         t: f64,
@@ -197,24 +193,17 @@ impl Fx {
         if !self.ready(renderer) {
             return None;
         }
-        // Where it can go: down to the foot of the screen for falling code, and across to the right
-        // edge, a little below the window, for a swept window and its wake.
-        let (across, down) = match effects {
-            Effects::Matrix => (rect.size.w, bottom - rect.loc.y),
-            Effects::Slipstream => (
-                right - rect.loc.x,
-                (bottom - rect.loc.y).min(rect.size.h + WAKE_DRIFT),
-            ),
-        };
+        // Both fall off the foot of the screen.
+        let fall = (bottom - rect.loc.y).max(rect.size.h);
         let content = Size::<i32, Physical>::from((
-            (across.max(rect.size.w) * scale).round().max(1.0) as i32,
-            (down.max(rect.size.h) * scale).round().max(1.0) as i32,
+            (rect.size.w * scale).round().max(1.0) as i32,
+            (fall * scale).round().max(1.0) as i32,
         ));
         let window_w = (rect.size.w * scale).round() as f32;
         let window_h = (rect.size.h * scale).round() as f32;
         let cell = crate::rain::glyph_size(scale);
         let cell = (cell.0 as i32, cell.1 as i32);
-        // What moves speeds up at `gravity` screen pixels a second a second: a swept window fast
+        // What falls speeds up at `gravity` screen pixels a second a second: a dropping window fast
         // enough to be clear of the screen in its time, however far it has to go.
         let (texpx, program, t, gravity) = match effects {
             Effects::Matrix => {
@@ -231,7 +220,7 @@ impl Fx {
                 content,
                 self.wake.clone()?,
                 t,
-                2.0 * content.w as f64 / (WAKE_GO * WAKE_GO),
+                2.0 * content.h as f64 / (WAKE_GO * WAKE_GO),
             ),
         };
         tilt::draw_offscreen(
@@ -463,13 +452,13 @@ void main() {
 }
 "#;
 
-/// Wake. The window holds still for a moment, then is swept off to the right as one rigid pane,
-/// speeding up and drawing back a little into the distance as it goes. Behind it, it leaves its
-/// slipstream: for each point, where the pane was over the last fraction of a second, drawn as
-/// light. Just behind the pane that light is the window's own colours, a motion blur; further back
-/// it turns to the rain's green, breaks into fine speed lines, sags and ripples in the turbulence,
-/// and fades. Only what stands out from a dark background glows, so it is the window's content
-/// that streams away, not a sheet of colour.
+/// Wake. The window holds still for a moment, then drops off the bottom of the screen as one rigid
+/// pane, speeding up and drawing back a little into the distance as it goes. Behind it, it leaves
+/// its slipstream in the streams' own terms: light in lanes one unit wide, each lane taking one
+/// column of the window as it passed, cut by slits in the streams' rhythm, with a bright head where
+/// it leaves the pane's top edge. Just behind the pane the light is the window's own colours; further
+/// back it turns to the rain's green, and fades. Only what stands out from a dark background glows,
+/// so it is the window's content that streams away, not a sheet of colour.
 const WAKE_MAIN: &str = r#"
 uniform float window_h;
 uniform float window_w;
@@ -484,23 +473,27 @@ const float WAKE = 0.4;
 const float RECEDE = 0.12;
 // Samples along each point's past, and how bright the wake is drawn over them.
 const int SAMPLES = 28;
-const float BRIGHT = 7.0;
+const float BRIGHT = 10.0;
 const float DARK = 0.2;
+// A streak's lit core, as a share of its lane, as in the streams.
+const float CORE = 0.57;
+// What a slit lets through.
+const float SLIT = 0.2;
 
-// Where the pane is across, `u` seconds in, and how large.
-float pane_x(float u) {
+// How far the pane has dropped, `u` seconds in, and how large it is.
+float pane_y(float u) {
     float a = max(u - LEAN, 0.0);
     return 0.5 * gravity * a * a;
 }
 
 float pane_scale(float u) {
-    return 1.0 - RECEDE * clamp(pane_x(u) / content.x, 0.0, 1.0);
+    return 1.0 - RECEDE * clamp(pane_y(u) / content.y, 0.0, 1.0);
 }
 
-// The pane's picture at screen point `p`, `u` seconds in: nothing outside it.
+// The pane's picture at point `p`, `u` seconds in: nothing outside it.
 vec4 pane_at(vec2 p, float u) {
     vec2 middle = vec2(window_w, window_h) * 0.5;
-    vec2 local = (p - vec2(pane_x(u), 0.0) - middle) / pane_scale(u) + middle;
+    vec2 local = (p - vec2(0.0, pane_y(u)) - middle) / pane_scale(u) + middle;
     if (local.x < 0.0 || local.y < 0.0 || local.x >= window_w || local.y >= window_h) {
         return vec4(0.0);
     }
@@ -522,33 +515,45 @@ void main() {
     }
     // The pane itself, whole.
     color = pane_at(px, t);
-    // Its wake: where it was, for each moment of the last WAKE seconds, at this point.
+    // Its wake, lane by lane: each lane carries the column down its middle, lit only in its core,
+    // some lanes brighter than others, and dimmed behind the slits.
+    float lane = floor(px.x / unit);
+    float across = abs(px.x - (lane + 0.5) * unit) / unit;
+    float core = 1.0 - smoothstep(CORE * 0.5 - 0.08, CORE * 0.5 + 0.04, across);
+    float period = 4.0 * unit;
+    float slit = mod(px.y, period) >= 3.0 * unit ? SLIT : 1.0;
+    float weight = core * slit * (0.35 + 0.65 * hash(vec2(lane, 11.0)));
+    vec2 q = vec2((lane + 0.5) * unit, px.y);
     float top_speed = gravity * GO;
-    float jitter = hash(px + vec2(t * 61.0, 7.0));
     vec3 trail = vec3(0.0);
-    for (int k = 0; k < SAMPLES; k++) {
-        float age = WAKE * (float(k) + jitter) / float(SAMPLES);
-        float u = t - age;
-        float speed = gravity * max(u - LEAN, 0.0);
-        if (speed <= 0.0) {
-            break;
+    if (weight > 0.0) {
+        for (int k = 0; k < SAMPLES; k++) {
+            float age = WAKE * (float(k) + 0.5) / float(SAMPLES);
+            float u = t - age;
+            float speed = gravity * max(u - LEAN, 0.0);
+            if (speed <= 0.0) {
+                break;
+            }
+            vec4 c = pane_at(q, u);
+            if (c.a <= 0.0) {
+                continue;
+            }
+            float strength = clamp(speed / (0.35 * top_speed), 0.0, 1.0);
+            float fade = 1.0 - age / WAKE;
+            vec3 own = c.rgb * 0.5 * (1.0 - clamp(age / 0.08, 0.0, 1.0));
+            vec3 green = inked(c) * clamp(age / 0.1, 0.0, 1.0);
+            trail += (own + green) * strength * fade;
         }
-        // The air behind the pane sags and ripples more the longer since it passed.
-        float ripple = 0.5 + 0.5 * sin(px.x * 0.011 + px.y * 0.025 + u * 9.0);
-        vec2 q = px - vec2(0.0, age * age * 260.0 * unit / 7.0 + ripple * age * 60.0 * unit / 7.0);
-        vec4 c = pane_at(q, u);
-        if (c.a <= 0.0) {
-            continue;
-        }
-        // Fine speed lines: some rows of air carry more light than others.
-        float line = 0.35 + 0.65 * step(0.45, hash(vec2(floor(q.y / max(unit * 0.4, 1.0)), 3.0)));
-        float strength = clamp(speed / (0.35 * top_speed), 0.0, 1.0);
-        float fade = 1.0 - age / WAKE;
-        vec3 own = c.rgb * 0.5 * (1.0 - clamp(age / 0.08, 0.0, 1.0));
-        vec3 green = inked(c) * clamp(age / 0.1, 0.0, 1.0) * line;
-        trail += (own + green) * strength * fade;
     }
-    color.rgb += trail * BRIGHT / float(SAMPLES);
+    color.rgb += trail * weight * BRIGHT / float(SAMPLES);
+    // The heads: where each lane leaves the pane's top edge, a bright tip, as a streak's.
+    float edge = pane_y(t);
+    float speed_now = gravity * max(t - LEAN, 0.0);
+    if (speed_now > 0.0 && px.y < edge && px.y >= edge - unit * 0.6) {
+        vec4 c = pane_at(vec2(q.x, edge + 1.0), t);
+        vec3 hot = mix(ink, vec3(1.0), 0.5) * clamp(speed_now / (0.35 * top_speed), 0.0, 1.0);
+        color.rgb += hot * core * (0.35 + 0.65 * hash(vec2(lane, 11.0))) * step(0.0, c.a - 0.001);
+    }
     finish(color);
 }
 "#;
