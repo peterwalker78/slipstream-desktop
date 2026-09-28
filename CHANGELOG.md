@@ -5,7 +5,9 @@ Slipstream is in beta: anything can change between versions, including settings 
 ## Unreleased
 
 - **Slipstream's own effects.** Settings → Appearance → Effects chooses between the Matrix rain and Slipstream (`[motion] effects`). With Slipstream, a minimised app becomes light falling through slits cut in the logo's rhythm: more streaks, longer, faster and greener the harder the app works, with its name written down the card, lit where the light passes. A closed window is caught by the air and swept off to the right in one piece, leaving a slipstream of its own content behind it as green streamlines that ripple and fade.
-- **Minimised apps have flatter buttons:** a dark card with the app's icon and a green load bar under it, in place of the taller card edged and lit in the app's colour. The bar stays green however quiet the app, and its length says the load.
+- **Minimised apps have flatter buttons:** a dark card with the app's icon and a green load bar under it, in place of the taller card edged and lit in the app's colour. The bar stays green however quiet the app, and its length says the load. The icon and bar sit with the same space above and below as at the sides, and the bar is as wide as the icon.
+- **Holding Caps Lock while the screensaver is up turns Awake on**, as it does before the screen fades. A tap there still only brings the desktop back, without turning Caps Lock on.
+- **No Caps Lock card.** The amber CAPS chip on the bar, and the arrow in the lock screen's password box, already say it's on.
 - **Night Sky comes with Slipstream**, installed and kept up to date like Glimmerwood: tonight's real sky in fine dots, a handful of things to find, and a last line that sends you outside. `install=no` in `~/.config/slipstream/extras/night-sky.conf` leaves it out.
 
 ## 0.7.2 - 2026-09-28

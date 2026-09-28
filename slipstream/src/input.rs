@@ -1016,14 +1016,21 @@ impl Slipstream {
         injected: bool,
     ) {
         let pressed = key_state == KeyState::Pressed;
+        // The release of a Caps Lock press that only woke the faded UI goes nowhere either.
+        if !pressed && self.caps_woke == Some(keycode) {
+            self.caps_woke = None;
+            return;
+        }
         let caps = pressed && self.is_caps_lock(keycode);
-        // A key that wakes the faded UI goes nowhere, so there's nothing to hold for then.
-        let may_hold = self.lock.is_none() && !self.idle.is_faded();
+        // Holding Caps Lock turns Awake on from the faded UI as well, since that's when it's
+        // wanted; only the lock screen keeps Caps Lock as plain Caps Lock.
+        let may_hold = self.lock.is_none();
         match self.caps_key.key(keycode, pressed, time, caps, may_hold) {
             Step::Pass => {}
             Step::Wait(press) => {
-                // Kept back from xkb, but still a sign someone is there.
-                self.wake_ui();
+                // Kept back from xkb, but still a sign someone is there. If this press is what
+                // brings the UI back, a tap of it goes nowhere, as any waking key does.
+                self.caps_waking = self.wake_ui();
                 let _ = self.loop_handle.insert_source(
                     Timer::from_duration(crate::awake::HOLD),
                     move |_, _, state| {
@@ -1033,7 +1040,13 @@ impl Slipstream {
                 );
                 return;
             }
-            Step::Replay(caps, at) => self.route_key(caps, KeyState::Pressed, at, injected),
+            Step::Replay(caps, at) => {
+                if std::mem::take(&mut self.caps_waking) {
+                    self.caps_woke = Some(caps);
+                } else {
+                    self.route_key(caps, KeyState::Pressed, at, injected);
+                }
+            }
             Step::Swallow => {
                 self.wake_ui();
                 return;
@@ -1052,6 +1065,7 @@ impl Slipstream {
             return;
         }
         if self.caps_key.elapsed(press) {
+            self.caps_waking = false;
             self.set_awake(!self.awake);
         }
     }
@@ -1137,21 +1151,15 @@ impl Slipstream {
                     if state.lock.is_none() {
                         tracing::trace!(?key, ?mods, pressed, "key");
                     }
-                    // Caps Lock and Num Lock say which way they went, on the lock screen too,
-                    // where a password typed in capitals is the thing to know about. The key
-                    // itself still reaches the app as usual. xkb locks a modifier on the press
-                    // but only unlocks it on the release, so the state is read on the release:
-                    // on the press that turns it off, it still reads as on.
-                    if !pressed && matches!(key, Keysym::Caps_Lock | Keysym::Num_Lock) {
-                        if key == Keysym::Caps_Lock {
-                            let on = modifiers.caps_lock;
-                            let note = crate::osd::caps_lock_note(on);
-                            state.show_osd_with(crate::osd::Kind::CapsLock { on }, note);
-                        } else {
-                            let on = modifiers.num_lock;
-                            let note = crate::osd::num_lock_note(on);
-                            state.show_osd_with(crate::osd::Kind::NumLock { on }, note);
-                        }
+                    // Num Lock says which way it went; Caps Lock has its chip on the bar and its
+                    // warning at the lock instead. The key itself still reaches the app as usual.
+                    // xkb locks a modifier on the press but only unlocks it on the release, so
+                    // the state is read on the release: on the press that turns it off, it still
+                    // reads as on.
+                    if !pressed && key == Keysym::Num_Lock {
+                        let on = modifiers.num_lock;
+                        let note = crate::osd::num_lock_note(on);
+                        state.show_osd_with(crate::osd::Kind::NumLock { on }, note);
                     }
                     // Every key passes here, the ones panels and cards take included, so any of
                     // them disarms the tap. Super's own release still goes on as usual. A Super

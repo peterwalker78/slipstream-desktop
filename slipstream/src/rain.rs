@@ -48,13 +48,14 @@ const HEAD_GAP: f32 = 12.0;
 /// The button's width, height and corner radius, the card's radius too, in design pixels before
 /// `HEADER`.
 const BUTTON_W: f32 = 58.0;
-const BUTTON_H: f32 = 48.0;
+const BUTTON_H: f32 = 67.0;
 const RADIUS: f32 = 12.0;
 /// The button's colour: a shade lighter than the card hanging from it.
 const BUTTON: u32 = 0x151a23ff;
-/// The icon's size, and how far down the button its middle is.
-const ICON: f32 = 30.0;
-const ICON_MIDDLE: f32 = 20.0;
+/// The icon's size, and how far down the button its middle is: as far in from the top as from the
+/// sides, with the meter under it and the same again below that.
+const ICON: f32 = 34.0;
+const ICON_MIDDLE: f32 = 29.0;
 /// The gap between an app's button and the card under it, in logical pixels.
 const CARD_GAP: f64 = 2.0;
 /// How far inside the card's edge the rain stops, in logical pixels.
@@ -65,9 +66,9 @@ const CARD: u32 = 0x0b0d12ff;
 const HEADER: f32 = 0.75;
 /// The app's own meter under its icon, in design pixels: a thin bar, read as how full it is,
 /// never as a number.
-const METER_W: f32 = 44.0;
+const METER_W: f32 = ICON;
 const METER_H: f32 = 4.0;
-const METER_TOP: f32 = 38.0;
+const METER_TOP: f32 = 51.0;
 /// The meter's empty part, a faint white over the button, and its filled part, the rain's green.
 const METER_TRACK: u32 = 0xffffff1f;
 const METER_FILL: u32 = 0x59ff8cff;

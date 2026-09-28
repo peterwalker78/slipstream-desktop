@@ -189,6 +189,10 @@ pub struct Slipstream {
     pub suppressed_keys: Vec<Keysym>,
     /// Caps Lock, while it's being told apart as a tap or a hold.
     pub caps_key: crate::awake::CapsKey,
+    /// The Caps Lock press being told apart woke the faded UI, so a tap of it goes nowhere.
+    pub caps_waking: bool,
+    /// A Caps Lock tap that only woke the UI, whose release is to go nowhere too.
+    pub caps_woke: Option<smithay::input::keyboard::Keycode>,
     /// Awake is on: the UI doesn't fade to the wallpaper. Held Caps Lock toggles it.
     pub awake: bool,
     /// Super on its own, on its way to being a tap that opens the explorer.
@@ -608,6 +612,8 @@ impl Slipstream {
             bindings: keys::checked(keys::defaults()),
             suppressed_keys: Vec::new(),
             caps_key: Default::default(),
+            caps_waking: false,
+            caps_woke: None,
             awake: false,
             super_tap: keys::SuperTap::default(),
             nested: false,
@@ -5010,6 +5016,7 @@ impl Slipstream {
     /// As `show_osd`, with a line under the label.
     /// Turns Awake on or off, and says so on a card.
     pub fn set_awake(&mut self, on: bool) {
+        tracing::info!("Awake {}", if on { "on" } else { "off" });
         self.awake = on;
         self.follow_idle_inhibitors();
         self.show_osd_with(osd::Kind::Awake { on }, osd::awake_note(on));

@@ -38,21 +38,12 @@ const HEIGHT: f32 = 72.0;
 pub const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
 const SHOWN: f64 = 1.2;
-/// Caps Lock, Num Lock and Awake stay up longer, since their cards have a note to read as well.
+/// Num Lock and Awake stay up longer, since their cards have a note to read as well.
 const SHOWN_LOCK_KEY: f64 = 1.7;
 /// A charger's card isn't the answer to a key, so it may not be looked at straight away.
 const SHOWN_POWER: f64 = 2.5;
 /// Charging's colour, as on the bar's battery.
 const MINT: u32 = panel::MINT;
-
-/// What Caps Lock's card says under its title. Both ways have a note, so on and off read alike.
-pub fn caps_lock_note(on: bool) -> &'static str {
-    if on {
-        "Typing in capitals"
-    } else {
-        "Typing in lower case"
-    }
-}
 
 /// What Awake's card says under its title: on, what ends it besides another hold.
 pub fn awake_note(on: bool) -> &'static str {
@@ -89,10 +80,7 @@ pub enum Kind {
     Media {
         playing: bool,
     },
-    /// Caps Lock or Num Lock, and whether it's on.
-    CapsLock {
-        on: bool,
-    },
+    /// Num Lock, and whether it's on.
     NumLock {
         on: bool,
     },
@@ -110,7 +98,7 @@ impl Kind {
     /// How long its card stays up after the last press.
     fn shown(self) -> f64 {
         match self {
-            Kind::CapsLock { .. } | Kind::NumLock { .. } | Kind::Awake { .. } => SHOWN_LOCK_KEY,
+            Kind::NumLock { .. } | Kind::Awake { .. } => SHOWN_LOCK_KEY,
             Kind::Power { .. } => SHOWN_POWER,
             _ => SHOWN,
         }
@@ -125,7 +113,7 @@ impl Kind {
             Kind::Brightness => icons::SUN,
             Kind::Media { playing: true } => icons::PLAY,
             Kind::Media { playing: false } => icons::PAUSE,
-            Kind::CapsLock { .. } | Kind::NumLock { .. } => icons::KEYBOARD,
+            Kind::NumLock { .. } => icons::KEYBOARD,
             Kind::Awake { .. } => icons::EYE,
             Kind::Power { plugged } => return icons::battery(level, plugged),
         };
@@ -148,7 +136,6 @@ impl Kind {
             Kind::Volume { muted: true } => format!("Muted · {level}%"),
             Kind::Media { playing: true } => "Playing".into(),
             Kind::Media { playing: false } => "Paused".into(),
-            Kind::CapsLock { on } => format!("Caps Lock {}", if on { "on" } else { "off" }),
             Kind::NumLock { on } => format!("Num Lock {}", if on { "on" } else { "off" }),
             Kind::Awake { on } => format!("Awake {}", if on { "on" } else { "off" }),
             _ => format!("{level}%"),
@@ -483,7 +470,6 @@ mod tests {
     #[test]
     fn the_lock_keys_stay_up_the_same_time_either_way() {
         for on in [true, false] {
-            assert_eq!(Kind::CapsLock { on }.shown(), SHOWN_LOCK_KEY);
             assert_eq!(Kind::NumLock { on }.shown(), SHOWN_LOCK_KEY);
             assert_eq!(Kind::Awake { on }.shown(), SHOWN_LOCK_KEY);
         }
@@ -495,7 +481,7 @@ mod tests {
         let title = Style::new(Face::Body, 15.0, panel::PROSE);
         let bools = [true, false];
         for on in bools {
-            for note in [caps_lock_note(on), num_lock_note(on), awake_note(on)] {
+            for note in [num_lock_note(on), awake_note(on)] {
                 assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
             }
         }
@@ -505,7 +491,6 @@ mod tests {
     fn awake_going_off_says_so_as_going_on_does() {
         assert_eq!(awake_note(true), "Screen stays on until you lock it");
         assert_eq!(awake_note(false), "Screen can go idle again");
-        assert_eq!(caps_lock_note(true), "Typing in capitals");
     }
 
     #[test]
