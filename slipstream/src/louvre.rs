@@ -12,7 +12,7 @@
 use crate::glmatrix::{QUIET, colour_for};
 
 /// The unit in logical pixels: a lane's width, a slit's height and the pitch of a letter's dots.
-const UNIT: f64 = 2.4;
+const UNIT: f64 = 3.6;
 /// A bar between two slits is this many units tall, and a slit one.
 const BAR_UNITS: usize = 3;
 /// How much of the light behind a slit still shows.
@@ -28,15 +28,15 @@ const EASE: f64 = 2.0;
 /// How long a letter keeps glowing after a streak has passed over it, in seconds.
 const GLOW: f64 = 0.55;
 /// Streaks' speed in logical pixels a second: at rest, and the extra when flat out.
-const SPEED_REST: f32 = 22.0;
-const SPEED_BUSY: f32 = 240.0;
+const SPEED_REST: f32 = 33.0;
+const SPEED_BUSY: f32 = 360.0;
 /// Streaks begun a second across a card: at rest, and the extra when flat out.
 const RATE_REST: f32 = 0.8;
 const RATE_BUSY: f32 = 22.0;
 /// A streak's tail, in logical pixels, beyond the part that grows with its speed.
-const TAIL: f32 = 3.2;
+const TAIL: f32 = 4.8;
 /// A streak's width, in logical pixels.
-const STREAK_W: f64 = 1.1;
+const STREAK_W: f64 = 1.6;
 /// Letters start this many units below the top of the card, and each takes its seven rows and
 /// this many more.
 const NAME_TOP: usize = 4;
@@ -471,7 +471,7 @@ fn slab(c: char) -> Option<[&'static str; 7]> {
 mod tests {
     use super::*;
 
-    const W: usize = 40;
+    const W: usize = 61;
     const H: usize = 700;
 
     fn lit(louvre: &Louvre) -> Vec<u8> {
@@ -538,7 +538,7 @@ mod tests {
 
     #[test]
     fn units_are_whole_pixels_at_every_scale() {
-        for (scale, unit) in [(1.0, 2), (1.25, 3), (1.5, 4), (2.0, 5)] {
+        for (scale, unit) in [(1.0, 4), (1.25, 5), (1.5, 5), (2.0, 7)] {
             let louvre = Louvre::new("A", 0.0, W, H, scale, 1);
             assert_eq!(louvre.unit, unit, "at {scale}×");
             assert!(louvre.offset + louvre.lanes * louvre.unit <= W);

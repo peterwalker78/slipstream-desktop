@@ -30,7 +30,7 @@ use smithay::{
 use slipstream_config::Effects;
 
 use crate::{
-    glmatrix::{self, Band, Glyphs, Look},
+    glmatrix::{Band, Glyphs, Look},
     layout::Rect,
     louvre::Louvre,
     paint::{self, Painter},
@@ -41,20 +41,20 @@ use crate::{
 
 // Sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`) to
 // match.
-const STREAM: f32 = 45.0;
+const STREAM: f32 = 68.0;
 /// How far below the bar a stream's header card starts, in design pixels. The card its rain
 /// falls down stops the same distance above the foot of the screen.
 const HEAD_GAP: f32 = 12.0;
 /// The button's width, height and corner radius, the card's radius too, in design pixels before
 /// `HEADER`.
-const BUTTON_W: f32 = 58.0;
-const BUTTON_H: f32 = 33.0;
-const RADIUS: f32 = 9.0;
+const BUTTON_W: f32 = 87.0;
+const BUTTON_H: f32 = 48.0;
+const RADIUS: f32 = 12.0;
 /// The button's colour: a shade lighter than the card hanging from it.
 const BUTTON: u32 = 0x151a23ff;
 /// The icon's size, and how far down the button its middle is.
-const ICON: f32 = 16.0;
-const ICON_MIDDLE: f32 = 14.5;
+const ICON: f32 = 30.0;
+const ICON_MIDDLE: f32 = 20.0;
 /// The gap between an app's button and the card under it, in logical pixels.
 const CARD_GAP: f64 = 2.0;
 /// How far inside the card's edge the rain stops, in logical pixels.
@@ -63,13 +63,14 @@ const CARD_INSET: f64 = 2.0;
 const CARD: u32 = 0x0b0d12ff;
 /// The headers' scale: three quarters of full size, to suit the narrow streams.
 const HEADER: f32 = 0.75;
-/// The app's own meter under its icon, in design pixels: a hairline, read as how full it is,
+/// The app's own meter under its icon, in design pixels: a thin bar, read as how full it is,
 /// never as a number.
-const METER_W: f32 = 32.0;
-const METER_H: f32 = 2.0;
-const METER_TOP: f32 = 27.0;
-/// The meter's empty part: a faint white over the button.
-const METER_TRACK: u32 = 0xffffff14;
+const METER_W: f32 = 60.0;
+const METER_H: f32 = 4.0;
+const METER_TOP: f32 = 38.0;
+/// The meter's empty part, a faint white over the button, and its filled part, the rain's green.
+const METER_TRACK: u32 = 0xffffff1f;
+const METER_FILL: u32 = 0x59ff8cff;
 /// How finely the meter is quantised. A header is a painted buffer, so it is repainted only when
 /// the meter moves by a step of this; a step is under a pixel.
 const METER_STEPS: f32 = 40.0;
@@ -638,20 +639,15 @@ fn paint_header(
         let letter_w = text::width(&letter, &style);
         p.text(&letter, (w - letter_w) / 2.0, ICON_MIDDLE, &style);
     }
-    // The meter: the empty part a faint line, filled from the left in the same grey-to-green the
-    // stream runs through, so a quiet app under a busy machine reads as exactly that.
+    // The meter: the empty part a faint line, filled from the left in the rain's green whatever
+    // the load, so even a quiet app's bar reads as colour; its length is what says the load. Never
+    // shorter than it is tall, so a little load still shows as a mark rather than a speck.
     let meter_x = (w - METER_W) / 2.0;
     p.fill(meter_x, METER_TOP, METER_W, METER_H, 0.0, METER_TRACK);
     let load = load.clamp(0.0, 1.0);
     if load > 0.0 {
-        p.fill(
-            meter_x,
-            METER_TOP,
-            METER_W * load,
-            METER_H,
-            0.0,
-            meter_colour(load),
-        );
+        let filled = (METER_W * load).max(METER_H);
+        p.fill(meter_x, METER_TOP, filled, METER_H, 0.0, METER_FILL);
     }
     Some(Painted {
         buffer: paint::buffer(&p.pixmap),
@@ -659,12 +655,6 @@ fn paint_header(
         device,
         scale,
     })
-}
-
-/// The meter's colour at `load`: the rain's own scale, from the light grey of an idle app to its
-/// bright green, so the bar and the glyphs beside it mean the same thing.
-fn meter_colour(load: f32) -> u32 {
-    rgb_colour(glmatrix::colour_for(load))
 }
 
 /// Three channels from 0 to 1 as opaque `0xrrggbbff`.
@@ -708,8 +698,8 @@ mod tests {
 
     #[test]
     fn the_rain_s_glyph_size_is_a_third_of_a_stream_s_inner_width() {
-        assert_eq!(glyph_size(1.0), (10, 15));
-        assert_eq!(glyph_size(1.25), crate::glmatrix::glyph_size(40.0));
+        assert_eq!(glyph_size(1.0), (16, 23));
+        assert_eq!(glyph_size(1.25), crate::glmatrix::glyph_size(61.0));
     }
 
     #[test]
