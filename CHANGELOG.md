@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.7.0 - 2026-09-28
 
 - **Messages have clear places.** Answers to what you just pressed appear low in the middle, in the same place as the volume and brightness display (the newer replaces the other); notifications hang from the top right, on the same line as the panels, and fade as they go; cards that need an answer sit in the middle. A toast stays long enough to read what it says.
 - **Quieter.** Keys that have nothing to do (a tile already as wide as it goes, nothing to hide, one screen) no longer put up a message. A low battery, windows that didn't come back after login, a refused restart or shutdown, and a lock that isn't set up now arrive as notifications, kept in the notification centre, instead of toasts that could go unseen.
@@ -12,7 +12,9 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Close into the rain.** A closing window is read out into falling code, with the scanlines and flicker of a failing CRT. Settings → Appearance turns it off (`[motion] close-into-rain`); off, or with reduced motion, a closing window fades as it did before.
 - **Unlocking brings every window back at once**, rather than each one as its app next draws.
 - **Super+H no longer shows a toast** as it hides the windows.
-- **The wallpapers' logo has lettering of its own**: heavy slab letters cut by thin slits.
+- **The wallpapers' logo has lettering of its own**: heavy slab letters cut by thin slits. Life keeps the letters whole as its colony grows out of them.
+- **Choosing wallpapers is a gallery.** Settings → Wallpaper shows the twenty as cards with larger moving previews, in three families; a whole card ticks, the chosen ones are outlined, and the All of them row counts how many take turns.
+- **One look throughout.** Selected rows and tiles, buttons, corners, key caps and colours now match across the explorer, clipboard history, quick settings, the notification centre, Alt+Tab and the cards; clipboard history's selection follows the ring colour, and the empty-workspace tips are drawn at the same size as everything else.
 - `install.sh` works out the download's name from the release's tag instead of asking GitHub whether the file exists, a question GitHub has been seen answering wrongly for a release whose files were all there.
 
 ## 0.6.0 - 2026-09-23
