@@ -1553,7 +1553,7 @@ mod tests {
     #[test]
     fn the_logo_spans_a_laptop_screen_and_stacks_on_a_narrow_one() {
         let wide = layout(1920, 1200).unwrap();
-        assert_eq!(wide.logo.2, 121);
+        assert_eq!(wide.logo.2, art_width(&art(LOGO)) as i32);
         assert!(wide.logo.0 >= 0 && wide.logo.1 >= 0);
         let letters = LOGO.chars().filter(|ch| !ch.is_whitespace()).count();
         assert_eq!(wide.letters.len(), letters);

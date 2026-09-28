@@ -10,7 +10,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Close into the rain.** A closing window is read out into falling code, with the scanlines and flicker of a failing CRT. Settings → Appearance turns it off (`[motion] close-into-rain`); off, or with reduced motion, a closing window fades as it did before.
 - **Unlocking brings every window back at once**, rather than each one as its app next draws.
 - **Super+H no longer shows a toast** as it hides the windows.
-- **The wallpapers' logo is drawn in Slipstream's own display face**, Chakra Petch, slanted.
+- **The wallpapers' logo has lettering of its own**: heavy slab letters cut by thin slits.
 - `install.sh` works out the download's name from the release's tag instead of asking GitHub whether the file exists, a question GitHub has been seen answering wrongly for a release whose files were all there.
 
 ## 0.6.0 - 2026-09-23

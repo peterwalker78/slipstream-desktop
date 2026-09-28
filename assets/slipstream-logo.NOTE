@@ -1,5 +1,5 @@
-slipstream-logo.txt and slipstream-logo-stacked.txt are the word SLIPSTREAM drawn in Chakra Petch
-Bold (the display face in assets/fonts, OFL), slanted, as quarter-cell block characters.
-Regenerate with slipstream-logo.py (needs Pillow):
+slipstream-logo.txt and slipstream-logo-stacked.txt are the word SLIPSTREAM in Slipstream's own
+lettering: heavy slab letters cut by thin slits, drawn on the wallpapers' quarter-cell grid.
+Regenerate with:
 
-    python3 slipstream-logo.py fonts/ChakraPetch-Bold.ttf slipstream-logo --skew 0.22
+    python3 slipstream-logo.py slipstream-logo
