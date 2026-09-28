@@ -486,7 +486,8 @@ pub enum Effects {
     /// Code rain: glyphs falling in columns, and a closed window read out into them.
     #[default]
     Matrix,
-    /// Light falling through slits, and a closed window split along them into slabs that drop.
+    /// Streaks of light falling at different depths, and a closed window dropping away with a
+    /// wake of light.
     Slipstream,
 }
 

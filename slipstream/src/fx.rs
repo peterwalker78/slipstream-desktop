@@ -50,6 +50,12 @@ const GRAVITY: f64 = 3400.0;
 pub const WAKE: f64 = 0.88;
 const WAKE_GO: f64 = 0.42;
 
+/// The wake's lane width in screen pixels at `scale`: 5.6 logical pixels, whole, and never less
+/// than two.
+fn wake_lane(scale: f64) -> usize {
+    ((5.6 * scale).round() as usize).max(2)
+}
+
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
     match effects {
@@ -261,7 +267,7 @@ impl Fx {
             Uniform::new("ink", TINT),
             Uniform::new("window_h", window_h),
             Uniform::new("gravity", gravity as f32),
-            Uniform::new("unit", crate::louvre::unit(scale) as f32),
+            Uniform::new("unit", wake_lane(scale) as f32),
             Uniform::new("window_w", window_w),
         ];
         Some(TextureShaderElement::new(inner, program, uniforms))

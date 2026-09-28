@@ -223,7 +223,7 @@ fn appearance(store: &Store) -> gtk::Widget {
     row(
         &motion,
         "Effects",
-        Some("What minimised apps turn into: falling code, or light through slits"),
+        Some("What minimised apps turn into: falling code, or streaks of light"),
         &effects,
     );
     let rain = gtk::Switch::new();

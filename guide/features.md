@@ -42,7 +42,7 @@ The rain is a live readout of that app. **An idle app's rain drifts down slow an
 
 It's built from xscreensaver's GLMatrix, the classic recreation of the movie's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
 
-**Settings → Appearance → Effects** offers Slipstream's own look instead: streaks of light falling through slits, three parts bar to one part slit like the logo, with the app's name written down the card. The same readout holds. An idle app sends a few slow grey streaks and its name is barely there; a busy one sends many long green ones and its name glows.
+**Settings → Appearance → Effects** offers Slipstream's own look instead: streaks of light falling at different depths, near ones wider, brighter and faster, with the app's name down the card on its side like a book's spine. The same readout holds. An idle app sends a few slow grey streaks and its name is barely there; a busy one pours bright green and its name glows as the light passes.
 
 <br clear="right">
 

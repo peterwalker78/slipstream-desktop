@@ -1,6 +1,6 @@
 //! The streams on the right of the screen, where minimised windows go. Each window becomes a
 //! stream under a button with its icon and a meter, falling as GLMatrix rain (`glmatrix.rs`) or
-//! as light through slits (`louvre.rs`), whichever effects are chosen. The tiling area gives up
+//! as streaks of light (`streaks.rs`), whichever effects are chosen. The tiling area gives up
 //! the width.
 //!
 //! **A stream is about its app, top to bottom.** How hard that app is working is one figure, and
@@ -32,9 +32,9 @@ use slipstream_config::Effects;
 use crate::{
     glmatrix::{Band, Glyphs, Look},
     layout::{INNER_GAP, OUTER_GAP, Rect},
-    louvre::Louvre,
     paint::{self, Painter},
     panel::DESIGN_PX,
+    streaks::Streaks,
     text::{self, Face, Style},
     usage::Meter,
 };
@@ -206,8 +206,8 @@ pub struct Stream {
     look_load: Option<u16>,
     /// This app's own rain: its colour and speed are its load.
     band: Option<Band>,
-    /// Or its own light through slits, which says the same.
-    louvre: Option<Louvre>,
+    /// Or its own streaks of light, which say the same.
+    streaks: Option<Streaks>,
     /// The card with the rain on it.
     painted: Option<Painted>,
     stepped_to: f64,
@@ -269,7 +269,7 @@ impl Rain {
         self.effects = effects;
         for stream in &mut self.streams {
             stream.band = None;
-            stream.louvre = None;
+            stream.streaks = None;
             stream.painted = None;
             stream.look_load = None;
         }
@@ -358,7 +358,7 @@ impl Rain {
             painted_load: None,
             look_load: None,
             band: None,
-            louvre: None,
+            streaks: None,
             painted: None,
             stepped_to: now,
             seed: now.to_bits() ^ ((self.streams.len() as u64 + 1) << 32) | 1,
@@ -523,25 +523,25 @@ impl Rain {
                     (changed, recoloured)
                 }
                 Effects::Slipstream => {
-                    let louvre = stream.louvre.get_or_insert_with(|| {
-                        Louvre::new(&rain_case(&stream.name), load, iw, ih, scale, stream.seed)
+                    let streaks = stream.streaks.get_or_insert_with(|| {
+                        Streaks::new(&stream.name, load, iw, ih, scale, stream.seed)
                     });
-                    louvre.resize(iw, ih, scale);
-                    let recoloured = louvre.set_name_colour(*ring_rgb);
+                    streaks.resize(iw, ih, scale);
+                    let recoloured = streaks.set_name_colour(*ring_rgb);
                     let changed = if *reduced_motion {
-                        let changed = stream.look_load != Some(step) || !louvre.is_still();
+                        let changed = stream.look_load != Some(step) || !streaks.is_still();
                         if changed {
-                            louvre.hold(load);
+                            streaks.hold(load);
                             stream.look_load = Some(step);
                         }
                         changed
                     } else {
-                        let was_still = louvre.is_still();
+                        let was_still = streaks.is_still();
                         if stream.look_load != Some(step) {
-                            louvre.set_load(load);
+                            streaks.set_load(load);
                             stream.look_load = Some(step);
                         }
-                        louvre.step(now - stream.stepped_to) || was_still
+                        streaks.step(now - stream.stepped_to) || was_still
                     };
                     (changed, recoloured)
                 }
@@ -561,8 +561,8 @@ impl Rain {
                         }
                     }
                     Effects::Slipstream => {
-                        if let Some(louvre) = &stream.louvre {
-                            louvre.draw(&mut light, iw, ih);
+                        if let Some(streaks) = &stream.streaks {
+                            streaks.draw(&mut light, iw, ih);
                         }
                     }
                 }
@@ -799,10 +799,10 @@ mod tests {
             band.step(20.0);
             let mut rain = vec![0u8; iw * ih * 4];
             band.draw(&mut rain, iw, ih, iw as f32 / 2.0, &mut glyphs);
-            let mut louvre = Louvre::new("SLiPSTReaM", 1.0, iw, ih, scale, 3);
-            louvre.step(2.0);
+            let mut streaks = Streaks::new("Slipstream", 1.0, iw, ih, scale, 3);
+            streaks.step(2.0);
             let mut slits = vec![0u8; iw * ih * 4];
-            louvre.draw(&mut slits, iw, ih);
+            streaks.draw(&mut slits, iw, ih);
             for light in [rain, slits] {
                 let out = compose(&light, &card);
                 let (w, h) = (device.0 as usize, device.1 as usize);

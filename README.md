@@ -77,7 +77,7 @@ Put a window away and it doesn't disappear into a bar along the bottom. It pours
 
 Each stream spells out its app's name as it falls. Click one to bring the window back.
 
-**Or Slipstream's own look.** Settings → Appearance → Effects swaps the code for light falling through slits cut in the logo's rhythm, with the app's name down the card, lit wherever the light passes. It says the same things: more light, faster and greener, the harder the app works.
+**Or Slipstream's own look.** Settings → Appearance → Effects swaps the code for streaks of light falling at different depths, with the app's name down the card like a book's spine, lit wherever the light passes. It says the same things: more light, faster and greener, the harder the app works.
 
 <br clear="right">
 
