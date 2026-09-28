@@ -6,11 +6,14 @@
 //! Physarum polycephalum: thousands of agents each sniff a trail ahead, ahead-left and ahead-right,
 //! turn towards the strongest, step forward and leave trail behind them, while the trail spreads a
 //! little and fades. Nothing plans the network; it comes out of each agent following the others.
-//! The agents start on the logo's dots. Towards the end of the turn the letters give off a scent
-//! the agents can smell from anywhere, the veins pull in towards them, and the letters stand again.
+//! The agents start on the logo's dots, and each remembers its own. Towards the end of the turn
+//! the letters give off a scent the agents can smell from anywhere and each is drawn back to its
+//! dot, gently at first and then surely, so the veins pull in and the letters reassemble out of
+//! the mould before they stand solid again.
 
 use super::{
-    AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01, mix,
+    AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01,
+    logo_dots, mix,
 };
 
 /// One turn, in seconds of the animation clock.
@@ -46,6 +49,9 @@ const SPREAD: f32 = 0.35;
 /// Trail a dot needs to show.
 const SHOWS: f32 = 0.9;
 
+/// How long the reassembled dots take to hand over to the solid letters, in seconds.
+const SETTLE: f64 = 0.8;
+
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -58,6 +64,8 @@ struct Agent {
     heading: f32,
     /// How far across the logo it started, 0 to 1, which is when it sets off.
     across: f32,
+    /// The logo dot it started on, which it goes back to.
+    home: (f32, f32),
     /// How far it still runs straight out before it starts following trails, in dots.
     run: f32,
 }
@@ -98,29 +106,10 @@ impl Physarum {
         self.spare.resize(w * h, 0.0);
         self.rng = (self.seed ^ turn.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1;
 
-        let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
-        let mut homes = vec![];
-        for letter in &layout.letters {
-            let across = (letter.col - lx) as f32 / lw as f32;
-            for down in 0..4 {
-                for side in 0..2 {
-                    let on = match letter.ch {
-                        '▀' => down < 2,
-                        '▄' => down >= 2,
-                        '▌' => side == 0,
-                        '▐' => side == 1,
-                        _ => true,
-                    };
-                    if on {
-                        homes.push((
-                            letter.col as usize * 2 + side,
-                            letter.row as usize * 4 + down,
-                            across,
-                        ));
-                    }
-                }
-            }
-        }
+        let homes: Vec<(usize, usize, f32)> = logo_dots(layout)
+            .into_iter()
+            .map(|dot| (dot.x, dot.y, dot.across))
+            .collect();
 
         // The scent: distance from the nearest letter dot, by two sweeps of a chamfer distance
         // transform, turned into a slope that rises towards the logo.
@@ -190,6 +179,7 @@ impl Physarum {
                 y: y as f32 + jy,
                 heading: heading * std::f32::consts::TAU,
                 across,
+                home: (x as f32 + 0.5, y as f32 + 0.5),
                 run,
             });
         }
@@ -255,8 +245,7 @@ impl Physarum {
             } else {
                 agent.heading += TURN_ANGLE;
             }
-            // Arriving home, it slows and stays.
-            let (nx, ny) = (
+            let (mut nx, mut ny) = (
                 agent.x + agent.heading.cos() * STRIDE,
                 agent.y + agent.heading.sin() * STRIDE,
             );
@@ -264,11 +253,14 @@ impl Physarum {
                 agent.heading = self.random() * std::f32::consts::TAU;
                 continue;
             }
-            let i = ny as usize * w + nx as usize;
-            if homing > 0.0 && self.scent[i] >= 1.0 && self.random() < homing {
-                self.trail[i] += DEPOSIT;
-                continue;
+            // Going home: drawn part of the way back to its own dot each move, a share that
+            // grows from nothing to most of the way, so every agent is on its dot by the end.
+            if homing > 0.0 {
+                let pull = homing * homing * homing * 0.25;
+                nx += (agent.home.0 - nx) * pull;
+                ny += (agent.home.1 - ny) * pull;
             }
+            let i = (ny as usize).min(h - 1) * w + (nx as usize).min(w - 1);
             agent.x = nx;
             agent.y = ny;
             self.trail[i] += DEPOSIT;
@@ -400,16 +392,13 @@ impl Variation for Physarum {
         let home = APPEAR + SPILL + GROW + GATHER;
         if t < APPEAR || t >= home {
             // The letters in their own blocks, with what is left of the mould fading round them.
-            if t >= home {
-                let mut veins = Grid::new(layout.cols, layout.rows);
-                let left = (1.0 - (t - home) / (REST * 0.6)).clamp(0.0, 1.0) as f32;
-                self.draw(&mut veins, fade * left);
-                for (cell, vein) in grid.cells.iter_mut().zip(&veins.cells) {
-                    if vein.ch != ' ' {
-                        *cell = *vein;
-                    }
-                }
-            }
+            // The mould has just reassembled them in dots, so the blocks take over from those
+            // dots over a moment rather than appearing on top of them.
+            let solid = if t >= home {
+                ease(((t - home) / SETTLE) as f32)
+            } else {
+                1.0
+            };
             let (lx, lw) = (layout.logo.0, layout.logo.2.max(1));
             for letter in &layout.letters {
                 let across = (letter.col - lx) as f32 / lw as f32;
@@ -417,8 +406,23 @@ impl Variation for Physarum {
                     letter.col as f32,
                     letter.row as f32,
                     letter.ch,
-                    mix(BG, gradient(across), fade),
+                    mix(BG, gradient(across), fade * solid),
                 );
+            }
+            if t >= home {
+                let mut veins = Grid::new(layout.cols, layout.rows);
+                let left = (1.0 - (t - home) / (REST * 0.6)).clamp(0.0, 1.0) as f32;
+                self.draw(&mut veins, fade * left);
+                let letters = grid.cells.clone();
+                for ((cell, vein), letter) in grid.cells.iter_mut().zip(&veins.cells).zip(&letters)
+                {
+                    // Round the letters the mould fades as it did; on them its dots give way to
+                    // the blocks once those are more than half there.
+                    let on_letter = letter.ch != ' ';
+                    if vein.ch != ' ' && (!on_letter || solid < 0.5) {
+                        *cell = *vein;
+                    }
+                }
             }
         } else {
             self.draw(grid, fade);
