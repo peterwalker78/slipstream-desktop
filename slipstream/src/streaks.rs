@@ -24,26 +24,26 @@ const EASE: f64 = 2.0;
 /// How long the name keeps glowing after light has passed over it, in seconds.
 const GLOW: f64 = 0.45;
 /// Streaks' speed in logical pixels a second at middle depth: at rest, and the extra flat out.
-const SPEED_REST: f32 = 36.0;
-const SPEED_BUSY: f32 = 360.0;
+const SPEED_REST: f32 = 46.0;
+const SPEED_BUSY: f32 = 460.0;
 /// Streaks begun a second across a card: at rest, and the extra flat out.
 const RATE_REST: f32 = 1.0;
-const RATE_BUSY: f32 = 30.0;
+const RATE_BUSY: f32 = 24.0;
 /// A streak's length in logical pixels, from farthest to nearest, and the part that grows with
 /// its speed, in seconds.
-const LEN_FAR: f32 = 3.0;
-const LEN_NEAR: f32 = 10.0;
-const LEN_SPEED: f32 = 0.06;
+const LEN_FAR: f32 = 5.0;
+const LEN_NEAR: f32 = 16.0;
+const LEN_SPEED: f32 = 0.08;
 /// A streak's width in logical pixels, farthest to nearest, and its head's glow radius.
-const WIDTH_FAR: f32 = 0.6;
-const WIDTH_NEAR: f32 = 2.0;
-const HEAD_FAR: f32 = 1.0;
-const HEAD_NEAR: f32 = 2.6;
+const WIDTH_FAR: f32 = 1.0;
+const WIDTH_NEAR: f32 = 3.4;
+const HEAD_FAR: f32 = 1.6;
+const HEAD_NEAR: f32 = 4.2;
 /// The faint trail behind each streak: how many of its lengths long, and how bright.
 const TRAIL: f32 = 3.0;
 const TRAIL_LIGHT: f32 = 0.12;
 /// Bloom: how far the light spreads, in logical pixels, and how much of it is added back.
-const BLOOM: f32 = 2.4;
+const BLOOM: f32 = 3.2;
 const BLOOM_LIGHT: f32 = 0.6;
 /// The name: its size and letter spacing, where it starts below the top of the card in logical
 /// pixels, and how bright it is at rest and fully lit.

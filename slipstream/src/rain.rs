@@ -39,11 +39,12 @@ use crate::{
     usage::Meter,
 };
 
-// Streams keep to the windows' spacing, in logical pixels: `OUTER_GAP` from the screen's edges,
-// the bar included, so their tops and feet line up with the windows', and `INNER_GAP` from the
-// windows beside them, as one more column. Between two streams the gap is smaller, so they read
-// as one group.
+// Streams keep to the windows' spacing, in logical pixels: `OUTER_GAP` below the bar and above
+// the foot of the screen, so their tops and feet line up with the windows'; a window's gap,
+// `INNER_GAP`, either side of the group, from the windows and from the screen's edge; and a
+// smaller gap between two streams, so they read as one group.
 const STREAM_GAP: i32 = 4;
+const STREAM_EDGE: i32 = INNER_GAP;
 
 // Other sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`)
 // to match.
@@ -294,8 +295,8 @@ impl Rain {
     }
 
     /// Logical pixels the tiling area gives up on the right: the streams, the gaps between them,
-    /// and a window's gap before them. The tiling area's own outer gap is the streams' margin
-    /// from the screen's edge.
+    /// and a window's gap either side of them, less the tiling area's own outer gap, which the
+    /// windows keep from its edge.
     pub fn reserve(&self) -> i32 {
         reserve(self.streams.len())
     }
@@ -314,7 +315,7 @@ impl Rain {
     /// Where stream `index` sits on `screen`, below `top`: the column its window pours into.
     pub fn column(index: usize, screen: Rect, top: i32) -> Rect {
         let w = stream_w();
-        let right = screen.x + screen.w - OUTER_GAP - index as i32 * (w + STREAM_GAP);
+        let right = screen.x + screen.w - STREAM_EDGE - index as i32 * (w + STREAM_GAP);
         Rect {
             x: right - w,
             y: screen.y + top,
@@ -665,7 +666,10 @@ fn stream_w() -> i32 {
 fn reserve(count: usize) -> i32 {
     match count {
         0 => 0,
-        n => n as i32 * stream_w() + (n as i32 - 1) * STREAM_GAP + INNER_GAP,
+        n => {
+            n as i32 * stream_w() + (n as i32 - 1) * STREAM_GAP + INNER_GAP + STREAM_EDGE
+                - OUTER_GAP
+        }
     }
 }
 
@@ -735,8 +739,8 @@ mod tests {
         let second = Rain::column(1, screen, 32);
         assert_eq!(
             first.x + first.w,
-            1536 - OUTER_GAP,
-            "a window's margin from the edge"
+            1536 - STREAM_EDGE,
+            "a window's gap from the edge"
         );
         assert_eq!(
             first.x - (second.x + second.w),

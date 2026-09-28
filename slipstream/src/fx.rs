@@ -6,8 +6,8 @@
 //! needs nothing else.
 //!
 //! Wake, with Slipstream's own effects: the window, still one rigid pane, drops away off the bottom
-//! of the screen, leaving a slipstream behind it: its own content drawn out into streaks of light in
-//! the streams' lanes and slits, turning to the rain's green as they fade.
+//! of the screen, leaving a slipstream behind it: streaks of light like the streams', coloured from
+//! the window and turning to the rain's green as they fade.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -49,12 +49,6 @@ const GRAVITY: f64 = 3400.0;
 /// numbers.
 pub const WAKE: f64 = 0.88;
 const WAKE_GO: f64 = 0.42;
-
-/// The wake's lane width in screen pixels at `scale`: 5.6 logical pixels, whole, and never less
-/// than two.
-fn wake_lane(scale: f64) -> usize {
-    ((5.6 * scale).round() as usize).max(2)
-}
 
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
@@ -267,7 +261,7 @@ impl Fx {
             Uniform::new("ink", TINT),
             Uniform::new("window_h", window_h),
             Uniform::new("gravity", gravity as f32),
-            Uniform::new("unit", wake_lane(scale) as f32),
+            Uniform::new("unit", scale as f32),
             Uniform::new("window_w", window_w),
         ];
         Some(TextureShaderElement::new(inner, program, uniforms))
@@ -459,16 +453,17 @@ void main() {
 "#;
 
 /// Wake. The window holds still for a moment, then drops off the bottom of the screen as one rigid
-/// pane, speeding up and drawing back a little into the distance as it goes. Behind it, it leaves
-/// its slipstream in the streams' own terms: light in lanes one unit wide, each lane taking one
-/// column of the window as it passed, cut by slits in the streams' rhythm, with a bright head where
-/// it leaves the pane's top edge. Just behind the pane the light is the window's own colours; further
-/// back it turns to the rain's green, and fades. Only what stands out from a dark background glows,
-/// so it is the window's content that streams away, not a sheet of colour.
+/// pane, speeding up and drawing back a little into the distance as it goes. Behind it pours its
+/// slipstream, drawn as the streams draw their light: streaks at different depths, near ones wider,
+/// brighter and quicker to follow, far ones fine and dim and lagging, each with a glowing head
+/// close behind the pane. Each takes its colour from the part of the window it came from, starting
+/// in the window's own colours and turning to the rain's green, and all of them fade once the pane
+/// has gone.
 const WAKE_MAIN: &str = r#"
 uniform float window_h;
 uniform float window_w;
 uniform float gravity;
+// One logical pixel, in screen pixels.
 uniform float unit;
 
 // The same timings as `WAKE_GO` and `WAKE` in `fx.rs`.
@@ -476,15 +471,10 @@ const float LEAN = 0.06;
 const float GO = 0.42;
 const float WAKE = 0.4;
 // How far into the distance the pane draws back as it leaves.
-const float RECEDE = 0.12;
-// Samples along each point's past, and how bright the wake is drawn over them.
-const int SAMPLES = 28;
-const float BRIGHT = 10.0;
-const float DARK = 0.2;
-// A streak's lit core, as a share of its lane, as in the streams.
-const float CORE = 0.57;
-// What a slit lets through.
-const float SLIT = 0.2;
+const float RECEDE = 0.08;
+// Three layers of streaks, each in cells this many logical pixels wide, some left empty.
+const float CELL = 9.0;
+const float EMPTY = 0.3;
 
 // How far the pane has dropped, `u` seconds in, and how large it is.
 float pane_y(float u) {
@@ -506,10 +496,49 @@ vec4 pane_at(vec2 p, float u) {
     return picture(local);
 }
 
-// What of `c` stands out from a dark background, as light in the rain's tint.
-vec3 inked(vec4 c) {
+// One layer's streak at `px`, if its cell has one.
+vec3 streak(vec2 px, float layer) {
+    float cw = (CELL - 2.0 * layer) * unit;
+    float off = hash(vec2(layer, 3.0)) * cw;
+    float cell = floor((px.x + off) / cw);
+    float seed = layer * 7.0;
+    if (hash(vec2(cell, seed + 1.0)) < EMPTY) {
+        return vec3(0.0);
+    }
+    // Nearer in the first layer, farther in the last.
+    float near = clamp(hash(vec2(cell, seed + 2.0)) * 0.6 + (2.0 - layer) * 0.2, 0.0, 1.0);
+    float cx = (cell + 0.25 + 0.5 * hash(vec2(cell, seed + 3.0))) * cw - off;
+    // Far streaks fall behind the pane; near ones keep close to it.
+    float lag = 0.01 + 0.16 * (1.0 - near) * hash(vec2(cell, seed + 4.0));
+    float u = t - lag;
+    if (u <= LEAN) {
+        return vec3(0.0);
+    }
+    float head = pane_y(u) + 2.0 * unit;
+    float speed = gravity * (u - LEAN);
+    float len = (24.0 + 90.0 * near) * unit + speed * 0.06;
+    float width = mix(1.0, 3.6, near) * unit;
+    float radius = mix(1.8, 4.6, near) * unit;
+    float dx = abs(px.x - cx);
+    // The tail, brightening towards the head, and the head's glow.
+    float along = (px.y - (head - len)) / len;
+    float body = (along >= 0.0 && along <= 1.0)
+        ? pow(along, 1.6) * clamp(width * 0.5 + 0.5 - dx, 0.0, 1.0) : 0.0;
+    float d = length(vec2(px.x - cx, px.y - head)) / radius;
+    float glow = pow(max(1.0 - d, 0.0), 2.0);
+    if (body <= 0.0 && glow <= 0.0) {
+        return vec3(0.0);
+    }
+    // Its colour: the window's own at first, from the part it came from, then the rain's green,
+    // brighter where the window was.
+    vec4 c = picture(vec2(clamp(cx, 0.0, window_w - 1.0), hash(vec2(cell, seed + 5.0)) * window_h));
     float l = dot(c.rgb, vec3(0.3, 0.59, 0.11));
-    return ink * min(1.6 * max(l - DARK * c.a, 0.0), 1.0);
+    vec3 green = ink * (0.55 + 0.6 * l);
+    vec3 own = c.rgb * 1.2 + ink * 0.2;
+    vec3 colour = mix(own, green, clamp((t - LEAN) / 0.18, 0.0, 1.0));
+    vec3 hot = mix(colour, vec3(1.0), 0.6);
+    float bright = 0.4 + 0.6 * near;
+    return (colour * body + hot * glow) * bright;
 }
 
 void main() {
@@ -521,45 +550,10 @@ void main() {
     }
     // The pane itself, whole.
     color = pane_at(px, t);
-    // Its wake, lane by lane: each lane carries the column down its middle, lit only in its core,
-    // some lanes brighter than others, and dimmed behind the slits.
-    float lane = floor(px.x / unit);
-    float across = abs(px.x - (lane + 0.5) * unit) / unit;
-    float core = 1.0 - smoothstep(CORE * 0.5 - 0.08, CORE * 0.5 + 0.04, across);
-    float period = 4.0 * unit;
-    float slit = mod(px.y, period) >= 3.0 * unit ? SLIT : 1.0;
-    float weight = core * slit * (0.35 + 0.65 * hash(vec2(lane, 11.0)));
-    vec2 q = vec2((lane + 0.5) * unit, px.y);
-    float top_speed = gravity * GO;
-    vec3 trail = vec3(0.0);
-    if (weight > 0.0) {
-        for (int k = 0; k < SAMPLES; k++) {
-            float age = WAKE * (float(k) + 0.5) / float(SAMPLES);
-            float u = t - age;
-            float speed = gravity * max(u - LEAN, 0.0);
-            if (speed <= 0.0) {
-                break;
-            }
-            vec4 c = pane_at(q, u);
-            if (c.a <= 0.0) {
-                continue;
-            }
-            float strength = clamp(speed / (0.35 * top_speed), 0.0, 1.0);
-            float fade = 1.0 - age / WAKE;
-            vec3 own = c.rgb * 0.5 * (1.0 - clamp(age / 0.08, 0.0, 1.0));
-            vec3 green = inked(c) * clamp(age / 0.1, 0.0, 1.0);
-            trail += (own + green) * strength * fade;
-        }
-    }
-    color.rgb += trail * weight * BRIGHT / float(SAMPLES);
-    // The heads: where each lane leaves the pane's top edge, a bright tip, as a streak's.
-    float edge = pane_y(t);
-    float speed_now = gravity * max(t - LEAN, 0.0);
-    if (speed_now > 0.0 && px.y < edge && px.y >= edge - unit * 0.6) {
-        vec4 c = pane_at(vec2(q.x, edge + 1.0), t);
-        vec3 hot = mix(ink, vec3(1.0), 0.5) * clamp(speed_now / (0.35 * top_speed), 0.0, 1.0);
-        color.rgb += hot * core * (0.35 + 0.65 * hash(vec2(lane, 11.0))) * step(0.0, c.a - 0.001);
-    }
+    // Its wake, fading once the pane is gone.
+    float fade = 1.0 - clamp((t - LEAN - GO) / WAKE, 0.0, 1.0);
+    vec3 shower = streak(px, 0.0) + streak(px, 1.0) + streak(px, 2.0);
+    color.rgb += shower * fade;
     finish(color);
 }
 "#;
