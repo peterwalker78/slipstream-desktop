@@ -21,7 +21,8 @@ pub enum Action {
     Resize(Resize),
     /// Turn the split the focused window sits in, and everything inside it, so rows become
     /// columns and columns become rows.
-    Rotate,
+    /// Turn the layout a quarter, clockwise or anticlockwise.
+    Rotate { clockwise: bool },
     /// Go to a workspace by its number; the number keys reach 1–9.
     Workspace(u8),
     /// Go to the previous (−1) or next (+1) workspace.
@@ -131,7 +132,7 @@ impl Action {
             Action::MoveTile(_) => "move the window",
             Action::Resize(Resize::Wider | Resize::Narrower) => "narrower, wider (gravity: weight)",
             Action::Resize(Resize::Taller | Resize::Shorter) => "shorter, taller",
-            Action::Rotate => "turn the layout on its side",
+            Action::Rotate { .. } => "turn the layout a quarter, either way",
             Action::Workspace(_) => "go to a workspace",
             Action::WorkspaceBy(_) => "previous, next workspace",
             Action::MoveToWorkspace(_) => "send window to a workspace",
@@ -189,7 +190,7 @@ impl Action {
             | Action::ToggleFloating
             | Action::SwitchFloatingFocus => Group::AppsAndWindows,
             Action::Resize(_)
-            | Action::Rotate
+            | Action::Rotate { .. }
             | Action::Workspace(_)
             | Action::WorkspaceBy(_)
             | Action::MoveToWorkspace(_)
@@ -448,7 +449,8 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::t, Action::ToggleGravity),
         // Turning the layout. Windows has no equivalent, so this is a new key for a new idea;
         // the shortcut sheet (Super+/) lists it.
-        bind(mod_, Keysym::r, Action::Rotate),
+        bind(mod_, Keysym::r, Action::Rotate { clockwise: true }),
+        bind(mod_shift, Keysym::r, Action::Rotate { clockwise: false }),
         // Fill the tiling area, keeping the neighbours' tiles underneath. gamescope keeps Super+F
         // while it's focused (`passes_to_gamescope`).
         bind(mod_, Keysym::f, Action::Maximise),
@@ -869,7 +871,7 @@ mod tests {
         );
         assert_eq!(
             action_for(&bindings, SUPER, Keysym::r),
-            Some(Action::Rotate)
+            Some(Action::Rotate { clockwise: true })
         );
         // Super+Space is the input methods' again: a tapped Super opens the explorer.
         assert_eq!(action_for(&bindings, SUPER, Keysym::space), None);

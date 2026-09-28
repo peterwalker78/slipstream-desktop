@@ -2,6 +2,9 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- **Super+R turns the whole layout a quarter**, clockwise, every window going with it and keeping its neighbours, whichever window has the keyboard; **Super+Shift+R** turns it back. Four turns come back round. Before, it turned only the split around the focused window, so from most windows it just flipped a pair back and forth.
 ## 0.7.1 - 2026-09-28
 
 - **Tiling and gravity read as two modes again.** Holding Super after Super+T shows tiling on its own, marked "you place the windows", and after a divider gravity's four arrangements, "the windows place themselves".

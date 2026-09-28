@@ -551,50 +551,45 @@ impl<T: Clone + PartialEq> Dwindle<T> {
         }
     }
 
-    /// Turns the layout around `id`: the split it sits in, and every split inside that one, swap
-    /// rows for columns.
+    /// Turns the whole layout a quarter, clockwise or not, as a picture turns: every tile goes
+    /// with it and keeps its neighbours. Four turns bring it back round, and one each way cancels.
     ///
     /// The tree can grow a shape there is otherwise no way out of — one wide tile along the top
-    /// with two side by side under it, say, when what you want is the wide one down one side and
-    /// the other two stacked on the other. Flipping only the one split leaves the pair beside
-    /// each other; flipping everything inside it too is what turns the whole arrangement on its
-    /// side. Applying it twice puts the layout back exactly as it was.
+    /// with two side by side under it, when what you want is the wide one down a side. Moving
+    /// tiles about never changes the splits; turning the picture does.
     ///
-    /// Which split is turned depends on where the keyboard is, so it is as local as you want:
-    /// from the wide window it turns the lot, and from one of the pair it only swaps that pair
-    /// between stacked and side by side.
+    /// Each split swaps rows for columns. Turning clockwise, side by side becomes stacked with
+    /// the left one on top, and stacked becomes side by side with the top one on the right, so
+    /// that split's two sides change places; anticlockwise is the mirror of that.
     ///
-    /// Whether anything turned: a window on its own is in no split, and nothing moves.
-    pub fn rotate_around(&mut self, id: &T) -> bool {
-        let Some(mut path) = self.path_to(id) else {
-            return false;
-        };
-        // The split it sits in is its parent; the leaf itself is no split.
-        if path.pop().is_none() {
-            return false;
-        }
-        let mut node = match self.root.as_mut() {
-            Some(root) => root,
-            None => return false,
-        };
-        for &second in &path {
-            match node {
-                Node::Split { a, b, .. } => node = if second { b } else { a },
-                Node::Leaf(_) => return false,
-            }
-        }
-        fn flip<T>(node: &mut Node<T>) {
-            if let Node::Split { vertical, a, b, .. } = node {
+    /// Whether anything turned: with one window or none there is no split.
+    pub fn rotate(&mut self, clockwise: bool) -> bool {
+        fn turn<T>(node: &mut Node<T>, clockwise: bool) {
+            if let Node::Split {
+                vertical,
+                ratio,
+                a,
+                b,
+            } = node
+            {
+                // The side that ends up second was first: side by side turning anticlockwise,
+                // or stacked turning clockwise.
+                if *vertical != clockwise {
+                    std::mem::swap(a, b);
+                    *ratio = 1.0 - *ratio;
+                }
                 *vertical = !*vertical;
-                flip(a);
-                flip(b);
+                turn(a, clockwise);
+                turn(b, clockwise);
             }
         }
-        if matches!(node, Node::Leaf(_)) {
-            return false;
+        match self.root.as_mut() {
+            Some(root @ Node::Split { .. }) => {
+                turn(root, clockwise);
+                true
+            }
+            _ => false,
         }
-        flip(node);
-        true
     }
 
     /// Sets the ratio of the split at `path`, within the limits. Whether there was one.
@@ -864,69 +859,77 @@ mod tests {
     };
 
     /// One wide tile along the top with two side by side under it: the shape there was no way
-    /// out of before rotating existed. Three windows open the other way up — one down the left
-    /// with two stacked on the right — so this is that, turned.
+    /// out of before turning existed. Three windows open the other way up — one down the left
+    /// with two stacked on the right — so this is that, turned a quarter clockwise.
     fn wide_over_a_pair() -> Dwindle<&'static str> {
         let mut layout = Dwindle::new(0, 0);
         layout.insert("wide", None, AREA);
         layout.insert("x", Some(&"wide"), AREA);
         layout.insert("y", Some(&"x"), AREA);
-        assert!(layout.rotate_around(&"wide"));
+        assert!(layout.rotate(true));
         layout
     }
 
     #[test]
-    fn rotating_turns_a_wide_tile_onto_its_side() {
+    fn turning_clockwise_puts_the_wide_tile_down_the_right() {
         let mut layout = wide_over_a_pair();
         let wide = rect_of(&layout, "wide");
         let (x, y) = (rect_of(&layout, "x"), rect_of(&layout, "y"));
-        assert!(
-            wide.w > wide.h,
-            "the wide one spans the width to begin with"
-        );
+        assert!(wide.w > wide.h, "the wide one spans the top to begin with");
+        assert!(wide.y < x.y);
         assert_eq!(x.y, y.y, "and the other two are side by side under it");
 
-        // From the wide window, the whole arrangement turns onto its side.
-        assert!(layout.rotate_around(&"wide"));
+        assert!(layout.rotate(true));
         let wide = rect_of(&layout, "wide");
         let (x, y) = (rect_of(&layout, "x"), rect_of(&layout, "y"));
-        assert!(wide.h > wide.w, "now it runs down one side");
-        assert_eq!(x.x, y.x, "and the other two are stacked on the other");
+        assert!(wide.h > wide.w, "now it runs down a side");
+        assert!(wide.x > x.x, "the right side: the top turned clockwise");
+        assert_eq!(x.x, y.x, "and the other two are stacked on the left");
         assert!(x.y != y.y);
     }
 
     #[test]
-    fn rotating_twice_puts_the_layout_back() {
+    fn anticlockwise_puts_it_down_the_left() {
+        let mut layout = wide_over_a_pair();
+        assert!(layout.rotate(false));
+        let wide = rect_of(&layout, "wide");
+        assert!(wide.h > wide.w);
+        assert!(wide.x < rect_of(&layout, "x").x, "the left side");
+    }
+
+    #[test]
+    fn four_turns_or_one_each_way_put_it_back() {
         let mut layout = wide_over_a_pair();
         let before = layout.rects(AREA);
-        layout.rotate_around(&"wide");
-        assert_ne!(layout.rects(AREA), before, "something moved");
-        layout.rotate_around(&"wide");
-        assert_eq!(layout.rects(AREA), before, "and it went back exactly");
+        for _ in 0..3 {
+            layout.rotate(true);
+            assert_ne!(layout.rects(AREA), before, "a part turn moves something");
+        }
+        layout.rotate(true);
+        assert_eq!(layout.rects(AREA), before, "four quarters are a whole turn");
+        layout.rotate(true);
+        layout.rotate(false);
+        assert_eq!(layout.rects(AREA), before, "and one each way cancels");
     }
 
     #[test]
-    fn rotating_from_a_small_tile_only_turns_that_pair() {
+    fn every_window_moves_whichever_has_the_keyboard() {
         let mut layout = wide_over_a_pair();
-        let wide_before = rect_of(&layout, "wide");
-        // "x" sits in the inner split, so only it and its neighbour swap.
-        assert!(layout.rotate_around(&"x"));
-        assert_eq!(
-            rect_of(&layout, "wide"),
-            wide_before,
-            "the wide one stays where it was"
-        );
-        let (x, y) = (rect_of(&layout, "x"), rect_of(&layout, "y"));
-        assert_eq!(x.x, y.x, "the pair is stacked now, under the wide one");
-        assert!(x.y != y.y);
+        let before = layout.rects(AREA);
+        layout.rotate(true);
+        let after = layout.rects(AREA);
+        for (window, rect) in &before {
+            let now = after.iter().find(|(w, _)| w == window).unwrap().1;
+            assert_ne!(now, *rect, "{window} moved");
+        }
     }
 
     #[test]
     fn a_window_on_its_own_has_nothing_to_turn() {
         let mut layout = Dwindle::new(0, 0);
+        assert!(!layout.rotate(true));
         layout.insert("only", None, AREA);
-        assert!(!layout.rotate_around(&"only"));
-        assert!(!layout.rotate_around(&"never opened"));
+        assert!(!layout.rotate(true));
     }
 
     fn rect_of(layout: &Dwindle<&'static str>, id: &str) -> Rect {

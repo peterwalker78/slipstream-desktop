@@ -764,7 +764,13 @@ mod tests {
         assert_eq!(row("shorter, taller"), ["Super+Shift+[ ]"]);
         assert_eq!(row("switch window"), ["Alt+Tab", "Alt+Shift+Tab"]);
         assert_eq!(row("apps"), ["Super"]);
-        assert_eq!(row("turn the layout on its side"), ["Super+R"]);
+        let turn = row("turn the layout a quarter, either way");
+        assert_eq!(
+            turn.first().map(String::as_str),
+            Some("Super+R"),
+            "{turn:?}"
+        );
+        assert!(turn.len() <= 2, "both ways on one row: {turn:?}");
         assert_eq!(row("maximise"), ["Super+F"]);
         assert_eq!(row("every key"), ["Super+/"]);
         assert_eq!(row("jump to a label"), ["J K L…"]);

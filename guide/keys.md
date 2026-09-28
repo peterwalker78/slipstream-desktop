@@ -14,7 +14,7 @@ Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter 
 | Super+arrows | Move focus |
 | Super+Alt+arrows | Move the window: it swaps places with the one that way, the two passing through each other. Under gravity, moving into the centre takes it |
 | Super+[ and ], with Shift for height | Resize; under gravity, lighter and heavier |
-| Super+R | Turn the layout on its side: rows become columns |
+| Super+R, Super+Shift+R | Turn the whole layout a quarter, clockwise or back |
 | Super+F | Fill the tiling area, and back, in tiling or gravity |
 | Super+M, Super+Shift+M | Minimise to the code rain, bring back |
 | Super+H | Hide every window on the workspace; again, bring them back |

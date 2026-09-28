@@ -42,7 +42,8 @@ pub const LESSONS: [Lesson; 6] = [
     Lesson {
         title: "Turn the layout",
         keys: &["Super+R"],
-        says: "Rows become columns. Press it again and the layout goes back exactly as it was.",
+        says: "The whole layout turns a quarter, every window going with it. Shift turns it the \
+               other way.",
     },
     Lesson {
         title: "Out of the way",
@@ -189,7 +190,7 @@ pub fn stage(step: usize, t: f32) -> Stage {
             focus: Some(0),
             rain: 0.0,
         },
-        // Rows become columns.
+        // The layout turns a quarter clockwise: left goes to the top, right to the bottom.
         3 => {
             let (top, bottom) = stacked();
             Stage {
@@ -269,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn turning_the_layout_swaps_rows_for_columns() {
+    fn turning_the_layout_turns_it_a_quarter() {
         let before = stage(3, 0.0);
         assert!(before.tiles[0].h > before.tiles[0].w, "side by side");
         let after = stage(3, 1.0);

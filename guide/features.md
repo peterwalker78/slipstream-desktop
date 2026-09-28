@@ -30,7 +30,7 @@ The same keys work in both, meaning what they mean there:
 - **Super+[ and ]** resize a tile in tiling. Under gravity a window's size is its weight: heavier gives it more of the screen, lighter sends it into orbit around another window or down to the strip.
 - **Super+Alt+arrows**, or dragging with Super held, swap a window with the one that way. Under gravity the places keep their roles, so moving a window into the centre makes it the centre.
 - **Super+F** fills the area with the window, and back, in either.
-- **Super+R**, which turns a tiling layout on its side, is tiling's alone.
+- **Super+R** turns a tiling layout a quarter, every window going with it, and Super+Shift+R turns it back. That one is tiling's alone.
 
 ## The code rain, in full
 

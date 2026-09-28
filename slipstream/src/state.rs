@@ -2123,14 +2123,9 @@ impl Slipstream {
 
     /// Super+[ ] and Super+Shift+[ ]: the split beside the focused tile moves a step, on the
     /// press, and the tiles glide to their new sizes.
-    /// Super+R: turns the split the focused window sits in, and everything inside it, so
-    /// rows become columns and columns become rows.
-    ///
-    /// The tiling tree can reach a shape there is otherwise no way out of — one wide tile along
-    /// the top with two side by side under it, when what you want is the wide one down a side
-    /// and the pair stacked on the other. Moving tiles about can't fix that, because every
-    /// arrangement of the same tree has the same splits; the split itself has to turn.
-    pub fn rotate_layout(&mut self) {
+    /// Super+R and Super+Shift+R: the workspace's whole layout turns a quarter, clockwise or
+    /// anticlockwise, every tile going with it. Which window has the keyboard doesn't matter.
+    pub fn rotate_layout(&mut self, clockwise: bool) {
         let Some(window) = self.focused_window() else {
             return;
         };
@@ -2150,15 +2145,10 @@ impl Slipstream {
             return;
         }
         let active = self.active_workspace();
-        if !self
-            .workspaces
-            .get_mut(active)
-            .layout
-            .rotate_around(&window)
-        {
+        if !self.workspaces.get_mut(active).layout.rotate(clockwise) {
             return;
         }
-        tracing::info!(window = logged_app(&window), "turned the layout");
+        tracing::info!(clockwise, "turned the layout");
         self.retile();
     }
 
