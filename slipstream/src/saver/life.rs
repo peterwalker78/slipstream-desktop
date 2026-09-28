@@ -324,7 +324,12 @@ impl Variation for Life {
             let (lx, _, lw, _) = layout.logo;
             for letter in &layout.letters {
                 let across = (letter.col - lx) as f32 / lw.max(1) as f32;
-                grid.put(letter.col as f32, letter.row as f32, letter.ch, gradient(across));
+                grid.put(
+                    letter.col as f32,
+                    letter.row as f32,
+                    letter.ch,
+                    gradient(across),
+                );
             }
             return;
         }
