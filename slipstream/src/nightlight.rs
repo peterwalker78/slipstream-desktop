@@ -1,4 +1,4 @@
-//! Night light: warmer colours, as the mockup's, which multiplies `#ff8a2a` over the screen at 24%.
+//! Night light: warmer colours, as if `#ff8a2a` were multiplied over the screen at 24%.
 //! Done in each screen's gamma ramp rather than drawn, so it covers everything, the pointer and
 //! fullscreen games included, and costs nothing per frame. Only on real hardware: nested, the host
 //! desktop owns the screen's colours.

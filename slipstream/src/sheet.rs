@@ -15,11 +15,11 @@ use crate::{
     keys::{self, Binding, Group, Mods},
     motion::HYPR,
     paint::{self, Painted, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
-// The card's measurements, in mockup pixels: the explorer's frame.
+// The card's measurements, in design pixels: the explorer's frame.
 const WIDTH: f32 = 1040.0;
 const TOP: f32 = 130.0;
 const MARGIN: f32 = 64.0;
@@ -372,17 +372,17 @@ impl Sheet {
         let painted = self.painted.as_ref()?;
         let at = Point::<f64, Logical>::from((
             ((screen.w - painted.logical.w) / 2) as f64,
-            ((TOP - MARGIN) * MOCKUP_PX) as f64,
+            ((TOP - MARGIN) * DESIGN_PX) as f64,
         ));
         self.frame = Rectangle::new(
             (
-                at.x + (MARGIN * MOCKUP_PX) as f64,
-                at.y + (MARGIN * MOCKUP_PX) as f64,
+                at.x + (MARGIN * DESIGN_PX) as f64,
+                at.y + (MARGIN * DESIGN_PX) as f64,
             )
                 .into(),
             (
-                painted.logical.w as f64 - (2.0 * MARGIN * MOCKUP_PX) as f64,
-                painted.logical.h as f64 - (2.0 * MARGIN * MOCKUP_PX) as f64,
+                painted.logical.w as f64 - (2.0 * MARGIN * DESIGN_PX) as f64,
+                painted.logical.h as f64 - (2.0 * MARGIN * DESIGN_PX) as f64,
             )
                 .into(),
         );
@@ -395,7 +395,7 @@ impl Sheet {
         };
         painted.element(
             renderer,
-            at + Point::from((0.0, rise * MOCKUP_PX as f64)),
+            at + Point::from((0.0, rise * DESIGN_PX as f64)),
             alpha,
         )
     }
@@ -413,18 +413,18 @@ fn column_height(sections: &[&Section], pitch: f32) -> f32 {
 /// The tour's card: the stage with the tiles moving on it, what the lesson says, and its keys.
 fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
     let lesson = crate::tour::LESSONS.get(step)?;
-    let screen_w = look.screen.w as f32 / MOCKUP_PX;
+    let screen_w = look.screen.w as f32 / DESIGN_PX;
     let width = TOUR_WIDTH.min(screen_w - 40.0).max(420.0);
     let height = HEAD_H + TOUR_STAGE_H + TOUR_WORDS_H + PADDING;
     let logical = Size::<i32, Logical>::from((
-        ((width + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
+        ((width + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * look.scale).round().max(1.0) as i32,
         (logical.h as f64 * look.scale).round().max(1.0) as i32,
     );
-    let f = look.scale as f32 * MOCKUP_PX;
+    let f = look.scale as f32 * DESIGN_PX;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     let (fx, fy) = (MARGIN, MARGIN);
     panel::glass(&mut p, fx, fy, width, height);
@@ -519,8 +519,8 @@ fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
 }
 
 fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
-    let screen_w = look.screen.w as f32 / MOCKUP_PX;
-    let screen_h = look.screen.h as f32 / MOCKUP_PX;
+    let screen_w = look.screen.w as f32 / DESIGN_PX;
+    let screen_h = look.screen.h as f32 / DESIGN_PX;
     let width = WIDTH.min(screen_w - 40.0).max(480.0);
     // Left: apps, windows and workspaces; right: bullet time, the panels and the system.
     let left: Vec<&Section> = sections
@@ -552,14 +552,14 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
         .max(40.0);
     let height = HEAD_H + 16.0 + body_h + PADDING;
     let logical = Size::<i32, Logical>::from((
-        ((width + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
+        ((width + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * look.scale).round().max(1.0) as i32,
         (logical.h as f64 * look.scale).round().max(1.0) as i32,
     );
-    let f = look.scale as f32 * MOCKUP_PX;
+    let f = look.scale as f32 * DESIGN_PX;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     let (fx, fy) = (MARGIN, MARGIN);
     panel::glass(&mut p, fx, fy, width, height);

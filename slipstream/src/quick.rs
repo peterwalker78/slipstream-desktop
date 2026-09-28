@@ -18,12 +18,12 @@ use crate::{
     keys::App,
     launch, meter,
     paint::Painted,
-    panel::{self, DARK, GAP, INK, MOCKUP_PX, PADDING},
+    panel::{self, DARK, DESIGN_PX, GAP, INK, PADDING},
     status::{self, Reading},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels.
+// Sizes in design pixels.
 const WIDTH: f32 = 480.0;
 const HEAD_H: f32 = 42.0;
 const MENU_H: f32 = 40.0;
@@ -452,7 +452,7 @@ impl QuickSettings {
             self.shown = Some(look);
         }
         let (alpha, rise) = panel::opening(now - self.opened_at, reduced_motion);
-        let at = Point::from((self.origin.x, self.origin.y + rise * MOCKUP_PX as f64));
+        let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
         self.painted.as_ref()?.element(renderer, at, alpha)
     }
 
@@ -506,27 +506,27 @@ impl QuickSettings {
             + FOOT_H
             + PADDING;
         let (fx, fy) = (panel::MARGIN, panel::MARGIN);
-        // The card's left edge on screen, in mockup pixels.
-        let left = look.width as f32 / MOCKUP_PX - panel::RIGHT - WIDTH;
+        // The card's left edge on screen, in design pixels.
+        let left = look.width as f32 / DESIGN_PX - panel::RIGHT - WIDTH;
         let on_screen = |x: f32, y: f32, w: f32, h: f32| {
             Rectangle::<f64, Logical>::new(
                 (
-                    ((left + x - fx) * MOCKUP_PX) as f64,
-                    ((panel::TOP + y - fy) * MOCKUP_PX) as f64,
+                    ((left + x - fx) * DESIGN_PX) as f64,
+                    ((panel::TOP + y - fy) * DESIGN_PX) as f64,
                 )
                     .into(),
-                ((w * MOCKUP_PX) as f64, (h * MOCKUP_PX) as f64).into(),
+                ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
             )
         };
         let logical = Size::<i32, Logical>::from((
-            ((WIDTH + 2.0 * panel::MARGIN) * MOCKUP_PX).ceil() as i32,
-            ((height + 2.0 * panel::MARGIN + panel::BELOW) * MOCKUP_PX).ceil() as i32,
+            ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
+            ((height + 2.0 * panel::MARGIN + panel::BELOW) * DESIGN_PX).ceil() as i32,
         ));
         let mut targets = Vec::new();
         let mut tracks = Vec::new();
 
         let painted = Painted::new(logical, look.scale, |p| {
-            p.f *= MOCKUP_PX;
+            p.f *= DESIGN_PX;
             panel::glass(p, fx, fy, WIDTH, height);
             let x0 = fx + PADDING;
             let inner = WIDTH - 2.0 * PADDING;
@@ -1266,7 +1266,7 @@ mod tests {
         let right = quick.frame.loc.x + quick.frame.size.w;
         assert!(
             (right - 1528.0).abs() < 0.5,
-            "10 mockup pixels from the edge"
+            "10 design pixels from the edge"
         );
 
         let wifi = quick

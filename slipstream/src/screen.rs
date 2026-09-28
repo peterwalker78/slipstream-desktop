@@ -368,8 +368,8 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
 /// The screen `direction` of the one at `from`, by where the screens actually sit: the nearest on
 /// that side, and among equals the one that lines up with it best across the other axis.
 ///
-/// Screens used to be a row, so "the next one left" was the previous index. They can be stacked
-/// now, so it has to be worked out from the rectangles.
+/// Screens can be stacked as well as side by side, so this works from their rectangles rather
+/// than from their order in the list.
 pub fn towards(
     rects: &[crate::layout::Rect],
     from: usize,

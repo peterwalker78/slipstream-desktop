@@ -37,7 +37,7 @@ use crate::{
     card::{self, Btn, Button, Card, Hit, Row},
     motion::HYPR,
     paint::Painted,
-    panel::MOCKUP_PX,
+    panel::DESIGN_PX,
 };
 
 const OPEN: f64 = 0.18;
@@ -279,7 +279,7 @@ impl Picker {
     }
 
     fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
         self.hits
             .iter()
@@ -415,7 +415,7 @@ impl Picker {
             let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
             (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
         };
-        let at = self.at + Point::from((0.0, rise * MOCKUP_PX as f64));
+        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
         painted.element(renderer, at, alpha)
     }
 }

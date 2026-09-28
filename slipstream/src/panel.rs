@@ -4,9 +4,10 @@
 
 use crate::{Slipstream, motion::HYPR, paint::Painter};
 
-/// Logical pixels per mockup pixel: the mockup is drawn for the laptop's 1.25×.
-pub const MOCKUP_PX: f32 = 0.8;
-/// The card's top right corner, in mockup pixels: 10 in from the screen's edge, and 48 down, which
+/// Logical pixels per design pixel. Every surface is laid out in design pixels, sized for a 1.25×
+/// screen: each is 0.8 logical pixels, which there is exactly one physical pixel.
+pub const DESIGN_PX: f32 = 0.8;
+/// The card's top right corner, in design pixels: 10 in from the screen's edge, and 48 down, which
 /// is 8 below the bar.
 pub const RIGHT: f32 = 10.0;
 pub const TOP: f32 = 48.0;
@@ -56,8 +57,8 @@ pub const FOCUS: u32 = 0x42d3ffcc;
 const OPEN: f64 = 0.2;
 const REDUCED_FADE: f64 = 0.08;
 
-/// The card, `w` × `h` at (`x`, `y`), with its shadow. The mockup's glass is 92% opaque over a
-/// blur; with nothing blurred behind it, it's nearly solid, as the explorer's is.
+/// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
+/// nearly solid, as the explorer's is.
 pub fn glass(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
     p.card(
         x,
@@ -218,7 +219,7 @@ pub fn focus_ring(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, radius: f32, 
 }
 
 /// A panel `since` seconds after it opened: its opacity, and how far above its place it is, in
-/// mockup pixels.
+/// design pixels.
 pub fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
     if reduced_motion {
         ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)

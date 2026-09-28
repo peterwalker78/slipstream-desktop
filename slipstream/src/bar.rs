@@ -1,9 +1,9 @@
-//! The system bar along the top: the apps button, workspaces 1–5, a mode's label and the focused
+//! The system bar along the top: the apps button, the workspaces, a mode's label and the focused
 //! window's title on the left; the time and date in the middle; the tray and the notifications bell
 //! on the right.
 //!
-//! It's laid out in the mockup's pixels, painted into a pixmap at the screen's own resolution so
-//! text stays sharp at 1.25×, and repainted only when what it shows changes.
+//! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
+//! stays sharp at fractional scales, and repainted only when what it shows changes.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::{
@@ -25,9 +25,9 @@ use crate::{
     text::{self, Face, Style},
 };
 
-/// Height in logical pixels: the mockup's 40 px at the laptop's 1.25×. Windows tile below it.
+/// Height in logical pixels: 40 design pixels. Windows tile below it.
 pub const HEIGHT: i32 = 32;
-/// The same height in the mockup's pixels, which every size below is given in.
+/// The same height in design pixels, which every size below is given in.
 const TALL: f32 = 40.0;
 
 /// Everything the bar shows. It's repainted when this changes.
@@ -176,7 +176,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     let f = device_h as f32 / TALL;
     let mut p = Painter::new(device_w, device_h, f)?;
     let wide = device_w as f32 / f;
-    // Mockup pixels to logical ones, for the click targets.
+    // Design pixels to logical ones, for the click targets.
     let unit = f as f64 / scale;
     let mut targets = Vec::new();
     // Each button takes clicks the bar's whole height, up to the screen's top edge, so a pointer

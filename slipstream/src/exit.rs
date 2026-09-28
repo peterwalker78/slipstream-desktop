@@ -24,7 +24,7 @@ use crate::{
     card::{self, Btn, Button, Card, Hit, Row},
     motion::HYPR,
     paint::Painted,
-    panel::{self, AMBER, BELOW, MARGIN, MOCKUP_PX},
+    panel::{self, AMBER, BELOW, DESIGN_PX, MARGIN},
 };
 
 /// After the close request, before anything left over is named.
@@ -461,7 +461,7 @@ impl<W: Clone + PartialEq> Exit<W> {
 
     /// What is under (`x`, `y`), in logical pixels from the output's corner.
     fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
         self.hits
             .iter()
@@ -673,12 +673,12 @@ impl<W: Clone + PartialEq> Exit<W> {
         // that waits for it.
         self.at = self.origin(screen, painted.logical);
         let (alpha, rise) = self.opening(now - self.since);
-        let at = self.at + Point::from((0.0, rise * MOCKUP_PX as f64));
+        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
         painted.element(renderer, at, alpha)
     }
 
     /// A card `since` seconds after it appeared: its opacity, and how far above its place it is,
-    /// in mockup pixels. The explorer's opening, so the two feel like one desktop.
+    /// in design pixels. The explorer's opening, so the two feel like one desktop.
     fn opening(&self, since: f64) -> (f32, f64) {
         if self.reduced_motion {
             ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
@@ -698,7 +698,7 @@ impl<W: Clone + PartialEq> Exit<W> {
         let x = ((screen.w - painted.w) / 2) as f64;
         match self.phase {
             Phase::Closing { .. } | Phase::Waiting { .. } => {
-                Point::from((x, ((SLIM_TOP - MARGIN) * MOCKUP_PX) as f64))
+                Point::from((x, ((SLIM_TOP - MARGIN) * DESIGN_PX) as f64))
             }
             _ => Point::from((x, ((screen.h - painted.h) / 2).max(0) as f64)),
         }
@@ -719,11 +719,11 @@ fn paint_slim(slim: &Slim, scale: f64) -> Option<Painted> {
     // The toast's card, with the grace's bar under its line.
     let height = crate::toast::card_height(1, 10.0 + 4.0);
     let logical = Size::<i32, Logical>::from((
-        ((SLIM_WIDTH + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * MARGIN + BELOW) * MOCKUP_PX).ceil() as i32,
+        ((SLIM_WIDTH + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * MARGIN + BELOW) * DESIGN_PX).ceil() as i32,
     ));
     Painted::new(logical, scale, |p| {
-        p.f *= MOCKUP_PX;
+        p.f *= DESIGN_PX;
         let (fx, fy) = (MARGIN, MARGIN);
         let lines = [slim.note.clone()];
         crate::toast::paint_card(p, fx, fy, SLIM_WIDTH, height, &slim.title, &lines);
@@ -859,7 +859,7 @@ mod tests {
         let painted = painted.unwrap();
         exit.hits = hits;
         exit.at = exit.origin(screen, painted.logical);
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         exit.hits
             .iter()
             .map(|hit| {

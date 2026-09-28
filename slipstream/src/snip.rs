@@ -47,8 +47,8 @@ const DIM: f32 = 0.5;
 const FLIGHT: f64 = 0.42;
 /// With reduced motion the chosen part just fades.
 const REDUCED_FLIGHT: f64 = 0.08;
-/// Logical pixels per mockup pixel, which the fragment grid is sized in.
-const MOCKUP_PX: f64 = 0.8;
+/// Logical pixels per design pixel (`panel::DESIGN_PX`), which the fragment grid is sized in.
+const DESIGN_PX: f64 = 0.8;
 
 /// A snip while it's being chosen.
 pub struct Snip {
@@ -96,10 +96,10 @@ pub fn between(a: Point<f64, Logical>, b: Point<f64, Logical>) -> Rectangle<f64,
 }
 
 /// How many columns and rows a fragment grid has for a part `w` × `h` logical pixels: about one
-/// fragment per 170 mockup pixels, three to six across and three to five down.
+/// fragment per 170 design pixels, three to six across and three to five down.
 pub fn grid(w: f64, h: f64) -> (usize, usize) {
-    let cols = ((w / MOCKUP_PX / 170.0).round() as usize).clamp(3, 6);
-    let rows = ((h / MOCKUP_PX / 170.0).round() as usize).clamp(3, 5);
+    let cols = ((w / DESIGN_PX / 170.0).round() as usize).clamp(3, 6);
+    let rows = ((h / DESIGN_PX / 170.0).round() as usize).clamp(3, 5);
     (cols, rows)
 }
 
@@ -391,7 +391,7 @@ impl Slipstream {
         if let Some(legend) = frozen.legend.as_ref() {
             let at = Point::from((
                 (w - legend.logical.w as f64) / 2.0,
-                h - 28.0 * MOCKUP_PX - legend.logical.h as f64,
+                h - 28.0 * DESIGN_PX - legend.logical.h as f64,
             ));
             elements.extend(legend.element(renderer, at, 1.0).map(OutputElement::Memory));
         }
@@ -651,8 +651,8 @@ impl Flight {
     }
 }
 
-/// Where a fragment is at eased progress `p`, as the mockup's keyframes have it: scattered by
-/// a fraction of a cell and shrunk to .78 at .38, then shrunk to .12 at the target and gone.
+/// Where a fragment is at eased progress `p`: scattered by a fraction of a cell and shrunk to .78
+/// at .38, then shrunk to .12 at the target and gone.
 struct Place {
     rect: Rectangle<f64, Logical>,
     alpha: f32,
@@ -797,11 +797,11 @@ fn paint_tile(
 fn paint_legend(scale: f64) -> Option<Painted> {
     let style = Style::new(Face::Mono, 13.0, panel::HINT);
     let legend = "drag a region · a–z a window · ⏎ whole screen · Esc cancel";
-    let w = (text::width(legend, &style) + 32.0) * MOCKUP_PX as f32;
-    let h = (13.0 * 1.2 + 16.0) * MOCKUP_PX as f32;
+    let w = (text::width(legend, &style) + 32.0) * DESIGN_PX as f32;
+    let h = (13.0 * 1.2 + 16.0) * DESIGN_PX as f32;
     let logical = Size::from((w.ceil() as i32, h.ceil() as i32));
     Painted::new(logical, scale, |p| {
-        let f = MOCKUP_PX as f32;
+        let f = DESIGN_PX as f32;
         p.fill(0.0, 0.0, w, h, 10.0 * f, panel::CHIP | 0xe6);
         let style = Style::new(Face::Mono, 13.0 * f, panel::HINT);
         p.text(legend, 16.0 * f, h / 2.0, &style);

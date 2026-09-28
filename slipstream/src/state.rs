@@ -4237,8 +4237,8 @@ impl Slipstream {
     }
 
     /// Takes `window` off its workspace (closed, minimised or moved) and returns which workspace
-    /// it was on. A window that inherits gravity's centre gets the centre tag, so the amber ring
-    /// moving to it has a visible cause.
+    /// it was on. A window that inherits gravity's centre gets the centre tag, so its move into
+    /// the middle has a visible cause.
     pub(crate) fn take_off_workspace(&mut self, window: &Window) -> Option<usize> {
         let history = &self.focus_history;
         let removed = self.workspaces.remove(window, |w| recency(history, w))?;
@@ -4498,7 +4498,7 @@ impl Slipstream {
         }
     }
 
-    /// Shift+1–5 and Shift+←/→: sends the chosen window to another workspace, and looks there.
+    /// Shift+1–9 and Shift+←/→: sends the chosen window to another workspace, and looks there.
     fn bullet_send(&mut self, index: usize) {
         let Some(Some(Target::Window(window))) =
             self.bullet.as_ref().map(|mode| mode.selected.clone())

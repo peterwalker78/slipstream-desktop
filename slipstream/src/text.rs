@@ -1,5 +1,5 @@
-//! Text in the mockup's fonts, rasterised with fontdue straight into tiny-skia pixmaps. The fonts
-//! are embedded, so the binary needs nothing installed; their OFL licences are in `assets/fonts/`.
+//! Text in Slipstream's own fonts, rasterised with fontdue straight into tiny-skia pixmaps. The
+//! fonts are embedded, so the binary needs nothing installed; their OFL licences are in `assets/fonts/`.
 //! A character they don't have comes from an installed face (`fallback.rs`), chosen the same way
 //! for measuring and for drawing, so text is laid out exactly as it's drawn.
 
@@ -12,14 +12,14 @@ use crate::fallback;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Face {
-    /// Atkinson Hyperlegible, the mockup's `--body`.
+    /// Atkinson Hyperlegible: body text.
     Body,
     /// Atkinson Hyperlegible Bold: names, titles and buttons' labels.
     BodyBold,
-    /// JetBrains Mono, the mockup's `--mono`.
+    /// JetBrains Mono: keys, numbers and code.
     Mono,
     MonoBold,
-    /// Chakra Petch Bold, the mockup's `--disp`.
+    /// Chakra Petch Bold: the display face, for large type.
     Display,
 }
 

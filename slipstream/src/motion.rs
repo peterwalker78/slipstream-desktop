@@ -1,6 +1,7 @@
 //! Where windows are painted while they move: a tween per window on the animation clock, and a
-//! camera per screen that slides between workspaces. Layout and focus change on the keypress (Law 1); this
-//! only decides where things are drawn on the way there. Input still uses the real positions.
+//! camera per screen that slides between workspaces. Layout and focus change on the keypress;
+//! this only decides where things are drawn on the way there. Input still uses the real
+//! positions.
 //!
 //! Generic over the window type so it's unit-tested without Wayland.
 
@@ -9,7 +10,7 @@ use crate::{
     layout::Rect,
 };
 
-/// The mockup's `--hypr` curve, with its slight overshoot.
+/// Slipstream's main easing curve: a fast start that settles into place with a slight overshoot.
 pub const HYPR: Easing = Easing::Bezier(0.05, 0.9, 0.1, 1.05);
 /// Retiles and workspace slides, in animation seconds.
 pub const MOVE: f64 = 0.34;
@@ -24,8 +25,7 @@ const REDUCED_FADE: f64 = 0.08;
 /// rather than as a ghost crossing whatever is behind it.
 const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
-/// Space between workspaces as they slide past, in logical pixels: the mockup's 160 stage pixels
-/// at the laptop's 1.25×.
+/// Space between workspaces as they slide past, in logical pixels: 160 design pixels.
 pub const WORKSPACE_GAP: i32 = 128;
 
 /// How to draw one window this frame.

@@ -347,8 +347,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
         tracing::info!(
             "listening on WAYLAND_DISPLAY={}. Nested, Alt is the Mod key: Alt+arrows move focus, \
-             Alt+1–5 and Alt+Ctrl+←/→ switch workspace, Alt+Shift+1–5 and Alt+Shift+←/→ move the \
-             window there, Alt+Return opens a terminal, Alt+Shift+Esc (or closing the window) quits",
+             Alt+1–9 and Alt+Ctrl+←/→ switch workspace, Alt+Shift+1–9 and Alt+Shift+←/→ move the \
+             window there, Alt+Return opens a terminal, and closing the window quits",
             state.socket_name.to_string_lossy()
         );
     }
@@ -599,9 +599,9 @@ fn quiet(level: tracing::Level, locked: bool) -> bool {
 /// Tells D-Bus and systemd where the display is, so anything they start (portals, services)
 /// opens on Slipstream.
 ///
-/// **On the calling thread, and before the session target starts.** It used to run on a detached
-/// thread that was never joined; a unit started before the import landed would come up with no
-/// `WAYLAND_DISPLAY`, connect to nothing and fail every request — which looks like working.
+/// **On the calling thread, and before the session target starts.** A unit started before the
+/// import landed would come up with no `WAYLAND_DISPLAY`, connect to nothing and fail every
+/// request — which looks like working.
 fn import_environment() {
     // Both, because they populate different places: systemd's user manager environment for units,
     // and dbus-daemon's activation environment for anything it starts itself.

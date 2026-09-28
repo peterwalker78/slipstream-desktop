@@ -319,11 +319,12 @@ impl Variation for Life {
     fn compose(&mut self, frame: Frame<'_>, grid: &mut Grid) {
         let layout = frame.layout;
         if frame.still {
-            // The seed itself, standing still: the logo as living cells.
+            // The seed itself, standing still: the logo as living cells, each in its letter's
+            // own block.
             let (lx, _, lw, _) = layout.logo;
             for letter in &layout.letters {
                 let across = (letter.col - lx) as f32 / lw.max(1) as f32;
-                grid.put(letter.col as f32, letter.row as f32, '█', gradient(across));
+                grid.put(letter.col as f32, letter.row as f32, letter.ch, gradient(across));
             }
             return;
         }
@@ -391,8 +392,10 @@ impl Variation for Life {
                 } else {
                     mix(trip(self.hue(col as f32, row as f32, clock)), WHITE, 0.25)
                 };
-                // Solid blocks, so a colony reads as cells rather than as a smudge.
-                grid.put(col as f32, row as f32, '█', mix(BG, rgb, light));
+                // Solid blocks, so a colony reads as cells rather than as a smudge; where a cell
+                // stands on the logo it keeps the letter's own block, slits and all.
+                let ch = self.logo[i].unwrap_or('█');
+                grid.put(col as f32, row as f32, ch, mix(BG, rgb, light));
             }
         }
     }

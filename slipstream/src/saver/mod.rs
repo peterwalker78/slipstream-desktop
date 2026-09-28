@@ -249,7 +249,7 @@ fn step_hz(asked: f64, layout: &Layout) -> f64 {
     }
 }
 
-/// The mockup's page colour.
+/// The desktop's backdrop colour, as behind every window.
 const BACKGROUND: [u8; 3] = [11, 14, 19];
 const BG: [f32; 3] = [11.0 / 255.0, 14.0 / 255.0, 19.0 / 255.0];
 const WHITE: [f32; 3] = [0.93, 0.98, 1.0];

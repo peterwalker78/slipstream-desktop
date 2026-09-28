@@ -18,7 +18,7 @@ use crate::{
     gravity::Rung,
     layout::Rect,
     paint::{self, Painted, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
@@ -36,7 +36,7 @@ pub const APPEAR: f64 = 0.2;
 /// The strip's fade in, once it appears.
 const FADE: f64 = 0.12;
 
-// The strip's measurements, in mockup pixels.
+// The strip's measurements, in design pixels.
 const TILE_W: f32 = 168.0;
 const TILE_GAP: f32 = 10.0;
 const INSET: f32 = 14.0;
@@ -153,7 +153,7 @@ impl<W> Arrange<W> {
         let painted = self.painted.as_ref()?;
         let at = Point::<f64, Logical>::from((
             ((screen.w - painted.logical.w) / 2) as f64,
-            (screen.h - painted.logical.h + ((MARGIN - BOTTOM) * MOCKUP_PX) as i32).max(0) as f64,
+            (screen.h - painted.logical.h + ((MARGIN - BOTTOM) * DESIGN_PX) as i32).max(0) as f64,
         ));
         let tile_h = self.shown.as_ref().map_or(0.0, tile_h);
         self.hits = (0..CHOICES.len())
@@ -163,8 +163,8 @@ impl<W> Arrange<W> {
                 (
                     index,
                     Rectangle::new(
-                        (at.x + (x * MOCKUP_PX) as f64, at.y + (y * MOCKUP_PX) as f64).into(),
-                        ((TILE_W * MOCKUP_PX) as f64, (tile_h * MOCKUP_PX) as f64).into(),
+                        (at.x + (x * DESIGN_PX) as f64, at.y + (y * DESIGN_PX) as f64).into(),
+                        ((TILE_W * DESIGN_PX) as f64, (tile_h * DESIGN_PX) as f64).into(),
                     ),
                 )
             })
@@ -216,14 +216,14 @@ fn paint(look: &Look) -> Option<Painted> {
     let tile_h = tile_h(look);
     let card_h = 2.0 * PADDING + tile_h + FOOT_H;
     let logical = Size::<i32, Logical>::from((
-        ((card_w + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((card_h + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
+        ((card_w + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((card_h + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * look.scale).round().max(1.0) as i32,
         (logical.h as f64 * look.scale).round().max(1.0) as i32,
     );
-    let f = look.scale as f32 * MOCKUP_PX;
+    let f = look.scale as f32 * DESIGN_PX;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     panel::glass(&mut p, MARGIN, MARGIN, card_w, card_h);
 

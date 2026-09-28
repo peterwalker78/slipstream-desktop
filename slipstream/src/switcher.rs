@@ -16,7 +16,7 @@ use smithay::{
 use crate::{
     Slipstream,
     paint::{self, Painted, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     state::{window_app_id, window_title},
     text::{self, Face, Style},
 };
@@ -28,7 +28,7 @@ const FADE: f64 = 0.12;
 /// Tiles in a row at most; past that the row scrolls to keep the selection in view.
 pub const ACROSS: usize = 7;
 
-// The card's measurements, in mockup pixels.
+// The card's measurements, in design pixels.
 const TILE_W: f32 = 200.0;
 const TILE_H: f32 = 128.0;
 const TILE_GAP: f32 = 10.0;
@@ -195,7 +195,7 @@ impl<W: Clone + PartialEq> Switcher<W> {
 
 /// Tiles in a row on a screen `screen_w` logical pixels wide, for `count` windows.
 fn across(screen_w: i32, count: usize) -> usize {
-    let room = screen_w as f32 / MOCKUP_PX - 2.0 * PADDING - 40.0 + TILE_GAP;
+    let room = screen_w as f32 / DESIGN_PX - 2.0 * PADDING - 40.0 + TILE_GAP;
     let fits = (room / (TILE_W + TILE_GAP)).floor().max(1.0) as usize;
     count.min(ACROSS).min(fits).max(1)
 }
@@ -258,8 +258,8 @@ impl<W> Switcher<W> {
                 (
                     self.scroll + column,
                     Rectangle::new(
-                        (at.x + (x * MOCKUP_PX) as f64, at.y + (y * MOCKUP_PX) as f64).into(),
-                        ((TILE_W * MOCKUP_PX) as f64, (TILE_H * MOCKUP_PX) as f64).into(),
+                        (at.x + (x * DESIGN_PX) as f64, at.y + (y * DESIGN_PX) as f64).into(),
+                        ((TILE_W * DESIGN_PX) as f64, (TILE_H * DESIGN_PX) as f64).into(),
                     ),
                 )
             })
@@ -277,14 +277,14 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
     let card_w = 2.0 * PADDING + look.across as f32 * TILE_W + (look.across - 1) as f32 * TILE_GAP;
     let card_h = 2.0 * PADDING + TILE_H;
     let logical = Size::<i32, Logical>::from((
-        ((card_w + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((card_h + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
+        ((card_w + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((card_h + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * look.scale).round().max(1.0) as i32,
         (logical.h as f64 * look.scale).round().max(1.0) as i32,
     );
-    let f = look.scale as f32 * MOCKUP_PX;
+    let f = look.scale as f32 * DESIGN_PX;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     panel::glass(&mut p, MARGIN, MARGIN, card_w, card_h);
 

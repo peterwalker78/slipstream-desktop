@@ -36,7 +36,7 @@ use smithay::{
 use crate::{
     Slipstream,
     paint::{self, Painted, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     screenshot::Selection,
     text::{self, Face, Style},
 };
@@ -61,7 +61,7 @@ pub const TEXT_TYPES: [&str; 5] = [
 ];
 const PNG: &str = "image/png";
 
-// The card, in mockup pixels.
+// The card, in design pixels.
 const WIDTH: f32 = 760.0;
 const TOP: f32 = 130.0;
 const MARGIN: f32 = 64.0;
@@ -89,7 +89,7 @@ pub enum Clip {
         png: Arc<Vec<u8>>,
         width: u32,
         height: u32,
-        /// Fitted into `THUMB_W` × `THUMB_H` at twice the mockup's pixels.
+        /// Fitted into `THUMB_W` × `THUMB_H`, two pixels to each design pixel.
         thumb: Option<Arc<Pixmap>>,
     },
 }
@@ -127,7 +127,7 @@ pub fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
-/// A picture's thumbnail, fitted into the row's box at twice its mockup size.
+/// A picture's thumbnail, fitted into the row's box at two pixels to each design pixel.
 fn thumbnail(png: &[u8]) -> Option<Arc<Pixmap>> {
     let source = paint::decode_png(png)?;
     let (box_w, box_h) = (THUMB_W * 2.0, THUMB_H * 2.0);
@@ -450,9 +450,9 @@ impl History {
         let (_, painted) = self.painted.as_ref()?;
         let at = Point::<f64, Logical>::from((
             ((screen.w - painted.logical.w) / 2) as f64,
-            ((TOP - MARGIN) * MOCKUP_PX) as f64,
+            ((TOP - MARGIN) * DESIGN_PX) as f64,
         ));
-        let m = (MARGIN * MOCKUP_PX) as f64;
+        let m = (MARGIN * DESIGN_PX) as f64;
         self.frame = Rectangle::new(
             (at.x + m, at.y + m).into(),
             (
@@ -469,18 +469,18 @@ impl History {
         let (alpha, rise) = panel::opening(now - self.opened_at, self.reduced_motion);
         painted.element(
             renderer,
-            at + Point::from((0.0, rise * MOCKUP_PX as f64)),
+            at + Point::from((0.0, rise * DESIGN_PX as f64)),
             alpha,
         )
     }
 
     fn rows_that_fit(&self, screen: Size<i32, Logical>) -> usize {
-        let room = screen.h as f32 / MOCKUP_PX - TOP - 24.0 - HEAD_H - FOOT_H - 2.0 * PADDING;
+        let room = screen.h as f32 / DESIGN_PX - TOP - 24.0 - HEAD_H - FOOT_H - 2.0 * PADDING;
         ((room / (IMAGE_ROW + ROW_GAP)).floor() as usize).clamp(1, 8)
     }
 
     fn paint(&self, look: &Look, rows_fit: usize, age: f64, seed: u64) -> Option<(Painted, Rows)> {
-        let screen_w = look.screen.w as f32 / MOCKUP_PX;
+        let screen_w = look.screen.w as f32 / DESIGN_PX;
         let width = WIDTH.min(screen_w - 40.0).max(420.0);
         let shown: Vec<(usize, &Clip)> = self
             .clips
@@ -504,14 +504,14 @@ impl History {
         };
         let height = HEAD_H + PADDING + body_h + PADDING + FOOT_H;
         let logical = Size::<i32, Logical>::from((
-            ((width + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-            ((height + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
+            ((width + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+            ((height + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
         ));
         let device = (
             (logical.w as f64 * look.scale).round().max(1.0) as i32,
             (logical.h as f64 * look.scale).round().max(1.0) as i32,
         );
-        let f = look.scale as f32 * MOCKUP_PX;
+        let f = look.scale as f32 * DESIGN_PX;
         let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
         let (fx, fy) = (MARGIN, MARGIN);
         panel::glass(&mut p, fx, fy, width, height);
@@ -559,8 +559,8 @@ impl History {
             rows.push((
                 index,
                 Rectangle::new(
-                    ((x * MOCKUP_PX) as f64, (y * MOCKUP_PX) as f64).into(),
-                    ((w * MOCKUP_PX) as f64, (h * MOCKUP_PX) as f64).into(),
+                    ((x * DESIGN_PX) as f64, (y * DESIGN_PX) as f64).into(),
+                    ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
                 ),
             ));
             match clip {
@@ -618,7 +618,7 @@ impl History {
                     let thumb_y = y + (h - THUMB_H) / 2.0;
                     p.fill(thumb_x, thumb_y, THUMB_W, THUMB_H, 6.0, panel::CHIP | 0xff);
                     if let Some(thumb) = thumb {
-                        // The thumbnail is at twice the mockup's pixels; drawn at the card's.
+                        // The thumbnail has two pixels to each design pixel; drawn at the card's.
                         let k = f / 2.0;
                         let (tw, th) = (thumb.width() as f32 / 2.0, thumb.height() as f32 / 2.0);
                         let tx = thumb_x + (THUMB_W - tw) / 2.0;

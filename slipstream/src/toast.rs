@@ -17,11 +17,11 @@ use smithay::{
 use crate::{
     motion::HYPR,
     paint::{self, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels.
+// Sizes in design pixels.
 const WIDTH: f32 = 440.0;
 /// The shortest and longest a toast stays, and the time per word in between.
 const SHOWN: f64 = 2.6;
@@ -111,11 +111,11 @@ impl Toast {
             8.0 * (1.0 - HYPR.at((age / FADE).min(1.0)))
         };
         // The painted area holds the shadow too; the card itself keeps its place.
-        let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
+        let margin = (panel::NOTICE_MARGIN * DESIGN_PX) as f64;
         let location = Point::<f64, Logical>::from((
             ((size.w - painted.logical.w) / 2) as f64,
             (size.h - painted.logical.h) as f64 + margin
-                - (crate::osd::BOTTOM as f64 - rise) * MOCKUP_PX as f64,
+                - (crate::osd::BOTTOM as f64 - rise) * DESIGN_PX as f64,
         ))
         .to_physical(scale)
         .to_i32_round::<i32>()
@@ -144,7 +144,7 @@ fn dwell(title: &str, body: &str) -> f64 {
 /// Where the middle of a one-line toast sits on a screen `height` logical pixels tall: where a
 /// snip flies to before its toast appears.
 pub fn one_line_centre(height: f64) -> f64 {
-    height - (crate::osd::BOTTOM + card_height(1, 0.0) / 2.0) as f64 * MOCKUP_PX as f64
+    height - (crate::osd::BOTTOM + card_height(1, 0.0) / 2.0) as f64 * DESIGN_PX as f64
 }
 
 /// The toast's words.
@@ -201,14 +201,14 @@ fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
     let height = card_height(lines.len(), 0.0);
     let m = panel::NOTICE_MARGIN;
     let logical = Size::<i32, Logical>::from((
-        ((WIDTH + 2.0 * m) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * m) * MOCKUP_PX).ceil() as i32,
+        ((WIDTH + 2.0 * m) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * m) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * scale).round() as i32,
         (logical.h as f64 * scale).round() as i32,
     );
-    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * MOCKUP_PX)?;
+    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * DESIGN_PX)?;
     paint_card(&mut p, m, m, WIDTH, height, title, &lines);
     Some(Painted {
         scale,

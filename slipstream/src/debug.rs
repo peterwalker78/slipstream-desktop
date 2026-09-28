@@ -5,43 +5,52 @@
 //! focused window to workspace N), `close`, `shot:PATH` (save the next rendered frame as a PNG),
 //! `run:COMMAND` (start a program the way key bindings do, so X11 apps get XWayland's display),
 //! `explore` (open or close the app explorer), `hkey:NAME` (a key in the shortcut sheet, which is
-//! how the tour is stepped through), `type:TEXT` and `key:NAME` (type into the open
-//! explorer, or press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`),
-//! `heavier`,
+//! how the tour is stepped through), `type:TEXT` and `key:NAME` (type into the open explorer, or
+//! press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`), `heavier`,
 //! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
 //! `tile:DIRECTION` (Super+Alt+arrow: move the focused tile `left`, `right`, `up` or `down`),
-//! `click:X,Y` (a left click on a window, in logical pixels: focus follows it and the client
-//! gets the press, which is the way to open an app's own menus and check popup grabs; the bar
-//! and the panels have their own click steps),
-//! `button:left`, `button:middle` or `button:right` (a press and release through the real click
-//! routing, wherever `pointer:X,Y` last put the pointer; `button:left+` presses and holds,
-//! `button:left-` lets go, for a drag),
-//! `cycle` or `cycle:N` (Alt held, Tab pressed N times, then Alt let go), `tab` (one Tab with Alt
-//! held down, and kept held) and `letgo` (Alt let go after `tab`),
-//! `minimise` and `restore` (Super+M and Super+Shift+M), `hideall` (Super+H: every window on the
-//! workspace into the code rain, and the same ones back), `idle` (fade the UI out now) and `wake`
-//! (as any input would), `bullet` (Super+Tab), `bkey:NAME` (a key in bullet time, by xkb name
-//! with optional `shift+` or `ctrl+`, such as `bkey:Right` or `bkey:shift+2`), `bclick:X,Y` (a
-//! click in bullet time, in logical pixels on the screen, the bar's buttons included), `quick` (Super+A), `qkey:NAME` (a key
-//! in quick settings, by xkb name with optional `shift+`), `qclick:X,Y` (a click while quick
-//! settings is open, in logical pixels on the screen), `centre`, `ckey:NAME` and `cclick:X,Y`
-//! (the same for the notification centre, Super+N), `notify:APP|TITLE|BODY` (a notification, as
-//! if an app had sent one), `critical:APP|TITLE|BODY` (a critical one, which wakes the faded UI),
-//! `wallpaper:ID` (show one living-wallpaper variation now, by its id in
-//! the settings file), `wayout` (the way out on its chooser, as Ctrl+Alt+Del opens it), `logout`,
-//! `restart` and `shutdown` (the same overlay with its destination already named, as quick
-//! settings' power buttons open it) with `xkey:NAME` for a key in it and `xclick:X,Y`
-//! for a click on one of its buttons, `drag:X1,Y1 X2,Y2` (a press, a drag and a release, as
-//! selecting text in a terminal does), `okey:NAME` and `oclick:X,Y` for the offer at login that
-//! asks whether to put the last layout back, `share:KINDS` (the screen-sharing picker, as the
-//! portal would open it, offering screens for `m`, windows for `w`, or both for `mw`) with
-//! `skey:NAME` and `sclick:X,Y` to answer it, `unshare` (a click on the bar's red dot),
-//! `press:NAME`, `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same
-//! routing as the keyboard, and meaning what they mean in the login session: Super is Super even
-//! nested), `motion` (every animating part's reduced-motion flag, into the log), `lock` (the lock
-//! screen; nested runs only), `unlock` (the lock taken down as a right password would), `battery:N` (pretend the battery
-//! is at N percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While locked, only the steps that go through the
-//! keyboard's, the pointer's and apps' own paths act.
+//! `focus:DIRECTION` (Super+arrow: the keyboard to the neighbouring tile), `full` and `unfull`
+//! (the focused window fills its screen, or stops), `click:X,Y` (a left click on a window, in
+//! logical pixels: focus follows it and the client gets the press, which is the way to open an
+//! app's own menus and check popup grabs; the bar and the panels have their own click steps),
+//! `pointer:X,Y` or `pointer:NAME@X,Y` (move the pointer on the focused screen, or on the named
+//! one), `button:left`, `button:middle` or `button:right` (a press and release through the real
+//! click routing, wherever the pointer is; `button:left+` presses and holds, `button:left-` lets
+//! go, for a drag), `drag:X1,Y1 X2,Y2` (a press, a drag and a release, as selecting text in a
+//! terminal does), `cycle` or `cycle:N` (Alt held, Tab pressed N times, then Alt let go), `tab`
+//! (one Tab with Alt held down, and kept held) and `letgo` (Alt let go after `tab`), `minimise`
+//! and `restore` (Super+M and Super+Shift+M), `hideall` (Super+H: every window on the workspace
+//! into the code rain, and the same ones back), `idle` (fade the UI out now) and `wake` (as any
+//! input would), `fade:F` (hold the fade to the wallpaper at F, 0 to 1), `slow:MS` (count each
+//! drawn frame as MS milliseconds, script times included; `slow:0` is real time again),
+//! `demand:F` (pin every minimised app's load at F, 0 to 1), `bullet` (Super+Tab), `bkey:NAME` (a
+//! key in bullet time, by xkb name with optional `shift+` or `ctrl+`, such as `bkey:Right` or
+//! `bkey:shift+2`), `bclick:X,Y` (a click in bullet time, in logical pixels on the screen, the
+//! bar's buttons included), `quick` (Super+A), `qkey:NAME` (a key in quick settings, by xkb name
+//! with optional `shift+`), `qclick:X,Y` (a click while quick settings is open, in logical pixels
+//! on the screen), `centre`, `ckey:NAME` and `cclick:X,Y` (the same for the notification centre,
+//! Super+N), `notify:APP|TITLE|BODY` (a notification, as if an app had sent one; a fourth field
+//! `id=Label,id=Label` adds action buttons), `critical:APP|TITLE|BODY` (a critical one, which
+//! wakes the faded UI), `osd:KIND` (the volume or brightness display, drawn without changing
+//! anything), `wallpaper:ID` (show one living-wallpaper variation now, by its id in the settings
+//! file), `wayout` (the way out on its chooser, as Ctrl+Alt+Del opens it), `logout`, `restart`
+//! and `shutdown` (the same overlay with its destination already named, as quick settings' power
+//! buttons open it) with `xkey:NAME` for a key in it and `xclick:X,Y` for a click on one of its
+//! buttons, `okey:NAME` and `oclick:X,Y` for the offer at login that asks whether to put the last
+//! layout back, `screen:WxH` (a made-up second screen, in logical pixels) and `unscreen:NAME`
+//! (take it away again), `sckey:NAME` (a key for the card asking what a new screen should show),
+//! `lid:closed` or `lid:open` (the lid switch), `screens` (each screen, its area and what it
+//! shows, into the log), `windows` (each window's place, its own size and the size it was told,
+//! into the log), `nextscreen`, `movescreen` and `swapscreens` (Super+P, Super+Shift+P and
+//! Super+Ctrl+P), `share:KINDS` (the screen-sharing picker, as the portal would open it, offering
+//! screens for `m`, windows for `w`, or both for `mw`) with `skey:NAME` and `sclick:X,Y` to answer
+//! it, `unshare` (a click on the bar's red dot), `press:NAME`, `release:NAME` and
+//! `chord:super+shift+s` (keys by xkb name, through the same routing as the keyboard, and meaning
+//! what they mean in the login session: Super is Super even nested), `motion` (every animating
+//! part's reduced-motion flag, into the log), `lock` (the lock screen; nested runs only), `unlock`
+//! (the lock taken down as a right password would), `battery:N` (pretend the battery is at N
+//! percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While
+//! locked, only the steps that go through the keyboard's, the pointer's and apps' own paths act.
 //!
 //! Key and click steps for a panel do nothing, and say so in the log, while that panel is closed:
 //! it keeps its last selection, which a mistimed step would otherwise press.
@@ -181,7 +190,7 @@ pub enum Step {
     AddScreen(i32, i32),
     /// Takes a made-up screen away again, by name.
     DropScreen(String),
-    /// The laptop's lid, as libinput's switch would report it.
+    /// A laptop lid, closed or open, as libinput's switch would report it.
     Lid(bool),
     /// Writes the screens, their areas and what each is showing into the log.
     Screens,

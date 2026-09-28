@@ -197,7 +197,7 @@ impl<T> Shape<T> {
     }
 }
 
-/// The mockup's gaps, in logical pixels: around the tiling area, and between neighbours.
+/// The gaps, in logical pixels: around the tiling area, and between neighbours.
 pub const OUTER_GAP: i32 = 16;
 pub const INNER_GAP: i32 = 10;
 

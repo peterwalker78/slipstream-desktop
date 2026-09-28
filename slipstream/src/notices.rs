@@ -1,5 +1,5 @@
 //! Notifications once they've arrived (`notify.rs` receives them): the list the notification
-//! centre shows, newest first, and the pop-ups at the top right, as the mockup's `#popups`. At most
+//! centre shows, newest first, and the pop-ups at the top right. At most
 //! two show at once; each slides in from 40 px to the right over 300 ms and goes after 4.8 s.
 //!
 //! Pop-ups that arrive while you're typing, or while the UI is faded, wait. When they can be
@@ -20,11 +20,11 @@ use crate::{
     motion::HYPR,
     notify::{self, Image, Incoming, Reason},
     paint::{self, Painted, Painter},
-    panel::{self, INK, MOCKUP_PX},
+    panel::{self, DESIGN_PX, INK},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels.
+// Sizes in design pixels.
 pub const ICON: f32 = 36.0;
 const PAD_X: f32 = 14.0;
 const PAD_Y: f32 = 12.0;
@@ -69,7 +69,7 @@ pub struct Notice {
     /// The process whose window it came from, found through the process that sent it. Tried
     /// before `app_id`, since it names the very window rather than any of the app's.
     pub origin: Option<u32>,
-    /// Drawn `ICON` mockup pixels square at the screen's scale.
+    /// Drawn `ICON` design pixels square at the screen's scale.
     pub icon: Option<Pixmap>,
     pub summary: String,
     pub body: String,
@@ -168,9 +168,9 @@ struct Card {
     scale: f64,
     height: f32,
     painted: Painted,
-    /// Its close cross, in mockup pixels from the painted area's corner.
+    /// Its close cross, in design pixels from the painted area's corner.
     cross: Option<[f32; 4]>,
-    /// Its action buttons, in mockup pixels from the painted area's corner.
+    /// Its action buttons, in design pixels from the painted area's corner.
     buttons: Vec<[f32; 4]>,
 }
 
@@ -467,7 +467,7 @@ impl Notices {
         self.hits.clear();
         self.cross_hits.clear();
         self.button_hits.clear();
-        let left = width as f32 / MOCKUP_PX - POPUP_RIGHT - POPUP_W;
+        let left = width as f32 / DESIGN_PX - POPUP_RIGHT - POPUP_W;
         let mut top = POPUP_TOP;
         let mut elements = Vec::new();
         let Self {
@@ -509,17 +509,17 @@ impl Notices {
                 fade
             };
             let at = Point::from((
-                ((left - SHADOW) as f64 + slide) * MOCKUP_PX as f64,
-                ((top - SHADOW) * MOCKUP_PX) as f64,
+                ((left - SHADOW) as f64 + slide) * DESIGN_PX as f64,
+                ((top - SHADOW) * DESIGN_PX) as f64,
             ));
             elements.extend(card.painted.element(renderer, at, fade as f32 * alpha));
             hits.push((
                 popup.id,
                 Rectangle::new(
-                    ((left * MOCKUP_PX) as f64, (top * MOCKUP_PX) as f64).into(),
+                    ((left * DESIGN_PX) as f64, (top * DESIGN_PX) as f64).into(),
                     (
-                        (POPUP_W * MOCKUP_PX) as f64,
-                        (card.height * MOCKUP_PX) as f64,
+                        (POPUP_W * DESIGN_PX) as f64,
+                        (card.height * DESIGN_PX) as f64,
                     )
                         .into(),
                 ),
@@ -529,11 +529,11 @@ impl Notices {
             let control = |[bx, by, bw, bh]: [f32; 4]| {
                 Rectangle::new(
                     (
-                        ((left + bx - SHADOW) * MOCKUP_PX) as f64,
-                        ((top + by - SHADOW) * MOCKUP_PX) as f64,
+                        ((left + bx - SHADOW) * DESIGN_PX) as f64,
+                        ((top + by - SHADOW) * DESIGN_PX) as f64,
                     )
                         .into(),
-                    ((bw * MOCKUP_PX) as f64, (bh * MOCKUP_PX) as f64).into(),
+                    ((bw * DESIGN_PX) as f64, (bh * DESIGN_PX) as f64).into(),
                 )
             };
             if let Some(cross) = card.cross {
@@ -554,11 +554,11 @@ fn paint_popup(notice: &Notice, scale: f64) -> Option<Card> {
     let mut cross = None;
     let mut buttons = Vec::new();
     let logical = Size::<i32, Logical>::from((
-        ((POPUP_W + 2.0 * SHADOW) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * SHADOW) * MOCKUP_PX).ceil() as i32,
+        ((POPUP_W + 2.0 * SHADOW) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * SHADOW) * DESIGN_PX).ceil() as i32,
     ));
     let painted = Painted::new(logical, scale, |p| {
-        p.f *= MOCKUP_PX;
+        p.f *= DESIGN_PX;
         crate::panel::notice(p, SHADOW, SHADOW, POPUP_W, height);
         // A cross, as the notification centre's cards have: a pop-up in the corner can be shut up
         // where it stands, without opening the centre to delete it.
@@ -773,7 +773,7 @@ impl Slipstream {
 
     pub fn notification_arrived(&mut self, incoming: Incoming) {
         let scale = self.output_scale().unwrap_or(1.0);
-        let px = (ICON as f64 * MOCKUP_PX as f64 * scale).round() as u32;
+        let px = (ICON as f64 * DESIGN_PX as f64 * scale).round() as u32;
         let icon = self.notice_icon(&incoming, px);
         let named = |name: &str| Some(name.to_string()).filter(|name| !name.is_empty());
         let app = incoming
@@ -949,7 +949,7 @@ impl Slipstream {
         };
         lines.retain(|line| !line.trim().is_empty());
         let scale = self.output_scale().unwrap_or(1.0);
-        let px = (ICON as f64 * MOCKUP_PX as f64 * scale).round() as u32;
+        let px = (ICON as f64 * DESIGN_PX as f64 * scale).round() as u32;
         let icon = Pixmap::new(px, px).map(|mut pixmap| {
             icons::draw(&mut pixmap, icons::LOGO, 0.0, 0.0, px as f32, None);
             pixmap
@@ -1305,7 +1305,7 @@ mod tests {
     fn a_pop_up_carries_a_cross_inside_its_own_corner() {
         let card = paint_popup(&notice(1), 1.25).expect("a painted pop-up");
         let [x, y, w, h] = card.cross.expect("a cross to close it with");
-        // Its box is the card's top right corner, in mockup pixels from the painted area, which
+        // Its box is the card's top right corner, in design pixels from the painted area, which
         // holds the shadow as well.
         assert!(
             x > SHADOW + POPUP_W / 2.0 && x + w <= SHADOW + POPUP_W,
@@ -1322,20 +1322,20 @@ mod tests {
         // cross falls inside the pop-up rather than beside it.
         let card = paint_popup(&notice(4), 1.0).expect("a painted pop-up");
         let [cx, cy, cw, ch] = card.cross.expect("a cross");
-        let left = 1536.0 / MOCKUP_PX - POPUP_RIGHT - POPUP_W;
+        let left = 1536.0 / DESIGN_PX - POPUP_RIGHT - POPUP_W;
         let cross = Rectangle::new(
             (
-                ((left + cx - SHADOW) * MOCKUP_PX) as f64,
-                ((POPUP_TOP + cy - SHADOW) * MOCKUP_PX) as f64,
+                ((left + cx - SHADOW) * DESIGN_PX) as f64,
+                ((POPUP_TOP + cy - SHADOW) * DESIGN_PX) as f64,
             )
                 .into(),
-            ((cw * MOCKUP_PX) as f64, (ch * MOCKUP_PX) as f64).into(),
+            ((cw * DESIGN_PX) as f64, (ch * DESIGN_PX) as f64).into(),
         );
         let popup = Rectangle::<f64, Logical>::new(
-            ((left * MOCKUP_PX) as f64, (POPUP_TOP * MOCKUP_PX) as f64).into(),
+            ((left * DESIGN_PX) as f64, (POPUP_TOP * DESIGN_PX) as f64).into(),
             (
-                (POPUP_W * MOCKUP_PX) as f64,
-                (card.height * MOCKUP_PX) as f64,
+                (POPUP_W * DESIGN_PX) as f64,
+                (card.height * DESIGN_PX) as f64,
             )
                 .into(),
         );

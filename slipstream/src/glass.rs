@@ -160,9 +160,8 @@ bool seen(vec2 screen, out vec2 at, out float z, out float against) {
 const SHADER: &str = concat!(
     pane_shader!(),
     r#"
-// Where the panes meet: the blur's radius, in logical pixels. The picture isn't pulled aside there:
-// the meeting line sweeps across it as the pane moves, and a pull that comes and goes with the line
-// makes the picture stall and then lurch.
+// Where the panes meet: the blur's radius, in logical pixels. The picture is only blurred there,
+// never displaced, so it moves smoothly as the meeting line sweeps across it.
 const float BLUR = 14.0;
 // How much light catches there.
 const float LIGHT = 0.2;

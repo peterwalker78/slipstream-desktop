@@ -26,11 +26,11 @@ use crate::{
     icons,
     motion::HYPR,
     paint::{self, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels, as the toast and the bar use them.
+// Sizes in design pixels, as the toast and the bar use them.
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 72.0;
 /// How far the card's bottom edge sits above the bottom of the screen. Toasts and gravity's
@@ -283,11 +283,11 @@ impl Osd {
             (life / fade).min((shown - age) / fade).clamp(0.0, 1.0)
         };
         // The painted area holds the shadow too; the card itself keeps its place.
-        let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
+        let margin = (panel::NOTICE_MARGIN * DESIGN_PX) as f64;
         let location = Point::<f64, Logical>::from((
             ((size.w - painted.logical.w) / 2) as f64,
             (size.h - painted.logical.h) as f64 + margin
-                - (BOTTOM as f64 - rise) * MOCKUP_PX as f64,
+                - (BOTTOM as f64 - rise) * DESIGN_PX as f64,
         ))
         .to_physical(scale)
         .to_i32_round::<i32>()
@@ -312,14 +312,14 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
     // Room for the shadow all round.
     let m = panel::NOTICE_MARGIN;
     let logical = Size::<i32, Logical>::from((
-        ((WIDTH + 2.0 * m) * MOCKUP_PX).ceil() as i32,
-        ((HEIGHT + 2.0 * m) * MOCKUP_PX).ceil() as i32,
+        ((WIDTH + 2.0 * m) * DESIGN_PX).ceil() as i32,
+        ((HEIGHT + 2.0 * m) * DESIGN_PX).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * scale).round() as i32,
         (logical.h as f64 * scale).round() as i32,
     );
-    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * MOCKUP_PX)?;
+    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * DESIGN_PX)?;
     // Solid, as every notice is: it's read at a glance, often over a film.
     panel::notice(&mut p, m, m, WIDTH, HEIGHT);
     let (dx, dy) = (m, m);

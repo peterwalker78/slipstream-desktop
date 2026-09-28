@@ -30,11 +30,11 @@ use crate::{
     keys::Mods,
     motion::HYPR,
     paint::{self, Painter},
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels.
+// Sizes in design pixels.
 const WIDTH: f32 = 1040.0;
 const TOP: f32 = 130.0;
 const SEARCH_H: f32 = 85.0;
@@ -154,7 +154,7 @@ impl Results {
 /// The painted explorer, its size in logical pixels, and its size in buffer pixels.
 type Painted = (MemoryRenderBuffer, Size<i32, Logical>, (i32, i32));
 
-/// The caret's size in mockup pixels. It's an element of its own, so blinking never repaints the
+/// The caret's size in design pixels. It's an element of its own, so blinking never repaints the
 /// explorer.
 const CARET: (f32, f32) = (3.0, 29.7);
 const CARET_COLOUR: u32 = panel::AMBER;
@@ -368,7 +368,7 @@ impl Explorer {
     /// own, so neither opening the explorer nor typing into it waits for SVGs. Cheap to call every
     /// frame: it only starts work when the apps or the size have changed.
     pub fn warm_icons(&mut self, scale: f64) {
-        let px = (ICON * scale as f32 * MOCKUP_PX).round() as u32;
+        let px = (ICON * scale as f32 * DESIGN_PX).round() as u32;
         let version = self.catalog.lock().unwrap().version;
         if version == 0 || self.warmed == Some((version, px)) {
             return;
@@ -562,8 +562,8 @@ impl Explorer {
             }
             Keysym::Home => self.selected = 0,
             Keysym::End => self.selected = total.saturating_sub(1),
-            // The mockup's grid moves: down a row, or from the last row to the side column. With
-            // nothing below, the selection stays rather than jumping sideways.
+            // Down a row in the grid, or from its last row to the side column. With nothing
+            // below, the selection stays rather than jumping sideways.
             Keysym::Down => {
                 let to = if at < apps && at + COLUMNS < apps {
                     at + COLUMNS
@@ -705,7 +705,7 @@ impl Explorer {
         };
         // Whole screen pixels, or the text blurs.
         let location =
-            Point::<f64, Logical>::from((self.origin.x, self.origin.y + rise * MOCKUP_PX as f64))
+            Point::<f64, Logical>::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64))
                 .to_physical(scale)
                 .to_i32_round::<i32>();
         let mut elements = Vec::with_capacity(2);
@@ -804,17 +804,17 @@ impl Explorer {
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
         let results = self.results();
-        let screen_w = look.width as f32 / MOCKUP_PX;
+        let screen_w = look.width as f32 / DESIGN_PX;
         let width = WIDTH.min(screen_w - 40.0).max(480.0);
         let logical = Size::<i32, Logical>::from((
-            ((width + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-            ((HEIGHT + 2.0 * MARGIN + 40.0) * MOCKUP_PX).ceil() as i32,
+            ((width + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+            ((HEIGHT + 2.0 * MARGIN + 40.0) * DESIGN_PX).ceil() as i32,
         ));
         let device = (
             (logical.w as f64 * look.scale).round() as i32,
             (logical.h as f64 * look.scale).round() as i32,
         );
-        let f = look.scale as f32 * MOCKUP_PX;
+        let f = look.scale as f32 * DESIGN_PX;
         let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
 
         // The frame's corner inside the pixmap, and its left edge on screen.
@@ -823,17 +823,17 @@ impl Explorer {
         let on_screen = |x: f32, y: f32, w: f32, h: f32| {
             Rectangle::<f64, Logical>::new(
                 (
-                    ((left + x - fx) * MOCKUP_PX) as f64,
-                    ((TOP + y - fy) * MOCKUP_PX) as f64,
+                    ((left + x - fx) * DESIGN_PX) as f64,
+                    ((TOP + y - fy) * DESIGN_PX) as f64,
                 )
                     .into(),
-                ((w * MOCKUP_PX) as f64, (h * MOCKUP_PX) as f64).into(),
+                ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
             )
         };
         let mut targets = Vec::new();
 
-        // Glass. The mockup's is 92% opaque over a 26 px blur; with no blur behind it, text
-        // under it showed through, so it's nearly solid.
+        // Glass, nearly solid: with no blur behind it, text under a more see-through pane
+        // would show through.
         panel::glass(&mut p, fx, fy, width, HEIGHT);
 
         // The search row.
@@ -854,8 +854,8 @@ impl Explorer {
         );
         // In logical pixels from the painted area's corner.
         self.caret_at = Point::from((
-            ((x + 2.0) * MOCKUP_PX) as f64,
-            ((centre - 13.0) * MOCKUP_PX) as f64,
+            ((x + 2.0) * DESIGN_PX) as f64,
+            ((centre - 13.0) * DESIGN_PX) as f64,
         ));
         if look.query.is_empty() {
             p.text(
@@ -1201,8 +1201,8 @@ fn run_label(command: &str, program: bool) -> (bool, String) {
 /// is, in whole logical pixels first, so the renderer scales it by the same amount.
 fn caret_buffer(scale: f64) -> Option<(f64, MemoryRenderBuffer, Size<i32, Logical>)> {
     let size = Size::<i32, Logical>::from((
-        ((CARET.0 * MOCKUP_PX).round() as i32).max(1),
-        ((CARET.1 * MOCKUP_PX).round() as i32).max(1),
+        ((CARET.0 * DESIGN_PX).round() as i32).max(1),
+        ((CARET.1 * DESIGN_PX).round() as i32).max(1),
     ));
     let mut pixmap = Pixmap::new(
         ((size.w as f64 * scale).round() as u32).max(1),
@@ -1219,7 +1219,7 @@ fn file_name(path: &std::path::Path) -> String {
         .unwrap_or_default()
 }
 
-/// An app with no icon gets a coloured square with its initial, as the mockup draws every app.
+/// An app with no icon gets a coloured square with its initial.
 fn placeholder(p: &mut Painter, name: &str, x: f32, y: f32) {
     panel::app_placeholder(p, name, x + 4.0, y + 4.0, ICON - 8.0, 15.0, 30.0);
 }
@@ -1651,7 +1651,7 @@ mod tests {
             catalog.version = 1;
         }
         let foot = explorer.catalog.lock().unwrap().apps[0].clone();
-        let px = (ICON * 1.25 * MOCKUP_PX).round() as u32;
+        let px = (ICON * 1.25 * DESIGN_PX).round() as u32;
         assert_eq!(
             explorer.tile_icon(&foot, px),
             None,

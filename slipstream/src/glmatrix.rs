@@ -2,8 +2,8 @@
 //! through a 3D grid, a brightness wave runs down each one, and glyphs are added as light, green on
 //! black. The glyphs come from a font rather than GLMatrix's scanlined atlas, so they're sharp.
 //!
-//! A band is a narrow slice of that world, drawn on the CPU. Its look carries the machine's
-//! load: grey and drifting when the machine is idle, green and quick when it is working.
+//! A band is a narrow slice of that world, drawn on the CPU. Its look carries its app's load:
+//! grey and drifting when the app is idle, green and quick when it is working.
 //!
 //! glmatrix, Copyright (c) 2003-2018 Jamie Zawinski <jwz@jwz.org>
 //!
@@ -34,8 +34,8 @@ const CELL_ASPECT: f32 = 46.0 / 32.0;
 /// Ticks run before a band is first shown: about one full strip cycle, so a new stream looks
 /// like rain that has been falling for a while.
 const WARM_TICKS: usize = 1400;
-/// The longest a column rests between strips while its app's network is quiet: about two seconds
-/// at normal speed.
+/// The longest rest a column's pause between strips is measured against: about two seconds at
+/// normal speed.
 const REST_TICKS: f32 = 60.0;
 /// How long a change in demand takes to settle into the rain, in seconds of the animation clock.
 const EASE: f64 = 2.0;
@@ -56,7 +56,7 @@ const KANA: [char; 16] = [
 /// ring and the panels' keyboard ring take their colour from here, so the desktop's green is
 /// the rain's green.
 pub const TINT: [f32; 3] = [0.35, 1.0, 0.55];
-/// The other end of the scale: the light grey of an idle machine, #9aa3ad.
+/// The other end of the scale: the light grey of an idle app, #9aa3ad.
 pub const QUIET: [f32; 3] = [0.60, 0.64, 0.68];
 /// How much brighter font glyphs are drawn than GLMatrix's atlas glyphs would be.
 const GAIN: f32 = 2.5;
@@ -92,7 +92,7 @@ fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
-/// Demand → speed: a slow drift on an idle machine, 2.5× flat out, straight in between.
+/// Demand → speed: a slow drift for an idle app, 2.5× flat out, straight in between.
 pub fn speed_for(demand: f32) -> f32 {
     0.22 + 2.28 * clamp01(demand)
 }
@@ -121,7 +121,8 @@ pub struct Look {
 }
 
 impl Look {
-    /// What the machine's load looks like: `demand` is 0 to 1 (`usage::Demand`).
+    /// What an app's load looks like: `demand` is how hard the app is working, 0 to 1 (from
+    /// `usage.rs`).
     pub fn for_demand(demand: f32) -> Self {
         Self {
             speed: speed_for(demand),
@@ -238,8 +239,7 @@ impl Band {
             rows: rows_for(width, height),
             frames: 0.0,
             target: look,
-            // A new stream starts at the machine's present look rather than easing in from
-            // nothing.
+            // A new stream starts at its app's present look rather than easing in from nothing.
             colour: look.colour,
             name_colour: look.colour,
             speed: look.speed,
@@ -291,8 +291,7 @@ impl Band {
     }
 
     fn reset(&mut self, i: usize, startup: bool) {
-        // Between strips a column rests. It used to be the network's reading; now nothing rides
-        // on it, so it is simply a pause of up to half the longest rest.
+        // Between strips a column rests, for a random pause of up to half the longest rest.
         let rest = if startup {
             0
         } else {
@@ -406,8 +405,8 @@ impl Band {
         }
     }
 
-    /// Advances by `seconds` of the animation clock, in whole GLMatrix frames at the app's CPU
-    /// speed. Returns whether any frame passed, so the caller knows to draw again.
+    /// Advances by `seconds` of the animation clock, in whole GLMatrix frames at the speed the
+    /// app's load sets. Returns whether any frame passed, so the caller knows to draw again.
     pub fn step(&mut self, seconds: f64) -> bool {
         self.still = None;
         let seconds = seconds.max(0.0);
@@ -507,7 +506,7 @@ struct Target<'a> {
     h: usize,
     /// Left inclusive, right exclusive.
     clip: (i32, i32),
-    /// What the rain is lit in, from the machine's demand.
+    /// What the rain is lit in, from its app's load.
     colour: [f32; 3],
     /// What the app's name is lit in.
     name_colour: [f32; 3],
@@ -581,7 +580,7 @@ impl Target<'_> {
 }
 
 /// The rain's glyphs, rasterised from its font once per size and cached as coverage — one byte a
-/// pixel, no colour, because the colour changes with the machine's load and the cache must not.
+/// pixel, no colour, because the colour changes with the app's load and the cache must not.
 pub struct Glyphs {
     font: fontdue::Font,
     scaled: HashMap<(usize, bool, (usize, usize)), Vec<u8>>,
@@ -684,7 +683,7 @@ mod tests {
     }
 
     #[test]
-    fn an_idle_machine_rains_grey_and_a_busy_one_green() {
+    fn an_idle_app_rains_grey_and_a_busy_one_green() {
         let mut glyphs = Glyphs::load().expect("the font loads");
         let (w, h) = (100, 600);
         let mut lit = |look: Look| {

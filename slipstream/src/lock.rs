@@ -38,7 +38,7 @@ use crate::{
     keys::Action,
     motion::HYPR,
     paint::{self, Painter},
-    panel::{self, AMBER, MOCKUP_PX},
+    panel::{self, AMBER, DESIGN_PX},
     text::{self, Face, Style},
 };
 
@@ -51,7 +51,7 @@ pub const SERVICE_FILES: [&str; 2] = ["/etc/pam.d/slipstream", "/usr/lib/pam.d/s
 const FADE_IN: f64 = 0.18;
 /// Reduced motion's fades, in and out.
 const REDUCED_FADE: f64 = 0.08;
-/// A wrong or empty Enter shakes the pill this long, this far each way (mockup pixels).
+/// A wrong or empty Enter shakes the pill this long, this far each way (design pixels).
 const SHAKE: f64 = 0.3;
 const SHAKE_PX: f64 = 12.0;
 /// Unlocking: the card fades and grows over this long, while the desktop comes forward over the
@@ -369,7 +369,7 @@ impl<W> Lock<W> {
         let Some(at) = self.shook.filter(|_| !self.reduced_motion) else {
             return 0.0;
         };
-        shake_at((now - at) / SHAKE) * MOCKUP_PX as f64
+        shake_at((now - at) / SHAKE) * DESIGN_PX as f64
     }
 
     /// The card's elements for a screen `size` big.
@@ -405,8 +405,8 @@ impl<W> Lock<W> {
     }
 }
 
-/// The shake's offset in mockup pixels, `t` of the way through: out to the left by a quarter,
-/// over to the right by three quarters, and back, as the mockup's keyframes go.
+/// The shake's offset in design pixels, `t` of the way through: out to the left by a quarter,
+/// over to the right by three quarters, and back.
 fn shake_at(t: f64) -> f64 {
     if !(0.0..1.0).contains(&t) {
         return 0.0;
@@ -483,7 +483,7 @@ impl Unlocking {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Facts {
     pub time: String,
-    /// As the mockup writes it on the lock: `Sunday 13 September`.
+    /// The date as the lock writes it: `Sunday 13 September`.
     pub date: String,
     pub user: String,
     pub network: Option<String>,
@@ -524,7 +524,7 @@ struct Piece {
 }
 
 impl Piece {
-    /// A piece `w` × `h` mockup pixels, painted at `scale` in mockup pixels.
+    /// A piece `w` × `h` design pixels, painted at `scale` in design pixels.
     fn paint(
         key: String,
         w: f32,
@@ -533,14 +533,14 @@ impl Piece {
         draw: impl FnOnce(&mut Painter),
     ) -> Option<Self> {
         let logical = Size::<i32, Logical>::from((
-            (w * MOCKUP_PX).ceil().max(1.0) as i32,
-            (h * MOCKUP_PX).ceil().max(1.0) as i32,
+            (w * DESIGN_PX).ceil().max(1.0) as i32,
+            (h * DESIGN_PX).ceil().max(1.0) as i32,
         ));
         let device = (
             (logical.w as f64 * scale).round().max(1.0) as i32,
             (logical.h as f64 * scale).round().max(1.0) as i32,
         );
-        let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * MOCKUP_PX)?;
+        let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * DESIGN_PX)?;
         draw(&mut p);
         Some(Self {
             key,
@@ -592,9 +592,9 @@ impl Piece {
     }
 }
 
-// The card's parts, in mockup pixels: the clock and date at the top, who is logged in with the
-// pill and its hint in the middle, and the status row at the foot, spaced out between them as the
-// mockup's column is.
+// The card's parts, in design pixels: the clock and date at the top, who is logged in with the
+// pill and its hint in the middle, and the status row at the foot, with the room shared out
+// between them.
 const TOP: f32 = 150.0;
 const BOTTOM: f32 = 56.0;
 const CLOCK_PX: f32 = 220.0;
@@ -672,7 +672,7 @@ impl Card {
             |key| paint_status(key, facts.network.as_deref(), facts.battery, scale),
         );
 
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         let height = size.h as f64 / px;
         let middle_h = (USER_H + NAME_GAP + PILL_H + GAP + HINT_H) as f64;
         let top_end = (TOP + TOP_H) as f64;

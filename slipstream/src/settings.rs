@@ -35,7 +35,7 @@ fn with_env(mut settings: Settings) -> Settings {
     if let Ok(reduced) = std::env::var("SLIPSTREAM_REDUCED_MOTION") {
         settings.motion.reduced = reduced == "1";
     }
-    // SLIPSTREAM_WALLPAPER=decode, or a comma-separated list to cycle through.
+    // SLIPSTREAM_WALLPAPER=vortex, or a comma-separated list to cycle through.
     if let Ok(variations) = std::env::var("SLIPSTREAM_WALLPAPER") {
         settings.wallpaper.variations = variations
             .split(',')

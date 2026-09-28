@@ -8,10 +8,10 @@ use resvg::{
 pub const WIFI: &str = r#"<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.8 16a4.8 4.8 0 0 1 6.4 0"/><circle cx="12" cy="19" r=".9" fill="currentColor"/>"#;
 pub const WIFI_OFF: &str = r#"<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0" opacity=".35"/><path d="M4 4l16 16"/>"#;
 pub const VOLUME: &str = r#"<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>"#;
-/// Not in the mockup, which never mutes: the speaker with a cross instead of waves.
+/// Muted: the speaker with a cross instead of waves.
 pub const VOLUME_MUTED: &str =
     r#"<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>"#;
-/// Not in the mockup either: the microphone key gets the same display as the volume keys.
+/// The microphone, for the mic-mute key's display, which works as the volume keys' does.
 pub const MIC: &str = r#"<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5"/>"#;
 pub const MIC_MUTED: &str = r#"<rect x="9" y="2.5" width="6" height="11" rx="3" opacity=".35"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5" opacity=".35"/><path d="M4 4l16 16"/>"#;
 pub const BELL: &str =
@@ -19,10 +19,10 @@ pub const BELL: &str =
 pub const BLUETOOTH: &str = r#"<path d="M7 7.5l10 9-5 4.5v-18l5 4.5-10 9"/>"#;
 pub const SEARCH: &str = r#"<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/>"#;
 pub const FILE: &str = r#"<path d="M6 3.5h8l4.5 4.5v12.5H6z"/><path d="M14 3.5V8h4.5"/>"#;
-/// A padlock, as the mockup draws it.
+/// A padlock.
 pub const LOCK: &str = r#"<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>"#;
 pub const POWER: &str = r#"<path d="M12 3.5v8"/><path d="M6.8 6.8a7.5 7.5 0 1 0 10.4 0"/>"#;
-/// The mockup's `motion` arrow: running a command, and reduced motion.
+/// An arrow with speed lines: running a command, and reduced motion.
 pub const RUN: &str = r#"<path d="M3 12h7M5 8h9M5 16h9"/><path d="M15 6l6 6-6 6"/>"#;
 /// Do not disturb: replaces the bell while it's on.
 pub const DND: &str = r#"<circle cx="12" cy="12" r="8.5"/><path d="M7.5 12h9"/>"#;
@@ -58,9 +58,8 @@ pub const LOGO: &str = r##"<path d="M2.5 5.5h9l5.5 6.5-5.5 6.5h-9L8 12z" fill="#
 /// Charging's colour: the battery's icon, and the words beside it.
 pub const CHARGING: &str = "#3cf0c0";
 
-/// The battery, filled to `percent`. The mockup's is fixed at 78%. On a charger it's drawn in mint
-/// whatever the ink, with a lightning bolt through it, cut out of the outline so it reads at bar
-/// size.
+/// The battery, filled to `percent`. On a charger it's drawn in mint whatever the ink, with a
+/// lightning bolt through it, cut out of the outline so it reads at bar size.
 pub fn battery(percent: u8, charging: bool) -> String {
     let level = 13.0 * percent.min(100) as f32 / 100.0;
     let body = |paint: &str| {
@@ -79,7 +78,7 @@ pub fn battery(percent: u8, charging: bool) -> String {
 }
 
 /// Draws the 24×24 icon `body` into `pixmap` at (`x`, `y`), `size` pixels square. With `ink`
-/// (0xRRGGBBAA), it's stroked in that colour as the mockup's `.ico` class does; without, the body
+/// (0xRRGGBBAA), it's stroked in that colour, as every line icon is; without, the body
 /// brings its own paint.
 pub fn draw(pixmap: &mut Pixmap, body: &str, x: f32, y: f32, size: f32, ink: Option<u32>) {
     let paint = match ink {

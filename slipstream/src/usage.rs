@@ -3,11 +3,8 @@
 //!
 //! One quantity per app, shown three ways at once — the length of the meter in its header, and
 //! the colour and the speed of its rain — which is what an ambient animation can carry. Three
-//! different quantities in one column (memory in the brightness, CPU in the speed, network in
-//! the rests) were tried first and measured as unreadable.
-//!
-//! The machine's own demand, from CPU, memory, GPU and network together, lived here between the
-//! two and is in the history if it is ever wanted again: `git show 8545f65:slipstream/src/usage.rs`.
+//! different quantities in one column (memory in the brightness, CPU in the speed, and so on)
+//! don't read.
 
 use std::{
     fs,
@@ -32,8 +29,7 @@ enum Source {
     Process(u32),
 }
 
-/// How hard one app is working, 0 to 1, on the same scale and by the same rule as the machine's
-/// demand: the busier of its CPU and its memory decides.
+/// How hard one app is working, 0 to 1: the busier of its CPU and its memory decides.
 ///
 /// Only CPU and memory. The GPU has no per-process counter worth reading here, and Linux keeps
 /// no per-process network counters at all without a privileged eBPF helper — a number the whole

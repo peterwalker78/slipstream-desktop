@@ -10,11 +10,11 @@ use smithay::utils::{Logical, Size};
 use crate::{
     icons,
     paint::{Painted, Painter},
-    panel::{self, AMBER, BELOW, DARK, HINT, INK, MARGIN, MOCKUP_PX},
+    panel::{self, AMBER, BELOW, DARK, DESIGN_PX, HINT, INK, MARGIN},
     text::{self, Face, Style},
 };
 
-// Sizes in the mockup's pixels.
+// Sizes in design pixels.
 pub const WIDTH: f32 = 560.0;
 pub const PADDING: f32 = 24.0;
 pub const ROW_H: f32 = 30.0;
@@ -89,7 +89,7 @@ pub struct Card {
     pub selected: Option<(usize, u32)>,
 }
 
-/// A clickable box, in mockup pixels from the painted surface's corner.
+/// A clickable box, in design pixels from the painted surface's corner.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {
     pub which: Button,
@@ -100,7 +100,7 @@ pub struct Hit {
 }
 
 impl Hit {
-    /// The middle of the box, in mockup pixels from the painted surface's corner: where a test
+    /// The middle of the box, in design pixels from the painted surface's corner: where a test
     /// aims a click, since nothing else needs to know where a hit sits.
     #[cfg(test)]
     pub fn centre(&self) -> (f32, f32) {
@@ -150,7 +150,7 @@ fn button_width(button: &Btn) -> f32 {
     2.0 * BUTTON_PAD + text::width(&button.label, &label) + KEY_GAP + text::width(&button.key, &key)
 }
 
-/// The height of a card's contents, in mockup pixels.
+/// The height of a card's contents, in design pixels.
 pub fn measure(card: &Card, note_lines: usize) -> f32 {
     let rows = card.rows.len() as f32 + if card.more.is_some() { 1.0 } else { 0.0 };
     let list = if rows > 0.0 { 14.0 + rows * ROW_H } else { 0.0 };
@@ -175,12 +175,12 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
     let height = measure(card, lines.len());
     // Room around the card for its shadow, and more below it, where the shadow falls.
     let logical = Size::<i32, Logical>::from((
-        ((WIDTH + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
-        ((height + 2.0 * MARGIN + BELOW) * MOCKUP_PX).ceil() as i32,
+        ((WIDTH + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
+        ((height + 2.0 * MARGIN + BELOW) * DESIGN_PX).ceil() as i32,
     ));
     let mut hits = Vec::new();
     let painted = Painted::new(logical, scale, |p| {
-        p.f *= MOCKUP_PX;
+        p.f *= DESIGN_PX;
         let (fx, fy) = (MARGIN, MARGIN);
         panel::glass(p, fx, fy, WIDTH, height);
         let x0 = fx + PADDING;

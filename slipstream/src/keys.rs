@@ -22,11 +22,11 @@ pub enum Action {
     /// Turn the split the focused window sits in, and everything inside it, so rows become
     /// columns and columns become rows.
     Rotate,
-    /// Go to workspace 1–5.
+    /// Go to a workspace by its number; the number keys reach 1–9.
     Workspace(u8),
     /// Go to the previous (−1) or next (+1) workspace.
     WorkspaceBy(i8),
-    /// Move the focused window to workspace 1–5 and follow it.
+    /// Move the focused window to a workspace by its number (1–9 by key) and follow it.
     MoveToWorkspace(u8),
     /// Move the focused window to the previous or next workspace and follow it.
     MoveToWorkspaceBy(i8),
@@ -276,7 +276,7 @@ pub fn mods_prefix(mods: Mods) -> String {
     prefix
 }
 
-/// A key combination for prose, toasts and keycaps: `Super+Shift+Esc`.
+/// A key combination for prose, toasts and keycaps: `Super+Shift+S`.
 pub fn label(mods: Mods, key: Keysym) -> String {
     mods_prefix(mods) + &key_name(key)
 }
@@ -355,14 +355,13 @@ pub fn defaults() -> Vec<Binding> {
         bind(ctrl_alt, Keysym::Delete, Action::WayOut),
         // A game holding the pointer, or a virtual machine holding every key, gives them back.
         bind(mod_, Keysym::Escape, Action::TakeBack),
-        // Interim: once bullet time exists, its arrow keys move focus and Mod+arrows snap
-        // windows, as the audited keymap plans.
+        // Super+arrows move the focus to the neighbouring tile.
         bind(mod_, Keysym::Left, Action::Focus(Direction::Left)),
         bind(mod_, Keysym::Right, Action::Focus(Direction::Right)),
         bind(mod_, Keysym::Up, Action::Focus(Direction::Up)),
         bind(mod_, Keysym::Down, Action::Focus(Direction::Down)),
         // Add Alt and the window comes with the focus: the tile swaps places with its
-        // neighbour. Super+arrows are still free to become the snapping keys later.
+        // neighbour.
         bind(mod_alt, Keysym::Left, Action::MoveTile(Direction::Left)),
         bind(mod_alt, Keysym::Right, Action::MoveTile(Direction::Right)),
         bind(mod_alt, Keysym::Up, Action::MoveTile(Direction::Up)),
@@ -414,14 +413,15 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::e, Action::Launch(App::Files)),
         bind(mod_, Keysym::i, Action::Launch(App::Settings)),
         bind(mod_, Keysym::b, Action::Launch(App::Browser)),
-        // The app explorer, on a tapped Super as Windows opens Start. Super+Space is IBus's to
-        // switch input methods, and a tapped Super already does this.
-        // Windows' quick settings and notification centre keys.
+        // The app explorer has no binding here: a tapped Super opens it, as the Windows key opens
+        // Start (see `SuperTap`). Super+Space stays IBus's, to switch input methods.
+        //
         // Windows' own display key: Win+P is where a Windows user looks for anything to do with
         // screens. With one screen it says there's nowhere to go.
         bind(mod_, Keysym::p, Action::NextScreen),
         bind(mod_shift, Keysym::p, Action::MoveToNextScreen),
         bind(mod_ctrl, Keysym::p, Action::SwapScreens),
+        // Windows' quick settings key.
         bind(mod_, Keysym::a, Action::QuickSettings),
         // Windows' screenshot keys: Print for the screen, Win+Shift+S to snip a region or a window
         // (gamescope keeps it while focused, as it does Super+S).
@@ -439,6 +439,7 @@ pub fn defaults() -> Vec<Binding> {
         // Floating: Super+V is the clipboard history, so these take the V with a modifier.
         bind(mod_shift, Keysym::v, Action::ToggleFloating),
         bind(mod_ctrl, Keysym::v, Action::SwitchFloatingFocus),
+        // Windows' notification centre key.
         bind(mod_, Keysym::n, Action::NotificationCentre),
         // Every key, one keystroke away.
         bind(mod_, Keysym::slash, Action::ShortcutSheet),
@@ -446,15 +447,16 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::Next, Action::Weigh { heavier: false }),
         bind(mod_, Keysym::t, Action::ToggleGravity),
         // Turning the layout. Windows has no equivalent, so this is a new key for a new idea;
-        // Super+/ carries it.
+        // the shortcut sheet (Super+/) lists it.
         bind(mod_, Keysym::r, Action::Rotate),
         // Fill the tiling area, keeping the neighbours' tiles underneath. gamescope keeps Super+F
         // while it's focused (`passes_to_gamescope`).
         bind(mod_, Keysym::f, Action::Maximise),
-        // Windows' own minimise and restore keys, until bullet time frees Super+↓.
+        // Minimise into the code rain on M: Super+↓, Windows' own minimise key, moves focus here.
         bind(mod_, Keysym::m, Action::Minimise),
         // Windows' Task View key.
         bind(mod_, Keysym::Tab, Action::BulletTime),
+        // Bring back the last window minimised.
         bind(mod_shift, Keysym::m, Action::Restore),
         // Windows' own minimise-all key is Super+M, which is one window here, as its restore
         // key Super+Shift+M is. Super+H is free, and next to them on the keyboard.
@@ -580,8 +582,8 @@ pub const DIGITS: [Keysym; 9] = [
     Keysym::_9,
 ];
 
-/// The laptop's own keys: volume, brightness, media and the like, which stay the desktop's even
-/// while an app holds every other key.
+/// The keyboard's own hardware keys: volume, brightness, media and the like, which stay the
+/// desktop's even while an app holds every other key.
 pub fn is_hardware_key(key: Keysym) -> bool {
     (0x1008_ff00..=0x1008_ffff).contains(&key.raw())
 }
@@ -764,8 +766,8 @@ mod tests {
             action_for(&bindings, ctrl_alt, Keysym::Delete),
             Some(Action::WayOut)
         );
-        // Nothing on Escape ends the session any more: Super+Shift+Esc is gone, and quick
-        // settings has the same destinations for the pointer.
+        // Nothing on Escape ends the session: Ctrl+Alt+Del is the way out from the keyboard, and
+        // quick settings has the same destinations for the pointer.
         let super_shift = Mods {
             shift: true,
             ..SUPER
@@ -889,7 +891,7 @@ mod tests {
     }
 
     #[test]
-    fn audit_examples_are_reserved() {
+    fn well_known_combinations_are_reserved() {
         let ctrl_alt = Mods {
             ctrl: true,
             alt: true,

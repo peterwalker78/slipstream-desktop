@@ -30,19 +30,19 @@ use crate::{
     glmatrix::{self, Band, Glyphs, Look},
     layout::Rect,
     paint::{self, Painter},
-    panel::MOCKUP_PX,
+    panel::DESIGN_PX,
     text::{self, Face, Style},
     usage::Meter,
 };
 
-// Sizes in the mockup's pixels. Streams are two-thirds of the mockup's 68 wide, and their
-// headers shrink to match.
+// Sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`) to
+// match.
 const STREAM: f32 = 45.0;
 const GLOW: f32 = 16.0;
-/// How far below the bar a stream's header card starts, in the mockup's pixels. The card its rain
+/// How far below the bar a stream's header card starts, in design pixels. The card its rain
 /// falls down stops the same distance above the foot of the screen.
 const HEAD_GAP: f32 = 12.0;
-/// The header card's width and corner radius, in the mockup's pixels before `HEADER`.
+/// The header card's width and corner radius, in design pixels before `HEADER`.
 const BUTTON_W: f32 = 58.0;
 const RADIUS: f32 = 12.0;
 /// The gap between an app's button and the card under it, in logical pixels.
@@ -51,18 +51,18 @@ const CARD_GAP: f64 = 2.0;
 const CARD_INSET: f64 = 2.0;
 /// The cards' colour, the same as the headers'.
 const CARD: u32 = 0x0b0d12ff;
-/// The header's size against the mockup's.
+/// The headers' scale: three quarters of full size, to suit the narrow streams.
 const HEADER: f32 = 0.75;
-/// The app's own meter at the foot of its header, in the mockup's pixels: as wide as the icon,
+/// The app's own meter at the foot of its header, in design pixels: as wide as the icon,
 /// and a hairline tall — it is read as how full it is, never as a number.
 const METER_H: f32 = 5.0;
 /// How finely the meter is quantised. A header is a painted buffer, so it is repainted only when
-/// the meter moves by a step of this; at 40 mockup pixels wide a step is about a pixel.
+/// the meter moves by a step of this; at 40 design pixels wide a step is about a pixel.
 const METER_STEPS: f32 = 40.0;
 
 /// The size, in buffer pixels, to load a stream header's icon at.
 pub fn icon_px(scale: f64) -> u32 {
-    (40.0 * MOCKUP_PX as f64 * HEADER as f64 * scale).round() as u32
+    (40.0 * DESIGN_PX as f64 * HEADER as f64 * scale).round() as u32
 }
 /// A stream fades in over the time its window takes to pour into it.
 const APPEAR: f64 = 0.34;
@@ -116,7 +116,7 @@ struct Card {
 impl Card {
     fn paint(device: (i32, i32), scale: f64) -> Option<Self> {
         let (w, h) = (device.0.max(1) as u32, device.1.max(1) as u32);
-        let radius = RADIUS * MOCKUP_PX * HEADER * scale as f32;
+        let radius = RADIUS * DESIGN_PX * HEADER * scale as f32;
         let mut base = Painter::new(w, h, 1.0)?;
         base.fill(0.0, 0.0, w as f32, h as f32, radius, CARD);
         let inset = (CARD_INSET * scale).floor().max(1.0) as u32;
@@ -147,13 +147,13 @@ impl Card {
 /// stream card's inner width across, in GLMatrix's cell proportions. Anything else drawn as rain
 /// uses this, so it is the same rain.
 pub fn glyph_size(scale: f64) -> (usize, usize) {
-    let card = ((BUTTON_W * MOCKUP_PX * HEADER).round() as f64 * scale).round() as i32;
+    let card = ((BUTTON_W * DESIGN_PX * HEADER).round() as f64 * scale).round() as i32;
     let inset = (CARD_INSET * scale).floor().max(1.0) as i32;
     crate::glmatrix::glyph_size((card - 2 * inset).max(3) as f32)
 }
 
 /// Where a stream's card goes, in screen pixels, for a button whose buffer has its corner at
-/// `button` and whose card is `button_h` mockup pixels tall: as wide as the button and straight
+/// `button` and whose card is `button_h` design pixels tall: as wide as the button and straight
 /// under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP` above the foot of a screen
 /// `screen_h` logical pixels tall. The size is in whole logical pixels, so the buffer is shown one
 /// to one.
@@ -163,13 +163,13 @@ fn card_frame(
     screen_h: i32,
     scale: f64,
 ) -> (Point<i32, Physical>, Size<i32, Logical>) {
-    let f = scale * (MOCKUP_PX * HEADER) as f64;
+    let f = scale * (DESIGN_PX * HEADER) as f64;
     let x = button.x + (GLOW as f64 * f).round() as i32;
     let edge = (button.y as f64 + (GLOW + button_h) as f64 * f).round() as i32;
     let y = edge + (CARD_GAP * scale).floor().max(1.0) as i32;
     let bottom = (screen_h as f64 * scale).round() as i32
-        - ((HEAD_GAP * MOCKUP_PX) as f64 * scale).round() as i32;
-    let w = (BUTTON_W * MOCKUP_PX * HEADER).round() as i32;
+        - ((HEAD_GAP * DESIGN_PX) as f64 * scale).round() as i32;
+    let w = (BUTTON_W * DESIGN_PX * HEADER).round() as i32;
     let h = (((bottom - y) as f64 / scale).floor() as i32).max(1);
     (Point::from((x, y)), Size::from((w, h)))
 }
@@ -178,12 +178,12 @@ pub struct Stream {
     pub window: Window,
     pub name: String,
     colour: u32,
-    /// Drawn at 40 mockup pixels on the screen it was minimised on.
+    /// Drawn at 40 design pixels on the screen it was minimised on.
     icon: Option<Pixmap>,
     /// When it was minimised, on the animation clock.
     since: f64,
     header: Option<Painted>,
-    /// The header card's height in mockup pixels.
+    /// The header card's height in design pixels.
     button_h: f32,
     card: Option<Card>,
     /// How hard this app is working, 0 to 1, and what the painted header and the band's look are
@@ -261,13 +261,13 @@ impl Rain {
         self.streams.len()
     }
 
-    /// Logical pixels the tiling area gives up on the right: 20 + 68 per stream, in the
-    /// mockup's pixels.
+    /// Logical pixels the tiling area gives up on the right: 20 design pixels, and `STREAM`
+    /// more per stream.
     pub fn reserve(&self) -> i32 {
         if self.streams.is_empty() {
             0
         } else {
-            ((20.0 + self.streams.len() as f32 * STREAM) * MOCKUP_PX).round() as i32
+            ((20.0 + self.streams.len() as f32 * STREAM) * DESIGN_PX).round() as i32
         }
     }
 
@@ -285,8 +285,8 @@ impl Rain {
     /// Where stream `index` sits on `screen`, below `top`: the column its window pours into.
     pub fn column(index: usize, screen: Rect, top: i32) -> Rect {
         let centre = (screen.x + screen.w) as f32
-            - (10.0 + STREAM / 2.0 + index as f32 * STREAM) * MOCKUP_PX;
-        let half = BUTTON_W * MOCKUP_PX * HEADER / 2.0;
+            - (10.0 + STREAM / 2.0 + index as f32 * STREAM) * DESIGN_PX;
+        let half = BUTTON_W * DESIGN_PX * HEADER / 2.0;
         Rect {
             x: (centre - half).round() as i32,
             y: screen.y + top,
@@ -440,7 +440,7 @@ impl Rain {
             let centre = column.x as f64 + column.w as f64 / 2.0;
             let button = Point::<f64, Logical>::from((
                 centre - header.logical.w as f64 / 2.0,
-                top as f64 + (HEAD_GAP * MOCKUP_PX) as f64 - (GLOW * MOCKUP_PX * HEADER) as f64,
+                top as f64 + (HEAD_GAP * DESIGN_PX) as f64 - (GLOW * DESIGN_PX * HEADER) as f64,
             ))
             .to_physical(scale)
             .to_i32_round::<i32>();
@@ -556,14 +556,14 @@ fn paint_header(
 ) -> Option<(Painted, f32)> {
     let (w, h) = (BUTTON_W, 7.0 + 40.0 + 9.0 + METER_H + 9.0);
     let logical = Size::<i32, Logical>::from((
-        ((w + 2.0 * GLOW) * MOCKUP_PX * HEADER).ceil() as i32,
-        ((h + 2.0 * GLOW) * MOCKUP_PX * HEADER).ceil() as i32,
+        ((w + 2.0 * GLOW) * DESIGN_PX * HEADER).ceil() as i32,
+        ((h + 2.0 * GLOW) * DESIGN_PX * HEADER).ceil() as i32,
     ));
     let device = (
         (logical.w as f64 * scale).round() as i32,
         (logical.h as f64 * scale).round() as i32,
     );
-    let f = scale as f32 * MOCKUP_PX * HEADER;
+    let f = scale as f32 * DESIGN_PX * HEADER;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     let (x, y) = (GLOW, GLOW);
     let [r, g, b, _] = colour.to_be_bytes();
@@ -627,8 +627,8 @@ fn paint_header(
     ))
 }
 
-/// The meter's colour at `load`: the rain's own scale, from the light grey of an idle machine to
-/// its bright green, so the bar and the glyphs beside it mean the same thing.
+/// The meter's colour at `load`: the rain's own scale, from the light grey of an idle app to its
+/// bright green, so the bar and the glyphs beside it mean the same thing.
 fn meter_colour(load: f32) -> u32 {
     rgb_colour(glmatrix::colour_for(load))
 }

@@ -21,7 +21,7 @@ use crate::{
     Slipstream,
     card::{self, Btn, Button, Card, Hit},
     paint::Painted,
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
 };
 
 /// Where each step starts, in percent.
@@ -139,7 +139,7 @@ impl LowCard {
     }
 
     fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
         self.hits
             .iter()
@@ -209,7 +209,7 @@ impl LowCard {
             ((screen.h - painted.logical.h) / 2).max(0) as f64,
         ));
         let (alpha, rise) = panel::opening(now - self.since, self.reduced_motion);
-        let at = self.at + Point::from((0.0, rise * MOCKUP_PX as f64));
+        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
         painted.element(renderer, at, alpha)
     }
 }

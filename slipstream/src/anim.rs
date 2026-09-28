@@ -243,7 +243,7 @@ pub enum Easing {
     /// Speeding up all the way into place, after a quick start over the first tenth: for the UI
     /// coming back from the wallpaper, whose first stretch can't be seen anyway.
     Arrive,
-    /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve, as the mockup's transitions use.
+    /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve, the form the UI's transitions are given in.
     Bezier(f64, f64, f64, f64),
 }
 

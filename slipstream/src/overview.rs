@@ -310,7 +310,7 @@ impl Overview {
         painted.element(renderer, at, alpha)
     }
 
-    /// The screen's edges darkened, as the mockup's radial vignette.
+    /// The screen's edges darkened in a radial vignette.
     pub fn vignette<R>(
         &mut self,
         renderer: &mut R,

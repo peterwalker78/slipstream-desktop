@@ -17,7 +17,7 @@ use crate::{
     card::{self, Btn, Button, Card, Hit, Row},
     motion::HYPR,
     paint::Painted,
-    panel::{self, MOCKUP_PX},
+    panel::{self, DESIGN_PX},
 };
 
 /// The card opens as the way out's does, and as the explorer does.
@@ -111,7 +111,7 @@ impl Offer {
     }
 
     fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = MOCKUP_PX as f64;
+        let px = DESIGN_PX as f64;
         let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
         self.hits
             .iter()
@@ -197,7 +197,7 @@ impl Offer {
             ((screen.h - painted.logical.h) / 2).max(0) as f64,
         ));
         let (alpha, rise) = self.opening(now - self.since);
-        let at = self.at + Point::from((0.0, rise * MOCKUP_PX as f64));
+        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
         painted.element(renderer, at, alpha)
     }
 

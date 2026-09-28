@@ -8,9 +8,9 @@
 //! gives the window the centre, then more of the screen; lighter makes every window the same
 //! size, then puts the window in orbit around another, then off to the strip along the bottom.
 //!
-//! **Tiling is not a rung.** It sat in the middle of the ladder once, which made stepping past
-//! the middle turn gravity off and on again — a confusing way back to tiling, and a toast every
-//! time. Super+T is the way back. From tiling these keys turn gravity on at the end they point
+//! **Tiling is not a rung**, so stepping along the ladder never turns gravity off. Super+T is the
+//! way back to tiling, and on again; held, it shows the arrangements side by side to choose from
+//! (`arrange.rs`). From tiling, Super+PgUp and Super+PgDn turn gravity on at the end they point
 //! at: heavier gives the window the centre, lighter puts every window in the grid.
 //!
 //! Windows keep their order from the tiling tree in every layout, so focusing another window never
@@ -27,8 +27,8 @@ pub enum Rung {
     Orbit,
     /// Every window the same size, in an even grid.
     Grid,
-    /// Gravity off: the tiling tree. Not on the ladder — Super+T is the way to it and back — but
-    /// still what every window is on while gravity is off, and what a record calls that.
+    /// Gravity off: the tiling tree. Not on the ladder, since Super+T is the way to it and back,
+    /// but what every window is on while gravity is off, and what a record calls that.
     Tiling,
     /// The middle of the screen, the others in columns either side.
     Centre,

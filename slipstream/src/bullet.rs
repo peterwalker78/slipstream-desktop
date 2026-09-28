@@ -1,8 +1,8 @@
 //! Bullet time's logic (Super+Tab): what can be chosen, the letter labels, and moving the
 //! selection. Pure and generic over the window type, so it's unit-tested without Wayland.
 //!
-//! Bullet time uses the everyday keys without Super: arrows and Tab choose, 1–5 look at a
-//! workspace, Shift+1–5 sends the chosen window there, PgUp/PgDn weigh it, M minimises it, Delete
+//! Bullet time uses the everyday keys without Super: arrows and Tab choose, 1–9 look at a
+//! workspace, Shift+1–9 sends the chosen window there, PgUp/PgDn weigh it, M minimises it, Delete
 //! closes it, Enter goes and Esc goes back. A letter label goes straight to its target.
 
 use smithay::{
@@ -16,7 +16,7 @@ use crate::{
     layout::{Direction, Rect},
 };
 
-/// Letters on the home row and just above it, as the mockup chose.
+/// Letters on the home row and just above it, easy to reach without looking.
 pub const ALPHABET: &str = "jklfhuiont";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,11 +98,11 @@ pub fn is_drag(from: Point<f64, Logical>, to: Point<f64, Logical>) -> bool {
     (to.x - from.x).hypot(to.y - from.y) > DRAG_START
 }
 
-/// A window's close button in the overview, where the window is `shown` flat: 28 mockup pixels
+/// A window's close button in the overview, where the window is `shown` flat: 28 design pixels
 /// square, 8 in from its top right corner.
 pub fn close_button(shown: Rectangle<f64, Logical>) -> Rectangle<f64, Logical> {
-    const MOCKUP_PX: f64 = 0.8;
-    let (size, inset) = (28.0 * MOCKUP_PX, 8.0 * MOCKUP_PX);
+    const DESIGN_PX: f64 = 0.8;
+    let (size, inset) = (28.0 * DESIGN_PX, 8.0 * DESIGN_PX);
     Rectangle::new(
         (
             shown.loc.x + shown.size.w - inset - size,

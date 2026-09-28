@@ -24,7 +24,7 @@ pub struct Reading {
     pub battery_time: Option<String>,
     /// Local time as HH:MM; empty until the first reading.
     pub time: String,
-    /// The local date as the mockup writes it, e.g. `Fri 11 Sep`.
+    /// The local date, short, e.g. `Fri 11 Sep`.
     pub date: String,
     /// Today, for the calendar.
     pub today: Option<Date>,
