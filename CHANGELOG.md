@@ -5,7 +5,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 ## Unreleased
 
 - **Slipstream's own effects.** Settings → Appearance → Effects chooses between the Matrix rain and Slipstream (`[motion] effects`). With Slipstream, a minimised app becomes light falling through slits cut in the logo's rhythm: more streaks, longer, faster and greener the harder the app works, and its name engraved down the card in slab letters that light up where the light passes. A closed window splits along slits into slabs that drop away one after another from the top, gathering into a bright band that sweeps down the window and leaving the window's own text drawn out behind it as streaks of light.
-- **Minimised apps have flatter buttons:** a dark card with the app's icon and a green load bar under it, in place of the taller card edged and lit in the app's colour. The bar stays green however quiet the app, and its length says the load. The streams are wider, so the buttons, icons and the rain in them are larger.
+- **Minimised apps have flatter buttons:** a dark card with the app's icon and a green load bar under it, in place of the taller card edged and lit in the app's colour. The bar stays green however quiet the app, and its length says the load.
 - **Night Sky comes with Slipstream**, installed and kept up to date like Glimmerwood: tonight's real sky in fine dots, a handful of things to find, and a last line that sends you outside. `install=no` in `~/.config/slipstream/extras/night-sky.conf` leaves it out.
 
 ## 0.7.2 - 2026-09-28

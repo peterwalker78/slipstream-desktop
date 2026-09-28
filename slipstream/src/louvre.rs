@@ -12,7 +12,7 @@
 use crate::glmatrix::{QUIET, colour_for};
 
 /// The unit in logical pixels: a lane's width, a slit's height and the pitch of a letter's dots.
-const UNIT: f64 = 3.6;
+const UNIT: f64 = 5.6;
 /// A bar between two slits is this many units tall, and a slit one.
 const BAR_UNITS: usize = 3;
 /// How much of the light behind a slit still shows.
@@ -36,7 +36,7 @@ const RATE_BUSY: f32 = 22.0;
 /// A streak's tail, in logical pixels, beyond the part that grows with its speed.
 const TAIL: f32 = 4.8;
 /// A streak's width, in logical pixels.
-const STREAK_W: f64 = 1.6;
+const STREAK_W: f64 = 2.4;
 /// Letters start this many units below the top of the card, and each takes its seven rows and
 /// this many more.
 const NAME_TOP: usize = 4;
@@ -124,7 +124,8 @@ impl Louvre {
         if (width, height, scale) == (self.width, self.height, self.scale) {
             return;
         }
-        let unit = unit(scale);
+        // Never so coarse that five lanes, a letter's width, don't fit across the card.
+        let unit = unit(scale).min(width / 5).max(2);
         let lanes = (width / unit).max(1);
         if unit != self.unit || lanes != self.lanes {
             self.streaks.clear();
@@ -471,7 +472,7 @@ fn slab(c: char) -> Option<[&'static str; 7]> {
 mod tests {
     use super::*;
 
-    const W: usize = 61;
+    const W: usize = 40;
     const H: usize = 700;
 
     fn lit(louvre: &Louvre) -> Vec<u8> {
@@ -538,11 +539,21 @@ mod tests {
 
     #[test]
     fn units_are_whole_pixels_at_every_scale() {
-        for (scale, unit) in [(1.0, 4), (1.25, 5), (1.5, 5), (2.0, 7)] {
-            let louvre = Louvre::new("A", 0.0, W, H, scale, 1);
+        // A card's inner width at each scale, and the unit it gets.
+        for (scale, width, unit) in [(1.0, 31, 6), (1.25, 40, 7), (1.5, 47, 8), (2.0, 62, 11)] {
+            let louvre = Louvre::new("A", 0.0, width, H, scale, 1);
             assert_eq!(louvre.unit, unit, "at {scale}×");
-            assert!(louvre.offset + louvre.lanes * louvre.unit <= W);
+            assert_eq!(louvre.lanes, 5, "a letter's width across, at {scale}×");
+            assert!(louvre.offset + louvre.lanes * louvre.unit <= width);
         }
+    }
+
+    #[test]
+    fn a_narrow_card_still_fits_a_whole_letter() {
+        let louvre = Louvre::new("KoNSoLe", 0.0, 20, H, 1.25, 1);
+        assert_eq!(louvre.unit, 4);
+        assert!(louvre.dots.iter().all(|dot| dot.lane < louvre.lanes));
+        assert_eq!(louvre.dots.iter().map(|dot| dot.lane).max(), Some(4));
     }
 
     #[test]
