@@ -601,7 +601,7 @@ fn wallpaper(store: &Store) -> gtk::Widget {
         "The living wallpaper behind your windows. Tick more than one and they take turns.",
     );
 
-    let variations = group(&page, "Variations");
+    let turns = group(&page, "Taking turns");
     let chosen: Vec<&str> = store
         .get()
         .wallpaper
@@ -610,31 +610,35 @@ fn wallpaper(store: &Store) -> gtk::Widget {
         .map(|variation| variation.id)
         .collect();
     let all = gtk::CheckButton::new();
-    let all_sub = row(&variations, "All of them", Some(""), &all);
+    let all_sub = row(&turns, "All of them", Some(""), &all);
     let mut pictures = Vec::new();
-    let checks: Rc<Vec<(&'static str, gtk::CheckButton)>> = Rc::new(
-        slipstream_config::VARIATIONS
-            .iter()
-            .map(|variation| {
-                let check = gtk::CheckButton::new();
-                check.set_active(chosen.contains(&variation.id));
-                let picture = previews::picture();
-                picture.update_property(&[gtk::accessible::Property::Label(&format!(
-                    "Preview of {}",
-                    variation.title
-                ))]);
-                picture_row(
-                    &variations,
-                    &picture,
-                    variation.title,
-                    Some(variation.blurb),
-                    &check,
-                );
-                pictures.push((variation.id, picture));
-                (variation.id, check)
-            })
-            .collect(),
-    );
+    let mut checks: Vec<(&'static str, gtk::CheckButton)> = Vec::new();
+    for (family, ids) in FAMILIES {
+        let gallery = gallery(&page, family);
+        for id in ids {
+            let Some(variation) = slipstream_config::VARIATIONS.iter().find(|v| v.id == *id) else {
+                continue;
+            };
+            let check = gtk::CheckButton::new();
+            check.set_active(chosen.contains(&variation.id));
+            let picture = previews::picture();
+            picture.update_property(&[gtk::accessible::Property::Label(&format!(
+                "Preview of {}",
+                variation.title
+            ))]);
+            gallery.append(&variation_card(variation, &picture, &check));
+            pictures.push((variation.id, picture));
+            checks.push((variation.id, check));
+        }
+        // A card chosen anywhere but on its tick: the keyboard's Enter or Space, or a click on
+        // the picture or the words.
+        gallery.connect_child_activated(|_, child| {
+            if let Some(check) = card_check(child) {
+                check.set_active(!check.is_active());
+            }
+        });
+    }
+    let checks = Rc::new(checks);
     previews::fill(pictures, store.get().motion.reduced);
 
     // Setting ticks from here must not be taken for the user's own changes.
@@ -651,7 +655,7 @@ fn wallpaper(store: &Store) -> gtk::Widget {
             all.set_inconsistent(!every && ticked > 0);
             settling.set(false);
             if let Some(sub) = &all_sub {
-                sub.set_label(&all_blurb(every));
+                sub.set_label(&all_blurb(ticked, checks.len()));
             }
         })
     };
@@ -763,16 +767,140 @@ fn all_ticks(on: bool, count: usize) -> Vec<bool> {
     (0..count).map(|index| on || index == 0).collect()
 }
 
-/// What the "All of them" row says, with every variation ticked or not.
-fn all_blurb(every: bool) -> String {
-    if every {
+/// What the "All of them" row says, with `ticked` of `count` variations ticked.
+fn all_blurb(ticked: usize, count: usize) -> String {
+    if ticked == count {
         format!(
             "Every one takes its turn, including any added later. Untick to keep only {}.",
             slipstream_config::VARIATIONS[0].title
         )
+    } else if ticked == 1 {
+        "One is ticked, so it stays. Tick more below and they take turns.".to_string()
     } else {
-        "Tick to have every one take its turn.".to_string()
+        format!("{ticked} of {count} take turns. Tick this to have every one take its turn.")
     }
+}
+
+/// The variations in families, so twenty are chosen among rather than scrolled past. Every
+/// variation is in exactly one.
+const FAMILIES: [(&str, &[&str]); 3] = [
+    (
+        "Air and speed",
+        &[
+            "slipstream",
+            "vortex",
+            "warp",
+            "contours",
+            "contrails",
+            "tide",
+        ],
+    ),
+    (
+        "Nature and mathematics",
+        &[
+            "attractor",
+            "galaxies",
+            "physarum",
+            "coral",
+            "frost",
+            "chladni",
+            "murmuration",
+            "life",
+        ],
+    ),
+    (
+        "Machines and signals",
+        &["departures", "prompt", "circuit", "sonar", "glitch", "maze"],
+    ),
+];
+
+/// A titled gallery of cards on `page`, as many across as fit.
+fn gallery(page: &gtk::Box, title: &str) -> gtk::FlowBox {
+    let group = gtk::Box::new(gtk::Orientation::Vertical, 7);
+    group.append(&label(&title.to_uppercase(), "group-title"));
+    let gallery = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(true)
+        .min_children_per_line(2)
+        .max_children_per_line(4)
+        .column_spacing(12)
+        .row_spacing(12)
+        .activate_on_single_click(true)
+        .css_classes(["gallery"])
+        .build();
+    group.append(&gallery);
+    page.append(&group);
+    gallery
+}
+
+/// A variation as a card: its moving picture with the tick over a corner, and its name and what
+/// it does beneath. A chosen card is outlined, so what takes turns shows at a glance.
+fn variation_card(
+    variation: &slipstream_config::Variation,
+    picture: &gtk::Picture,
+    check: &gtk::CheckButton,
+) -> gtk::FlowBoxChild {
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .css_classes(["variation"])
+        .build();
+    let overlay = gtk::Overlay::builder().halign(gtk::Align::Start).build();
+    overlay.set_child(Some(picture));
+    check.set_halign(gtk::Align::End);
+    check.set_valign(gtk::Align::Start);
+    check.set_margin_top(8);
+    check.set_margin_end(8);
+    // The card takes the keyboard, so the tick is only for the pointer.
+    check.set_focusable(false);
+    overlay.add_overlay(check);
+    card.append(&overlay);
+    let title = label(variation.title, "variation-title");
+    card.append(&title);
+    let blurb = label(variation.blurb, "row-sub");
+    blurb.set_lines(3);
+    blurb.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    blurb.set_tooltip_text(Some(variation.blurb));
+    card.append(&blurb);
+
+    let child = gtk::FlowBoxChild::builder()
+        .child(&card)
+        .tooltip_text(variation.blurb)
+        .build();
+    child.update_property(&[
+        gtk::accessible::Property::Label(variation.title),
+        gtk::accessible::Property::Description(variation.blurb),
+    ]);
+    let mark = {
+        let (card, child) = (card.clone(), child.clone());
+        move |check: &gtk::CheckButton| {
+            if check.is_active() {
+                card.add_css_class("chosen");
+            } else {
+                card.remove_css_class("chosen");
+            }
+            child.update_state(&[gtk::accessible::State::Checked(if check.is_active() {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
+        }
+    };
+    mark(check);
+    check.connect_toggled(mark);
+    child
+}
+
+/// The tick on a card made by `variation_card`.
+fn card_check(child: &gtk::FlowBoxChild) -> Option<gtk::CheckButton> {
+    child
+        .child()?
+        .first_child()?
+        .downcast::<gtk::Overlay>()
+        .ok()?
+        .last_child()?
+        .downcast::<gtk::CheckButton>()
+        .ok()
 }
 
 /// What to write for the ticked variations: nothing at all when every one of them is ticked, so
@@ -1809,19 +1937,6 @@ fn row(
     sub
 }
 
-/// A row as `row` makes one, with `lead` before its title: a picture of what it chooses.
-fn picture_row(
-    card: &gtk::Box,
-    lead: &impl IsA<gtk::Widget>,
-    title: &str,
-    sub: Option<&str>,
-    control: &impl IsA<gtk::Widget>,
-) {
-    let (row, _) = row_box(title, sub, control);
-    row.prepend(lead);
-    card.append(&row);
-}
-
 fn row_box(
     title: &str,
     sub: Option<&str>,
@@ -2097,5 +2212,18 @@ mod tests {
             .filter(|id| *id != "glitch")
             .collect();
         assert_eq!(ticked_list(&[], &from_all).len(), from_all.len());
+    }
+
+    #[test]
+    fn every_variation_is_in_one_family() {
+        for variation in slipstream_config::VARIATIONS {
+            let homes = FAMILIES
+                .iter()
+                .filter(|(_, ids)| ids.contains(&variation.id))
+                .count();
+            assert_eq!(homes, 1, "{} is in {homes} families", variation.id);
+        }
+        let listed: usize = FAMILIES.iter().map(|(_, ids)| ids.len()).sum();
+        assert_eq!(listed, slipstream_config::VARIATIONS.len());
     }
 }

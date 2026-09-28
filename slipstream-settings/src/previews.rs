@@ -22,8 +22,8 @@ const COMPOSITOR: &str = "slipstream";
 
 /// A preview's size in logical pixels, the size its frames are drawn at (a little larger, for
 /// screens scaled above 1), how many frames it has, and the seconds between them.
-pub const SHOWN: (i32, i32) = (160, 100);
-const DRAWN: (u32, u32) = (200, 125);
+const SHOWN: (i32, i32) = (256, 160);
+const DRAWN: (u32, u32) = (320, 200);
 const FRAMES: usize = 16;
 const EVERY: f64 = 0.2;
 

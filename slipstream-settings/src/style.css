@@ -137,7 +137,8 @@ window.slipstream-settings headerbar windowcontrols button {
 }
 
 /* The tick against each wallpaper variation, in the colour Slipstream marks what's chosen. */
-.row checkbutton check {
+.row checkbutton check,
+.variation checkbutton check {
   min-width: 18px;
   min-height: 18px;
   border-radius: 5px;
@@ -146,7 +147,8 @@ window.slipstream-settings headerbar windowcontrols button {
   box-shadow: none;
 }
 
-.row checkbutton check:checked {
+.row checkbutton check:checked,
+.variation checkbutton check:checked {
   border-color: #42d3ff;
   background: #42d3ff;
   color: #10141c;
@@ -160,10 +162,40 @@ window.slipstream-settings headerbar windowcontrols button {
 }
 
 /* A wallpaper variation's moving preview, dark until its frames arrive. */
-.row picture.preview {
+.row picture.preview,
+.variation picture.preview {
   border-radius: 6px;
   background: #0b0e13;
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* A wallpaper variation's card in the gallery, outlined in cyan while it's chosen. */
+.variation {
+  padding: 8px 8px 10px;
+  border-radius: 10px;
+  background: #1f222b;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.variation.chosen {
+  border-color: #42d3ff;
+  background: rgba(66, 211, 255, 0.06);
+}
+
+.variation-title {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
+.gallery > flowboxchild {
+  padding: 0;
+  border-radius: 11px;
+  background: none;
+}
+
+.gallery > flowboxchild:focus-visible {
+  outline: 2px solid #42d3ff;
+  outline-offset: 2px;
 }
 
 /* A workspace's name, and the buttons beside it. */
