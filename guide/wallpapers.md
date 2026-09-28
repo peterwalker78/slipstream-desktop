@@ -44,4 +44,4 @@ There are **twenty**, and most of them aren't animations at all. They're worked 
 | **Chladni** | The logo is sand on a ringing plate: each note shakes it into a new figure, and then it walks home. |
 | **Frost** | Frost grows out of the letters in branching ferns, glitters, and melts back the way it came. |
 
-Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. **Caps Lock turns the screensaver off:** while it's on, the desktop stays up, and so it does while something is fullscreen or a video player asks. Caps Lock doesn't hold off the screen lock, so a desktop left with it on still locks on time. The lock screen uses the living wallpaper too.
+Tick as many as you like in Settings → Wallpaper, which has moving previews, and they take turns. The desktop stays up while something is fullscreen or a video player asks. **Hold Caps Lock for Awake** and it stays up anyway, without locking by itself, until you hold Caps Lock again or click AWAKE on the bar. A tap is still plain Caps Lock. The lock screen uses the living wallpaper too.

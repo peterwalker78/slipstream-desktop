@@ -48,7 +48,7 @@ for arg in "$@"; do
         --purge) purge=yes ;;
         --yes | -y) assume_yes=yes ;;
         -h | --help)
-            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -219,8 +219,8 @@ gdm_wayland_off() {
     fi
 }
 
-# Where that display manager looks for Wayland sessions. `/usr/local/share/wayland-sessions`
-# being right on this laptop is a fact about SDDM and its Plasma Login fork, not about Linux.
+# Where that display manager looks for Wayland sessions. That SDDM and its Plasma Login fork read
+# `/usr/local/share/wayland-sessions` is a fact about them, not about Linux.
 session_dir=
 session_note=
 lightdm_dropin=

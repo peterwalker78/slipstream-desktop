@@ -110,15 +110,18 @@ Read, learn or make something and it brightens and gives off little motes of lig
 ## Everything else you'd expect
 
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
+- **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
+- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
 - **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
-- **Tiling that isn't all or nothing.** Nudge a window along a ladder from *distant* to *spotlight*, one rung per press, always reversible.
+- **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
 - **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
+- **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
 - **A tour that shows you, rather than telling you.** Six lessons on what tiling actually is, each one drawn happening. Super+/, then Enter.
-- **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools — and nothing records your screen without asking you first, by name.
+- **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
 
@@ -136,7 +139,7 @@ Read, learn or make something and it brightens and gives off little motes of lig
 |---|---|
 | [**Installing**](guide/install.md) | what you need, every install route, which distributions, updating, uninstalling, building from source |
 | [**Every key**](guide/keys.md) | the whole table - Super+/ shows it in the desktop too |
-| [**Help**](guide/help.md) | when something goes wrong, the bar's meter, and apps that come with your desktop |
+| [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, the bar's meter, and apps that come with your desktop |
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
 | [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |

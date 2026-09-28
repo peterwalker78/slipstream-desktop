@@ -103,6 +103,15 @@ fresh
 expect_status 0 --check || true
 [ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote $(find "$r" -type f)"
 
+case_name="--help prints the whole header comment and nothing else"
+fresh
+if expect_status 0 --help; then
+    sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$repo/scripts/install-session" >"$work/header"
+    if ! cmp -s "$work/header" "$work/out"; then
+        fail "$case_name: $(diff "$work/header" "$work/out" | head -n 4)"
+    fi
+fi
+
 case_name="a PAM file someone else wrote is never replaced"
 fresh
 mkdir -p "$r/etc/pam.d"

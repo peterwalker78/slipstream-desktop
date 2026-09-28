@@ -1,7 +1,6 @@
 # Everything a desktop needs
 
-The detail the README doesn't stop for. Every keystroke mentioned here is in
-[the key list](keys.md).
+The detail the README doesn't stop for. Every keystroke mentioned here is in [the key list](keys.md).
 
 [← back to the README](../README.md)
 
@@ -17,11 +16,14 @@ The things you'd expect any desktop to do, each done the Slipstream way.
 - **A meter for whatever you're counting.** A small gauge beside quick settings shows how much of something you've used, from any command you choose: a quota, a plan's limits, a disk. It warms to amber at 75% and orange at 90%, and quick settings shows exactly when each allowance starts over. **Settings → Meter** runs your command on the spot and tells you what the bar will show, or exactly why it won't.
 - **Night light that follows the sun,** with no location needed: sunset and sunrise are worked out from your time zone. **The screen warms over half an hour at dusk, the way the light outside does,** rather than all at once.
 - **Caps Lock you can't miss:** an amber chip on the bar, and the Caps Lock arrow in the lock screen's password box.
+- **Awake keeps the screen on.** Hold Caps Lock and the desktop stays up and doesn't lock by itself, with an AWAKE chip on the bar to say so. Hold it again, or click the chip, to turn it off; it also ends when you lock, sleep or shut the lid. A tap is still plain Caps Lock.
 - **Games and virtual machines behave.** Games can lock the mouse and virtual machines can take every key. **Super+Esc** always takes them back.
 
 ## Gravity
 
-Tiling isn't all or nothing. **Super+T** turns gravity on and off, and **Super+PgUp** and **Super+PgDn** move the focused window along one ladder: *distant · orbit · grid · centre · wide · spotlight*. One rung per press, always reversible. From plain tiling the first press turns gravity on at the end it points at: heavier gives the window the centre, lighter puts every window in the grid.
+Tiling isn't all or nothing. A quick **Super+T** turns gravity on and off. Keep Super held and the arrangements appear side by side, drawn from your own windows: *tiling · grid · centre · wide · spotlight*. Tap T or use the arrows to move along them, and the windows follow as you go. Let go of Super to keep one, or press Esc to put things back. The next quick Super+T turns gravity on at the arrangement you kept.
+
+**Super+PgUp** and **Super+PgDn** fine-tune one window: heavier gives it more of the screen, lighter sends it into orbit around another window or down to the strip along the bottom. One step per press, always reversible.
 
 ## The code rain, in full
 
@@ -57,14 +59,14 @@ Settings → Notifications has the switches.
 
 ## And everything else
 
-Slipstream is a complete desktop session of its own — compositor, bar, notifications, lock screen and Settings app — written in Rust on [Smithay](https://github.com/Smithay/smithay).
+Slipstream is a complete desktop session of its own, written in Rust on [Smithay](https://github.com/Smithay/smithay): compositor, bar, notifications, lock screen and Settings app.
 
 - **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
 - **App explorer** (tap Super): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it.
-- **A tour** (Super+/, then Enter): six lessons on what tiling is — windows sharing the screen, moving between them, moving one, turning the layout, putting them away — each one drawn happening rather than listed. It uses abstract tiles, so it never rearranges your actual work.
+- **A tour** (Super+/, then Enter) of what tiling is, in six lessons: windows sharing the screen, moving between them, moving one, turning the layout, putting them away, and where every other key lives. Each one is drawn happening rather than listed, with abstract tiles, so it never rearranges your actual work.
 - **Hide everything** (Super+H): every window on the workspace pours into the code rain at once, and the same windows come back on the next press. Windows' "minimise all", where Super+M is one window.
-- **The way out** (Ctrl+Alt+Del): lock, log out, restart or shut down, on one card. Every app is asked to close first, and anything that doesn't is named.
-- **Alt+Tab**, Alt+F4, Super+arrows and the rest of the Windows keys you already know, with tiles moved and resized from the keyboard.
+- **The way out** (Ctrl+Alt+Del): lock, log out, restart or shut down, on one card. Every app is asked to close first and waited for, and anything that doesn't close is named. Your layout can be reopened at the next login.
+- **Alt+Tab** deals your windows as a deck of glass panes, each Tab sending the front one round to the back; with reduced motion it's a flat card. Alt+F4, Super+arrows and the rest of the Windows keys you already know work too, with tiles moved and resized from the keyboard. Two tiles swapped with Super+Alt+arrows pass through each other.
 - **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
 - **Notifications** (Super+N): pop-ups with action buttons, sounds from your sound theme, a notification centre, do not disturb. Each notification knows the window it came from, even `notify-send` in a terminal, and opening it takes you there.
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
@@ -72,12 +74,12 @@ Slipstream is a complete desktop session of its own — compositor, bar, notific
 - **Screens** (Settings → Screens): resolution, refresh rate and scale per screen, and where each one sits so the pointer and Super+arrows cross between them the way they really are on your desk. A screen is remembered by what it reports about itself, so moving it to another port keeps its settings.
 - **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.
 - **And with the tools you already have:** screenshot and screen-recording tools that speak `wlr-screencopy` (`grim`, `wf-recorder` and the scripts built on them), idle tools (`swayidle`), and colour-temperature tools (`wlsunset`, `gammastep`), which Slipstream's own night light steps aside for while they are running. Tools that need dmabuf, `wl-screenrec` among them, don't work yet.
-- **Nothing records your screen without being asked.** A program that asks puts up a card naming it, with "just this once" or "always". What has been allowed is listed in Settings → Privacy, where an answer can be taken back.
+- **Nothing records your screen without being asked.** A program that asks puts up a card naming it, with "just this once" or "always allow". What has been allowed is listed in Settings → Privacy, where an answer can be taken back.
 - **Dark or light, chosen in Settings**, and every app that asks the desktop follows it the moment you change it: GTK and Qt apps, browsers and anything packaged as a Flatpak. Slipstream's own bar, panels and windows are dark either way.
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
-- **A gentle way out**: logging out asks apps to close and waits for them, and your layout can be reopened at the next login.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
-- **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. See below.
+- **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. [How to set it up](help.md#the-meter-on-the-bar).
+- **Close into the rain:** a closing window is read out into falling code, with the flicker of a failing CRT. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
 - **Every effect has a reduced-motion version**, switched live from Settings.
 
 

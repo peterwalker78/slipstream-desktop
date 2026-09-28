@@ -4,28 +4,23 @@
 
 ## When something goes wrong
 
+The installer's check finds most problems, and writes nothing. If you installed with the one command, run it again with `-- --check` on the end; from a download or a clone, run `scripts/install-session --check`.
+
 - **Back at the login screen straight away:** read `~/.local/state/slipstream/slipstream.log` (the previous session's is `slipstream.log.old`).
-- **Super+L doesn't lock:** run `scripts/install-session`, which installs the lock screen's PAM service.
-- **Screen sharing offers nothing:** you need xdg-desktop-portal-wlr 0.8 or newer. `scripts/install-session --check` says which version is here and offers to install it where a new enough one is packaged; log in again afterwards.
-- **No login screen appears at all:** the machine logs someone in automatically. `scripts/install-session --check` says which setting does it and how to change it.
-- **Anything else:** `scripts/install-session --check` reports what the system is missing.
+- **Super+L doesn't lock:** install again (the one command, or `scripts/install-session`), which puts the lock screen's PAM service in place.
+- **Screen sharing offers nothing:** you need xdg-desktop-portal-wlr 0.8 or newer. The check says which version is here, and installing again offers to install a new enough one where it's packaged; log in again afterwards.
+- **No login screen appears at all:** the machine logs someone in automatically. The check says which setting does it and how to change it.
+- **Anything else:** the check reports what the system is missing.
 
 ## A program is asking to record your screen
 
-Slipstream asks before any program can see your screen. A card names the program and offers
-**just this once** or **always allow**; Esc says no. Nothing is recorded until you answer, so a
-tool simply waits.
+Slipstream asks before any program can see your screen. A card names the program and offers **just this once** or **always allow**; Esc says no. Nothing is recorded until you answer, so a tool simply waits.
 
-The card can only name a program it can identify, and it will not remember an answer against a
-program anyone could replace — so a script in your home directory is refused outright rather than
-asked about. That is deliberate: an answer remembered against a file you can rewrite would be a
-standing permission for whatever is put there next.
+The card can only name a program it can identify, and it will not remember an answer against a program anyone could replace, so a script in your home directory is refused outright rather than asked about. That is deliberate: an answer remembered against a file you can rewrite would be a standing permission for whatever is put there next.
 
-**Settings → Privacy** lists what has been allowed, and the bin beside each one makes it ask
-again next time. Nothing is ever added there except by answering the card.
+**Settings → Privacy** lists what has been allowed, and the bin beside each one makes it ask again next time. Nothing is ever added there except by answering the card.
 
-Screen *sharing* — for a call, through the portal — is a separate thing, with its own picker and
-the red pill on the bar that stops it.
+Screen *sharing*, for a call through the portal, is a separate thing, with its own picker and the red pill on the bar that stops it.
 
 ## Adding apps that come with your desktop
 

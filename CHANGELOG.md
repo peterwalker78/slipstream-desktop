@@ -2,151 +2,54 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## [0.6.0] - 2026-09-23
+## Unreleased
 
-- **A tour that shows you what tiling is.** Super+/, then Enter. Six lessons — windows sharing the
-  screen, moving between them, moving one, turning the layout, putting them away, and where every
-  other key lives — each one drawn happening rather than listed. It uses abstract tiles, so it
-  never touches your real windows, and each lesson loops while you read it. The prompt on an empty
-  workspace says where to find it.
+- **Hold Super after Super+T to choose gravity's arrangement.** A strip shows tiling, grid, centre, wide and spotlight, drawn from the workspace's own windows. T or the arrows move along it and the windows follow, letting go of Super keeps it and Esc puts things back. A quick Super+T turns gravity on at the arrangement last kept. Stepping past either end of Super+PgUp/PgDn no longer puts up a message.
+- **Alt+Tab deals your windows as a deck of glass panes**, receding into depth with the chosen one at the front. Each Tab sends the front pane round to the back, and letting go of Alt flies every pane home, the chosen one first. With reduced motion it's the flat card it was.
+- **Super+Alt+arrows: the two tiles pass through each other** as panes of glass, the moved one coming forward and the other falling back.
+- **Close into the rain.** A closing window is read out into falling code, with the scanlines and flicker of a failing CRT. Settings → Appearance turns it off (`[motion] close-into-rain`); off, or with reduced motion, a closing window fades as it did before.
+- **Unlocking brings every window back at once**, rather than each one as its app next draws.
+- **Super+H no longer shows a toast** as it hides the windows.
+- **The wallpapers' logo is drawn in Slipstream's own display face**, Chakra Petch, slanted.
+- `install.sh` works out the download's name from the release's tag instead of asking GitHub whether the file exists, a question GitHub has been seen answering wrongly for a release whose files were all there.
 
-- **Screenshot and screen-recording tools work.** `grim`, `wf-recorder` and the scripts built on
-  them speak `wlr-screencopy`, which Slipstream didn't serve, so none of them ran. They do now —
-  **and nothing records your screen without asking.** A program that asks puts up a card naming
-  it, offering "just this once" or "always allow"; until you answer, it simply waits. What has
-  been allowed is listed in Settings → Privacy, where an answer can be taken back. A program that
-  can't be identified is refused rather than asked about, and an answer is never remembered
-  against a program that anyone could replace. Tools that need dmabuf, `wl-screenrec` among them,
-  still don't work.
+## 0.6.0 - 2026-09-23
 
-- **Resolution, refresh rate and scale, per screen**, in Settings → Screens. Slipstream couldn't
-  change any of them before: a screen ran at whatever mode it asked for, at a scale worked out
-  from its size, and nothing could say otherwise. Both settings default to Automatic, which is
-  exactly what happened before. A mode a screen turns out not to have is ignored rather than
-  applied, so settings carried to another desk can't blank a monitor.
-
-- **Ctrl+Alt+Del opens the way out** — lock, log out, restart or shut down, on one card, starting
-  on Lock. It was the one chord nothing answered: the kernel never sees it once Slipstream has the
-  keyboard, so it did nothing at all, which is the worst thing for the key people reach for when
-  something has gone wrong. **Super+Shift+Esc no longer logs out**; quick settings has the same
-  four destinations for the mouse.
-
-- **Super+R turns the layout on its side**, rows becoming columns. The tiling tree could reach a
-  shape there was no way out of — one wide tile along the top with two side by side under it, when
-  what you wanted was the wide one down a side and the pair stacked on the other. Moving tiles
-  about could never fix it, because every arrangement of the same tree has the same splits. From
-  the wide window it turns the whole arrangement; from one of the pair it swaps just that pair.
-  Twice puts it back exactly.
-
-- **Super+H hides every window on the workspace** into the code rain at once, and the same windows
-  come back on the next press. Windows' "minimise all", where Super+M is one window. Each window
-  flies into its own stream rather than fading out on the way.
-
-- **Hold Caps Lock for Awake**, which keeps the screen on: no wallpaper fade, no idle lock, and
-  nothing else on the machine is told you've gone quiet. A tap is still plain Caps Lock. It ends
-  by itself when you lock, log out, close the lid or the machine sleeps.
-
-- **Super+Space belongs to input methods again.** A tapped Super already opened the app explorer,
-  so the binding was a duplicate that cost IBus its key for nothing.
-
-- **The Run box is gone.** Super+R opened the same explorer a tapped Super does, so it was a second
-  way to the same panel. Typing something no app matches still offers to run it, exactly as before.
-
-- **Gravity's ladder no longer passes through tiling.** It sat in the middle, so stepping past the
-  middle turned gravity off and on again — a confusing way back to tiling, and a message every
-  time. The ladder is distant, orbit, grid, centre, wide, spotlight, and Super+T is the way back.
-
-- **An empty workspace shows a small prompt instead of the whole key table.** The table had grown
-  to two columns of thirteen rows and covered most of the wallpaper, on the one screen where the
-  wallpaper is all there is to look at.
-
-- **The Super+/ sheet no longer lists the laptop's own keys** — play, pause, volume, mute,
-  brightness. They have pictures on them and work the same everywhere, so they filled a column
-  with what nobody came to look up.
-
-- **Colour-temperature and idle tools work:** `wlsunset` and `gammastep` can drive a screen's
-  colour, and Slipstream's own night light steps aside for whichever screens they've taken and
-  comes back when they let go. `swayidle` and anything else waiting for an idle seat is told.
-
-- **Windows stay solid as they fly into the code rain.** They faded out over the journey, so they
-  crossed the screen half transparent and mixed with whatever was behind them; they now hold their
-  opacity almost all the way and go out as they land.
-
-- **Super+B opens a browser window.** Whichever browser the desktop is set to open a web page
-  with: `$BROWSER` if it names one, else the default the rest of the machine follows, read from
-  `mimeapps.list` and started the way its own desktop entry says to, so a browser installed as a
-  Flatpak works like any other. Nothing is preferred over anything else, and if no default is set
-  it says so rather than guessing.
-
-- **Sleep, Restart and Shut down work again on current systemd.** They were asked for with
-  `loginctl suspend`, `loginctl reboot` and `loginctl poweroff`; systemd has since dropped those
-  three commands, so on a machine with a recent systemd every one of them came back as "Unknown
-  command verb" and nothing happened — Restart and Shut down after the desktop had already closed
-  every app. Slipstream now asks logind itself, over the system bus, which systemd-logind and
-  elogind have both answered the same way for years and which no longer depends on which commands
-  a particular version of `loginctl` happens to ship.
-
-- **Dark or light is Slipstream's to set, and Settings → Appearance sets it.** Slipstream names
-  only itself as the desktop, so nothing on the machine was answering apps that asked which to be,
-  and they all came up light whatever the rest of the screen looked like. Slipstream now answers
-  that question itself, over the settings portal every toolkit already asks: GTK and Qt apps,
-  Firefox, Chromium and anything packaged as a Flatpak change the moment the setting does, without
-  restarting. Dark to begin with. Slipstream's own bar, panels and windows are dark either way.
-  The installer checks that the portal is there and new enough, offers to install it where it
-  isn't, and says plainly which apps won't follow on a system that can't manage it.
-
-- **Settings → Screens arranges your monitors.** Slipstream put every screen in a row, left to
-  right, tops level, in whatever order they were plugged in, and there was no way to say otherwise
-  — so a monitor sitting above the laptop, or to its left, was somewhere the pointer could only
-  reach by going the wrong way. Each screen can now be placed above, below, left of or right of the
-  one before it, and told which edges line up with it. **Super+↑ and Super+↓ cross between screens**
-  now too, which they couldn't while screens were always a row. Changes apply straight away.
-
-- **A monitor you plug in gets a workspace of its own** instead of taking one of yours. Before, a
-  second screen claimed the lowest-numbered free workspace, so Super+2 stopped showing workspace 2
-  on the screen you were working on and jumped the keyboard to the monitor instead. Now the
-  numbered workspaces stay where they are, and the monitor gets an empty one of its own — a blank
-  area to throw windows at. The first time a given screen is seen, a card offers the other answer;
-  the choice is remembered against that screen, so it's asked once per monitor rather than once per
-  dock. A workspace made this way disappears when it is empty and its screen has gone, and stays
-  as an ordinary workspace at the end of the list for as long as anything is open on it.
-- **Super+Shift+P sends a window to the next screen without following it.** It used to take the
-  keyboard along, which is the wrong reflex for throwing something on to a second monitor; Super+P
-  still moves the keyboard when you do want to go. A toast names the screen and workspace it
-  landed on.
-- **Screens are told apart by what they are, not which port they are in**, so the same monitor on a
-  different port is recognised and a different monitor on the same port is not.
-- **A window can fill each screen at once.** Putting a second window fullscreen took the first out
-  of fullscreen without telling it, so only one screen at a time could be filled — no video on the
-  monitor while a game filled the laptop — and the window it displaced was left believing it still
-  covered a screen. An app that asks to fill a particular screen is also sent there now, instead of
-  filling whichever one it happened to be on.
-- **Windows are paced by the screen they are on.** Every window was woken by every screen's refresh,
-  so plugging a 144 Hz monitor in beside a 60 Hz panel made windows on the panel redraw at the
-  combined rate, wasting power and confusing apps that draw once per frame.
-- **A touchscreen or drawing tablet points at the built-in screen** rather than at whichever screen
-  happened to be set up first, so a laptop started with a monitor already plugged in no longer sends
-  its own touches to the monitor.
-
-- **The volume and brightness card stays put while you hold the key.** It played its rise and fade
-  in again on every press, so the card flickered under a held key instead of the level simply
-  sliding along. The entrance now happens once, when the card appears; further presses only move
-  the bar and put its departure off.
-- **A notification pop-up has a cross to close it with**, in its top right corner as the
-  notification centre's cards do, so one that's in the way goes with a click rather than a trip
-  through the centre. The notification stays in the centre; a click elsewhere on the pop-up still
-  opens it.
-- **Quick settings' volume slider clicks at the new level**, as the volume keys already did, so the
-  volume can be heard as well as seen when it's set with the mouse or the arrow keys. The same
-  Sound setting turns both off.
+- **A tour that shows you what tiling is.** Super+/, then Enter. Six lessons — windows sharing the screen, moving between them, moving one, turning the layout, putting them away, and where every other key lives — each one drawn happening rather than listed. It uses abstract tiles, so it never touches your real windows, and each lesson loops while you read it. The prompt on an empty workspace says where to find it.
+- **Screenshot and screen-recording tools work.** `grim`, `wf-recorder` and the scripts built on them speak `wlr-screencopy`, which Slipstream didn't serve, so none of them ran. They do now — **and nothing records your screen without asking.** A program that asks puts up a card naming it, offering "just this once" or "always allow"; until you answer, it simply waits. What has been allowed is listed in Settings → Privacy, where an answer can be taken back. A program that can't be identified is refused rather than asked about, and an answer is never remembered against a program that anyone could replace. Tools that need dmabuf, `wl-screenrec` among them, still don't work.
+- **Resolution, refresh rate and scale, per screen**, in Settings → Screens. Slipstream couldn't change any of them before: a screen ran at whatever mode it asked for, at a scale worked out from its size, and nothing could say otherwise. Both settings default to Automatic, which is exactly what happened before. A mode a screen turns out not to have is ignored rather than applied, so settings carried to another desk can't blank a monitor.
+- **Ctrl+Alt+Del opens the way out** — lock, log out, restart or shut down, on one card, starting on Lock. It was the one chord nothing answered: the kernel never sees it once Slipstream has the keyboard, so it did nothing at all, which is the worst thing for the key people reach for when something has gone wrong. **Super+Shift+Esc no longer logs out**; quick settings has the same four destinations for the mouse.
+- **Super+R turns the layout on its side**, rows becoming columns. The tiling tree could reach a shape there was no way out of — one wide tile along the top with two side by side under it, when what you wanted was the wide one down a side and the pair stacked on the other. Moving tiles about could never fix it, because every arrangement of the same tree has the same splits. From the wide window it turns the whole arrangement; from one of the pair it swaps just that pair. Twice puts it back exactly.
+- **Super+H hides every window on the workspace** into the code rain at once, and the same windows come back on the next press. Windows' "minimise all", where Super+M is one window. Each window flies into its own stream rather than fading out on the way.
+- **Hold Caps Lock for Awake**, which keeps the screen on: no wallpaper fade, no idle lock, and nothing else on the machine is told you've gone quiet. A tap is still plain Caps Lock. It ends by itself when you lock, log out, close the lid or the machine sleeps.
+- **Super+Space belongs to input methods again.** A tapped Super already opened the app explorer, so the binding was a duplicate that cost IBus its key for nothing.
+- **The Run box is gone.** Super+R opened the same explorer a tapped Super does, so it was a second way to the same panel. Typing something no app matches still offers to run it, exactly as before.
+- **Gravity's ladder no longer passes through tiling.** It sat in the middle, so stepping past the middle turned gravity off and on again — a confusing way back to tiling, and a message every time. The ladder is distant, orbit, grid, centre, wide, spotlight, and Super+T is the way back.
+- **An empty workspace shows a small prompt instead of the whole key table.** The table had grown to two columns of thirteen rows and covered most of the wallpaper, on the one screen where the wallpaper is all there is to look at.
+- **The Super+/ sheet no longer lists the laptop's own keys** — play, pause, volume, mute, brightness. They have pictures on them and work the same everywhere, so they filled a column with what nobody came to look up.
+- **Colour-temperature and idle tools work:** `wlsunset` and `gammastep` can drive a screen's colour, and Slipstream's own night light steps aside for whichever screens they've taken and comes back when they let go. `swayidle` and anything else waiting for an idle seat is told.
+- **Windows stay solid as they fly into the code rain.** They faded out over the journey, so they crossed the screen half transparent and mixed with whatever was behind them; they now hold their opacity almost all the way and go out as they land.
+- **Super+B opens a browser window.** Whichever browser the desktop is set to open a web page with: `$BROWSER` if it names one, else the default the rest of the machine follows, read from `mimeapps.list` and started the way its own desktop entry says to, so a browser installed as a Flatpak works like any other. Nothing is preferred over anything else, and if no default is set it says so rather than guessing.
+- **Sleep, Restart and Shut down work again on current systemd.** They were asked for with `loginctl suspend`, `loginctl reboot` and `loginctl poweroff`; systemd has since dropped those three commands, so on a machine with a recent systemd every one of them came back as "Unknown command verb" and nothing happened — Restart and Shut down after the desktop had already closed every app. Slipstream now asks logind itself, over the system bus, which systemd-logind and elogind have both answered the same way for years and which no longer depends on which commands a particular version of `loginctl` happens to ship.
+- **Dark or light is Slipstream's to set, and Settings → Appearance sets it.** Slipstream names only itself as the desktop, so nothing on the machine was answering apps that asked which to be, and they all came up light whatever the rest of the screen looked like. Slipstream now answers that question itself, over the settings portal every toolkit already asks: GTK and Qt apps, Firefox, Chromium and anything packaged as a Flatpak change the moment the setting does, without restarting. Dark to begin with. Slipstream's own bar, panels and windows are dark either way. The installer checks that the portal is there and new enough, offers to install it where it isn't, and says plainly which apps won't follow on a system that can't manage it.
+- **Settings → Screens arranges your monitors.** Slipstream put every screen in a row, left to right, tops level, in whatever order they were plugged in, and there was no way to say otherwise — so a monitor sitting above the laptop, or to its left, was somewhere the pointer could only reach by going the wrong way. Each screen can now be placed above, below, left of or right of the one before it, and told which edges line up with it. **Super+↑ and Super+↓ cross between screens** now too, which they couldn't while screens were always a row. Changes apply straight away.
+- **A monitor you plug in gets a workspace of its own** instead of taking one of yours. Before, a second screen claimed the lowest-numbered free workspace, so Super+2 stopped showing workspace 2 on the screen you were working on and jumped the keyboard to the monitor instead. Now the numbered workspaces stay where they are, and the monitor gets an empty one of its own — a blank area to throw windows at. The first time a given screen is seen, a card offers the other answer; the choice is remembered against that screen, so it's asked once per monitor rather than once per dock. A workspace made this way disappears when it is empty and its screen has gone, and stays as an ordinary workspace at the end of the list for as long as anything is open on it.
+- **Super+Shift+P sends a window to the next screen without following it.** It used to take the keyboard along, which is the wrong reflex for throwing something on to a second monitor; Super+P still moves the keyboard when you do want to go. A toast names the screen and workspace it landed on.
+- **Screens are told apart by what they are, not which port they are in**, so the same monitor on a different port is recognised and a different monitor on the same port is not.
+- **A window can fill each screen at once.** Putting a second window fullscreen took the first out of fullscreen without telling it, so only one screen at a time could be filled — no video on the monitor while a game filled the laptop — and the window it displaced was left believing it still covered a screen. An app that asks to fill a particular screen is also sent there now, instead of filling whichever one it happened to be on.
+- **Windows are paced by the screen they are on.** Every window was woken by every screen's refresh, so plugging a 144 Hz monitor in beside a 60 Hz panel made windows on the panel redraw at the combined rate, wasting power and confusing apps that draw once per frame.
+- **A touchscreen or drawing tablet points at the built-in screen** rather than at whichever screen happened to be set up first, so a laptop started with a monitor already plugged in no longer sends its own touches to the monitor.
+- **The volume and brightness card stays put while you hold the key.** It played its rise and fade in again on every press, so the card flickered under a held key instead of the level simply sliding along. The entrance now happens once, when the card appears; further presses only move the bar and put its departure off.
+- **A notification pop-up has a cross to close it with**, in its top right corner as the notification centre's cards do, so one that's in the way goes with a click rather than a trip through the centre. The notification stays in the centre; a click elsewhere on the pop-up still opens it.
+- **Quick settings' volume slider clicks at the new level**, as the volume keys already did, so the volume can be heard as well as seen when it's set with the mouse or the arrow keys. The same Sound setting turns both off.
 - **Installing works when there's no terminal to type a password into** — run from a file manager, a launcher, or a shell that isn't attached to one. sudo asks through the desktop's graphical helper instead of refusing.
 
-## [0.5.1] - 2026-09-16
+## 0.5.1 - 2026-09-16
 
 - **Installing works on systems whose sudo asks for the root password** (openSUSE's default). The installer asked sudo to check the password up front, which such a configuration refuses outright even where it would let the install through; it now tries a real command before giving up.
 - **A first-boot wizard's leftover automatic login is no longer reported as one.** Some systems keep an `[Autologin]` section naming their own setup account long after the login screen has come back, and the installer wrongly said no login screen would appear. Only an account that belongs to a person counts.
 
-## [0.5.0] - 2026-09-16
+## 0.5.0 - 2026-09-16
 
 - **One download for every distribution.** Releases had one build per system, each linking that system's libraries; there is now a single `slipstream-VERSION-linux-x86_64.tar.gz` that runs on any current distribution with Debian 13's libraries or newer. libdisplay-info, whose soname changes with every release, is linked in, and each release is checked before publishing that nothing asks for a newer glibc or an unusual library.
 - **One command installs it**, from the README: it fetches the newest release, checks it against its published checksum and runs the installer. `--try` opens Slipstream in a window on your current desktop first, `--check` says what installing would do and writes nothing. Downloads carry a signed record of where they were built, which `gh attestation verify` checks.
@@ -158,20 +61,20 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Every release is installed and started on Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed** before it's called done, and the newest release is checked again weekly against the distributions that keep moving, so a change in one of them shows up before somebody's first login.
 - `scripts/try-slipstream` runs Slipstream in a window on the desktop you're already using, with its settings and state in a scratch folder, so nothing changes.
 
-## [0.4.3] - 2026-09-15
+## 0.4.3 - 2026-09-15
 
 - **Releases have a download for Ubuntu 26.04 LTS** and the systems built on it, such as Kubuntu 26.04, beside the one for Fedora 44, so neither needs building from source. The README says which download is whose, and how to build on Ubuntu. Ubuntu 24.04 and the systems built on it are too old for the Settings app.
 
-## [0.4.2] - 2026-09-15
+## 0.4.2 - 2026-09-15
 
 - **Slipstream shows up on SDDM's login screen on Ubuntu 22.04, Kubuntu, Debian 12 and other systems with SDDM 0.19.** That version only reads sessions from `/usr/share/wayland-sessions`, so on a system whose `/usr` can be written, `install-session` now puts the entry there for SDDM and Plasma Login (atomic systems keep `/usr/local`), and moves an entry an earlier install left in `/usr/local`. A `SessionDir` is only taken from the `[Wayland]` section of SDDM's configuration, and `sddm.conf` wins over `sddm.conf.d`, as in SDDM itself.
 - `install-session` says when GDM has Wayland turned off (in `custom.conf`, or by its own rules for NVIDIA's driver without `nvidia-drm.modeset=1`, `nomodeset` and some virtual machines), since GDM then lists no Wayland session at all, and no longer claims Slipstream is on the list.
 
-## [0.4.1] - 2026-09-15
+## 0.4.1 - 2026-09-15
 
 - **The browser that comes with Slipstream is now called Glimmerwood.** Another web browser already goes by Wisp, so it has a name of its own; its companion is still the wisp. `extras/glimmerwood.conf` installs it from [Glimmerwood's releases](https://github.com/peterwalker78/glimmerwood/releases) under its new app ID, `io.github.peterwalker78.Glimmerwood`, beside any Wisp 0.1.0 already installed, which `flatpak uninstall --user io.github.peterwalker78.Wisp` removes. A `~/.config/slipstream/extras/wisp.conf` of your own no longer replaces the shipped entry: rename it to `glimmerwood.conf`.
 
-## [0.4.0] - 2026-09-15
+## 0.4.0 - 2026-09-15
 
 - **Slipstream comes with Wisp**, a calm web browser with a living companion that reflects how your time online feels, from [its own project](https://github.com/peterwalker78/wisp). `update-session` installs it from Wisp's latest release as a Flatpak, checks it against the release's SHA-256, and updates it when a new release comes out. It isn't made the default browser. A file of your own in `~/.config/slipstream/extras/` with the same name replaces the shipped one, and `install=no` on its own leaves Wisp out. Release packages carry the shipped `extras/`.
 - The README says why Slipstream exists: a desktop that's private by design, builds healthy habits in, and keeps distractions out.
@@ -179,7 +82,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Settings has a Meter page** for the meter's command and how often it runs, with **Run it now**, which shows what the bar would show or why the command doesn't work: its exit code and the last thing it said, a report that isn't readable, or a command too slow to answer.
 - `install-extras` installs an app's bundle when building it from its checkout fails and the app isn't installed yet, so a broken build never leaves it missing. An app that's already installed keeps its own build.
 
-## [0.3.0] - 2026-09-15
+## 0.3.0 - 2026-09-15
 
 - **More than one screen behaves predictably.** Super+1–9 to a workspace another screen is already showing now moves the keyboard to that screen, and neither screen changes what it shows. Before, the two screens traded workspaces. Trading is now its own key, **Super+Ctrl+P**, which swaps workspaces with the next screen, windows and all. Super+Ctrl+←/→ passes over workspaces another screen is showing, and bar clicks and bullet time follow the same rule.
 - **Windows no longer appear on the wrong screen.** Whenever the left screen showed a higher-numbered workspace than the right one, each screen drew the other's windows over its own. Each screen now draws only its own windows.
@@ -197,7 +100,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Notifications know which window they came from.** Slipstream asks the bus which process sent a notification, pins it with a pidfd, and follows its parents up to the first one with a window, so `notify-send` from a script in a terminal belongs to that terminal. Opening the notification brings that exact window forward, even with several windows of the same app open. While you're working in that window, its notifications make no sound, don't wake anything, and a critical one comes and goes like any other instead of staying until dismissed.
 - **A critical notification brings the desktop back** from the living wallpaper, so it can be seen from across the room. It doesn't count as you being there, so the screen still locks on time, and nothing shows over the lock screen.
 
-## [0.2.0] - 2026-09-14
+## 0.2.0 - 2026-09-14
 
 - **Floating windows.** Dialogs and fixed-height windows (splash screens, Firefox's picture-in-picture) open floating above the tiling: a dialog centred over the window it belongs to, anything else centred on the screen at the size it asks for. They stay above the tiles with dialogs above their parents, move with their workspace, and keep their place when a screen changes size. **Super+Shift+V** floats a window or tiles it again, and **Super+Ctrl+V** moves the keyboard between the floating windows and the tiles. While a floating window has the keyboard, Super+arrows go between floating windows, Super+Alt+arrows move it and Super+[ ] resize it; Super+drag or its own title bar moves it and its edges resize it. A floating window asking for fullscreen fills the screen from the tiling and floats again afterwards.
 - **Night light can follow a schedule**: sunset to sunrise, worked out from your time zone with no location needed, or hours you set (Settings → Appearance). When the schedule turns it, the screen warms up over half an hour the way the light outside changes, and cools the same way in the morning; switching it by hand in quick settings eases over a second and lasts until the next change.
@@ -218,41 +121,41 @@ Slipstream is in beta: anything can change between versions, including settings 
 - Touchpad swipes, pinches and holds reach apps, so pinching zooms pages and pictures.
 - Coming back from the living wallpaper takes 0.5 s and speeds up all the way into place, mirroring the fade out, where the desktop speeds away. It hurries through the first moment, before any of the desktop can be seen, so a key press is answered at once.
 
-## [0.1.0] - 2026-09-14
+## 0.1.0 - 2026-09-14
 
 - The fade to the living wallpaper is now two panes of glass. The desktop's pane tips back about its bottom right corner as it sinks away, and where it passes through the wallpaper's pane the soft diagonal edge sweeps across the screen from the top left, blurring and catching the light without pulling the picture aside, so the desktop moves smoothly as the edge passes over it. Past the edge the desktop is behind the wallpaper, darkening as it falls away. Each way takes 0.6 s. Waking runs the same movement in reverse, but starts at full speed and settles, so the desktop shows up as soon as a key is pressed.
 - Caps Lock no longer holds off the screen lock. It still keeps the screensaver off, but a desktop left with Caps Lock on now locks after its idle minutes like any other. Its card says so ("Screensaver paused", adding "lock still on" when the screen locks by itself) and stays up half a second longer. The key hints on an empty workspace and the Super+/ sheet list Caps Lock too.
 
-## [0.0.8] - 2026-09-14
+## 0.0.8 - 2026-09-14
 
 - Typing now ends after 15 seconds without a key press instead of four, so notifications and windows from other apps wait through the short breaks while you think.
 - The bar no longer shows "Back to *app* · Alt+Tab" after a notification or another app takes you to a window. Alt+Tab still goes back.
 
-## [0.0.7] - 2026-09-14
+## 0.0.7 - 2026-09-14
 
 - The bar's buttons take clicks the bar's whole height, right up to the top edge of the screen, and the apps button and the bell reach out to the screen's corners, so a pointer pushed against the edge still clicks what's under it.
 - The app name the code rain spells out is lit in the focus ring's colour, like the name on the stream's header, instead of the rain's own, with its vowels in lower case and the rest in capitals ("KoNSoLe").
 
-## [0.0.6] - 2026-09-14
+## 0.0.6 - 2026-09-14
 
 - The code rain spells out each app's name again as it falls, as well as writing it on the stream's header.
 
-## [0.0.5] - 2026-09-14
+## 0.0.5 - 2026-09-14
 
 - Three new living wallpapers, making twenty. **Galaxies:** the two halves of the logo wind up into spiral galaxies that collide and merge, and then the collision runs backwards until the letters are whole again. **Chladni:** the logo's dots are sand on a ringing plate, shaken into a new figure by each note, and they walk home when the plate falls quiet. **Frost:** frost grows out of the letters in branching ferns, glitters, and melts back the way it came.
 
-## [0.0.4] - 2026-09-14
+## 0.0.4 - 2026-09-14
 
 - **Windows you didn't ask for go to the code rain.** A new window tiles and takes the keyboard only when you asked for it: a dialog or window of the app you're using, a program started from it (a command in a terminal), something launched from the desktop, or a window that appears within a few seconds of a click or key press. Anything else, such as an app opening a window by itself, pours into the code rain with a toast naming it; Super+Shift+M or a click on its stream brings it in. While you type in one app, a window from another goes to the rain too, so the window you're typing in never changes size.
 - The code rain's app names are written in the focus ring's colour, and follow it when it's changed in Settings.
 
-## [0.0.3] - 2026-09-13
+## 0.0.3 - 2026-09-13
 
 - The living wallpaper's variations take turns in a random order: each ticked one shows once, shuffled, before any comes back, and none follows itself. The first one after login is random too.
 - The Caps Lock card said "on" whichever way the key went; it now says which. While Caps Lock is on, the card notes that the screensaver and screen lock are paused.
 - Caps Lock now holds off the idle lock as well as the wallpaper fade.
 
-## [0.0.2] - 2026-09-13
+## 0.0.2 - 2026-09-13
 
 ### Concentration first
 
@@ -276,7 +179,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - Version tags build the programs on Fedora 44 in CI and attach them, with the install scripts, to the release.
 - `slipstream --version`.
 
-## [0.0.1] - 2026-09-13
+## 0.0.1 - 2026-09-13
 
 The first beta.
 

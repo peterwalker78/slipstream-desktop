@@ -33,9 +33,12 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         -h | --help)
-            sed -n '2,14p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || cat <<'USAGE'
-install.sh [--check] [--try] [--version vX.Y.Z] [--dir DIR]
-USAGE
+            # Run as sh -c "$(curl ...)", $0 is no file, so there's no header to show.
+            if [ -f "$0" ]; then
+                sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+            else
+                echo "install.sh [--check] [--try] [--version vX.Y.Z] [--dir DIR] [--yes]"
+            fi
             exit 0
             ;;
         *)
@@ -59,7 +62,7 @@ case $arch in
     x86_64) ;;
     *)
         echo "install.sh: there are only x86_64 downloads so far, and this is $arch." >&2
-        echo "Build from source instead: https://github.com/$project#from-source" >&2
+        echo "Build from source instead: https://github.com/$project/blob/main/guide/install.md#building-it-yourself" >&2
         exit 1
         ;;
 esac

@@ -1,8 +1,6 @@
 # Installing Slipstream
 
-Slipstream installs **alongside** the desktop you use now. Nothing about your
-current setup changes: you pick Slipstream from the list at the login screen,
-and you can go back at any time.
+Slipstream installs **alongside** the desktop you use now. Nothing about your current setup changes: you pick Slipstream from the list at the login screen, and you can go back at any time.
 
 [← back to the README](../README.md)
 
@@ -30,6 +28,8 @@ To look before you leap, put an option after `--`. `--try` opens Slipstream in a
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
 ```
+
+The other options go the same way: `--version v0.6.0` installs that release instead of the newest, `--dir DIR` unpacks the download there instead of `~/.cache/slipstream-install`, and `--yes` takes every step the installer offers without asking.
 
 Prefer to read what you run? [`install.sh`](../install.sh) is a short shell script that does nothing clever, and the [releases page](https://github.com/peterwalker78/slipstream-desktop/releases) has the same download to unpack yourself:
 
@@ -105,7 +105,7 @@ Slipstream never checks for updates by itself, and nothing here contacts the int
 
 ## Uninstalling
 
-From another desktop:
+From another desktop, in the unpacked download (the one command leaves it in `~/.cache/slipstream-install/slipstream-VERSION-linux-x86_64`) or your clone:
 
 ```sh
 scripts/install-session --uninstall           # the session, the programs, their units and portal settings
