@@ -672,7 +672,7 @@ impl Slipstream {
             known: known::read(&known::path()),
             restore_looked: false,
             tags: Vec::new(),
-            rain: Rain::new(false, ring_rgb),
+            rain: Rain::new(false, settings.motion.effects, ring_rgb),
             idle: Idle::new(false, settings.wallpaper.fade_after_secs),
             concentration: Default::default(),
             savers: HashMap::new(),
@@ -5075,6 +5075,7 @@ impl Slipstream {
         }
         self.ring_rgb = settings.borders.selected_tile_rgb();
         self.rain.set_ring_colour(self.ring_rgb);
+        self.rain.set_effects(settings.motion.effects);
         self.bullet_rgb = settings.borders.bullet_time_rgb();
         if settings.workspaces != self.settings.workspaces {
             let entries = workspace_entries(&settings);
@@ -5455,7 +5456,7 @@ impl Slipstream {
         };
         let reduced = self.clock.reduced_motion;
         let ghost = if self.settings.motion.close_into_rain && !reduced {
-            crate::ghost::Ghost::falling(picture, rect, now)
+            crate::ghost::Ghost::falling(picture, rect, now, self.settings.motion.effects)
         } else {
             crate::ghost::Ghost::new(picture, rect, now, reduced)
         };

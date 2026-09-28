@@ -77,6 +77,8 @@ Put a window away and it doesn't disappear into a bar along the bottom. It pours
 
 Each stream spells out its app's name as it falls. Click one to bring the window back.
 
+**Or Slipstream's own look.** Settings → Appearance → Effects swaps the code for light falling through slits cut in the logo's rhythm, with the app's name engraved down the card and lit wherever the light passes. It says the same things: more light, faster and greener, the harder the app works.
+
 <br clear="right">
 
 ## Bullet time
@@ -119,7 +121,7 @@ Along the way you can set down what's weighing on you and watch it set in the we
 
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
-- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT.
+- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT. With Slipstream's own effects it splits along slits into slabs that drop away as light.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
 - **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
 - **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.

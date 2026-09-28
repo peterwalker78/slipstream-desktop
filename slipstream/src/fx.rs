@@ -1,8 +1,12 @@
-//! Derez: a closed window read out into falling code, like a picture on a failing CRT.
+//! Closing windows falling away, drawn by a shader over the window's last picture.
 //!
-//! It is drawn by a shader over the window's last picture. The rain's glyphs travel with that
-//! picture: a strip below it holds each of Matrix mode's 26 glyphs, drawn from the rain's own
-//! font, so one texture carries both and the shader needs nothing else.
+//! Derez, with the code rain: the window is read out into falling code, like a picture on a
+//! failing CRT. The rain's glyphs travel with the picture: a strip below it holds each of Matrix
+//! mode's 26 glyphs, drawn from the rain's own font, so one texture carries both and the shader
+//! needs nothing else.
+//!
+//! Slabs, with Slipstream's own effects: slits open across the window in the streams' rhythm and
+//! the slabs between them drop away one after another, bottom first, turning to light as they go.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -18,6 +22,8 @@ use smithay::backend::renderer::{
     },
 };
 use smithay::utils::{Logical, Physical, Point, Rectangle, Size, Transform};
+
+use slipstream_config::Effects;
 
 use crate::{
     glmatrix::{Glyphs, TINT},
@@ -37,6 +43,22 @@ const PACE: f64 = 1.25;
 pub const DEREZ: f64 = 1.2 / PACE;
 /// How fast falling glyphs speed up, in logical pixels a second a second.
 const GRAVITY: f64 = 3400.0;
+/// How long a closed window takes to drop away in slabs, in animation seconds: the last slab lets
+/// go at 0.48 s and has faded by 0.7 s after that.
+pub const SLABS: f64 = 1.2;
+/// How fast slabs speed up, in logical pixels a second a second, at least...
+const SLAB_GRAVITY: f64 = 1200.0;
+/// ...and in window heights a second a second, so a tall window's slabs still clear the screen
+/// in time.
+const SLAB_GRAVITY_HEIGHTS: f64 = 6.0;
+
+/// How long a closed window takes to fall away in `effects`.
+pub fn length(effects: Effects) -> f64 {
+    match effects {
+        Effects::Matrix => DEREZ,
+        Effects::Slipstream => SLABS,
+    }
+}
 
 /// The glyph strip at one scale.
 struct Atlas {
@@ -50,17 +72,20 @@ struct Atlas {
 #[derive(Default)]
 pub struct Fx {
     derez: Option<GlesTexProgram>,
+    slabs: Option<GlesTexProgram>,
     broken: bool,
     glyphs: Option<Glyphs>,
     atlas: Option<Atlas>,
 }
 
 impl Fx {
-    /// Whether a closing window can fall away as code, compiling the shader the first time.
+    /// Whether a closing window can fall away, compiling the shaders the first time.
     pub fn ready(&mut self, renderer: &mut GlesRenderer) -> bool {
         if self.broken || self.derez.is_some() {
             return !self.broken;
         }
+        // Both shaders take the same inputs, the slabs' `unit` besides; one that a shader doesn't
+        // use is simply not set.
         let uniforms = [
             UniformName::new("texpx", UniformType::_2f),
             UniformName::new("content", UniformType::_2f),
@@ -69,11 +94,19 @@ impl Fx {
             UniformName::new("ink", UniformType::_3f),
             UniformName::new("window_h", UniformType::_1f),
             UniformName::new("gravity", UniformType::_1f),
+            UniformName::new("unit", UniformType::_1f),
         ];
-        match renderer.compile_custom_texture_shader(format!("{HEAD}{DEREZ_MAIN}"), &uniforms) {
-            Ok(program) => self.derez = Some(program),
-            Err(err) => {
-                tracing::warn!("the closing shader didn't compile, so closed windows fade: {err}");
+        let derez =
+            renderer.compile_custom_texture_shader(format!("{HEAD}{DEREZ_MAIN}"), &uniforms);
+        let slabs =
+            renderer.compile_custom_texture_shader(format!("{HEAD}{SLABS_MAIN}"), &uniforms);
+        match (derez, slabs) {
+            (Ok(derez), Ok(slabs)) => {
+                self.derez = Some(derez);
+                self.slabs = Some(slabs);
+            }
+            (Err(err), _) | (_, Err(err)) => {
+                tracing::warn!("a closing shader didn't compile, so closed windows fade: {err}");
                 self.broken = true;
             }
         }
@@ -144,13 +177,14 @@ impl Fx {
         .map(OutputElement::Memory)
     }
 
-    /// A closed window's last picture, `elements` laid out from its corner, read out into falling
-    /// code `t` seconds in. It was drawn at `rect` on a screen whose bottom edge is `bottom`, both
-    /// in the screen's own logical pixels; the glyphs fall off that edge.
+    /// A closed window's last picture, `elements` laid out from its corner, falling away in
+    /// `effects` `t` seconds in. It was drawn at `rect` on a screen whose bottom edge is `bottom`,
+    /// both in the screen's own logical pixels; what falls, falls off that edge.
     #[allow(clippy::too_many_arguments)]
-    pub fn derez(
+    pub fn fall(
         &mut self,
         renderer: &mut GlesRenderer,
+        effects: Effects,
         texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
         mut elements: Vec<OutputElement>,
         rect: Rectangle<f64, Logical>,
@@ -169,9 +203,24 @@ impl Fx {
         let window_h = (rect.size.h * scale).round() as f32;
         let cell = crate::rain::glyph_size(scale);
         let cell = (cell.0 as i32, cell.1 as i32);
-        let atlas_w = cell.0 * GLYPHS.len() as i32;
-        let texpx = Size::<i32, Physical>::from((content.w.max(atlas_w), content.h + cell.1));
-        elements.extend(self.atlas_element(renderer, scale, content.h));
+        let (texpx, program, t, gravity) = match effects {
+            Effects::Matrix => {
+                let atlas_w = cell.0 * GLYPHS.len() as i32;
+                elements.extend(self.atlas_element(renderer, scale, content.h));
+                (
+                    Size::<i32, Physical>::from((content.w.max(atlas_w), content.h + cell.1)),
+                    self.derez.clone()?,
+                    t * PACE,
+                    GRAVITY,
+                )
+            }
+            Effects::Slipstream => (
+                content,
+                self.slabs.clone()?,
+                t,
+                SLAB_GRAVITY.max(SLAB_GRAVITY_HEIGHTS * rect.size.h),
+            ),
+        };
         tilt::draw_offscreen(
             renderer,
             texture,
@@ -206,16 +255,13 @@ impl Fx {
             Uniform::new("texpx", (texpx.w as f32, texpx.h as f32)),
             Uniform::new("content", (content.w as f32, content.h as f32)),
             Uniform::new("cell", (cell.0 as f32, cell.1 as f32)),
-            Uniform::new("t", (t * PACE) as f32),
+            Uniform::new("t", t as f32),
             Uniform::new("ink", TINT),
             Uniform::new("window_h", window_h),
-            Uniform::new("gravity", (GRAVITY * scale) as f32),
+            Uniform::new("gravity", (gravity * scale) as f32),
+            Uniform::new("unit", crate::louvre::unit(scale) as f32),
         ];
-        Some(TextureShaderElement::new(
-            inner,
-            self.derez.clone()?,
-            uniforms,
-        ))
+        Some(TextureShaderElement::new(inner, program, uniforms))
     }
 }
 
@@ -399,6 +445,79 @@ void main() {
     float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : 0.62;
     float flicker = 0.88 + 0.12 * hash(vec2(frame, 1.0));
     color.rgb *= scan * flicker;
+    finish(color);
+}
+"#;
+
+/// Slabs. Slits open across the window, one part in four, as in the streams, cutting it into about
+/// sixteen slabs, and the slabs let go one after another from the bottom, speeding up as they drop,
+/// so gaps open between them rather than one sliding over the next. Each turns from the window's
+/// own colours to light in the rain's tint as it goes, leaves a faint streak of that light behind
+/// it, and fades. The slabs stay rigid: they only drop, never stretch or bend.
+const SLABS_MAIN: &str = r#"
+uniform float window_h;
+uniform float gravity;
+uniform float unit;
+
+// The slits open over this long, then the slabs let go, the top one this long after the bottom.
+const float OPEN = 0.12;
+const float SPREAD = 0.36;
+// A slab is gone this long after it lets go, fading over the last part of that.
+const float GONE = 0.65;
+const float FADE = 0.3;
+// Its streak fades a little later.
+const float TRAIL = 0.7;
+const float SLABS = 16.0;
+
+// The picture's light, in the rain's tint.
+vec3 inked(vec4 c) {
+    return ink * min(1.3 * dot(c.rgb, vec3(0.3, 0.59, 0.11)), 1.0);
+}
+
+void main() {
+    vec2 px = v_coords * texpx;
+    vec4 color = vec4(0.0);
+    vec3 streak = vec3(0.0);
+    if (px.x >= 0.0 && px.x < content.x) {
+        // A slab and its slit are a whole number of the streams' units, three parts to one.
+        float step4 = 4.0 * unit;
+        float period = max(step4, floor(window_h / SLABS / step4 + 0.5) * step4);
+        float h = period - 0.25 * period * clamp(t / OPEN, 0.0, 1.0);
+        float count = ceil(window_h / period);
+        // Only a slab that let go less than TRAIL ago can reach this far down, so only those
+        // above within its fall are looked at.
+        float lead = clamp(t - OPEN, 0.0, TRAIL);
+        float reach = 0.5 * gravity * lead * lead + period;
+        float first = max(floor((px.y - reach) / period), 0.0);
+        for (int k = 0; k < 64; k++) {
+            float i = first + float(k);
+            float y0 = i * period;
+            if (i >= count || y0 > px.y) {
+                break;
+            }
+            float order = (count - 1.0 - i) / max(count - 1.0, 1.0);
+            float a = max(t - OPEN - SPREAD * order, 0.0);
+            if (a > TRAIL) {
+                continue;
+            }
+            float drop = 0.5 * gravity * a * a;
+            float hh = min(h, window_h - y0);
+            float into = px.y - y0 - drop;
+            float alive = 1.0 - clamp((a - (GONE - FADE)) / FADE, 0.0, 1.0);
+            float lit = clamp(a / 0.3, 0.0, 1.0);
+            if (into >= 0.0 && into < hh) {
+                vec4 c = picture(vec2(px.x, y0 + into));
+                color += c * alive * (1.0 - lit);
+                color.rgb += inked(c) * alive * lit;
+            } else if (drop > 1.0 && px.y >= y0 && px.y < y0 + drop + hh) {
+                // The streak: the slab's light drawn out from where it was to where it is. The
+                // brightest one wins, so streaks crossing each other don't pile up.
+                vec4 c = picture(vec2(px.x, y0 + (px.y - y0) / (drop + hh) * hh));
+                streak = max(streak, inked(c) * 0.22 * (1.0 - a / TRAIL));
+            }
+        }
+    }
+    color.rgb += streak;
     finish(color);
 }
 "#;

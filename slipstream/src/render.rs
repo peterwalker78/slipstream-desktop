@@ -1813,15 +1813,18 @@ pub fn output_elements(
     if zoomed_out <= 0.0 {
         let context = renderer.context_id();
         let screen = output_geo.to_f64();
-        let falling = state.ghosts.iter().any(|ghost| ghost.rain) && chrome.fx.ready(renderer);
+        let falling =
+            state.ghosts.iter().any(|ghost| ghost.rain.is_some()) && chrome.fx.ready(renderer);
         let mut pieces: Vec<OutputElement> = Vec::new();
         for ghost in state
             .ghosts
             .iter_mut()
             .filter(|ghost| ghost.overlaps(screen))
         {
-            // Read out into falling code, when closing into the rain is on.
-            if ghost.rain && falling {
+            // Falling away in the chosen effects, when closing into the rain is on.
+            if let Some(effects) = ghost.rain
+                && falling
+            {
                 let still: Vec<OutputElement> = ghost
                     .still_elements(&context, scale)
                     .into_iter()
@@ -1829,8 +1832,9 @@ pub fn output_elements(
                     .collect();
                 let rect = Rectangle::new(ghost.rect.loc - screen.loc, ghost.rect.size);
                 let t = now - ghost.started;
-                if let Some(element) = chrome.fx.derez(
+                if let Some(element) = chrome.fx.fall(
                     renderer,
+                    effects,
                     &mut ghost.texture,
                     still,
                     rect,

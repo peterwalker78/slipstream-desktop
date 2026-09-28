@@ -200,6 +200,32 @@ fn appearance(store: &Store) -> gtk::Widget {
         Some("Windows jump into place and effects become short fades"),
         &reduced,
     );
+    let styles = [
+        (slipstream_config::Effects::Matrix, "Matrix rain"),
+        (slipstream_config::Effects::Slipstream, "Slipstream"),
+    ];
+    let names: Vec<&str> = styles.iter().map(|(_, name)| *name).collect();
+    let effects = gtk::DropDown::from_strings(&names);
+    let current = store.get().motion.effects;
+    effects.set_selected(
+        styles
+            .iter()
+            .position(|(which, _)| *which == current)
+            .unwrap_or(0) as u32,
+    );
+    let effects_store = store.clone();
+    effects.connect_selected_notify(move |effects| {
+        if let Some((which, _)) = styles.get(effects.selected() as usize) {
+            let which = *which;
+            effects_store.change(|settings| settings.motion.effects = which);
+        }
+    });
+    row(
+        &motion,
+        "Effects",
+        Some("What minimised apps turn into: falling code, or light through slits"),
+        &effects,
+    );
     let rain = gtk::Switch::new();
     rain.set_active(store.get().motion.close_into_rain);
     let rain_store = store.clone();
@@ -210,7 +236,7 @@ fn appearance(store: &Store) -> gtk::Widget {
     row(
         &motion,
         "Close into the rain",
-        Some("A closed window is read out into code that falls off the screen"),
+        Some("A closed window falls away in the same effects instead of fading"),
         &rain,
     );
 

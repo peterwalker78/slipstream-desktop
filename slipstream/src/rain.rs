@@ -1,6 +1,7 @@
-//! The code rain on the right of the screen, where minimised windows go. Each window becomes a
-//! stream of GLMatrix rain (`glmatrix.rs`) under a header with its icon and a meter. The
-//! tiling area gives up the width.
+//! The streams on the right of the screen, where minimised windows go. Each window becomes a
+//! stream under a button with its icon and a meter, falling as GLMatrix rain (`glmatrix.rs`) or
+//! as light through slits (`louvre.rs`), whichever effects are chosen. The tiling area gives up
+//! the width.
 //!
 //! **A stream is about its app, top to bottom.** How hard that app is working is one figure, and
 //! the whole column says it: the meter's length in the header, and the colour and the speed of
@@ -26,9 +27,12 @@ use smithay::{
     utils::{Logical, Physical, Point, Rectangle, Size},
 };
 
+use slipstream_config::Effects;
+
 use crate::{
     glmatrix::{self, Band, Glyphs, Look},
     layout::Rect,
+    louvre::Louvre,
     paint::{self, Painter},
     panel::DESIGN_PX,
     text::{self, Face, Style},
@@ -38,13 +42,19 @@ use crate::{
 // Sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`) to
 // match.
 const STREAM: f32 = 45.0;
-const GLOW: f32 = 16.0;
 /// How far below the bar a stream's header card starts, in design pixels. The card its rain
 /// falls down stops the same distance above the foot of the screen.
 const HEAD_GAP: f32 = 12.0;
-/// The header card's width and corner radius, in design pixels before `HEADER`.
+/// The button's width, height and corner radius, the card's radius too, in design pixels before
+/// `HEADER`.
 const BUTTON_W: f32 = 58.0;
-const RADIUS: f32 = 12.0;
+const BUTTON_H: f32 = 33.0;
+const RADIUS: f32 = 9.0;
+/// The button's colour: a shade lighter than the card hanging from it.
+const BUTTON: u32 = 0x151a23ff;
+/// The icon's size, and how far down the button its middle is.
+const ICON: f32 = 16.0;
+const ICON_MIDDLE: f32 = 14.5;
 /// The gap between an app's button and the card under it, in logical pixels.
 const CARD_GAP: f64 = 2.0;
 /// How far inside the card's edge the rain stops, in logical pixels.
@@ -53,16 +63,20 @@ const CARD_INSET: f64 = 2.0;
 const CARD: u32 = 0x0b0d12ff;
 /// The headers' scale: three quarters of full size, to suit the narrow streams.
 const HEADER: f32 = 0.75;
-/// The app's own meter at the foot of its header, in design pixels: as wide as the icon,
-/// and a hairline tall — it is read as how full it is, never as a number.
-const METER_H: f32 = 5.0;
+/// The app's own meter under its icon, in design pixels: a hairline, read as how full it is,
+/// never as a number.
+const METER_W: f32 = 32.0;
+const METER_H: f32 = 2.0;
+const METER_TOP: f32 = 27.0;
+/// The meter's empty part: a faint white over the button.
+const METER_TRACK: u32 = 0xffffff14;
 /// How finely the meter is quantised. A header is a painted buffer, so it is repainted only when
-/// the meter moves by a step of this; at 40 design pixels wide a step is about a pixel.
+/// the meter moves by a step of this; a step is under a pixel.
 const METER_STEPS: f32 = 40.0;
 
 /// The size, in buffer pixels, to load a stream header's icon at.
 pub fn icon_px(scale: f64) -> u32 {
-    (40.0 * DESIGN_PX as f64 * HEADER as f64 * scale).round() as u32
+    (ICON as f64 * DESIGN_PX as f64 * HEADER as f64 * scale).round() as u32
 }
 /// A stream fades in over the time its window takes to pour into it.
 const APPEAR: f64 = 0.34;
@@ -152,20 +166,18 @@ pub fn glyph_size(scale: f64) -> (usize, usize) {
     crate::glmatrix::glyph_size((card - 2 * inset).max(3) as f32)
 }
 
-/// Where a stream's card goes, in screen pixels, for a button whose buffer has its corner at
-/// `button` and whose card is `button_h` design pixels tall: as wide as the button and straight
-/// under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP` above the foot of a screen
-/// `screen_h` logical pixels tall. The size is in whole logical pixels, so the buffer is shown one
-/// to one.
+/// Where a stream's card goes, in screen pixels, for a button with its corner at `button`: as
+/// wide as the button and straight under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP`
+/// above the foot of a screen `screen_h` logical pixels tall. The size is in whole logical
+/// pixels, so the buffer is shown one to one.
 fn card_frame(
     button: Point<i32, Physical>,
-    button_h: f32,
     screen_h: i32,
     scale: f64,
 ) -> (Point<i32, Physical>, Size<i32, Logical>) {
     let f = scale * (DESIGN_PX * HEADER) as f64;
-    let x = button.x + (GLOW as f64 * f).round() as i32;
-    let edge = (button.y as f64 + (GLOW + button_h) as f64 * f).round() as i32;
+    let x = button.x;
+    let edge = (button.y as f64 + BUTTON_H as f64 * f).round() as i32;
     let y = edge + (CARD_GAP * scale).floor().max(1.0) as i32;
     let bottom = (screen_h as f64 * scale).round() as i32
         - ((HEAD_GAP * DESIGN_PX) as f64 * scale).round() as i32;
@@ -177,14 +189,11 @@ fn card_frame(
 pub struct Stream {
     pub window: Window,
     pub name: String,
-    colour: u32,
-    /// Drawn at 40 design pixels on the screen it was minimised on.
+    /// Drawn at `ICON` design pixels on the screen it was minimised on.
     icon: Option<Pixmap>,
     /// When it was minimised, on the animation clock.
     since: f64,
     header: Option<Painted>,
-    /// The header card's height in design pixels.
-    button_h: f32,
     card: Option<Card>,
     /// How hard this app is working, 0 to 1, and what the painted header and the band's look are
     /// showing, quantised, so neither is remade while the reading holds still.
@@ -193,6 +202,8 @@ pub struct Stream {
     look_load: Option<u16>,
     /// This app's own rain: its colour and speed are its load.
     band: Option<Band>,
+    /// Or its own light through slits, which says the same.
+    louvre: Option<Louvre>,
     /// The card with the rain on it.
     painted: Option<Painted>,
     stepped_to: f64,
@@ -205,6 +216,8 @@ pub struct Rain {
     pub streams: Vec<Stream>,
     glyphs: Option<Glyphs>,
     pub reduced_motion: bool,
+    /// Code rain or light through slits.
+    effects: Effects,
     /// A load to show instead of every app's own, for the `demand:` debug step.
     pinned: Option<f32>,
     /// The names on the headers are in the focus ring's colour: the app's own colour can be close
@@ -222,11 +235,12 @@ impl Rain {
         }
     }
 
-    pub fn new(reduced_motion: bool, ring_rgb: [f32; 3]) -> Self {
+    pub fn new(reduced_motion: bool, effects: Effects, ring_rgb: [f32; 3]) -> Self {
         Self {
             streams: Vec::new(),
             glyphs: Glyphs::load(),
             reduced_motion,
+            effects,
             pinned: None,
             name_colour: rgb_colour(ring_rgb),
             ring_rgb,
@@ -240,6 +254,20 @@ impl Rain {
         if colour != self.name_colour {
             self.name_colour = colour;
             self.forget_painted_text();
+        }
+    }
+
+    /// Draws every stream in `effects` from the next frame, starting each one afresh.
+    pub fn set_effects(&mut self, effects: Effects) {
+        if effects == self.effects {
+            return;
+        }
+        self.effects = effects;
+        for stream in &mut self.streams {
+            stream.band = None;
+            stream.louvre = None;
+            stream.painted = None;
+            stream.look_load = None;
         }
     }
 
@@ -319,22 +347,18 @@ impl Rain {
         pid: Option<u32>,
         now: f64,
     ) {
-        let colour = icon
-            .as_ref()
-            .map_or_else(|| name_colour(&name), icon_colour);
         self.streams.push(Stream {
             window,
             name,
-            colour,
             icon,
             since: now,
             header: None,
-            button_h: 0.0,
             card: None,
             meter: Meter::new(pid),
             painted_load: None,
             look_load: None,
             band: None,
+            louvre: None,
             painted: None,
             stepped_to: now,
             seed: now.to_bits() ^ ((self.streams.len() as u64 + 1) << 32) | 1,
@@ -399,12 +423,14 @@ impl Rain {
             glyphs,
             pinned,
             reduced_motion,
+            effects,
             name_colour,
             ring_rgb,
         } = self;
-        let Some(glyphs) = glyphs.as_mut() else {
+        let effects = *effects;
+        if effects == Effects::Matrix && glyphs.is_none() {
             return elements;
-        };
+        }
 
         for (index, stream) in streams.iter_mut().enumerate() {
             // What this app is doing, sampled at most once a second by its own meter. Everything
@@ -419,16 +445,13 @@ impl Rain {
                 .is_none_or(|header| header.scale != scale)
                 || stream.painted_load != Some(step)
             {
-                let painted = paint_header(
+                stream.header = paint_header(
                     &stream.name,
-                    stream.colour,
                     *name_colour,
                     stream.icon.as_ref(),
                     step as f32 / METER_STEPS,
                     scale,
                 );
-                stream.button_h = painted.as_ref().map_or(0.0, |(_, h)| *h);
-                stream.header = painted.map(|(header, _)| header);
                 stream.painted_load = Some(step);
             }
             let Some(header) = &stream.header else {
@@ -440,14 +463,14 @@ impl Rain {
             let centre = column.x as f64 + column.w as f64 / 2.0;
             let button = Point::<f64, Logical>::from((
                 centre - header.logical.w as f64 / 2.0,
-                top as f64 + (HEAD_GAP * DESIGN_PX) as f64 - (GLOW * DESIGN_PX * HEADER) as f64,
+                top as f64 + (HEAD_GAP * DESIGN_PX) as f64,
             ))
             .to_physical(scale)
             .to_i32_round::<i32>();
 
             // The card hangs from the button and the rain is drawn on to it, so none of the rain
             // can fall outside it.
-            let (card_at, card_size) = card_frame(button, stream.button_h, size.h, scale);
+            let (card_at, card_size) = card_frame(button, size.h, scale);
             let device = (
                 (card_size.w as f64 * scale).round() as i32,
                 (card_size.h as f64 * scale).round() as i32,
@@ -461,38 +484,67 @@ impl Rain {
                 continue;
             };
 
-            // Its own band, at its own speed and colour. A quiet app's rain steps a few times a
+            // Its own light, at its own speed and colour. A quiet app's stream steps a few times a
             // second and a busy one's thirty, so what a stream costs to paint is what its app is
-            // doing — the same thing the rain is there to say. Now and then the rain spells out
-            // the app's name, vowels small and the rest in capitals, lit in the ring's colour like the header's.
-            let band = stream.band.get_or_insert_with(|| {
-                Band::new(
-                    &rain_case(&stream.name),
-                    Look::for_demand(load),
-                    card.inner.0 as f32,
-                    card.inner.1 as f32,
-                    stream.seed,
-                )
-            });
-            let recoloured = band.set_name_colour(*ring_rgb);
-            let changed = if *reduced_motion {
-                // Reduced motion holds the rain still: nothing falls, and the glyphs where they
-                // stand are repainted in the load's colour and brightness only when it moves a
-                // step.
-                let changed = stream.look_load != Some(step) || !band.is_still();
-                if changed {
-                    band.hold(load);
-                    stream.look_load = Some(step);
+            // doing — the same thing the stream is there to say. The app's name is written into
+            // it, vowels small and the rest in capitals, lit in the ring's colour.
+            let (iw, ih) = card.inner;
+            let (changed, recoloured) = match effects {
+                Effects::Matrix => {
+                    let band = stream.band.get_or_insert_with(|| {
+                        Band::new(
+                            &rain_case(&stream.name),
+                            Look::for_demand(load),
+                            iw as f32,
+                            ih as f32,
+                            stream.seed,
+                        )
+                    });
+                    let recoloured = band.set_name_colour(*ring_rgb);
+                    let changed = if *reduced_motion {
+                        // Reduced motion holds the rain still: nothing falls, and the glyphs
+                        // where they stand are repainted in the load's colour and brightness only
+                        // when it moves a step.
+                        let changed = stream.look_load != Some(step) || !band.is_still();
+                        if changed {
+                            band.hold(load);
+                            stream.look_load = Some(step);
+                        }
+                        changed
+                    } else {
+                        let was_still = band.is_still();
+                        if stream.look_load != Some(step) {
+                            // A change in an app's load eases into its rain rather than stepping.
+                            band.set_look(Look::for_demand(load));
+                            stream.look_load = Some(step);
+                        }
+                        band.step(now - stream.stepped_to) || was_still
+                    };
+                    (changed, recoloured)
                 }
-                changed
-            } else {
-                let was_still = band.is_still();
-                if stream.look_load != Some(step) {
-                    // A change in an app's load eases into its rain rather than stepping.
-                    band.set_look(Look::for_demand(load));
-                    stream.look_load = Some(step);
+                Effects::Slipstream => {
+                    let louvre = stream.louvre.get_or_insert_with(|| {
+                        Louvre::new(&rain_case(&stream.name), load, iw, ih, scale, stream.seed)
+                    });
+                    louvre.resize(iw, ih, scale);
+                    let recoloured = louvre.set_name_colour(*ring_rgb);
+                    let changed = if *reduced_motion {
+                        let changed = stream.look_load != Some(step) || !louvre.is_still();
+                        if changed {
+                            louvre.hold(load);
+                            stream.look_load = Some(step);
+                        }
+                        changed
+                    } else {
+                        let was_still = louvre.is_still();
+                        if stream.look_load != Some(step) {
+                            louvre.set_load(load);
+                            stream.look_load = Some(step);
+                        }
+                        louvre.step(now - stream.stepped_to) || was_still
+                    };
+                    (changed, recoloured)
                 }
-                band.step(now - stream.stepped_to) || was_still
             };
             stream.stepped_to = now;
             let stale = stream
@@ -500,16 +552,29 @@ impl Rain {
                 .as_ref()
                 .is_none_or(|painted| painted.scale != scale || painted.device != device);
             if changed || stale || recoloured {
+                let mut light = vec![0u8; iw * ih * 4];
+                match effects {
+                    Effects::Matrix => {
+                        if let (Some(band), Some(glyphs)) = (&mut stream.band, glyphs.as_mut()) {
+                            band.resize(iw as f32, ih as f32);
+                            band.draw(&mut light, iw, ih, iw as f32 / 2.0, glyphs);
+                        }
+                    }
+                    Effects::Slipstream => {
+                        if let Some(louvre) = &stream.louvre {
+                            louvre.draw(&mut light, iw, ih);
+                        }
+                    }
+                }
                 stream.painted = Some(Painted {
-                    buffer: paint::buffer(&compose(band, glyphs, card)),
+                    buffer: paint::buffer(&compose(&light, card)),
                     logical: card_size,
                     device,
                     scale,
                 });
             }
 
-            // The card in front of the button's glow, which would otherwise wash over the gap
-            // between them. Elements are listed front to back.
+            // Elements are listed front to back.
             if let Some(painted) = &stream.painted {
                 elements.extend(painted.element_px(renderer, card_at, alpha));
             }
@@ -519,18 +584,15 @@ impl Rain {
     }
 }
 
-/// The rain drawn on to its card, one screen pixel to a buffer pixel. Light is added only inside
-/// the card's inner shape, softened along its rounded corners, so the rain stops the same
-/// distance from the card's edge all the way round.
-fn compose(band: &mut Band, glyphs: &mut Glyphs, card: &Card) -> Pixmap {
-    let (iw, ih) = card.inner;
-    let mut rain = vec![0u8; iw * ih * 4];
-    band.resize(iw as f32, ih as f32);
-    band.draw(&mut rain, iw, ih, iw as f32 / 2.0, glyphs);
+/// A stream's `light`, drawn at the size of the card's inner shape, added on to its card one
+/// screen pixel to a buffer pixel. Light is added only inside that shape, softened along its
+/// rounded corners, so it stops the same distance from the card's edge all the way round.
+fn compose(light: &[u8], card: &Card) -> Pixmap {
+    let (iw, _) = card.inner;
     let mut out = card.base.clone();
     let w = out.width() as usize;
     let data = out.data_mut();
-    for (i, (light, &cover)) in rain.chunks_exact(4).zip(&card.cover).enumerate() {
+    for (i, (light, &cover)) in light.chunks_exact(4).zip(&card.cover).enumerate() {
         if cover == 0 || light[..3] == [0, 0, 0] {
             continue;
         }
@@ -543,21 +605,20 @@ fn compose(band: &mut Band, glyphs: &mut Glyphs, card: &Card) -> Pixmap {
     out
 }
 
-/// A stream's header: a dark card edged and lit in the app's colour, with its icon and the app's
-/// own meter (`load`, 0 to 1) along the foot of it. Every header is the same height: the rain
-/// spells the app's name already. An app with no icon gets its initial in `name_colour` instead.
+/// A stream's button: a flat dark card, a shade lighter than the one hanging from it, with the
+/// app's icon and under it the app's own meter (`load`, 0 to 1) as a hairline. An app with no icon
+/// gets its initial in `name_colour` instead.
 fn paint_header(
     name: &str,
-    colour: u32,
     name_colour: u32,
     icon: Option<&Pixmap>,
     load: f32,
     scale: f64,
-) -> Option<(Painted, f32)> {
-    let (w, h) = (BUTTON_W, 7.0 + 40.0 + 9.0 + METER_H + 9.0);
+) -> Option<Painted> {
+    let (w, h) = (BUTTON_W, BUTTON_H);
     let logical = Size::<i32, Logical>::from((
-        ((w + 2.0 * GLOW) * DESIGN_PX * HEADER).ceil() as i32,
-        ((h + 2.0 * GLOW) * DESIGN_PX * HEADER).ceil() as i32,
+        (w * DESIGN_PX * HEADER).round() as i32,
+        (h * DESIGN_PX * HEADER).round() as i32,
     ));
     let device = (
         (logical.w as f64 * scale).round() as i32,
@@ -565,66 +626,39 @@ fn paint_header(
     );
     let f = scale as f32 * DESIGN_PX * HEADER;
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
-    let (x, y) = (GLOW, GLOW);
-    let [r, g, b, _] = colour.to_be_bytes();
-    p.shadow(
-        x,
-        y,
-        w,
-        h,
-        12.0,
-        0.0,
-        22.0,
-        u32::from_be_bytes([r, g, b, 0x47]),
-    );
-    // Opaque: the rain runs down the card behind it, and a header you can see it through
-    // reads as a hole in the stream rather than the button it is.
-    p.fill(x, y, w, h, RADIUS, CARD);
-    p.border(x, y, w, h, RADIUS, 1.0, colour);
+    // Opaque: the card hangs just under it, and a button you could see through would read as a
+    // hole rather than the thing to press.
+    p.fill(0.0, 0.0, w, h, RADIUS, BUTTON);
     if let Some(icon) = icon {
-        p.image(icon, x + 9.0, y + 7.0);
+        let (iw, ih) = (icon.width() as f32 / f, icon.height() as f32 / f);
+        p.image(icon, (w - iw) / 2.0, ICON_MIDDLE - ih / 2.0);
     } else if let Some(initial) = name.chars().find(|c| c.is_alphanumeric()) {
-        let style = Style::new(Face::MonoBold, 26.0, name_colour);
+        let style = Style::new(Face::MonoBold, ICON, name_colour);
         let letter: String = initial.to_uppercase().collect();
         let letter_w = text::width(&letter, &style);
-        p.text(&letter, x + (w - letter_w) / 2.0, y + 7.0 + 20.0, &style);
+        p.text(&letter, (w - letter_w) / 2.0, ICON_MIDDLE, &style);
     }
-    // The app's own meter along the foot: a dark groove the width of the icon, filled from the
-    // left in the same grey-to-green the rain runs through, so a quiet app under a busy machine
-    // reads as exactly that.
-    let (meter_x, meter_y) = (x + 9.0, y + h - 9.0 - METER_H);
-    let meter_w = 40.0;
-    p.fill(
-        meter_x,
-        meter_y,
-        meter_w,
-        METER_H,
-        METER_H / 2.0,
-        0x20262eff,
-    );
+    // The meter: the empty part a faint line, filled from the left in the same grey-to-green the
+    // stream runs through, so a quiet app under a busy machine reads as exactly that.
+    let meter_x = (w - METER_W) / 2.0;
+    p.fill(meter_x, METER_TOP, METER_W, METER_H, 0.0, METER_TRACK);
     let load = load.clamp(0.0, 1.0);
     if load > 0.0 {
-        // Never narrower than it is tall: a sliver of colour still has to read as a rounded end
-        // rather than as a speck of dust on the screen.
-        let filled = (meter_w * load).max(METER_H);
         p.fill(
             meter_x,
-            meter_y,
-            filled,
+            METER_TOP,
+            METER_W * load,
             METER_H,
-            METER_H / 2.0,
+            0.0,
             meter_colour(load),
         );
     }
-    Some((
-        Painted {
-            buffer: paint::buffer(&p.pixmap),
-            logical,
-            device,
-            scale,
-        },
-        h,
-    ))
+    Some(Painted {
+        buffer: paint::buffer(&p.pixmap),
+        logical,
+        device,
+        scale,
+    })
 }
 
 /// The meter's colour at `load`: the rain's own scale, from the light grey of an idle app to its
@@ -637,40 +671,6 @@ fn meter_colour(load: f32) -> u32 {
 fn rgb_colour(rgb: [f32; 3]) -> u32 {
     let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
     u32::from_be_bytes([r, g, b, 0xff])
-}
-
-/// An app's colour from its icon: the average of its visible pixels, brightened.
-fn icon_colour(icon: &Pixmap) -> u32 {
-    let (mut sum, mut weight) = ([0f64; 3], 0f64);
-    for pixel in icon.data().chunks_exact(4) {
-        let alpha = pixel[3] as f64 / 255.0;
-        if alpha > 0.5 {
-            for c in 0..3 {
-                // Premultiplied, so divide the alpha back out.
-                sum[c] += pixel[c] as f64 / alpha;
-            }
-            weight += 1.0;
-        }
-    }
-    if weight == 0.0 {
-        return 0x3cf0c0ff;
-    }
-    let mean = sum.map(|channel| channel / weight);
-    let brightest = mean.iter().cloned().fold(1.0, f64::max);
-    let [r, g, b] = mean.map(|channel| (channel / brightest * 255.0).round() as u8);
-    if r.max(g).max(b) - r.min(g).min(b) < 40 {
-        // Grey icons get Slipstream's mint rather than a muddy grey.
-        return 0x3cf0c0ff;
-    }
-    u32::from_be_bytes([r, g, b, 0xff])
-}
-
-fn name_colour(name: &str) -> u32 {
-    const COLOURS: [u32; 5] = [0x3cf0c0ff, 0x33ccffff, 0xffb547ff, 0xff7a93ff, 0xa78bfaff];
-    let hash = name.bytes().fold(0u32, |hash, byte| {
-        hash.wrapping_mul(31).wrapping_add(byte as u32)
-    });
-    COLOURS[hash as usize % COLOURS.len()]
 }
 
 /// `name` as the rain spells it: vowels in lower case and everything else in capitals, so
@@ -743,9 +743,8 @@ mod tests {
     fn the_card_hangs_two_pixels_under_its_button_and_fits_the_screen() {
         for scale in [1.0, 1.25, 1.5, 2.0] {
             let button = Point::from((1000, 40));
-            let button_h = 131.0;
-            let (at, size) = card_frame(button, button_h, 768, scale);
-            let edge = button.y as f64 + (GLOW + button_h) as f64 * scale * 0.6;
+            let (at, size) = card_frame(button, 768, scale);
+            let edge = button.y as f64 + BUTTON_H as f64 * scale * 0.6;
             let gap = at.y as f64 - edge;
             assert!(
                 ((2.0 * scale).floor() - 0.5..=(2.0 * scale).floor() + 0.5).contains(&gap),
@@ -762,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn the_rain_stays_inside_its_card() {
+    fn the_light_stays_inside_its_card() {
         let mut glyphs = Glyphs::load().expect("the font loads");
         for scale in [1.0, 1.25, 2.0] {
             let device = (
@@ -770,46 +769,40 @@ mod tests {
                 (600.0 * scale as f64).round() as i32,
             );
             let card = Card::paint(device, scale).expect("the card paints");
-            let mut band = Band::new(
-                "SLIPSTREAM",
-                Look::for_demand(1.0),
-                card.inner.0 as f32,
-                card.inner.1 as f32,
-                3,
-            );
+            let (iw, ih) = card.inner;
             // Warmed and stepped hard, so the band is full of lit glyphs everywhere.
+            let mut band = Band::new("SLIPSTREAM", Look::for_demand(1.0), iw as f32, ih as f32, 3);
             band.step(20.0);
-            let out = compose(&mut band, &mut glyphs, &card);
-            let (w, h) = (device.0 as usize, device.1 as usize);
-            let inset = card.inset;
-            assert_eq!(inset, (2.0 * scale).floor() as usize);
-            let mut lit = 0;
-            for y in 0..h {
-                for x in 0..w {
-                    let at = (y * w + x) * 4;
-                    let (painted, base) = (&out.data()[at..at + 4], &card.base.data()[at..at + 4]);
-                    let inside = (inset..w - inset).contains(&x) && (inset..h - inset).contains(&y);
-                    if painted != base {
-                        assert!(inside, "rain at ({x}, {y}) of {w}×{h}, inset {inset}");
-                        let cover = card.cover[(y - inset) * card.inner.0 + x - inset];
-                        assert!(cover > 0, "rain outside the rounded corner at ({x}, {y})");
-                        lit += 1;
+            let mut rain = vec![0u8; iw * ih * 4];
+            band.draw(&mut rain, iw, ih, iw as f32 / 2.0, &mut glyphs);
+            let mut louvre = Louvre::new("SLiPSTReaM", 1.0, iw, ih, scale, 3);
+            louvre.step(2.0);
+            let mut slits = vec![0u8; iw * ih * 4];
+            louvre.draw(&mut slits, iw, ih);
+            for light in [rain, slits] {
+                let out = compose(&light, &card);
+                let (w, h) = (device.0 as usize, device.1 as usize);
+                let inset = card.inset;
+                assert_eq!(inset, (2.0 * scale).floor() as usize);
+                let mut lit = 0;
+                for y in 0..h {
+                    for x in 0..w {
+                        let at = (y * w + x) * 4;
+                        let (painted, base) =
+                            (&out.data()[at..at + 4], &card.base.data()[at..at + 4]);
+                        let inside =
+                            (inset..w - inset).contains(&x) && (inset..h - inset).contains(&y);
+                        if painted != base {
+                            assert!(inside, "light at ({x}, {y}) of {w}×{h}, inset {inset}");
+                            let cover = card.cover[(y - inset) * card.inner.0 + x - inset];
+                            assert!(cover > 0, "light outside the rounded corner at ({x}, {y})");
+                            lit += 1;
+                        }
                     }
                 }
+                assert!(lit > 1000, "light is falling on the card: {lit} lit pixels");
             }
-            assert!(lit > 1000, "rain is falling on the card: {lit} lit pixels");
         }
-    }
-
-    #[test]
-    fn icon_colours_ignore_grey_and_keep_hue() {
-        let mut orange = Pixmap::new(4, 4).unwrap();
-        orange.fill(resvg::tiny_skia::Color::from_rgba8(240, 120, 20, 255));
-        let [r, g, b, _] = icon_colour(&orange).to_be_bytes();
-        assert!(r == 255 && g < 160 && b < 60);
-        let mut grey = Pixmap::new(4, 4).unwrap();
-        grey.fill(resvg::tiny_skia::Color::from_rgba8(120, 120, 120, 255));
-        assert_eq!(icon_colour(&grey), 0x3cf0c0ff);
     }
 
     #[test]

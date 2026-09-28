@@ -13,6 +13,7 @@
 //!
 //! [motion]
 //! reduced = false
+//! effects = "matrix"
 //! close-into-rain = true
 //!
 //! [display]
@@ -461,8 +462,10 @@ pub fn workspace_label(name: &str, index: usize) -> String {
 pub struct Motion {
     /// Reduced motion: moves jump, and every effect becomes a short fade.
     pub reduced: bool,
-    /// A closed window is read out into falling code. Off, it fades. Reduced motion turns it off
-    /// too.
+    /// What minimised apps turn into, and how a closed window falls away.
+    pub effects: Effects,
+    /// A closed window falls away in the chosen effects. Off, it fades. Reduced motion turns it
+    /// off too.
     pub close_into_rain: bool,
 }
 
@@ -470,9 +473,21 @@ impl Default for Motion {
     fn default() -> Self {
         Self {
             reduced: false,
+            effects: Effects::default(),
             close_into_rain: true,
         }
     }
+}
+
+/// The look of the minimised apps' streams and of closing windows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effects {
+    /// Code rain: glyphs falling in columns, and a closed window read out into them.
+    #[default]
+    Matrix,
+    /// Light falling through slits, and a closed window split along them into slabs that drop.
+    Slipstream,
 }
 
 /// The screens.
@@ -1087,6 +1102,7 @@ mod tests {
         assert_eq!(settings.wallpaper.change_every_mins, 10);
         assert!(!settings.motion.reduced);
         assert!(settings.motion.close_into_rain);
+        assert_eq!(settings.motion.effects, Effects::Matrix);
         assert!(!settings.display.night_light);
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);
@@ -1102,6 +1118,16 @@ mod tests {
         assert_eq!(
             settings.borders.bullet_time_rgb().map(round3),
             [1.0, 0.71, 0.278]
+        );
+    }
+
+    #[test]
+    fn effects_are_read_by_name() {
+        let settings = parse("[motion]\neffects = \"slipstream\"\n").unwrap();
+        assert_eq!(settings.motion.effects, Effects::Slipstream);
+        assert!(
+            settings.motion.close_into_rain,
+            "the rest keep their defaults"
         );
     }
 

@@ -21,6 +21,8 @@ use smithay::{
     },
 };
 
+use slipstream_config::Effects;
+
 use crate::motion::HYPR;
 
 /// Transparent over 220 ms, shrinking a little about its middle.
@@ -56,8 +58,9 @@ pub struct Ghost {
     own: Size<i32, Logical>,
     pub started: f64,
     reduced_motion: bool,
-    /// Read out into falling code rather than faded (`fx.rs`), and the picture that's drawn from.
-    pub rain: bool,
+    /// Falls away in these effects rather than fading (`fx.rs`), and the picture that's drawn
+    /// from.
+    pub rain: Option<Effects>,
     pub texture: Option<(GlesTexture, Size<i32, Physical>)>,
 }
 
@@ -137,23 +140,28 @@ impl Ghost {
             own: picture.own,
             started: now,
             reduced_motion,
-            rain: false,
+            rain: None,
             texture: None,
         }
     }
 
-    /// The same, falling away as code.
-    pub fn falling(picture: Picture, rect: Rectangle<f64, Logical>, now: f64) -> Self {
+    /// The same, falling away in `effects`.
+    pub fn falling(
+        picture: Picture,
+        rect: Rectangle<f64, Logical>,
+        now: f64,
+        effects: Effects,
+    ) -> Self {
         Self {
-            rain: true,
+            rain: Some(effects),
             ..Self::new(picture, rect, now, false)
         }
     }
 
     /// How far through its fade, from 0 to 1.
     fn progress(&self, now: f64) -> f64 {
-        let length = if self.rain {
-            crate::fx::DEREZ
+        let length = if let Some(effects) = self.rain {
+            crate::fx::length(effects)
         } else if self.reduced_motion {
             REDUCED_FADE
         } else {
