@@ -24,7 +24,7 @@ QUAD = {
 H, TAIL = 11, 2
 STEM = 6          # a stem, in columns (three cells)
 CHAMFER = 2       # rows cut from each chamfered corner (four columns)
-GAP = 4           # between letters
+GAP = 2           # between letters
 
 
 def blank(w):
