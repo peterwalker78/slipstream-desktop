@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.7.2 - 2026-09-28
 
 - **Super+R turns the whole layout a quarter**, clockwise, every window going with it and keeping its neighbours, whichever window has the keyboard; **Super+Shift+R** turns it back. Four turns come back round. Before, it turned only the split around the focused window, so from most windows it just flipped a pair back and forth.
 
