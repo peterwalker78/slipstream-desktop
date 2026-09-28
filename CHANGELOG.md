@@ -2,7 +2,7 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.7.1 - 2026-09-28
 
 - **Tiling and gravity read as two modes again.** Holding Super after Super+T shows tiling on its own, marked "you place the windows", and after a divider gravity's four arrangements, "the windows place themselves".
 - **The same keys work under gravity.** Super+[ and ] make the window lighter and heavier, Super+Alt+arrows and dragging swap places (moving into the centre takes it), and Super+F fills the area, where before they were refused. Super+PgUp and Super+PgDn still weigh the window but are no longer listed separately.
