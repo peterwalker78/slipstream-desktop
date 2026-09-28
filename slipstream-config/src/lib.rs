@@ -462,8 +462,7 @@ pub struct Motion {
     /// Reduced motion: moves jump, and every effect becomes a short fade.
     pub reduced: bool,
     /// A closed window is read out into falling code. Off, it fades. Reduced motion turns it off
-    /// too. Read under its old name as well.
-    #[serde(alias = "rain-transitions")]
+    /// too.
     pub close_into_rain: bool,
 }
 
@@ -1088,13 +1087,6 @@ mod tests {
         assert_eq!(settings.wallpaper.change_every_mins, 10);
         assert!(!settings.motion.reduced);
         assert!(settings.motion.close_into_rain);
-        assert!(
-            !parse("[motion]\nrain-transitions = false\n")
-                .unwrap()
-                .motion
-                .close_into_rain,
-            "the old name still reads"
-        );
         assert!(!settings.display.night_light);
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);

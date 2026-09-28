@@ -32,7 +32,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
         },
         wallpaper: Wallpaper {
             fade_after_secs: 600,
-            variations: vec!["decode".into()],
+            variations: vec!["vortex".into()],
             change_every_mins: 30,
         },
         motion: Motion {
