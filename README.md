@@ -15,7 +15,7 @@ Nothing that interrupts you. Nothing that ever leaves your machine.
 
 <sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
-[**Get it**](#get-slipstream) · [**Why**](#why-slipstream-exists) · [**Glimmerwood**](#the-other-half-glimmerwood) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
+[**Get it**](#get-slipstream) · [**Why**](#why-slipstream-exists) · [**Glimmerwood**](#the-other-half-glimmerwood) · [**Night Sky**](#after-dark-night-sky) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
 
 </div>
 
@@ -105,7 +105,15 @@ Read, learn or make something and it brightens and gives off little motes of lig
 
 **Super+B opens a new browser window,** whichever browser you've set as your default.
 
-**Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop. There's more of the workshop to come.
+**Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop.
+
+## After dark: Night Sky
+
+<img src="assets/readme/night-sky.webp" alt="Night Sky: the night sky drawn in fine dots, with the Milky Way running through it." width="960">
+
+For when your head won't switch off. **[Night Sky](https://github.com/peterwalker78/night-sky) is a small stargazing game that is designed to let you go.** It draws the real sky over you tonight in fine dots, the same dots as Slipstream's wallpapers, with a handful of things to find. It slows as you play, dims before the end because eyes need twenty minutes to open to the dark, and its last line names something real to go outside and see.
+
+Along the way you can set down what's weighing on you and watch it set in the west, and now and then the sky asks a small question. Everything goes into a logbook of plain files, and the app has no network access at all. Slipstream installs it and keeps it up to date, like Glimmerwood.
 
 ## Everything else you'd expect
 
