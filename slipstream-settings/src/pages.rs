@@ -201,19 +201,16 @@ fn appearance(store: &Store) -> gtk::Widget {
         &reduced,
     );
     let rain = gtk::Switch::new();
-    rain.set_active(store.get().motion.rain_transitions);
+    rain.set_active(store.get().motion.close_into_rain);
     let rain_store = store.clone();
     rain.connect_active_notify(move |rain| {
         let on = rain.is_active();
-        rain_store.change(|settings| settings.motion.rain_transitions = on);
+        rain_store.change(|settings| settings.motion.close_into_rain = on);
     });
     row(
         &motion,
-        "Rain transitions",
-        Some(
-            "The desktop condenses out of the code rain when you log in or unlock, and closed \
-             windows fall away into it",
-        ),
+        "Close into the rain",
+        Some("A closed window is read out into code that falls off the screen"),
         &rain,
     );
 

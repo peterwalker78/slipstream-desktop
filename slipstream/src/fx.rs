@@ -1,9 +1,8 @@
-//! Rain transitions: the desktop condensing out of the code rain at login and unlock (arrival),
-//! and a closed window read out into falling code (derez).
+//! Derez: a closed window read out into falling code, like a picture on a failing CRT.
 //!
-//! Both are drawn by a shader over a picture taken of what they reveal or take away. The rain's
-//! glyphs travel with that picture: a strip below it holds each of Matrix mode's 26 glyphs, drawn
-//! from the rain's own font, so one texture carries both and the shader needs nothing else.
+//! It is drawn by a shader over the window's last picture. The rain's glyphs travel with that
+//! picture: a strip below it holds each of Matrix mode's 26 glyphs, drawn from the rain's own
+//! font, so one texture carries both and the shader needs nothing else.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -31,10 +30,11 @@ const GLYPHS: [usize; 26] = [
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170,
     171, 172, 173, 174, 175,
 ];
-/// How long the desktop takes to condense, in seconds of wall time.
-pub const ARRIVAL: f64 = 1.3;
-/// How long a closed window takes to fall away, in animation seconds.
-pub const DEREZ: f64 = 1.2;
+/// How much faster than the shader's own timeline it plays.
+const PACE: f64 = 1.25;
+/// How long a closed window takes to fall away, in animation seconds: the shader's 1.2 s timeline
+/// at `PACE`.
+pub const DEREZ: f64 = 1.2 / PACE;
 /// How fast falling glyphs speed up, in logical pixels a second a second.
 const GRAVITY: f64 = 3400.0;
 
@@ -46,54 +46,41 @@ struct Atlas {
     device: (i32, i32),
 }
 
-/// The shaders and textures for both transitions on one screen.
+/// The shader and glyphs for closing windows on one screen.
 #[derive(Default)]
 pub struct Fx {
-    arrival: Option<GlesTexProgram>,
     derez: Option<GlesTexProgram>,
     broken: bool,
     glyphs: Option<Glyphs>,
     atlas: Option<Atlas>,
-    /// The desktop's picture while it arrives.
-    arrival_texture: Option<(GlesTexture, Size<i32, Physical>)>,
 }
 
 impl Fx {
-    /// Whether the transitions can be drawn, compiling their shaders the first time.
+    /// Whether a closing window can fall away as code, compiling the shader the first time.
     pub fn ready(&mut self, renderer: &mut GlesRenderer) -> bool {
-        if self.broken || self.arrival.is_some() {
+        if self.broken || self.derez.is_some() {
             return !self.broken;
         }
-        let common = [
+        let uniforms = [
             UniformName::new("texpx", UniformType::_2f),
             UniformName::new("content", UniformType::_2f),
             UniformName::new("cell", UniformType::_2f),
             UniformName::new("t", UniformType::_1f),
             UniformName::new("ink", UniformType::_3f),
+            UniformName::new("window_h", UniformType::_1f),
+            UniformName::new("gravity", UniformType::_1f),
         ];
-        let mut arrival = common.to_vec();
-        arrival.push(UniformName::new("dark", UniformType::_1f));
-        let mut derez = common.to_vec();
-        derez.push(UniformName::new("window_h", UniformType::_1f));
-        derez.push(UniformName::new("gravity", UniformType::_1f));
-        let compiled = (
-            renderer.compile_custom_texture_shader(format!("{HEAD}{ARRIVAL_MAIN}"), &arrival),
-            renderer.compile_custom_texture_shader(format!("{HEAD}{DEREZ_MAIN}"), &derez),
-        );
-        match compiled {
-            (Ok(a), Ok(d)) => {
-                self.arrival = Some(a);
-                self.derez = Some(d);
-            }
-            (Err(err), _) | (_, Err(err)) => {
-                tracing::warn!("the rain transitions' shaders didn't compile, so they fade: {err}");
+        match renderer.compile_custom_texture_shader(format!("{HEAD}{DEREZ_MAIN}"), &uniforms) {
+            Ok(program) => self.derez = Some(program),
+            Err(err) => {
+                tracing::warn!("the closing shader didn't compile, so closed windows fade: {err}");
                 self.broken = true;
             }
         }
         if self.glyphs.is_none() {
             self.glyphs = Glyphs::load();
             if self.glyphs.is_none() {
-                tracing::warn!("the rain's font didn't load, so the rain transitions fade");
+                tracing::warn!("the rain's font didn't load, so closed windows fade");
                 self.broken = true;
             }
         }
@@ -155,70 +142,6 @@ impl Fx {
         )
         .ok()
         .map(OutputElement::Memory)
-    }
-
-    /// The desktop, `elements` (front to back), condensing out of the rain `t` seconds in, on a
-    /// screen `logical` big and `physical` pixels. `dark`: the screen starts black and the
-    /// wallpaper comes up with the desktop, as at login; otherwise the wallpaper is already
-    /// there, as behind the lock.
-    #[allow(clippy::too_many_arguments)]
-    pub fn arrival(
-        &mut self,
-        renderer: &mut GlesRenderer,
-        mut elements: Vec<OutputElement>,
-        logical: Size<i32, Logical>,
-        physical: Size<i32, Physical>,
-        scale: f64,
-        t: f64,
-        dark: bool,
-    ) -> Option<TextureShaderElement> {
-        if !self.ready(renderer) {
-            return None;
-        }
-        let (cell_w, cell_h) = crate::rain::glyph_size(scale);
-        let cell_px = cell_h as i32;
-        let atlas_w = cell_w as i32 * GLYPHS.len() as i32;
-        let texpx = Size::<i32, Physical>::from((physical.w.max(atlas_w), physical.h + cell_px));
-        elements.extend(self.atlas_element(renderer, scale, physical.h));
-        tilt::draw_offscreen(
-            renderer,
-            &mut self.arrival_texture,
-            &mut self.broken,
-            &elements,
-            texpx.to_f64().to_logical(scale).to_i32_round(),
-            texpx,
-            scale,
-            "the arrival",
-        )?;
-        // Shown over the screen only: the glyph strip below stays out of sight.
-        let inner = TextureRenderElement::from_static_texture(
-            Id::new(),
-            renderer.context_id(),
-            (0.0, 0.0),
-            self.arrival_texture.as_ref()?.0.clone(),
-            1,
-            Transform::Normal,
-            None,
-            Some(Rectangle::from_size(
-                (physical.w as f64, physical.h as f64).into(),
-            )),
-            Some(logical),
-            None,
-            Kind::Unspecified,
-        );
-        let uniforms = vec![
-            Uniform::new("texpx", (texpx.w as f32, texpx.h as f32)),
-            Uniform::new("content", (physical.w as f32, physical.h as f32)),
-            Uniform::new("cell", (cell_w as f32, cell_h as f32)),
-            Uniform::new("t", t as f32),
-            Uniform::new("ink", TINT),
-            Uniform::new("dark", if dark { 1.0f32 } else { 0.0 }),
-        ];
-        Some(TextureShaderElement::new(
-            inner,
-            self.arrival.clone()?,
-            uniforms,
-        ))
     }
 
     /// A closed window's last picture, `elements` laid out from its corner, read out into falling
@@ -283,7 +206,7 @@ impl Fx {
             Uniform::new("texpx", (texpx.w as f32, texpx.h as f32)),
             Uniform::new("content", (content.w as f32, content.h as f32)),
             Uniform::new("cell", (cell.0 as f32, cell.1 as f32)),
-            Uniform::new("t", t as f32),
+            Uniform::new("t", (t * PACE) as f32),
             Uniform::new("ink", TINT),
             Uniform::new("window_h", window_h),
             Uniform::new("gravity", (GRAVITY * scale) as f32),
@@ -296,9 +219,9 @@ impl Fx {
     }
 }
 
-/// What both shaders start with: Smithay's texture shader's inputs, and the code rain's own look
+/// What the shader starts with: Smithay's texture shader's inputs, and the code rain's own look
 /// from GLMatrix — its glyphs, the brightness wave running down each column, each column's depth
-/// fog, and light added in the rain's tint — so a transition's rain is the minimised rain's.
+/// fog, and light added in the rain's tint — so a closing window's rain is the minimised rain's.
 const HEAD: &str = r#"#version 100
 
 //_DEFINES_
@@ -330,8 +253,6 @@ uniform vec3 ink;
 const float WAVE = 22.0;
 // Font strokes are thinner than GLMatrix's glowing atlas, so they carry more light.
 const float GAIN = 2.5;
-// The stream card's colour, behind the rain.
-const vec3 CARD = vec3(0.043, 0.051, 0.071);
 
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -405,87 +326,79 @@ void finish(vec4 color) {
 }
 "#;
 
-/// Arrival. Every column of cells rains down from the top at its own speed. Where a column's head
-/// passes over part of the desktop — a window, the bar, a card — the cell locks: its glyph on the
-/// rain's card colour, lit by the passing wave, until it resolves into that part of the picture.
-/// Everywhere else the rain falls on through, and an erasing head follows it down, as GLMatrix's
-/// strips clear.
-const ARRIVAL_MAIN: &str = r#"
-uniform float dark;
-
-const float DONE = 1.3;
-
-void main() {
-    vec2 px = v_coords * texpx;
-    vec2 cid = floor(px / cell);
-    vec2 f = px / cell - cid;
-    vec4 here = picture(px);
-    if (t >= DONE) {
-        finish(here);
-        return;
-    }
-    float rows = content.y / cell.y;
-    float delay = hash(vec2(cid.x, 1.0)) * 0.3;
-    float travel = 0.45 + 0.3 * hash(vec2(cid.x, 2.0));
-    float head = (t - delay) / travel * rows;
-    float wallpaper = clamp((t - 0.7) / 0.5, 0.0, 1.0);
-    vec4 night = vec4(0.0, 0.0, 0.0, dark * (1.0 - wallpaper));
-    if (head < cid.y) {
-        finish(night);
-        return;
-    }
-    float cover = empty_cell(cid) ? 0.0 : glyph_at(glyph_of(cid), f);
-    // The head is lit half as much again, as GLMatrix's spinner is; the rest by the wave.
-    float bright = (cid.y > head - 1.0 ? 1.5 : wave(cid.x, cid.y)) * fog(cid.x);
-    vec4 glow = light(bright, cover);
-    vec4 centre = picture((cid + 0.5) * cell);
-    if (centre.a > 0.5) {
-        float settle = 0.5 + 0.4 * hash(cid + 7.0) + 0.25 * cid.y / rows;
-        finish(t >= settle ? here : vec4(CARD, 1.0) + glow);
-        return;
-    }
-    float erased = (t - delay - travel * 0.55) / travel * rows;
-    float fade = 1.0 - clamp((t - 1.0) / 0.3, 0.0, 1.0);
-    if (cid.y < erased) {
-        glow = vec4(0.0);
-    }
-    float reveal = clamp((t - 0.85) / 0.3, 0.0, 1.0);
-    vec4 under = here * reveal + night * (1.0 - here.a * reveal);
-    finish(under + glow * fade);
-}
-"#;
-
-/// Derez. The window is read out into glyphs from the top down; each column, once enough of it is
-/// read, lets go and falls, faster and faster, fading as it goes. Below the reading line the window
-/// is still itself.
+/// Derez. The window is read out into glyphs from the top down, like a picture on a failing CRT:
+/// scanlines, a flicker, colour fringes and torn bands of picture shifting sideways, worst at the
+/// bright line doing the reading. Each column of glyphs, once enough of it is read, lets go and
+/// falls, faster and faster, fading as it goes. Below the reading line the window is still itself.
 const DEREZ_MAIN: &str = r#"
 uniform float window_h;
 uniform float gravity;
 
 const float READ = 0.42;
 
-void main() {
-    vec2 px = v_coords * texpx;
-    float col = floor(px.x / cell.x);
-    float fx = px.x / cell.x - col;
+// The window and its glyphs at `p`, before the screen's own effects.
+vec4 layer(vec2 p) {
+    if (p.x < 0.0 || p.x >= content.x) {
+        return vec4(0.0);
+    }
+    float col = floor(p.x / cell.x);
+    float fx = p.x / cell.x - col;
     float let_go = READ * 0.55 + hash(vec2(col, 9.0)) * 0.25;
     float since = max(t - let_go, 0.0);
     float fall = 0.5 * gravity * since * since;
     float strength = 1.0 - clamp((t - let_go - 0.25) / 0.45, 0.0, 1.0);
-    float y = px.y - fall;
+    float y = p.y - fall;
     vec4 glow = vec4(0.0);
     if (y >= 0.0 && y < window_h && strength > 0.0) {
         vec2 cid = vec2(col, floor(y / cell.y));
         float read_at = READ * cid.y * cell.y / window_h;
         if (t >= read_at && !empty_cell(cid)) {
-            float cover = glyph_at(glyph_of(cid), vec2(fx, y / cell.y - cid.y));
+            vec2 f = vec2(fx, y / cell.y - cid.y);
+            float g = glyph_of(cid);
+            // Phosphor: a soft halo around each stroke.
+            vec2 d = vec2(1.5) / cell;
+            float halo = 0.25 * (glyph_at(g, f + vec2(d.x, 0.0)) + glyph_at(g, f - vec2(d.x, 0.0))
+                + glyph_at(g, f + vec2(0.0, d.y)) + glyph_at(g, f - vec2(0.0, d.y)));
+            float cover = min(glyph_at(g, f) + 0.45 * halo, 1.0);
             // The row just read is the head, lit half as much again.
             float bright = (t - read_at < 0.06 ? 1.5 : wave(cid.x, cid.y)) * fog(col);
             glow = light(bright, cover) * strength;
         }
     }
     float line = window_h * clamp(t / READ, 0.0, 1.0);
-    vec4 still = (px.y >= line && px.y < window_h) ? picture(px) : vec4(0.0);
-    finish(still + glow);
+    vec4 still = (p.y >= line && p.y < window_h) ? picture(p) : vec4(0.0);
+    return still + glow;
+}
+
+void main() {
+    vec2 px = v_coords * texpx;
+    float line = window_h * clamp(t / READ, 0.0, 1.0);
+    float frame = floor(t / 0.04);
+    // Torn bands: some slices of the picture jump sideways for a frame or two, more of them early
+    // on, and always around the reading line.
+    float band = floor(px.y / (cell.y * 0.6));
+    float torn = step(0.8, hash(vec2(band, frame))) * (1.0 - smoothstep(0.35, 0.8, t));
+    float near = 1.0 - clamp(abs(px.y - line) / (cell.y * 2.5), 0.0, 1.0);
+    near *= step(t, READ + 0.05);
+    float shift = (torn * 5.0 + near * 2.5) * (hash(vec2(band + 3.0, frame)) - 0.5) * cell.x;
+    vec2 p = vec2(px.x + shift, px.y);
+    // Colour fringes, wider where the picture tears.
+    float split = 1.5 + 6.0 * max(torn, near);
+    vec4 mid = layer(p);
+    vec4 color = vec4(
+        layer(p + vec2(split, 0.0)).r,
+        mid.g,
+        layer(p - vec2(split, 0.0)).b,
+        mid.a);
+    // The reading line itself, bright and jittering.
+    float jitter = (hash(vec2(frame, 4.0)) - 0.5) * 3.0;
+    float beam = (1.0 - clamp(abs(px.y - line - jitter) / 2.5, 0.0, 1.0)) * step(t, READ)
+        * step(px.y, window_h);
+    color.rgb += ink * beam * 0.9;
+    // Scanlines, every other screen row, and the tube's flicker.
+    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : 0.62;
+    float flicker = 0.88 + 0.12 * hash(vec2(frame, 1.0));
+    color.rgb *= scan * flicker;
+    finish(color);
 }
 "#;

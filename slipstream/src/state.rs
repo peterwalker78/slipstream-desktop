@@ -398,9 +398,6 @@ pub struct Slipstream {
     pub lock: Option<crate::lock::Lock<Window>>,
     /// The lock going away, while it fades.
     pub unlocking: Option<crate::lock::Unlocking>,
-    /// The desktop condensing out of the code rain, at login and unlock (`fx.rs`): when it began
-    /// on wall time (`None` until the first frame is drawn), and whether it rises out of black.
-    pub arrival: Option<(Option<f64>, bool)>,
     /// Alt+Tab's deck of glass panes, while it's open and while its panes fly home (`deck.rs`).
     pub deck: Option<crate::deck::Deck<Window>>,
     /// Two tiles passing through each other as they trade places (`pane.rs`).
@@ -566,7 +563,6 @@ impl Slipstream {
         let bullet_rgb = settings.borders.bullet_time_rgb();
 
         let reduced_motion = settings.motion.reduced;
-        let arrive = settings.motion.rain_transitions && !reduced_motion;
         let mut state = Self {
             start_time,
             display_handle: dh,
@@ -706,7 +702,6 @@ impl Slipstream {
             power_answers,
             lock: None,
             unlocking: None,
-            arrival: arrive.then_some((None, true)),
             deck: None,
             pass: None,
             lock_answers,
@@ -4806,8 +4801,7 @@ impl Slipstream {
             || self.history.is_open()
             || self.restoring.is_some()
             || self.lock.is_some()
-            || self.unlocking.is_some()
-            || self.arrival.is_some();
+            || self.unlocking.is_some();
         let opacity = self.idle.update(now, keep_up) as f32;
         // Pop-ups that arrived while it was faded show now it's coming back, and ones that
         // arrived while you typed show at the pause.
@@ -5365,7 +5359,7 @@ impl Slipstream {
             return;
         };
         let reduced = self.clock.reduced_motion;
-        let ghost = if self.settings.motion.rain_transitions && !reduced {
+        let ghost = if self.settings.motion.close_into_rain && !reduced {
             crate::ghost::Ghost::falling(picture, rect, now)
         } else {
             crate::ghost::Ghost::new(picture, rect, now, reduced)
@@ -5793,7 +5787,6 @@ impl Slipstream {
                 debug::Step::Tab => self.cycle_windows(true),
                 debug::Step::LetGo => self.finish_cycle(),
                 debug::Step::Unlock => self.unlock(),
-                debug::Step::Arrive => self.arrival = Some((None, true)),
                 debug::Step::Bullet => self.toggle_bullet_time(),
                 debug::Step::BulletKey(name) => {
                     let (mods, key) = debug::mods_and_key(&name);

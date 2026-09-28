@@ -128,7 +128,7 @@ pub struct Chrome {
     unlock_broken: bool,
     /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
     panes: crate::pane::Panes,
-    /// The rain transitions: arrival and derez.
+    /// A closed window falling away as code.
     fx: crate::fx::Fx,
     /// The dark behind Alt+Tab's deck.
     deck_dim: SolidColorBuffer,
@@ -1937,30 +1937,7 @@ pub fn output_elements(
 
     // Coming back from the lock, the desktop is drawn whole into a texture that grows into place
     // and brightens, while the lock's card and veil fade in front of it.
-    // Arriving, at login or unlock, the desktop condenses out of the code rain instead.
-    let arriving = match state.arrival {
-        Some((None, dark)) if tiling_output => {
-            state.arrival = Some((Some(wall), dark));
-            Some((0.0, dark))
-        }
-        Some((Some(start), dark)) => Some((wall - start, dark)),
-        _ => None,
-    };
-    let arriving = arriving.filter(|(t, _)| *t < crate::fx::ARRIVAL);
-    if state.arrival.is_some() && arriving.is_none() && tiling_output {
-        state.arrival = None;
-    }
-    let arriving = arriving.filter(|_| tiling_output && !glass && chrome.fx.ready(renderer));
-    if let Some((t, dark)) = arriving {
-        let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
-        if let Some(element) =
-            chrome
-                .fx
-                .arrival(renderer, pane, output_geo.size, physical, scale.x, t, dark)
-        {
-            elements.push(OutputElement::Shaded(element));
-        }
-    } else if tiling_output && !glass {
+    if tiling_output && !glass {
         if let Some((zoom, opacity)) = state.unlocking.as_ref().map(|u| u.desktop(wall)) {
             let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
             match unlock_zoom(

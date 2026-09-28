@@ -952,10 +952,6 @@ impl Slipstream {
         let now = self.wall();
         let facts = self.lock_facts();
         self.unlocking = Some(lock.leave(&facts, now));
-        // The desktop condenses out of the code rain behind the lock as it goes.
-        if self.settings.motion.rain_transitions && !self.clock.reduced_motion {
-            self.arrival = Some((Some(now), false));
-        }
         HELD.store(false, Ordering::Relaxed);
         // SAFETY: prctl with PR_SET_DUMPABLE and a plain integer.
         unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 1) };

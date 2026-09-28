@@ -37,7 +37,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
         },
         motion: Motion {
             reduced: true,
-            rain_transitions: false,
+            close_into_rain: false,
         },
         display: Display {
             night_light: true,

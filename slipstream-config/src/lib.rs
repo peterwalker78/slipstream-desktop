@@ -13,7 +13,7 @@
 //!
 //! [motion]
 //! reduced = false
-//! rain-transitions = true
+//! close-into-rain = true
 //!
 //! [display]
 //! night-light = false
@@ -461,16 +461,17 @@ pub fn workspace_label(name: &str, index: usize) -> String {
 pub struct Motion {
     /// Reduced motion: moves jump, and every effect becomes a short fade.
     pub reduced: bool,
-    /// The desktop condenses out of the code rain at login and unlock, and a closed window is
-    /// read out into falling code. Off, both are plain fades. Reduced motion turns them off too.
-    pub rain_transitions: bool,
+    /// A closed window is read out into falling code. Off, it fades. Reduced motion turns it off
+    /// too. Read under its old name as well.
+    #[serde(alias = "rain-transitions")]
+    pub close_into_rain: bool,
 }
 
 impl Default for Motion {
     fn default() -> Self {
         Self {
             reduced: false,
-            rain_transitions: true,
+            close_into_rain: true,
         }
     }
 }
@@ -1086,7 +1087,14 @@ mod tests {
         assert_eq!(settings.wallpaper.variations, ["slipstream"]);
         assert_eq!(settings.wallpaper.change_every_mins, 10);
         assert!(!settings.motion.reduced);
-        assert!(settings.motion.rain_transitions);
+        assert!(settings.motion.close_into_rain);
+        assert!(
+            !parse("[motion]\nrain-transitions = false\n")
+                .unwrap()
+                .motion
+                .close_into_rain,
+            "the old name still reads"
+        );
         assert!(!settings.display.night_light);
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);

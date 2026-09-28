@@ -39,8 +39,7 @@
 //! `press:NAME`, `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same
 //! routing as the keyboard, and meaning what they mean in the login session: Super is Super even
 //! nested), `motion` (every animating part's reduced-motion flag, into the log), `lock` (the lock
-//! screen; nested runs only), `unlock` (the lock taken down as a right password would), `arrive`
-//! (the desktop condensing out of the code rain, as at login), `battery:N` (pretend the battery
+//! screen; nested runs only), `unlock` (the lock taken down as a right password would), `battery:N` (pretend the battery
 //! is at N percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While locked, only the steps that go through the
 //! keyboard's, the pointer's and apps' own paths act.
 //!
@@ -121,8 +120,6 @@ pub enum Step {
     LetGo,
     /// The lock taken down, as a right password would.
     Unlock,
-    /// The desktop condenses out of the code rain, as at login.
-    Arrive,
     /// The pointer moves to a point on a screen, as the mouse would move it: `pointer:X,Y` on the
     /// focused screen, `pointer:NAME@X,Y` on the screen of that output's name.
     Pointer(Option<String>, f64, f64),
@@ -339,7 +336,6 @@ impl Script {
                     ("tab", None) => Step::Tab,
                     ("letgo", None) => Step::LetGo,
                     ("unlock", None) => Step::Unlock,
-                    ("arrive", None) => Step::Arrive,
                     ("cycle", Some(tabs)) => Step::Cycle(tabs.trim().parse().ok()?),
                     ("pointer", Some(at)) => match at.split_once('@') {
                         Some((screen, at)) => {
