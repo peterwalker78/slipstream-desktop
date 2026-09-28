@@ -1838,6 +1838,7 @@ pub fn output_elements(
                     &mut ghost.texture,
                     still,
                     rect,
+                    screen.size.w,
                     screen.size.h,
                     scale.x,
                     t,

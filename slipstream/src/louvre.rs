@@ -3,15 +3,18 @@
 //! Streaks of light run down narrow lanes on a minimised app's card, more of them, longer, faster
 //! and greener the harder the app is working. The card is cut across by slits in the logo's rhythm,
 //! three parts bar to one part slit, so each streak reads as light through a louvre. The app's name
-//! is engraved down the middle in slab letters that light up wherever a streak passes over them, so
-//! a busy app's name glows and an idle one's is barely there.
+//! is written down the middle, a letter under a letter, and lights up wherever a streak passes over
+//! it, so a busy app's name glows and an idle one's is barely there.
 //!
-//! Everything is laid out on one unit, a lane's width, so the streaks, the slits and the letters'
-//! dots line up with each other and with the screen's pixels.
+//! The lanes and slits are laid out on one unit, a lane's width, so they line up with each other and
+//! with the screen's pixels.
 
-use crate::glmatrix::{QUIET, colour_for};
+use crate::{
+    glmatrix::{QUIET, colour_for},
+    text::{self, Face},
+};
 
-/// The unit in logical pixels: a lane's width, a slit's height and the pitch of a letter's dots.
+/// The unit in logical pixels: a lane's width and a slit's height.
 const UNIT: f64 = 5.6;
 /// A bar between two slits is this many units tall, and a slit one.
 const BAR_UNITS: usize = 3;
@@ -35,18 +38,19 @@ const RATE_REST: f32 = 0.8;
 const RATE_BUSY: f32 = 22.0;
 /// A streak's tail, in logical pixels, beyond the part that grows with its speed.
 const TAIL: f32 = 4.8;
-/// A streak's width, in logical pixels.
-const STREAK_W: f64 = 2.4;
-/// Letters start this many units below the top of the card, and each takes its seven rows and
-/// this many more.
-const NAME_TOP: usize = 4;
-const LETTER_GAP: usize = 2;
-/// A letter's dots when nothing is lighting them, and at full glow.
-const DOT_DARK: f32 = 0.12;
-const DOT_LIT: f32 = 0.85;
+/// A streak's width, in logical pixels, and how many screen rows its bright head takes.
+const STREAK_W: f64 = 4.0;
+const HEAD_ROWS: usize = 3;
+/// The name's letters: their size, how far apart they sit down the card, and where the first
+/// starts, in logical pixels.
+const NAME_PX: f64 = 22.0;
+const NAME_PITCH: f64 = 22.0;
+const NAME_TOP: f64 = 10.0;
+/// A letter when nothing is lighting it, and at full glow.
+const LETTER_DARK: f32 = 0.16;
+const LETTER_LIT: f32 = 0.9;
 
-/// The unit in screen pixels at `scale`: whole pixels, and never less than two, so a letter's dots
-/// keep a gap between them.
+/// The unit in screen pixels at `scale`: whole pixels, and never less than two.
 pub fn unit(scale: f64) -> usize {
     ((UNIT * scale).round() as usize).max(2)
 }
@@ -60,11 +64,15 @@ struct Streak {
     bright: f32,
 }
 
-struct Dot {
-    lane: usize,
-    /// Its top edge, in pixels from the top of the card.
+/// One letter of the name: its coverage, where it sits on the card, and how brightly each lane
+/// crossing it is lit.
+struct Letter {
+    x: usize,
     y: usize,
-    glow: f32,
+    w: usize,
+    h: usize,
+    cover: Vec<u8>,
+    glow: Vec<f32>,
 }
 
 pub struct Louvre {
@@ -77,7 +85,7 @@ pub struct Louvre {
     /// Pixels left over at the card's left edge, half of what the lanes don't fill.
     offset: usize,
     streaks: Vec<Streak>,
-    dots: Vec<Dot>,
+    letters: Vec<Letter>,
     /// The load the light shows now, easing towards `target`.
     load: f32,
     target: f32,
@@ -103,7 +111,7 @@ impl Louvre {
             lanes: 1,
             offset: 0,
             streaks: Vec::new(),
-            dots: Vec::new(),
+            letters: Vec::new(),
             load: load.clamp(0.0, 1.0),
             target: load.clamp(0.0, 1.0),
             spawn: 0.0,
@@ -124,7 +132,7 @@ impl Louvre {
         if (width, height, scale) == (self.width, self.height, self.scale) {
             return;
         }
-        // Never so coarse that five lanes, a letter's width, don't fit across the card.
+        // Never so coarse that fewer than five lanes fit across the card.
         let unit = unit(scale).min(width / 5).max(2);
         let lanes = (width / unit).max(1);
         if unit != self.unit || lanes != self.lanes {
@@ -136,7 +144,10 @@ impl Louvre {
         self.unit = unit;
         self.lanes = lanes;
         self.offset = width.saturating_sub(lanes * unit) / 2;
-        self.dots = name_dots(&self.name, lanes, unit);
+        self.letters = letters(&self.name, width, scale);
+        for letter in &mut self.letters {
+            letter.glow = vec![0.0; lanes];
+        }
     }
 
     /// Eases towards `load` from here on.
@@ -200,18 +211,22 @@ impl Louvre {
             });
         }
         let fade = (-TICK / GLOW).exp() as f32;
-        for dot in &mut self.dots {
-            dot.glow *= fade;
+        for letter in &mut self.letters {
+            for glow in &mut letter.glow {
+                *glow *= fade;
+            }
         }
-        let unit = self.unit as f32;
+        let (unit, offset) = (self.unit, self.offset);
         for streak in &mut self.streaks {
             let from = streak.y;
             streak.y += streak.speed * dt;
-            // Whatever the head passed over this step lights up.
-            for dot in self.dots.iter_mut().filter(|dot| dot.lane == streak.lane) {
-                let top = dot.y as f32;
-                if top <= streak.y && top + unit >= from {
-                    dot.glow = 1.0;
+            // Whatever the head passed over this step lights up, in the streak's own lane.
+            let lane_x = offset + streak.lane * unit;
+            for letter in &mut self.letters {
+                let across = lane_x < letter.x + letter.w && letter.x < lane_x + unit;
+                let (top, bottom) = (letter.y as f32, (letter.y + letter.h) as f32);
+                if across && top <= streak.y && bottom >= from {
+                    letter.glow[streak.lane] = 1.0;
                 }
             }
         }
@@ -258,7 +273,7 @@ impl Louvre {
                 }
             }
             let head = streak.y.round() as usize;
-            for y in head.saturating_sub(1)..=head.min(h.saturating_sub(1)) {
+            for y in head.saturating_sub(HEAD_ROWS - 1)..=head.min(h.saturating_sub(1)) {
                 for cx in x..x + core {
                     add(light, w, h, cx, y, hot, streak.bright);
                 }
@@ -276,22 +291,28 @@ impl Louvre {
                 }
             }
         }
-        // The name over the slits, so none of its letters are cut.
+        // The name over the slits, so none of its letters are cut, each part lit as brightly as
+        // the lane it's in.
         let steady = if self.still {
             0.25 + 0.5 * self.load
         } else {
             0.0
         };
-        let size = self.unit.saturating_sub(1).max(1);
-        for dot in &self.dots {
-            let glow = dot.glow.max(steady);
-            let share = (glow * 2.0).min(1.0);
-            let rgb = [0, 1, 2].map(|c| QUIET[c] + (self.name_rgb[c] - QUIET[c]) * share);
-            let amount = DOT_DARK + (DOT_LIT - DOT_DARK) * glow;
-            let x = self.offset + dot.lane * self.unit;
-            for y in dot.y..dot.y + size {
-                for cx in x..x + size {
-                    add(light, w, h, cx, y, rgb, amount);
+        for letter in &self.letters {
+            for iy in 0..letter.h {
+                for ix in 0..letter.w {
+                    let cover = letter.cover[iy * letter.w + ix];
+                    if cover == 0 {
+                        continue;
+                    }
+                    let x = letter.x + ix;
+                    let lane = (x.saturating_sub(self.offset) / self.unit).min(self.lanes - 1);
+                    let glow = letter.glow[lane].max(steady);
+                    let share = (glow * 2.0).min(1.0);
+                    let rgb = [0, 1, 2].map(|c| QUIET[c] + (self.name_rgb[c] - QUIET[c]) * share);
+                    let amount =
+                        (LETTER_DARK + (LETTER_LIT - LETTER_DARK) * glow) * cover as f32 / 255.0;
+                    add(light, w, h, x, letter.y + iy, rgb, amount);
                 }
             }
         }
@@ -310,162 +331,37 @@ fn add(light: &mut [u8], w: usize, h: usize, x: usize, y: usize, rgb: [f32; 3], 
     }
 }
 
-/// The dots of `name`'s slab letters, stacked down the middle of `lanes` lanes `unit` pixels wide.
-/// A space leaves a letter's room; a character with no slab letter is left out.
-fn name_dots(name: &str, lanes: usize, unit: usize) -> Vec<Dot> {
-    let first = lanes.saturating_sub(5) / 2;
-    let mut dots = Vec::new();
+/// `name`'s letters in the name face, each centred across a card `width` screen pixels wide at
+/// `scale` and set one under another down it. A space leaves a letter's room; a character the face
+/// can't draw is left out.
+fn letters(name: &str, width: usize, scale: f64) -> Vec<Letter> {
+    let px = (NAME_PX * scale) as f32;
+    let pitch = NAME_PITCH * scale;
+    let (ascent, _) = text::line_metrics(Face::MonoBold, px);
+    let mut letters = Vec::new();
     let mut place = 0;
     for c in name.chars() {
         if c == ' ' {
             place += 1;
             continue;
         }
-        let Some(rows) = slab(c) else {
+        let (metrics, cover) = text::glyph(Face::MonoBold, c, px);
+        if metrics.width == 0 || metrics.height == 0 {
             continue;
-        };
-        for (r, row) in rows.iter().enumerate() {
-            for (col, on) in row.bytes().enumerate() {
-                if on == b'#' && first + col < lanes {
-                    dots.push(Dot {
-                        lane: first + col,
-                        y: (NAME_TOP + place * (7 + LETTER_GAP) + r) * unit,
-                        glow: 0.0,
-                    });
-                }
-            }
         }
+        let baseline = NAME_TOP * scale + place as f64 * pitch + ascent as f64;
+        let top = baseline - (metrics.height as i32 + metrics.ymin) as f64;
+        letters.push(Letter {
+            x: width.saturating_sub(metrics.width) / 2,
+            y: top.max(0.0).round() as usize,
+            w: metrics.width,
+            h: metrics.height,
+            cover,
+            glow: Vec::new(),
+        });
         place += 1;
     }
-    dots
-}
-
-/// A character's slab letter, five dots wide and seven tall: square corners, the top left cut off.
-/// Capitals, the five vowels in lower case (as the streams spell names) and the digits.
-fn slab(c: char) -> Option<[&'static str; 7]> {
-    Some(match c {
-        'A' => [
-            ".####", "#...#", "#...#", "#####", "#...#", "#...#", "#...#",
-        ],
-        'B' => [
-            "####.", "#...#", "#...#", "#####", "#...#", "#...#", "#####",
-        ],
-        'C' => [
-            ".####", "#....", "#....", "#....", "#....", "#....", "#####",
-        ],
-        'D' => [
-            "####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####.",
-        ],
-        'E' => [
-            ".####", "#....", "#....", "####.", "#....", "#....", "#####",
-        ],
-        'F' => [
-            ".####", "#....", "#....", "####.", "#....", "#....", "#....",
-        ],
-        'G' => [
-            ".####", "#....", "#....", "#..##", "#...#", "#...#", "#####",
-        ],
-        'H' => [
-            "#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#",
-        ],
-        'I' => [
-            "#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####",
-        ],
-        'J' => [
-            "..###", "....#", "....#", "....#", "....#", "#...#", "#####",
-        ],
-        'K' => [
-            "#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#",
-        ],
-        'L' => [
-            "#....", "#....", "#....", "#....", "#....", "#....", "#####",
-        ],
-        'M' => [
-            "#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#",
-        ],
-        'N' => [
-            "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#", "#...#",
-        ],
-        'O' | '0' => [
-            ".####", "#...#", "#...#", "#...#", "#...#", "#...#", "#####",
-        ],
-        'P' => [
-            ".####", "#...#", "#...#", "#####", "#....", "#....", "#....",
-        ],
-        'Q' => [
-            ".####", "#...#", "#...#", "#...#", "#.#.#", "#..#.", "###.#",
-        ],
-        'R' => [
-            ".####", "#...#", "#...#", "#####", "#.#..", "#..#.", "#...#",
-        ],
-        'S' | '5' => [
-            ".####", "#....", "#....", "#####", "....#", "....#", "#####",
-        ],
-        'T' => [
-            "#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#..",
-        ],
-        'U' => [
-            "#...#", "#...#", "#...#", "#...#", "#...#", "#...#", "#####",
-        ],
-        'V' => [
-            "#...#", "#...#", "#...#", "#...#", ".#.#.", ".#.#.", "..#..",
-        ],
-        'W' => [
-            "#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#",
-        ],
-        'X' => [
-            "#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#",
-        ],
-        'Y' => [
-            "#...#", "#...#", "#...#", ".###.", "..#..", "..#..", "..#..",
-        ],
-        'Z' => [
-            "#####", "....#", "...#.", "..#..", ".#...", "#....", "#####",
-        ],
-        'a' => [
-            ".....", ".....", ".###.", "....#", ".####", "#...#", "#####",
-        ],
-        'e' => [
-            ".....", ".....", ".####", "#...#", "#####", "#....", "#####",
-        ],
-        'i' => [
-            "..#..", ".....", ".##..", "..#..", "..#..", "..#..", ".###.",
-        ],
-        'o' => [
-            ".....", ".....", ".####", "#...#", "#...#", "#...#", "#####",
-        ],
-        'u' => [
-            ".....", ".....", "#...#", "#...#", "#...#", "#...#", "#####",
-        ],
-        '1' => [
-            ".##..", "#.#..", "..#..", "..#..", "..#..", "..#..", "#####",
-        ],
-        '2' => [
-            ".####", "....#", "....#", "#####", "#....", "#....", "#####",
-        ],
-        '3' => [
-            ".####", "....#", "....#", ".####", "....#", "....#", "#####",
-        ],
-        '4' => [
-            "#...#", "#...#", "#...#", "#####", "....#", "....#", "....#",
-        ],
-        '6' => [
-            ".####", "#....", "#....", "#####", "#...#", "#...#", "#####",
-        ],
-        '7' => [
-            "#####", "....#", "...#.", "..#..", "..#..", "..#..", "..#..",
-        ],
-        '8' => [
-            ".####", "#...#", "#...#", "#####", "#...#", "#...#", "#####",
-        ],
-        '9' => [
-            ".####", "#...#", "#...#", "#####", "....#", "....#", "#####",
-        ],
-        '-' => [
-            ".....", ".....", ".....", "#####", ".....", ".....", ".....",
-        ],
-        _ => return None,
-    })
+    letters
 }
 
 #[cfg(test)]
@@ -519,12 +415,23 @@ mod tests {
     #[test]
     fn the_name_sits_down_the_middle_and_lights_where_light_passes() {
         let mut louvre = Louvre::new("KoNSoLe", 1.0, W, H, 1.25, 3);
-        let lanes: Vec<usize> = louvre.dots.iter().map(|dot| dot.lane).collect();
-        let (low, high) = (*lanes.iter().min().unwrap(), *lanes.iter().max().unwrap());
-        assert_eq!(high - low, 4, "five dots across");
-        assert_eq!(low, (louvre.lanes - 5) / 2);
+        assert_eq!(louvre.letters.len(), 7);
+        for letter in &louvre.letters {
+            let (left, right) = (letter.x, W - letter.x - letter.w);
+            assert!(left.abs_diff(right) <= 1, "centred: {left} and {right}");
+        }
+        let tops: Vec<usize> = louvre.letters.iter().map(|letter| letter.y).collect();
+        assert!(
+            tops.windows(2).all(|pair| pair[0] < pair[1]),
+            "one under another"
+        );
         louvre.step(2.0);
-        assert!(louvre.dots.iter().any(|dot| dot.glow > 0.5));
+        assert!(
+            louvre
+                .letters
+                .iter()
+                .any(|letter| letter.glow.iter().any(|&g| g > 0.5))
+        );
     }
 
     #[test]
@@ -534,7 +441,7 @@ mod tests {
         let before = lit(&louvre);
         assert!(louvre.is_still());
         assert_eq!(before, lit(&louvre));
-        assert!(louvre.dots.iter().all(|dot| dot.y < H));
+        assert!(louvre.letters.iter().all(|letter| letter.y + letter.h < H));
     }
 
     #[test]
@@ -549,18 +456,11 @@ mod tests {
     }
 
     #[test]
-    fn a_narrow_card_still_fits_a_whole_letter() {
-        let louvre = Louvre::new("KoNSoLe", 0.0, 20, H, 1.25, 1);
-        assert_eq!(louvre.unit, 4);
-        assert!(louvre.dots.iter().all(|dot| dot.lane < louvre.lanes));
-        assert_eq!(louvre.dots.iter().map(|dot| dot.lane).max(), Some(4));
-    }
-
-    #[test]
-    fn unknown_characters_are_left_out() {
-        let dots = name_dots("é 1", 13, 3);
-        // The accented letter has no slab and takes no room; the space does.
-        let first_row = dots.iter().map(|dot| dot.y).min().unwrap();
-        assert_eq!(first_row, (NAME_TOP + 7 + LETTER_GAP) * 3);
+    fn a_space_leaves_a_letter_s_room() {
+        let spaced = letters("A B", W, 1.25);
+        let joined = letters("AB", W, 1.25);
+        assert_eq!(spaced.len(), 2);
+        let pitch = (NAME_PITCH * 1.25).round() as usize;
+        assert!((spaced[1].y - joined[1].y).abs_diff(pitch) <= 1);
     }
 }
