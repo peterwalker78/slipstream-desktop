@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- **Messages have clear places.** Answers to what you just pressed appear low in the middle, in the same place as the volume and brightness display (the newer replaces the other); notifications hang from the top right, on the same line as the panels, and fade as they go; cards that need an answer sit in the middle. A toast stays long enough to read what it says.
+- **Quieter.** Keys that have nothing to do (a tile already as wide as it goes, nothing to hide, one screen) no longer put up a message. A low battery, windows that didn't come back after login, a refused restart or shutdown, and a lock that isn't set up now arrive as notifications, kept in the notification centre, instead of toasts that could go unseen.
 - **Hold Super after Super+T to choose gravity's arrangement.** A strip shows tiling, grid, centre, wide and spotlight, drawn from the workspace's own windows. T or the arrows move along it and the windows follow, letting go of Super keeps it and Esc puts things back. A quick Super+T turns gravity on at the arrangement last kept. Stepping past either end of Super+PgUp/PgDn no longer puts up a message.
 - **Alt+Tab deals your windows as a deck of glass panes**, receding into depth with the chosen one at the front. Each Tab sends the front pane round to the back, and letting go of Alt flies every pane home, the chosen one first. With reduced motion it's the flat card it was.
 - **Super+Alt+arrows: the two tiles pass through each other** as panes of glass, the moved one coming forward and the other falling back.

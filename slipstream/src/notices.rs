@@ -33,7 +33,10 @@ const TITLE_H: f32 = 20.0;
 const LINE_H: f32 = 18.0;
 const POPUP_W: f32 = 440.0;
 const POPUP_RIGHT: f32 = 14.0;
-const POPUP_TOP: f32 = 54.0;
+/// Pop-ups hang from the same line as the panels.
+const POPUP_TOP: f32 = crate::panel::TOP;
+/// A pop-up's fade as its time runs out.
+const POP_OUT: f64 = 0.25;
 const POPUP_GAP: f32 = 10.0;
 const POPUP_LINES: usize = 3;
 /// Room around a pop-up for its shadow.
@@ -498,6 +501,13 @@ impl Notices {
                 let eased = HYPR.at((since / POP_IN).clamp(0.0, 1.0));
                 (eased.clamp(0.0, 1.0), 40.0 * (1.0 - eased))
             };
+            // A pop-up whose time runs out fades rather than vanishing; one that stays until it's
+            // dismissed never reaches this.
+            let fade = if popup.stay.is_finite() && !*reduced_motion {
+                fade.min(((popup.stay - since) / POP_OUT).clamp(0.0, 1.0))
+            } else {
+                fade
+            };
             let at = Point::from((
                 ((left - SHADOW) as f64 + slide) * MOCKUP_PX as f64,
                 ((top - SHADOW) * MOCKUP_PX) as f64,
@@ -735,6 +745,21 @@ fn picture(image: &Image, px: u32) -> Option<Pixmap> {
 }
 
 impl Slipstream {
+    /// A notification from the desktop itself, for what mustn't be missed: it waits in the
+    /// notification centre as an app's would, where a toast would be gone in seconds. A critical
+    /// one stays up until it's dismissed.
+    pub fn notify_self(&mut self, summary: &str, body: &str, critical: bool) {
+        self.notification_arrived(Incoming {
+            id: notify::next_id(),
+            app_name: "Slipstream".to_string(),
+            summary: summary.to_string(),
+            body: body.to_string(),
+            urgency: if critical { 2 } else { 1 },
+            expire_timeout: -1,
+            ..Incoming::default()
+        });
+    }
+
     pub fn notification_event(&mut self, event: notify::Event) {
         match event {
             notify::Event::Notify(incoming) => self.notification_arrived(*incoming),

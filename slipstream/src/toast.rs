@@ -1,5 +1,7 @@
-//! Short messages near the top of the screen, as the mockup's toast: an amber title over a line
-//! or two of text. It slides in over 250 ms and goes after 2.6 s; a new one replaces it.
+//! Short answers to what was just done, low in the middle of the screen: an amber title over a
+//! line or two of text. They share their place with the volume and brightness display, so a new
+//! one of either replaces the other. A toast rises in over 250 ms and stays long enough to read:
+//! 2.6 s at least, longer for more words.
 
 use smithay::{
     backend::renderer::{
@@ -21,24 +23,10 @@ use crate::{
 
 // Sizes in the mockup's pixels.
 const WIDTH: f32 = 440.0;
-const TOP: f32 = 58.0;
-/// Where the toast sits instead while a gravity tag is on screen.
-///
-/// The tag names the rung the window has just reached, on the window itself, and the toast is
-/// there to explain that rung: covering the answer with its own explanation is the one place
-/// the two can't share. The band is the top of a top-row window (the bar's height and the gap
-/// around the tiling area), the tag's inset inside that window and the tag's own height, all in
-/// the mockup's pixels, plus a gap of its own.
-const TOP_CLEARING_A_TAG: f32 = (crate::bar::HEIGHT + crate::layout::OUTER_GAP) as f32 / MOCKUP_PX
-    + TAG_INSET
-    + TAG_HEIGHT
-    + 10.0;
-/// The gravity tag's inset inside its window, and its height (`render.rs` draws it).
-const TAG_INSET: f32 = 22.0;
-const TAG_HEIGHT: f32 = 30.0;
-/// Where the toast's top edge sits, in logical pixels.
-pub const TOP_LOGICAL: f64 = (TOP * MOCKUP_PX) as f64;
+/// The shortest and longest a toast stays, and the time per word in between.
 const SHOWN: f64 = 2.6;
+const SHOWN_MOST: f64 = 7.0;
+const PER_WORD: f64 = 0.3;
 const FADE: f64 = 0.25;
 const REDUCED_FADE: f64 = 0.08;
 
@@ -50,8 +38,8 @@ struct Painted {
 }
 
 pub struct Toast {
-    /// Title, body, and when it appeared on the animation clock.
-    message: Option<(String, String, f64)>,
+    /// Title, body, when it appeared on the animation clock, and how long it stays.
+    message: Option<(String, String, f64, f64)>,
     painted: Option<Painted>,
     pub reduced_motion: bool,
 }
@@ -74,27 +62,31 @@ impl Toast {
         // The title only. Titles are fixed wording and counts; a body can name a window, and for
         // an app without a desktop entry that name is its title: a folder, a document, a URL.
         tracing::info!(title, "toast");
-        self.message = Some((title.to_string(), body.to_string(), now));
+        self.message = Some((title.to_string(), body.to_string(), now, dwell(title, body)));
         self.painted = None;
     }
 
-    /// The toast for a screen `width` logical pixels wide, while one is showing.
-    /// `under_tag` is whether a gravity tag is on screen, which moves the toast down to clear it.
+    /// Takes the toast off: the volume or brightness display has taken its place.
+    pub fn clear(&mut self) {
+        self.message = None;
+        self.painted = None;
+    }
+
+    /// The toast for a screen `size` logical pixels across, while one is showing.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        width: i32,
+        size: Size<i32, Logical>,
         scale: f64,
         now: f64,
-        under_tag: bool,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let (title, body, at) = self.message.as_ref()?;
-        let age = now - at;
-        if !(0.0..SHOWN).contains(&age) {
+        let (title, body, at, shown) = self.message.as_ref()?;
+        let (age, shown) = (now - at, *shown);
+        if !(0.0..shown).contains(&age) {
             self.message = None;
             self.painted = None;
             return None;
@@ -112,18 +104,18 @@ impl Toast {
         } else {
             FADE
         };
-        let alpha = (age / fade).min((SHOWN - age) / fade).clamp(0.0, 1.0);
+        let alpha = (age / fade).min((shown - age) / fade).clamp(0.0, 1.0);
         let rise = if self.reduced_motion {
             0.0
         } else {
-            -8.0 * (1.0 - HYPR.at(age / FADE))
+            8.0 * (1.0 - HYPR.at((age / FADE).min(1.0)))
         };
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * MOCKUP_PX) as f64;
-        let top = if under_tag { TOP_CLEARING_A_TAG } else { TOP };
         let location = Point::<f64, Logical>::from((
-            ((width - painted.logical.w) / 2) as f64,
-            (top as f64 + rise) * MOCKUP_PX as f64 - margin,
+            ((size.w - painted.logical.w) / 2) as f64,
+            (size.h - painted.logical.h) as f64 + margin
+                - (crate::osd::BOTTOM as f64 - rise) * MOCKUP_PX as f64,
         ))
         .to_physical(scale)
         .to_i32_round::<i32>()
@@ -141,6 +133,18 @@ impl Toast {
         )
         .ok()
     }
+}
+
+/// How long a toast of `title` and `body` stays: time to read it, within bounds.
+fn dwell(title: &str, body: &str) -> f64 {
+    let words = title.split_whitespace().count() + body.split_whitespace().count();
+    (1.0 + PER_WORD * words as f64).clamp(SHOWN, SHOWN_MOST)
+}
+
+/// Where the middle of a one-line toast sits on a screen `height` logical pixels tall: where a
+/// snip flies to before its toast appears.
+pub fn one_line_centre(height: f64) -> f64 {
+    height - (crate::osd::BOTTOM + card_height(1, 0.0) / 2.0) as f64 * MOCKUP_PX as f64
 }
 
 /// The toast's words.
@@ -232,22 +236,13 @@ mod tests {
         assert!(long.logical.h > short.logical.h);
     }
 
-    /// The toast drops below a gravity tag rather than over it. The tag names the rung the window
-    /// has reached; the toast explains that rung, and an explanation that hides its own answer is
-    /// worse than none.
     #[test]
-    fn the_toast_clears_a_tag_on_a_top_row_window() {
-        // Where a tag on a top-row window ends, in mockup pixels: the window starts below the
-        // bar and the gap around the tiling area, and the tag sits `TAG_INSET` inside it.
-        let window_top = (crate::bar::HEIGHT + crate::layout::OUTER_GAP) as f32 / MOCKUP_PX;
-        let tag_bottom = window_top + TAG_INSET + TAG_HEIGHT;
-        assert!(
-            TOP < tag_bottom,
-            "the usual place overlaps a tag, so there is something to clear"
+    fn a_toast_stays_long_enough_to_read() {
+        assert_eq!(dwell("Copied", "42"), SHOWN);
+        let long = dwell(
+            "Setting not saved",
+            "The settings file couldn't be read or written, so the change lasts until you log out.",
         );
-        assert!(
-            TOP_CLEARING_A_TAG >= tag_bottom,
-            "{TOP_CLEARING_A_TAG} still covers a tag ending at {tag_bottom}"
-        );
+        assert!(long > SHOWN && long <= SHOWN_MOST, "{long}");
     }
 }

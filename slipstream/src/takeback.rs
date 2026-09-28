@@ -219,14 +219,18 @@ impl Slipstream {
         }
         let name = self.window_name(window);
         let key = self.take_back_label();
+        // Titles are fixed wording; the window's name goes in the body, which isn't logged.
         let (title, body) = match taken {
-            Taken::Pointer => (format!("{name} has the mouse"), format!("{key} frees it")),
+            Taken::Pointer => (
+                "The mouse is held",
+                format!("{name} has it. {key} frees it."),
+            ),
             Taken::Shortcuts => (
-                format!("{name} has the keyboard shortcuts"),
-                format!("{key} takes them back"),
+                "The keyboard shortcuts are held",
+                format!("{name} has them. {key} takes them back."),
             ),
         };
-        self.show_toast(&title, &body);
+        self.show_toast(title, &body);
     }
 
     /// The key that takes grabs back, as the bindings have it.
@@ -252,7 +256,10 @@ impl Slipstream {
             self.takeback.refuse(None);
             self.update_shortcuts_inhibitor();
             self.update_pointer_constraint();
-            self.show_toast(&format!("{name} may take the mouse and keys again"), "");
+            self.show_toast(
+                "Grabs allowed again",
+                &format!("{name} may take the mouse and keys again."),
+            );
             return;
         }
         let pointer = self.seat.get_pointer().unwrap();
@@ -280,10 +287,8 @@ impl Slipstream {
             let key = self.take_back_label();
             self.show_toast(
                 "Mouse and keys are back",
-                &format!("{key} again gives them to {name}"),
+                &format!("{key} again gives them to {name}."),
             );
-        } else {
-            self.show_toast(&format!("{name} isn't holding the mouse or keys"), "");
         }
     }
 

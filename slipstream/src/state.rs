@@ -1640,8 +1640,8 @@ impl Slipstream {
         self.rain.add(window.clone(), name.clone(), icon, pid, now);
         self.retile();
         self.show_toast(
-            &format!("{name} opened in the code rain"),
-            "Super+Shift+M or a click on its stream brings it in.",
+            "Opened in the code rain",
+            &format!("{name}: Super+Shift+M or a click on its stream brings it in."),
         );
         tracing::info!(
             window = logged_app(&window),
@@ -2077,10 +2077,7 @@ impl Slipstream {
         // Gravity places windows by weight, so swapping two of them would be undone by the next
         // retile. Point at the keys that do move a window there.
         if self.current_workspace().gravity.is_on() {
-            self.show_toast(
-                "Gravity on",
-                "Super+PgUp and Super+PgDn move windows here. Super+T goes back to tiling.",
-            );
+            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
             return;
         }
         let active = self.screens.workspace();
@@ -2161,10 +2158,6 @@ impl Slipstream {
             .layout
             .rotate_around(&window)
         {
-            self.show_toast(
-                "Nothing to turn",
-                "A window on its own already fills the workspace.",
-            );
             return;
         }
         tracing::info!(window = logged_app(&window), "turned the layout");
@@ -2172,7 +2165,7 @@ impl Slipstream {
     }
 
     pub fn resize_focused(&mut self, how: layout::Resize) {
-        use layout::{Resize, Resized};
+        use layout::Resized;
         let (Some(area), Some(window)) = (self.output_area(), self.focused_window()) else {
             return;
         };
@@ -2198,19 +2191,9 @@ impl Slipstream {
                 tracing::info!(?how, ratio, "resized the tile");
                 self.retile();
             }
-            Resized::AtLimit => {
-                let (title, body) = match how {
-                    Resize::Wider => ("As wide as it goes", "Super+[ makes it narrower."),
-                    Resize::Narrower => ("As narrow as it goes", "Super+] makes it wider."),
-                    Resize::Taller => ("As tall as it goes", "Super+Shift+[ makes it shorter."),
-                    Resize::Shorter => ("As short as it goes", "Super+Shift+] makes it taller."),
-                };
-                self.show_toast(title, body);
-            }
-            Resized::NothingBeside => self.show_toast(
-                "Nothing beside it",
-                "Open another window to share the space",
-            ),
+            // At its limit, or alone, the tile simply doesn't move: held keys would otherwise
+            // repeat the same message.
+            Resized::AtLimit | Resized::NothingBeside => {}
         }
     }
 
@@ -2248,7 +2231,6 @@ impl Slipstream {
     /// all. The keyboard stays on this screen, which now shows what the other one was.
     pub fn swap_with_next_screen(&mut self) {
         if self.screens.len() < 2 {
-            self.show_toast("One screen", "Nothing to swap with.");
             return;
         }
         let leaving = self.focused_window();
@@ -2295,7 +2277,7 @@ impl Slipstream {
                 self.desktop_return = Some((active, to));
                 self.switch_workspace(to);
             }
-            None => self.show_toast("No empty workspace", "Settings › Workspaces adds one"),
+            None => self.show_toast("No empty workspace", "Settings › Workspaces adds one."),
         }
     }
 
@@ -2314,7 +2296,7 @@ impl Slipstream {
         };
         self.show_toast(
             &format!("No workspace {number}"),
-            &format!("There are {count} {plural}. Settings → Workspaces adds more."),
+            &format!("There are {count} {plural}. Settings › Workspaces adds more."),
         );
         None
     }
@@ -3629,10 +3611,11 @@ impl Slipstream {
         );
         if missing > 0 {
             let plural = if missing == 1 { "window" } else { "windows" };
-            self.show_toast(
+            self.notify_self(
                 &format!("{missing} {plural} didn’t come back"),
                 "Their apps were asked to start but no window arrived. Everything else is where \
                  it was.",
+                false,
             );
         }
     }
@@ -3985,7 +3968,7 @@ impl Slipstream {
         }
         let (title, body) = refusal.message();
         self.wake_ui();
-        self.show_toast(&title, &body);
+        self.notify_self(&title, &body, false);
     }
 
     /// The pointer moved while the way out is up: whatever it's over lights up. `pos` is in the
@@ -4936,6 +4919,8 @@ impl Slipstream {
 
     pub fn show_toast(&mut self, title: &str, body: &str) {
         let now = self.clock.tick();
+        // The toast and the volume and brightness display share a place: the newer one shows.
+        self.osd.hide();
         self.toast.show(title, body, now);
     }
 
@@ -5018,6 +5003,7 @@ impl Slipstream {
                     return;
                 }
                 let now = self.clock.tick();
+                self.toast.clear();
                 self.osd.show_with(osd::Kind::Media { playing }, title, now);
             }
         }
@@ -5032,6 +5018,7 @@ impl Slipstream {
             return;
         }
         let now = self.clock.tick();
+        self.toast.clear();
         self.osd.show(kind, level, now);
     }
 
@@ -5059,6 +5046,7 @@ impl Slipstream {
             return;
         }
         let now = self.clock.tick();
+        self.toast.clear();
         self.osd.show_with(kind, detail.to_string(), now);
     }
 
@@ -5267,7 +5255,7 @@ impl Slipstream {
                 tracing::info!("copied an answer from the explorer");
                 let clip = crate::history::Clip::Text(answer.value.clone().into());
                 self.put_on_clipboard(clip, false);
-                self.show_toast(&format!("Copied {}", answer.value), &answer.shown);
+                self.show_toast("Copied", &answer.shown);
             }
             Item::Emoji(emoji, name) => {
                 tracing::info!(name, "typing an emoji from the explorer");
@@ -5287,7 +5275,7 @@ impl Slipstream {
             Ok(()) => {}
             Err(launch::Failure::NothingInstalled) => self.no_terminal(),
             Err(launch::Failure::Spawn(err)) => {
-                self.show_toast(&format!("Couldn’t start {}", app.name), &err.to_string())
+                self.show_toast("Couldn’t start it", &format!("{}: {err}", app.name))
             }
         }
     }
@@ -5362,7 +5350,7 @@ impl Slipstream {
                 App::Terminal => self.no_terminal(),
                 App::Files => self.show_toast(
                     "No file manager",
-                    "Install Dolphin or Nautilus, or set a default for folders.",
+                    "Install a file manager, or set a default for folders.",
                 ),
                 App::Settings => self.show_toast(
                     "No Settings app",
@@ -5380,16 +5368,13 @@ impl Slipstream {
                     App::Settings => "Settings",
                     App::Browser => "the browser",
                 };
-                self.show_toast(&format!("Couldn’t start {name}"), &err.to_string());
+                self.show_toast("Couldn’t start it", &format!("{name}: {err}"));
             }
         }
     }
 
     fn no_terminal(&mut self) {
-        self.show_toast(
-            "No terminal",
-            "Set $TERMINAL or install one: Konsole, Ptyxis, foot…",
-        );
+        self.show_toast("No terminal", "Install a terminal, or set $TERMINAL.");
     }
 
     /// Quick settings' chevrons: the system's own settings page for Wi-Fi or Bluetooth.
@@ -5414,10 +5399,10 @@ impl Slipstream {
             match page {
                 launch::Page::Network => self.show_toast(
                     "No network settings app",
-                    "Install plasma-nm or nm-connection-editor",
+                    "Install nm-connection-editor or plasma-nm.",
                 ),
                 launch::Page::Bluetooth => {
-                    self.show_toast("No Bluetooth settings app", "Install bluedevil or blueman")
+                    self.show_toast("No Bluetooth settings app", "Install bluedevil or blueman.")
                 }
             }
             return;
@@ -5539,7 +5524,6 @@ impl Slipstream {
         let active = self.active_workspace();
         let windows = self.workspaces.get(active).windows();
         if windows.is_empty() {
-            self.show_toast("Nothing to hide", "No windows are open on this workspace.");
             return;
         }
         tracing::info!(windows = windows.len(), "hiding every window");
@@ -5617,12 +5601,8 @@ impl Slipstream {
 
     /// Super+Shift+M: the most recently minimised window comes back.
     pub fn restore_latest(&mut self) {
-        match self.rain.streams.last().map(|stream| stream.window.clone()) {
-            Some(window) => self.restore(&window),
-            None => self.show_toast(
-                "Nothing in the code rain",
-                "Super+M minimises the focused window into it.",
-            ),
+        if let Some(window) = self.rain.streams.last().map(|stream| stream.window.clone()) {
+            self.restore(&window);
         }
     }
 

@@ -33,8 +33,9 @@ use crate::{
 // Sizes in the mockup's pixels, as the toast and the bar use them.
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 72.0;
-/// How far the card's bottom edge sits above the bottom of the screen.
-const BOTTOM: f32 = 96.0;
+/// How far the card's bottom edge sits above the bottom of the screen. Toasts and gravity's
+/// arrangements sit on the same line.
+pub const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
 const SHOWN: f64 = 1.2;
 /// Caps Lock, Num Lock and Awake stay up longer, since their cards have a note to read as well.

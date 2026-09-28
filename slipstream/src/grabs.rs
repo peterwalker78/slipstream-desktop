@@ -169,10 +169,7 @@ impl Slipstream {
             return false;
         }
         if self.workspaces.get(workspace).gravity.is_on() {
-            self.show_toast(
-                "Gravity on",
-                "Super+PgUp and Super+PgDn move windows here. Super+T goes back to tiling.",
-            );
+            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
             return true;
         }
         tracing::info!("dragging a window to swap it");

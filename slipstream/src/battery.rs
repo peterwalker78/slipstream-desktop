@@ -266,8 +266,10 @@ impl Slipstream {
                     "The wallpaper slows down to save power.",
                 ),
                 Stage::Low => {
-                    let left = left.clone().unwrap_or_else(|| "plug in soon".to_string());
-                    self.show_toast(&format!("Battery low · {percent}%"), &left);
+                    let left = left.clone().unwrap_or_else(|| "Plug in soon.".to_string());
+                    // Kept until it's seen: a toast shown while the screen was locked or faded
+                    // would be missed.
+                    self.notify_self(&format!("Battery low · {percent}%"), &left, true);
                 }
                 _ => {}
             }

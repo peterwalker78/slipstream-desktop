@@ -343,7 +343,7 @@ impl Slipstream {
                 let now = self.wall();
                 let target = Point::from((
                     frozen.logical.w as f64 / 2.0,
-                    crate::toast::TOP_LOGICAL + 24.0,
+                    crate::toast::one_line_centre(frozen.logical.h as f64),
                 ));
                 let flight = Flight::new(
                     output,

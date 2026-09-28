@@ -1053,12 +1053,7 @@ pub fn output_elements(
         crate::notify::closed(expired, crate::notify::Reason::Expired);
     }
     if first_output && ui > 0.0 {
-        // A gravity tag names the rung a window has just reached; the toast explaining that
-        // rung drops below it rather than over it.
-        let under_tag = state.tags.iter().any(|(_, _, at)| now - at < TAG_SHOWN);
-        let toast = state
-            .toast
-            .element(renderer, output_geo.size.w, scale.x, now, under_tag);
+        let toast = state.toast.element(renderer, output_geo.size, scale.x, now);
         over_windows.extend(toast.iter().map(|toast| toast.geometry(scale)));
         elements.extend(toast.map(OutputElement::Memory));
         // The volume and brightness display sits low on the screen, over a fullscreen window as

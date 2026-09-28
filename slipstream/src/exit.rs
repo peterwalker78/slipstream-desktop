@@ -39,9 +39,9 @@ const FADE_OUT: f64 = 0.35;
 
 /// Windows named before the list says how many more there are.
 const MAX_ROWS: usize = 8;
-/// The slim card while the apps are closing, in the toast's place and width.
+/// The slim card while the apps are closing: the toast's width, hanging from the panels' line.
 const SLIM_WIDTH: f32 = 440.0;
-const SLIM_TOP: f32 = 58.0;
+const SLIM_TOP: f32 = crate::panel::TOP;
 
 /// Where the session is going.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

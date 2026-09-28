@@ -705,7 +705,7 @@ impl Slipstream {
         if !self.settings.clipboard.history {
             self.show_toast(
                 "Clipboard history is off",
-                "Settings (Super+I) → Session turns it on.",
+                "Settings › Session turns it on.",
             );
             return;
         }

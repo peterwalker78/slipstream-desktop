@@ -847,9 +847,10 @@ impl Slipstream {
             if reason == Reason::Asked || !self.lock_refusal_told {
                 self.lock_refusal_told = true;
                 self.wake_ui();
-                self.show_toast(
-                    "The lock isn't set up",
+                self.notify_self(
+                    "The lock isn’t set up",
                     "Run scripts/install-session once to add it.",
+                    false,
                 );
             }
             return false;
@@ -1074,9 +1075,10 @@ impl Slipstream {
                     self.sleep_delay.hold(fd);
                 }
             }
-            Response::Warn => self.show_toast(
-                "Sleep won't lock first",
-                "logind can't be reached, so loginctl can't lock or unlock this session either.",
+            Response::Warn => self.notify_self(
+                "Sleep won’t lock first",
+                "logind can’t be reached, so loginctl can’t lock or unlock this session either.",
+                false,
             ),
         }
     }
