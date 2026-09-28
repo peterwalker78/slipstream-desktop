@@ -2064,20 +2064,15 @@ impl Slipstream {
     }
 
     /// Super+Alt+arrow: swaps the focused window with the one in that direction, so a tile can
-    /// be moved about the workspace without the mouse. The tiling keeps its shape; the two
-    /// windows change places inside it, and focus rides along with the window that moved.
+    /// be moved about the workspace without the mouse. The arrangement keeps its shape; the two
+    /// windows change places inside it, and focus rides along with the window that moved. Under
+    /// gravity the places carry their roles, so moving into the centre takes the centre.
     pub fn move_tile(&mut self, direction: Direction) {
         let (Some(area), Some(current)) = (self.output_area(), self.focused_window()) else {
             return;
         };
         if self.workspaces.is_floating(&current) {
             self.move_floating(&current, direction);
-            return;
-        }
-        // Gravity places windows by weight, so swapping two of them would be undone by the next
-        // retile. Point at the keys that do move a window there.
-        if self.current_workspace().gravity.is_on() {
-            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
             return;
         }
         let active = self.screens.workspace();
@@ -2103,7 +2098,7 @@ impl Slipstream {
             self.motion.frame(&current, now).map(|frame| frame.rect),
             self.motion.frame(&next, now).map(|frame| frame.rect),
         );
-        if self.current_workspace_mut().layout.swap(&current, &next) {
+        if self.current_workspace_mut().swap(&current, &next) {
             self.retile();
             // The two pass through each other as panes of glass on their way.
             self.pass = match (
@@ -2148,7 +2143,10 @@ impl Slipstream {
         }
         let ws = self.current_workspace();
         if ws.gravity.is_on() {
-            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
+            self.show_toast(
+                "Only tiling turns",
+                "Gravity has no rows or columns to turn. Super+T goes back to tiling.",
+            );
             return;
         }
         let active = self.active_workspace();
@@ -2178,8 +2176,10 @@ impl Slipstream {
         if self.is_fullscreen(&window) || ws.maximised.as_ref() == Some(&window) {
             return;
         }
+        // Under gravity a window's size is its weight: wider or taller is heavier.
         if ws.gravity.is_on() {
-            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
+            let heavier = matches!(how, layout::Resize::Wider | layout::Resize::Taller);
+            self.weigh_window(&window, heavier);
             return;
         }
         let resized = self
@@ -4043,13 +4043,8 @@ impl Slipstream {
             );
             return;
         }
-        let ws = self.workspaces.get_mut(index);
-        // Gravity sizes windows by weight, which a maximise would fight.
-        if ws.gravity.is_on() {
-            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
-            return;
-        }
-        let maximised = ws.toggle_maximised(&window);
+        // In any arrangement, the window fills the area over the others until Super+F again.
+        let maximised = self.workspaces.get_mut(index).toggle_maximised(&window);
         self.retile();
         tracing::info!(window = logged_app(&window), maximised, "maximise");
     }

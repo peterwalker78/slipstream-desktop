@@ -312,6 +312,28 @@ impl<T: Clone + PartialEq> Gravity<T> {
         };
     }
 
+    /// Two windows trade places. What belongs to a place goes with the place, not the window: the
+    /// centre, the strip along the bottom, and a pinned slot. The tiling tree's order, which the
+    /// grid and the orbit follow, is swapped by the caller.
+    pub fn swap(&mut self, a: &T, b: &T) {
+        let trade = |w: &mut T| {
+            if *w == *a {
+                *w = b.clone();
+            } else if *w == *b {
+                *w = a.clone();
+            }
+        };
+        if let Mode::Mass {
+            centre, distant, ..
+        } = &mut self.mode
+        {
+            trade(centre);
+            distant.iter_mut().for_each(trade);
+        }
+        self.pinned.iter_mut().for_each(trade);
+        self.slots.iter_mut().for_each(trade);
+    }
+
     /// Whether `id` is pinned to its orbit slot.
     pub fn is_pinned(&self, id: &T) -> bool {
         self.pinned.contains(id)
@@ -979,5 +1001,22 @@ mod tests {
         // A window's own weight isn't an arrangement.
         gravity.arrange(&"b", Rung::Orbit);
         assert!(!gravity.is_on());
+    }
+
+    #[test]
+    fn swapping_moves_the_centre_to_the_other_window() {
+        let all = ["a", "b", "c", "d"];
+        let mut gravity = Gravity::default();
+        gravity.arrange(&"a", Rung::Centre);
+        step(&mut gravity, &all, "d", false);
+        assert_eq!(gravity.rung(&"d"), Rung::Distant);
+        // Into the centre: b takes it, a orbits in b's place.
+        gravity.swap(&"a", &"b");
+        assert_eq!(gravity.rung(&"b"), Rung::Centre);
+        assert_eq!(gravity.rung(&"a"), Rung::Orbit);
+        // The strip keeps its place too: c goes down, d comes up.
+        gravity.swap(&"d", &"c");
+        assert_eq!(gravity.rung(&"c"), Rung::Distant);
+        assert_eq!(gravity.rung(&"d"), Rung::Orbit);
     }
 }

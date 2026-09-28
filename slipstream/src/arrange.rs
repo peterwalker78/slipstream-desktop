@@ -1,4 +1,6 @@
-//! Super+T held: gravity's arrangements side by side, each drawn from the workspace's own windows.
+//! Super+T held: tiling and gravity's arrangements side by side, each drawn from the workspace's
+//! own windows. The strip keeps the two apart: tiling, where windows go where you put them, on
+//! its own, and after a divider the four arrangements gravity makes for itself.
 //!
 //! A quick Super+T turns gravity on or off. Keep Super down and a strip of the arrangements
 //! appears — tiling, grid, centre, wide, spotlight — with the one in force selected. Each further
@@ -43,6 +45,10 @@ const INSET: f32 = 14.0;
 const LABEL_H: f32 = 34.0;
 const PADDING: f32 = 24.0;
 const FOOT_H: f32 = 40.0;
+/// The row of headings over the tiles: tiling's, and gravity's over its four.
+const HEAD_H: f32 = 44.0;
+/// The space between tiling and gravity's arrangements, with the divider down its middle.
+const GROUP_GAP: f32 = 44.0;
 /// Room around the strip for its shadow.
 const MARGIN: f32 = 64.0;
 /// Its lower edge above the bottom of the screen.
@@ -158,8 +164,8 @@ impl<W> Arrange<W> {
         let tile_h = self.shown.as_ref().map_or(0.0, tile_h);
         self.hits = (0..CHOICES.len())
             .map(|index| {
-                let x = MARGIN + PADDING + index as f32 * (TILE_W + TILE_GAP);
-                let y = MARGIN + PADDING;
+                let x = tile_x(index);
+                let y = MARGIN + PADDING + HEAD_H;
                 (
                     index,
                     Rectangle::new(
@@ -210,11 +216,16 @@ fn name(rung: Rung) -> &'static str {
     }
 }
 
+/// Where tile `index` starts across the strip: tiling first, then gravity's four after the gap.
+fn tile_x(index: usize) -> f32 {
+    let gap = if index > 0 { GROUP_GAP - TILE_GAP } else { 0.0 };
+    MARGIN + PADDING + index as f32 * (TILE_W + TILE_GAP) + gap
+}
+
 fn paint(look: &Look) -> Option<Painted> {
-    let count = CHOICES.len() as f32;
-    let card_w = 2.0 * PADDING + count * TILE_W + (count - 1.0) * TILE_GAP;
+    let card_w = tile_x(CHOICES.len() - 1) + TILE_W + PADDING - MARGIN;
     let tile_h = tile_h(look);
-    let card_h = 2.0 * PADDING + tile_h + FOOT_H;
+    let card_h = 2.0 * PADDING + HEAD_H + tile_h + FOOT_H;
     let logical = Size::<i32, Logical>::from((
         ((card_w + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
         ((card_h + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
@@ -227,11 +238,29 @@ fn paint(look: &Look) -> Option<Painted> {
     let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
     panel::glass(&mut p, MARGIN, MARGIN, card_w, card_h);
 
+    // The headings, each with a line on what it means, and the divider between them.
+    let heading = panel::section_style();
+    let note = Style::new(Face::Body, 12.5, panel::HINT);
+    let top = MARGIN + PADDING + 6.0;
+    p.text("TILING", tile_x(0), top, &heading);
+    p.text("you place the windows", tile_x(0), top + 17.0, &note);
+    p.text("GRAVITY", tile_x(1), top, &heading);
+    p.text("the windows place themselves", tile_x(1), top + 17.0, &note);
+    let divider = tile_x(1) - GROUP_GAP / 2.0;
+    p.fill(
+        divider - 0.5,
+        MARGIN + PADDING,
+        1.0,
+        HEAD_H + tile_h,
+        0.0,
+        panel::DIVIDER,
+    );
+
     let label = Style::new(Face::Body, 14.0, panel::INK);
     let (pw, ph) = (TILE_W - 2.0 * INSET, picture_h(look));
     for (index, rung) in CHOICES.iter().enumerate() {
-        let x = MARGIN + PADDING + index as f32 * (TILE_W + TILE_GAP);
-        let y = MARGIN + PADDING;
+        let x = tile_x(index);
+        let y = MARGIN + PADDING + HEAD_H;
         if index == look.selected {
             let fill = panel::selection_fill(look.ring);
             p.fill(x, y, TILE_W, tile_h, panel::TILE_RADIUS, fill);
@@ -263,7 +292,7 @@ fn paint(look: &Look) -> Option<Painted> {
 
     // The keys, right-aligned along the foot, as on every panel.
     let right = MARGIN + card_w - PADDING;
-    let centre = MARGIN + PADDING + tile_h + FOOT_H / 2.0 + 4.0;
+    let centre = MARGIN + PADDING + HEAD_H + tile_h + FOOT_H / 2.0 + 4.0;
     let start = panel::key_hint(&mut p, right, centre, &["Esc"], "put it back");
     let start = panel::key_hint(
         &mut p,

@@ -12,17 +12,16 @@ Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter 
 | Alt+Tab, Alt+Shift+Tab | Switch windows, dealt as a deck of glass |
 | Alt+F4 | Close the window |
 | Super+arrows | Move focus |
-| Super+Alt+arrows | Move the tile: the two tiles pass through each other |
-| Super+[ and ], with Shift for height | Resize |
+| Super+Alt+arrows | Move the window: it swaps places with the one that way, the two passing through each other. Under gravity, moving into the centre takes it |
+| Super+[ and ], with Shift for height | Resize; under gravity, lighter and heavier |
 | Super+R | Turn the layout on its side: rows become columns |
-| Super+F | Fill the tiling area, and back |
+| Super+F | Fill the tiling area, and back, in tiling or gravity |
 | Super+M, Super+Shift+M | Minimise to the code rain, bring back |
 | Super+H | Hide every window on the workspace; again, bring them back |
 | Super+Shift+V, Super+Ctrl+V | Float the window or tile it; switch between floating and tiled windows |
 | Super+D | Show the desktop, and back |
 | Super+Tab | Bullet time |
-| Super+T | Gravity on or off; keep Super held to choose the arrangement |
-| Super+PgUp, Super+PgDn | The window heavier or lighter under gravity |
+| Super+T | Tiling or gravity; keep Super held to choose the arrangement |
 | Super+1–9, Super+Ctrl+← → | Go to a workspace |
 | Super+Shift+1–9, Super+Shift+← → | Move the window to a workspace |
 | Super+P, Super+Shift+P | Next screen, move the window there |

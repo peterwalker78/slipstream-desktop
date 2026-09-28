@@ -162,15 +162,11 @@ impl Slipstream {
         if self.workspaces.is_floating(&window) {
             return self.start_floating_move(window, pos, button, serial);
         }
-        let Some(workspace) = self.workspaces.find(&window) else {
-            return false;
-        };
-        if self.is_fullscreen(&window) {
+        if self.workspaces.find(&window).is_none() {
             return false;
         }
-        if self.workspaces.get(workspace).gravity.is_on() {
-            self.show_toast("Gravity arranges these", "Super+T goes back to tiling.");
-            return true;
+        if self.is_fullscreen(&window) {
+            return false;
         }
         tracing::info!("dragging a window to swap it");
         self.focus_window(&window);
@@ -358,12 +354,7 @@ impl Slipstream {
         let Some(workspace) = self.workspaces.find(&window) else {
             return;
         };
-        if self
-            .workspaces
-            .get_mut(workspace)
-            .layout
-            .swap(&window, &over)
-        {
+        if self.workspaces.get_mut(workspace).swap(&window, &over) {
             tracing::info!("swapped two tiles by dragging");
             self.retile();
         }

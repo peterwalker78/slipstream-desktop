@@ -21,9 +21,16 @@ The things you'd expect any desktop to do, each done the Slipstream way.
 
 ## Gravity
 
-Tiling isn't all or nothing. A quick **Super+T** turns gravity on and off. Keep Super held and the arrangements appear side by side, drawn from your own windows: *tiling · grid · centre · wide · spotlight*. Tap T or use the arrows to move along them, and the windows follow as you go. Let go of Super to keep one, or press Esc to put things back. The next quick Super+T turns gravity on at the arrangement you kept.
+Slipstream has two ways of laying out a workspace. In **tiling**, windows go where you put them. Under **gravity**, the windows place themselves around the one that matters: in a grid, or with it in the centre, wide or in the spotlight, and the rest in orbit or down in a strip along the bottom.
 
-**Super+PgUp** and **Super+PgDn** fine-tune one window: heavier gives it more of the screen, lighter sends it into orbit around another window or down to the strip along the bottom. One step per press, always reversible.
+A quick **Super+T** switches between the two. Keep Super held and the choices appear side by side, drawn from your own windows: tiling on its own, and gravity's four arrangements after it. Tap T or use the arrows to move along them, and the windows follow as you go. Let go of Super to keep one, or press Esc to put things back. The next quick Super+T switches to the arrangement you kept.
+
+The same keys work in both, meaning what they mean there:
+
+- **Super+[ and ]** resize a tile in tiling. Under gravity a window's size is its weight: heavier gives it more of the screen, lighter sends it into orbit around another window or down to the strip.
+- **Super+Alt+arrows**, or dragging with Super held, swap a window with the one that way. Under gravity the places keep their roles, so moving a window into the centre makes it the centre.
+- **Super+F** fills the area with the window, and back, in either.
+- **Super+R**, which turns a tiling layout on its side, is tiling's alone.
 
 ## The code rain, in full
 

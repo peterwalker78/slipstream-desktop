@@ -2,6 +2,12 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- **Tiling and gravity read as two modes again.** Holding Super after Super+T shows tiling on its own, marked "you place the windows", and after a divider gravity's four arrangements, "the windows place themselves".
+- **The same keys work under gravity.** Super+[ and ] make the window lighter and heavier, Super+Alt+arrows and dragging swap places (moving into the centre takes it), and Super+F fills the area, where before they were refused. Super+PgUp and Super+PgDn still weigh the window but are no longer listed separately.
+- **Physarum's mould reassembles the logo** at the end of its turn, each strand going back to its own place in the letters, instead of the letters appearing at once.
+
 ## 0.7.0 - 2026-09-28
 
 - **Messages have clear places.** Answers to what you just pressed appear low in the middle, in the same place as the volume and brightness display (the newer replaces the other); notifications hang from the top right, on the same line as the panels, and fade as they go; cards that need an answer sit in the middle. A toast stays long enough to read what it says.

@@ -143,6 +143,11 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
         if keys::is_hardware_key(binding.key) {
             continue;
         }
+        // Gravity's weights are also Super+[ and ], which the sheet lists; PgUp and PgDn stay
+        // bound for anyone who learnt them, without a second row to read.
+        if matches!(binding.action, keys::Action::Weigh { .. }) {
+            continue;
+        }
         let group = binding.action.group();
         let does = binding.action.describe();
         let Some(section) = sections.iter_mut().find(|section| section.group == group) else {
@@ -714,7 +719,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_binding_appears_once_but_the_laptops_own_keys() {
+    fn every_binding_appears_once_but_the_laptops_own_keys_and_the_second_weight_keys() {
         let bindings = keys::checked(keys::defaults());
         let sections = sections(&bindings);
         for binding in &bindings {
@@ -724,8 +729,11 @@ mod tests {
                 .filter(|row| row.bindings.contains(&(binding.mods, binding.key)))
                 .count();
             // Play, volume, mute and brightness have pictures on them and are the same on every
-            // machine; the sheet is for the keys that aren't written on the keyboard.
-            let want = usize::from(!keys::is_hardware_key(binding.key));
+            // machine; the sheet is for the keys that aren't written on the keyboard. Gravity's
+            // weights are listed once, as Super+[ and ].
+            let hidden = keys::is_hardware_key(binding.key)
+                || matches!(binding.action, keys::Action::Weigh { .. });
+            let want = usize::from(!hidden);
             assert_eq!(rows, want, "{binding:?}");
         }
         // And at least one of each, so this is testing something.
@@ -752,7 +760,7 @@ mod tests {
         };
         assert_eq!(row("move focus"), ["Super+← → ↑ ↓"]);
         assert_eq!(row("go to a workspace"), ["Super+1–9"]);
-        assert_eq!(row("narrower, wider"), ["Super+[ ]"]);
+        assert_eq!(row("narrower, wider (gravity: weight)"), ["Super+[ ]"]);
         assert_eq!(row("shorter, taller"), ["Super+Shift+[ ]"]);
         assert_eq!(row("switch window"), ["Alt+Tab", "Alt+Shift+Tab"]);
         assert_eq!(row("apps"), ["Super"]);

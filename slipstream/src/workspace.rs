@@ -68,7 +68,7 @@ impl<T: Clone + PartialEq> Workspace<T> {
     /// and a maximised window given the whole area inside the outer gap.
     pub fn rects_within(&mut self, area: Rect, min: &dyn Fn(&T) -> (i32, i32)) -> Vec<(T, Rect)> {
         let mut rects = self.tiles_within(area, min);
-        if let (Some(maximised), false) = (&self.maximised, self.gravity.is_on()) {
+        if let Some(maximised) = &self.maximised {
             let whole = area.inset(self.layout.outer_gap);
             for (window, rect) in rects.iter_mut() {
                 if window == maximised {
@@ -77,6 +77,17 @@ impl<T: Clone + PartialEq> Workspace<T> {
             }
         }
         rects
+    }
+
+    /// Two windows trade places, in tiling and under gravity alike: their places in the tree swap,
+    /// and so do gravity's roles (the centre, the strip), so each takes the other's spot. Whether
+    /// they did.
+    pub fn swap(&mut self, a: &T, b: &T) -> bool {
+        let swapped = self.layout.swap(a, b);
+        if swapped {
+            self.gravity.swap(a, b);
+        }
+        swapped
     }
 
     /// Super+F on `window`: it fills the area, or goes back to its tile. Whether it's maximised
