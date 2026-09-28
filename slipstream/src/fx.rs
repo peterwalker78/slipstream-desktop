@@ -454,8 +454,9 @@ void main() {
 
 /// Wake. The window holds still for a moment, then drops off the bottom of the screen as one rigid
 /// pane, speeding up and drawing back a little into the distance as it goes. Behind it pours its
-/// slipstream, drawn as the streams draw their light: streaks at different depths, near ones wider,
-/// brighter and quicker to follow, far ones fine and dim and lagging, each with a glowing head
+/// slipstream, drawn as the streams draw their light, half seen-through: streaks at different
+/// depths and paces, near ones wider, brighter and quicker, far ones fine, dim and slow, each with
+/// a glowing head
 /// close behind the pane. Each takes its colour from the part of the window it came from, starting
 /// in the window's own colours and turning to the rain's green, and all of them fade once the pane
 /// has gone.
@@ -475,6 +476,8 @@ const float RECEDE = 0.08;
 // Three layers of streaks, each in cells this many logical pixels wide, some left empty.
 const float CELL = 22.0;
 const float EMPTY = 0.3;
+// How much light the shower gives: it is seen through, over whatever the window uncovers.
+const float SHOWER = 0.55;
 
 // How far the pane has dropped, `u` seconds in, and how large it is.
 float pane_y(float u) {
@@ -514,8 +517,10 @@ vec3 streak(vec2 px, float layer) {
     if (u <= LEAN) {
         return vec3(0.0);
     }
-    float head = pane_y(u) + 5.0 * unit;
-    float speed = gravity * (u - LEAN);
+    // Each streak keeps its own pace, from half the pane's to all of it, near ones quicker.
+    float pace = 0.5 + 0.5 * mix(hash(vec2(cell, seed + 6.0)), 1.0, near * 0.4);
+    float head = pane_y(u) * pace + 5.0 * unit;
+    float speed = gravity * (u - LEAN) * pace;
     float len = (60.0 + 220.0 * near) * unit + speed * 0.08;
     float width = mix(2.5, 9.0, near) * unit;
     float radius = mix(4.5, 11.0, near) * unit;
@@ -538,7 +543,7 @@ vec3 streak(vec2 px, float layer) {
     vec3 colour = mix(own, green, clamp((t - LEAN) / 0.18, 0.0, 1.0));
     vec3 hot = mix(colour, vec3(1.0), 0.6);
     float bright = 0.4 + 0.6 * near;
-    return (colour * body + hot * glow) * bright;
+    return (colour * body + hot * glow) * bright * SHOWER;
 }
 
 void main() {
