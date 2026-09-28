@@ -9,7 +9,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Holding Caps Lock while the screensaver is up turns Awake on**, as it does before the screen fades. A tap there still only brings the desktop back, without turning Caps Lock on.
 - **Minimised apps keep the windows' spacing.** Their tops and feet line up with the windows', the group sits one window gap from the windows beside it and the same from the screen's edge, and the streams are a little apart from each other, where before they almost touched.
 - **No Caps Lock card.** The amber CAPS chip on the bar, and the arrow in the lock screen's password box, already say it's on.
-- **Night Sky comes with Slipstream**, installed and kept up to date like Glimmerwood: tonight's real sky in fine dots, a handful of things to find, and a last line that sends you outside. `install=no` in `~/.config/slipstream/extras/night-sky.conf` leaves it out.
+- **Westering comes with Slipstream**, installed and kept up to date like Glimmerwood: a few quiet minutes under tonight's real sky in fine dots, with things to find, somewhere to set down what's on your mind, and a last line that sends you outside. `install=no` in `~/.config/slipstream/extras/westering.conf` leaves it out.
 
 ## 0.7.2 - 2026-09-28
 
