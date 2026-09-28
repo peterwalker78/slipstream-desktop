@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # A window that can never answer a close request, for checking the way out's "still here" card. It
 # starts a client — foot unless another is named — and stops it once the window is up: a stopped
 # process never reads `xdg_toplevel.close`, which is exactly what a wedged app, or one that ignores
@@ -12,15 +12,16 @@
 # stubborn before letting the client go.
 set -u
 
-client=("$@")
-[ ${#client[@]} -eq 0 ] && client=(foot)
+if [ $# -eq 0 ]; then
+    set -- foot
+fi
 
-"${client[@]}" &
+"$@" &
 pid=$!
 
 sleep "${STUBBORN_AFTER:-1.5}"
 kill -STOP "$pid" 2>/dev/null || exit 0
-echo "stubborn: ${client[*]} (pid $pid) is stopped and will ignore close requests" >&2
+echo "stubborn: $* (pid $pid) is stopped and will ignore close requests" >&2
 
 sleep "${STUBBORN_FOR:-30}"
 kill -CONT "$pid" 2>/dev/null

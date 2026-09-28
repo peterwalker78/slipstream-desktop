@@ -32,8 +32,8 @@ jobs:
           shellcheck -s sh scripts/install-session scripts/update-session scripts/package-release \
             scripts/test-install-session scripts/install-extras scripts/test-install-extras \
             scripts/build-portable scripts/check-portable scripts/try-slipstream \
-            scripts/test-on-distro install.sh session/slipstream-session
-          shellcheck scripts/nested scripts/stubborn
+            scripts/test-on-distro scripts/stubborn install.sh session/slipstream-session
+          shellcheck scripts/nested
           scripts/test-install-session
           SHELL_UNDER_TEST=dash scripts/test-install-session
           scripts/test-install-extras
