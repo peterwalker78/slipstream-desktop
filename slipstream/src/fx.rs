@@ -5,8 +5,9 @@
 //! mode's 26 glyphs, drawn from the rain's own font, so one texture carries both and the shader
 //! needs nothing else.
 //!
-//! Slabs, with Slipstream's own effects: slits open across the window in the streams' rhythm and
-//! the slabs between them drop away one after another, bottom first, turning to light as they go.
+//! Slabs, with Slipstream's own effects: slits open across the window, three parts slab to one
+//! part slit, and the slabs drop away one after another from the top, turning to light and leaving
+//! streaks of it behind them.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -43,14 +44,12 @@ const PACE: f64 = 1.25;
 pub const DEREZ: f64 = 1.2 / PACE;
 /// How fast falling glyphs speed up, in logical pixels a second a second.
 const GRAVITY: f64 = 3400.0;
-/// How long a closed window takes to drop away in slabs, in animation seconds: the last slab lets
-/// go at 0.48 s and has faded by 0.7 s after that.
-pub const SLABS: f64 = 1.2;
-/// How fast slabs speed up, in logical pixels a second a second, at least...
-const SLAB_GRAVITY: f64 = 1200.0;
-/// ...and in window heights a second a second, so a tall window's slabs still clear the screen
-/// in time.
-const SLAB_GRAVITY_HEIGHTS: f64 = 6.0;
+/// How long a closed window takes to drop away in slabs, in animation seconds: the last of about
+/// nine slabs lets go by 0.42 s and its streak has faded 0.7 s after that.
+pub const SLABS: f64 = 1.15;
+/// How fast slabs speed up, in window heights a second a second: fast enough that they drop well
+/// clear of the window, whatever its size, before they fade.
+const SLAB_GRAVITY: f64 = 15.0;
 
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
@@ -214,12 +213,7 @@ impl Fx {
                     GRAVITY,
                 )
             }
-            Effects::Slipstream => (
-                content,
-                self.slabs.clone()?,
-                t,
-                SLAB_GRAVITY.max(SLAB_GRAVITY_HEIGHTS * rect.size.h),
-            ),
+            Effects::Slipstream => (content, self.slabs.clone()?, t, SLAB_GRAVITY * rect.size.h),
         };
         tilt::draw_offscreen(
             renderer,
@@ -449,75 +443,74 @@ void main() {
 }
 "#;
 
-/// Slabs. Slits open across the window, one part in four, as in the streams, cutting it into about
-/// sixteen slabs, and the slabs let go one after another from the bottom, speeding up as they drop,
-/// so gaps open between them rather than one sliding over the next. Each turns from the window's
-/// own colours to light in the rain's tint as it goes, leaves a faint streak of that light behind
-/// it, and fades. The slabs stay rigid: they only drop, never stretch or bend.
+/// Slabs. Slits open across the window, a quarter of every slab-and-slit, cutting it into about
+/// eight slabs, and the slabs let go one after another from the top, speeding up as they drop, the
+/// upper ones falling through the lower. Each turns from the window's own colours to light in the
+/// rain's tint as it goes, leaves a streak of that light stretched from where it was to where it
+/// is, and fades. Everything is measured in window heights, so a large window closes as a small one
+/// does. The slabs stay rigid: they only drop, never stretch or bend.
 const SLABS_MAIN: &str = r#"
 uniform float window_h;
 uniform float gravity;
 uniform float unit;
 
-// The slits open over this long, then the slabs let go, the top one this long after the bottom.
+// The slits open over this long, then the slabs let go one after another, this far apart.
 const float OPEN = 0.12;
-const float SPREAD = 0.36;
+const float STAGGER = 0.03;
+// A slab and its slit, as a share of the window's height.
+const float SHARE = 0.12;
 // A slab is gone this long after it lets go, fading over the last part of that.
 const float GONE = 0.65;
 const float FADE = 0.3;
-// Its streak fades a little later.
+// Its streak fades over this long, and is drawn this bright.
 const float TRAIL = 0.7;
-const float SLABS = 16.0;
+const float STREAK = 0.22;
+// A slab glows even where the window was dark; its streak barely does, so on a large window of
+// sparse text the streaks are the text's, rather than one sheet of green.
+const float SLAB_GLOW = 0.2;
+const float STREAK_GLOW = 0.04;
 
-// The picture's light, in the rain's tint.
-vec3 inked(vec4 c) {
-    return ink * min(1.3 * dot(c.rgb, vec3(0.3, 0.59, 0.11)), 1.0);
+// The picture as light in the rain's tint, bright where it's bright, with a `floor` of glow even
+// where it's dark.
+vec3 inked(vec4 c, float floor_glow) {
+    float l = dot(c.rgb, vec3(0.3, 0.59, 0.11));
+    return ink * min(floor_glow * c.a + 1.3 * l, 1.0);
 }
 
 void main() {
     vec2 px = v_coords * texpx;
     vec4 color = vec4(0.0);
-    vec3 streak = vec3(0.0);
     if (px.x >= 0.0 && px.x < content.x) {
-        // A slab and its slit are a whole number of the streams' units, three parts to one.
+        // Whole multiples of four of the streams' units, so the slits are as crisp as theirs.
         float step4 = 4.0 * unit;
-        float period = max(step4, floor(window_h / SLABS / step4 + 0.5) * step4);
+        float period = max(step4, floor(window_h * SHARE / step4 + 0.5) * step4);
         float h = period - 0.25 * period * clamp(t / OPEN, 0.0, 1.0);
         float count = ceil(window_h / period);
-        // Only a slab that let go less than TRAIL ago can reach this far down, so only those
-        // above within its fall are looked at.
-        float lead = clamp(t - OPEN, 0.0, TRAIL);
-        float reach = 0.5 * gravity * lead * lead + period;
-        float first = max(floor((px.y - reach) / period), 0.0);
-        for (int k = 0; k < 64; k++) {
-            float i = first + float(k);
+        for (int k = 0; k < 32; k++) {
+            float i = float(k);
             float y0 = i * period;
             if (i >= count || y0 > px.y) {
                 break;
             }
-            float order = (count - 1.0 - i) / max(count - 1.0, 1.0);
-            float a = max(t - OPEN - SPREAD * order, 0.0);
-            if (a > TRAIL) {
-                continue;
-            }
+            float a = max(t - OPEN - STAGGER * i, 0.0);
             float drop = 0.5 * gravity * a * a;
             float hh = min(h, window_h - y0);
-            float into = px.y - y0 - drop;
             float alive = 1.0 - clamp((a - (GONE - FADE)) / FADE, 0.0, 1.0);
             float lit = clamp(a / 0.3, 0.0, 1.0);
-            if (into >= 0.0 && into < hh) {
+            // The streak: the slab's light drawn out from where it was to where it is.
+            if (drop > 1.0 && px.y < y0 + drop + hh) {
+                vec4 c = picture(vec2(px.x, y0 + (px.y - y0) / (drop + hh) * hh));
+                color.rgb += inked(c, STREAK_GLOW) * STREAK * (1.0 - clamp(a / TRAIL, 0.0, 1.0));
+            }
+            float into = px.y - y0 - drop;
+            if (into >= 0.0 && into < hh && alive > 0.0) {
                 vec4 c = picture(vec2(px.x, y0 + into));
                 color += c * alive * (1.0 - lit);
-                color.rgb += inked(c) * alive * lit;
-            } else if (drop > 1.0 && px.y >= y0 && px.y < y0 + drop + hh) {
-                // The streak: the slab's light drawn out from where it was to where it is. The
-                // brightest one wins, so streaks crossing each other don't pile up.
-                vec4 c = picture(vec2(px.x, y0 + (px.y - y0) / (drop + hh) * hh));
-                streak = max(streak, inked(c) * 0.22 * (1.0 - a / TRAIL));
+                color.rgb += inked(c, SLAB_GLOW) * alive * lit;
             }
         }
     }
-    color.rgb += streak;
+    color.a = min(color.a, 1.0);
     finish(color);
 }
 "#;
