@@ -18,6 +18,7 @@ use smithay::{
 
 use crate::{
     paint::Painted,
+    panel::{self, ink_on},
     text::{self, Face, Style},
 };
 
@@ -87,7 +88,7 @@ impl Overview {
     }
 
     fn accent(&self) -> u32 {
-        self.accent.unwrap_or(0xffb547ff)
+        self.accent.unwrap_or(panel::AMBER)
     }
 
     /// Call once per frame, before any solids.
@@ -208,9 +209,9 @@ impl Overview {
             let digits = Style::new(
                 Face::Display,
                 34.0,
-                if viewed { self.accent() } else { 0xe8edf5ff },
+                if viewed { self.accent() } else { panel::INK },
             );
-            let small = Style::new(Face::Mono, 15.0, 0xaab4c6ff);
+            let small = Style::new(Face::Mono, 15.0, panel::SECONDARY);
             let number = label;
             let number_w = text::width(number, &digits);
             let w = number_w + 10.0 + text::width(caption, &small) + 4.0;
@@ -248,11 +249,11 @@ impl Overview {
                     let (fill, ink) = if hot {
                         (accent, ink_on(accent))
                     } else {
-                        (0x0d0f14ee, 0xe8edf5ff)
+                        (panel::CHIP | 0xee, panel::INK)
                     };
                     p.fill(0.0, 0.0, s, s, 8.0 * 0.8, fill);
                     if !hot {
-                        p.border(0.0, 0.0, s, s, 8.0 * 0.8, 1.0, 0xffffff24);
+                        p.border(0.0, 0.0, s, s, 8.0 * 0.8, 1.0, panel::EDGE);
                     }
                     let glyph = s * 0.6;
                     p.icon(
@@ -284,8 +285,8 @@ impl Overview {
         let painted = match self.notes.entry((number, scale.to_bits())) {
             Entry::Occupied(slot) => slot.into_mut(),
             Entry::Vacant(slot) => {
-                let title = Style::new(Face::Body, 24.0, 0x9aa4b6ff);
-                let how = Style::new(Face::Mono, 13.0, crate::panel::HINT);
+                let title = Style::new(Face::Body, 24.0, panel::TERTIARY);
+                let how = Style::new(Face::Mono, 13.0, panel::HINT);
                 let lines = (
                     "Empty workspace",
                     if number <= 9 {
@@ -347,23 +348,13 @@ impl Overview {
     }
 }
 
-/// Dark ink on a light colour, light ink on a dark one.
-fn ink_on(rgba: u32) -> u32 {
-    let [r, g, b, _] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
-    if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 {
-        0x1a1206ff
-    } else {
-        0xf2f4f8ff
-    }
-}
-
 fn paint_hint(label: &str, name: Option<&str>, scale: f64, accent: u32) -> Option<Painted> {
     let small = name.is_none();
     let (box_h, px) = if small { (34.0, 22.0) } else { (48.0, 34.0) };
     let letter = Style::new(Face::MonoBold, px, accent);
     let letter_w = text::width(label, &letter);
     let box_w = (letter_w + if small { 16.0 } else { 26.0 }).max(box_h);
-    let caption = Style::new(Face::Mono, 13.0, 0xe8edf5ff);
+    let caption = Style::new(Face::Mono, 13.0, panel::INK);
     let name = name.map(|name| text::ellipsize(name, &caption, 220.0));
     let name_w = name
         .as_ref()
@@ -373,8 +364,8 @@ fn paint_hint(label: &str, name: Option<&str>, scale: f64, accent: u32) -> Optio
     Painted::new(Size::from((w as i32 + 8, h as i32 + 8)), scale, |p| {
         let x = 4.0 + (w - box_w) / 2.0;
         p.shadow(x, 4.0, box_w, box_h, 10.0, 6.0, 16.0, 0x00000099);
-        p.fill(x, 4.0, box_w, box_h, 10.0, 0x0d0f14ee);
-        p.border(x, 4.0, box_w, box_h, 10.0, 2.5, accent);
+        p.fill(x, 4.0, box_w, box_h, 10.0, panel::CHIP | 0xee);
+        p.border(x, 4.0, box_w, box_h, 10.0, 2.0, accent);
         p.text(
             label,
             x + (box_w - letter_w) / 2.0,
@@ -383,7 +374,14 @@ fn paint_hint(label: &str, name: Option<&str>, scale: f64, accent: u32) -> Optio
         );
         if let Some(name) = &name {
             let x = 4.0 + (w - name_w - 12.0) / 2.0;
-            p.fill(x, 4.0 + box_h + 6.0, name_w + 12.0, 22.0, 4.0, 0x0d0f14cc);
+            p.fill(
+                x,
+                4.0 + box_h + 6.0,
+                name_w + 12.0,
+                22.0,
+                4.0,
+                panel::CHIP | 0xcc,
+            );
             p.text(name, x + 6.0, 4.0 + box_h + 6.0 + 11.0, &caption);
         }
     })

@@ -30,6 +30,7 @@ use crate::{
     glmatrix::{self, Band, Glyphs, Look},
     layout::Rect,
     paint::{self, Painter},
+    panel::MOCKUP_PX,
     text::{self, Face, Style},
     usage::Meter,
 };
@@ -50,8 +51,6 @@ const CARD_GAP: f64 = 2.0;
 const CARD_INSET: f64 = 2.0;
 /// The cards' colour, the same as the headers'.
 const CARD: u32 = 0x0b0d12ff;
-/// Logical pixels per mockup pixel.
-const MOCKUP_PX: f32 = 0.8;
 /// The header's size against the mockup's.
 const HEADER: f32 = 0.75;
 /// The app's own meter at the foot of its header, in the mockup's pixels: as wide as the icon,
@@ -144,11 +143,6 @@ impl Card {
     }
 }
 
-/// Where a stream's card goes, in screen pixels, for a button whose buffer has its corner at
-/// `button` and whose card is `button_h` mockup pixels tall: as wide as the button and straight
-/// under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP` above the foot of a screen
-/// `screen_h` logical pixels tall. The size is in whole logical pixels, so the buffer is shown one
-/// to one.
 /// The size, in screen pixels at `scale`, that the code rain's glyphs are drawn at: a third of a
 /// stream card's inner width across, in GLMatrix's cell proportions. Anything else drawn as rain
 /// uses this, so it is the same rain.
@@ -158,6 +152,11 @@ pub fn glyph_size(scale: f64) -> (usize, usize) {
     crate::glmatrix::glyph_size((card - 2 * inset).max(3) as f32)
 }
 
+/// Where a stream's card goes, in screen pixels, for a button whose buffer has its corner at
+/// `button` and whose card is `button_h` mockup pixels tall: as wide as the button and straight
+/// under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP` above the foot of a screen
+/// `screen_h` logical pixels tall. The size is in whole logical pixels, so the buffer is shown one
+/// to one.
 fn card_frame(
     button: Point<i32, Physical>,
     button_h: f32,
@@ -705,13 +704,13 @@ pub fn stream_hit(count: usize, x: f64, y: f64, screen: Rect, top: i32) -> Optio
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn the_rain_s_glyph_size_is_a_third_of_a_stream_s_inner_width() {
         assert_eq!(glyph_size(1.0), (10, 15));
         assert_eq!(glyph_size(1.25), crate::glmatrix::glyph_size(40.0));
     }
-
-    use super::*;
 
     #[test]
     fn the_rain_spells_vowels_small_and_the_rest_in_capitals() {

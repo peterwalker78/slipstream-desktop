@@ -385,7 +385,7 @@ impl Centre {
                 calendar::grid(year, month).len() / 7
             });
             let card_h = 2.0 * CAL_PAD_Y + CAL_HEAD + DOW_H + weeks as f32 * (CELL_H + CELL_GAP);
-            p.fill(x0, y, inner, card_h, 13.0, 0xffffff08);
+            p.fill(x0, y, inner, card_h, panel::TILE_RADIUS, panel::TILE);
             if let Some((today, (year, month))) = shown {
                 let head_centre = y + CAL_PAD_Y + 10.0;
                 let title = Style::new(Face::BodyBold, 16.0, INK);
@@ -403,7 +403,7 @@ impl Centre {
                     let this_month = calendar::MONTHS[today.month as usize - 1];
                     format!("Today is {weekday} {} {this_month}", today.day)
                 };
-                let note_style = Style::new(Face::Body, 14.0, 0x8f98a8ff);
+                let note_style = Style::new(Face::Body, 14.0, panel::HINT);
                 let note_w = text::width(&note, &note_style);
                 p.text(
                     &note,
@@ -415,7 +415,7 @@ impl Centre {
                 let grid_x = x0 + CAL_PAD_X;
                 let grid_y = y + CAL_PAD_Y + CAL_HEAD;
                 let cell_w = (inner - 2.0 * CAL_PAD_X - 6.0 * CELL_GAP) / 7.0;
-                let initial = Style::new(Face::Body, 12.0, 0x7d8697ff);
+                let initial = Style::new(Face::Body, 12.0, panel::PLACEHOLDER);
                 for (column, letter) in ["M", "T", "W", "T", "F", "S", "S"].iter().enumerate() {
                     let cell_x = grid_x + column as f32 * (cell_w + CELL_GAP);
                     let w = text::width(letter, &initial);
@@ -461,17 +461,23 @@ impl Centre {
             let (track, knob, knob_x) = if look.do_not_disturb {
                 (AMBER, DARK, switch_x + 21.0)
             } else {
-                (0x3a3f4bff, 0xe9ebf0ff, switch_x + 3.0)
+                (0x3a3f4bff, INK, switch_x + 3.0)
             };
             p.fill(switch_x, y, 42.0, 24.0, 12.0, track);
             p.fill(knob_x, y + 3.0, 18.0, 18.0, 9.0, knob);
-            let label = Style::new(Face::Body, 14.0, 0x9aa3b2ff);
+            let label = Style::new(Face::Body, 14.0, panel::TERTIARY);
             let label_x = switch_x - 10.0 - text::width("Do not disturb", &label);
             p.text("Do not disturb", label_x, y + HEAD_H / 2.0, &label);
             let dnd_x = label_x - 8.0;
             shapes.push((
                 Item::DoNotDisturb,
-                [dnd_x, y - 4.0, x0 + inner + 4.0 - dnd_x, HEAD_H + 8.0, 10.0],
+                [
+                    dnd_x,
+                    y - 4.0,
+                    x0 + inner + 4.0 - dnd_x,
+                    HEAD_H + 8.0,
+                    panel::ROW_RADIUS,
+                ],
             ));
             y += HEAD_H + GAP;
 
@@ -479,28 +485,38 @@ impl Centre {
             let foot_y = fy + height - PADDING - FOOT_H;
             let foot_centre = foot_y + FOOT_H / 2.0;
             let keys = Style::new(Face::Mono, 12.0, panel::HINT);
-            let month = Style::new(Face::Body, 13.0, panel::HINT);
             let mut x = x0;
-            for key in ["PgUp", "PgDn"] {
-                x += p.keycap(key, x, foot_centre) + 4.0;
+            for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "")] {
+                x += panel::key_hint_width(keys, label);
+                panel::key_hint(p, x, foot_centre, keys, label);
+                x += panel::HINT_GAP;
             }
-            x += 4.0 + p.text("month", x + 4.0, foot_centre, &month) + 16.0;
-            p.keycap("Esc", x, foot_centre);
             let clear_ink = if listed.is_empty() { panel::HINT } else { INK };
             let clear = Style::new(Face::Body, 14.0, clear_ink);
             let clear_w = text::width("Clear all", &clear) + 28.0;
             let clear_x = x0 + inner - clear_w;
-            p.fill(clear_x, foot_y, clear_w, FOOT_H, 8.0, 0xffffff10);
+            panel::quiet_button(
+                p,
+                clear_x,
+                foot_y,
+                clear_w,
+                FOOT_H,
+                panel::ROW_RADIUS,
+                false,
+            );
             p.text("Clear all", clear_x + 14.0, foot_centre, &clear);
             if !listed.is_empty() {
-                shapes.push((Item::ClearAll, [clear_x, foot_y, clear_w, FOOT_H, 8.0]));
+                shapes.push((
+                    Item::ClearAll,
+                    [clear_x, foot_y, clear_w, FOOT_H, panel::ROW_RADIUS],
+                ));
             }
 
             // The notifications, newest first, from the first one scrolled to.
             let bottom = foot_y - GAP;
             if listed.is_empty() {
                 scroll = 0;
-                let empty = Style::new(Face::Body, 15.0, 0x7d8697ff);
+                let empty = Style::new(Face::Body, 16.0, panel::HINT);
                 let message = "You’re all caught up.";
                 let w = text::width(message, &empty);
                 p.text(message, x0 + (inner - w) / 2.0, y + 49.0, &empty);
@@ -529,7 +545,7 @@ impl Centre {
                     if top + h > bottom {
                         break;
                     }
-                    p.fill(x0, top, inner, *h, 13.0, 0xffffff0d);
+                    p.fill(x0, top, inner, *h, panel::TILE_RADIUS, panel::TILE);
                     let hits = notices::paint_card(p, notice, x0, top, inner, CARD_LINES, true);
                     if let Some([x, y, w, h]) = hits.cross {
                         targets.push((Target::Dismiss(notice.id), on_screen(x, y, w, h)));
@@ -542,7 +558,10 @@ impl Centre {
                         }
                     }
                     targets.push((Target::Open(notice.id), on_screen(x0, top, inner, *h)));
-                    shapes.push((Item::Notice(notice.id), [x0, top, inner, *h, 13.0]));
+                    shapes.push((
+                        Item::Notice(notice.id),
+                        [x0, top, inner, *h, panel::TILE_RADIUS],
+                    ));
                     top += h + CARD_GAP;
                     drawn += 1;
                 }
@@ -555,7 +574,7 @@ impl Centre {
             }
 
             if let Some([x, y, w, h]) = button_ring {
-                panel::focus_ring(p, x, y, w, h, 7.0, look.ring);
+                panel::focus_ring(p, x, y, w, h, panel::ROW_RADIUS, look.ring);
             }
             for (item, [x, y, w, h, radius]) in &shapes {
                 if *item == look.selected && look.action.is_none() {

@@ -20,7 +20,7 @@ use crate::{
     motion::HYPR,
     notify::{self, Image, Incoming, Reason},
     paint::{self, Painted, Painter},
-    panel::{INK, MOCKUP_PX},
+    panel::{self, INK, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
@@ -640,7 +640,7 @@ pub fn paint_card(
     let text_x = x + PAD_X + ICON + 12.0;
     let text_w = width - (text_x - x) - PAD_X;
     let meta_centre = y + PAD_Y + META_H / 2.0;
-    let meta = Style::new(Face::Body, 12.5, 0x8f98a8ff);
+    let meta = Style::new(Face::Body, 12.5, panel::HINT);
     let mut right = x + width - PAD_X;
     let mut cross = None;
     if dismiss {
@@ -650,7 +650,7 @@ pub fn paint_card(
             right,
             meta_centre - 7.0,
             14.0,
-            Some(0x7d8697ff),
+            Some(panel::PLACEHOLDER),
         );
         cross = Some([right - 8.0, y + PAD_Y - 6.0, 30.0, META_H + 12.0]);
         right -= 10.0;
@@ -686,8 +686,7 @@ pub fn paint_card(
             if w < 40.0 {
                 break;
             }
-            p.fill(bx, top, w, BUTTON_H, 7.0, 0xffffff14);
-            p.border(bx, top, w, BUTTON_H, 7.0, 1.0, 0xffffff24);
+            panel::quiet_button(p, bx, top, w, BUTTON_H, panel::ROW_RADIUS, false);
             p.text(
                 &text::ellipsize(text, &label, w - 24.0),
                 bx + 12.0,
@@ -703,28 +702,7 @@ pub fn paint_card(
 
 /// An app with no icon gets a coloured square with its initial, as the explorer draws one.
 fn placeholder(p: &mut Painter, name: &str, x: f32, y: f32) {
-    const COLOURS: [u32; 6] = [
-        0x3cf0c0ff, 0x33ccffff, 0xffb547ff, 0xff7a93ff, 0xa78bfaff, 0x7fe3ffff,
-    ];
-    let hash = name.bytes().fold(0u32, |hash, byte| {
-        hash.wrapping_mul(31).wrapping_add(byte as u32)
-    });
-    p.fill(
-        x,
-        y,
-        ICON,
-        ICON,
-        9.0,
-        COLOURS[hash as usize % COLOURS.len()],
-    );
-    let initial: String = name
-        .chars()
-        .next()
-        .map(|ch| ch.to_uppercase().collect())
-        .unwrap_or_default();
-    let style = Style::new(Face::MonoBold, 17.0, 0x10131aff);
-    let w = text::width(&initial, &style);
-    p.text(&initial, x + (ICON - w) / 2.0, y + ICON / 2.0, &style);
+    panel::app_placeholder(p, name, x, y, ICON, 9.0, 17.0);
 }
 
 /// A picture sent as pixels, drawn into a `px`-pixel square keeping its proportions.

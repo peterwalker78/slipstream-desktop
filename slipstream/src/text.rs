@@ -14,8 +14,7 @@ use crate::fallback;
 pub enum Face {
     /// Atkinson Hyperlegible, the mockup's `--body`.
     Body,
-    // The explorer's selected rows and bullet time's workspace numbers use these.
-    #[allow(dead_code)]
+    /// Atkinson Hyperlegible Bold: names, titles and buttons' labels.
     BodyBold,
     /// JetBrains Mono, the mockup's `--mono`.
     Mono,

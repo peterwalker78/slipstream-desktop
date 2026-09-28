@@ -38,6 +38,7 @@ use crate::{
     keys::Action,
     motion::HYPR,
     paint::{self, Painter},
+    panel::{self, AMBER, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
@@ -46,8 +47,6 @@ pub const PASSWORD_LIMIT: usize = 512;
 /// Where a PAM service for Slipstream can be installed. Without one, the lock never goes up.
 pub const SERVICE_FILES: [&str; 2] = ["/etc/pam.d/slipstream", "/usr/lib/pam.d/slipstream"];
 
-/// Logical pixels per mockup pixel.
-const MOCKUP_PX: f32 = 0.8;
 /// Locking fades the veil and the card in.
 const FADE_IN: f64 = 0.18;
 /// Reduced motion's fades, in and out.
@@ -65,8 +64,6 @@ const EASE_IN: Easing = Easing::Bezier(0.42, 0.0, 1.0, 1.0);
 pub const VEIL: [f32; 4] = [0.02, 0.027, 0.043, 0x70 as f32 / 255.0];
 /// The wallpaper's brightness behind the lock.
 pub const WALLPAPER_GLOW: f32 = 0.62;
-
-const AMBER: u32 = 0xffb547ff;
 
 /// Whether some PAM service file for Slipstream exists, asking `exists` of each place one can be.
 pub fn can_lock(exists: impl Fn(&Path) -> bool) -> bool {
@@ -707,7 +704,7 @@ fn paint_top(key: String, time: &str, date: &str, scale: f64) -> Option<Piece> {
     let clock = Style {
         tracking: 0.01,
         tabular: true,
-        ..Style::new(Face::Display, CLOCK_PX, 0xf3f5f9ff)
+        ..Style::new(Face::Display, CLOCK_PX, panel::BRIGHT)
     };
     let day = Style::new(Face::Body, DATE_PX, 0xd3d9e4ff);
     let (clock_w, day_w) = (text::width(time, &clock), text::width(date, &day));
@@ -739,14 +736,14 @@ fn paint_pill(key: String, dots: usize, caret: bool, caps_lock: bool, scale: f64
     let (label, style) = if dots == 0 {
         (
             "Password".to_string(),
-            Style::new(Face::Body, 22.0, 0xaab2c0ff),
+            Style::new(Face::Body, 22.0, panel::SECONDARY),
         )
     } else {
         (
             "•".repeat(dots),
             Style {
                 tracking: 0.3,
-                ..Style::new(Face::Body, 22.0, 0xf3f5f9ff)
+                ..Style::new(Face::Body, 22.0, panel::BRIGHT)
             },
         )
     };

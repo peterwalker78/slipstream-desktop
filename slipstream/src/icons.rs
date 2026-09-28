@@ -57,7 +57,6 @@ pub const LOGO: &str = r##"<path d="M2.5 5.5h9l5.5 6.5-5.5 6.5h-9L8 12z" fill="#
 
 /// Charging's colour: the battery's icon, and the words beside it.
 pub const CHARGING: &str = "#3cf0c0";
-pub const CHARGING_RGBA: u32 = 0x3cf0c0ff;
 
 /// The battery, filled to `percent`. The mockup's is fixed at 78%. On a charger it's drawn in mint
 /// whatever the ink, with a lightning bolt through it, cut out of the outline so it reads at bar

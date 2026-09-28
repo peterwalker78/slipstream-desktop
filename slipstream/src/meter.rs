@@ -15,11 +15,12 @@ use std::{
 use slipstream_config::meter::{RUN_LIMIT, Report, Run, unix_now};
 pub use slipstream_config::meter::{Reading, Section};
 
+use crate::panel::AMBER;
+
 /// The most sections the bar makes room for; quick settings shows them all.
 pub const BAR_SECTIONS: usize = 3;
 
 const CALM: u32 = 0xcfd6e2ff;
-const AMBER: u32 = 0xffb547ff;
 /// Nearly used up. Orange rather than red, which the bar keeps for sharing.
 const HOT: u32 = 0xff7a45ff;
 

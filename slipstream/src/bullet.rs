@@ -448,9 +448,9 @@ pub struct KeyRow {
 pub const KEYS: [KeyRow; 11] = [
     KeyRow {
         kind: Kind::Choose,
-        keys: "← ↑ ↓ →",
+        keys: "← → ↑ ↓",
         does: "choose a window",
-        legend: Some("←↑↓→ choose"),
+        legend: Some("← → ↑ ↓ choose"),
         example: (Keysym::Up, false),
     },
     KeyRow {
@@ -476,7 +476,7 @@ pub const KEYS: [KeyRow; 11] = [
     },
     KeyRow {
         kind: Kind::Go,
-        keys: "Enter",
+        keys: "⏎",
         does: "go",
         legend: Some("⏎ go"),
         example: (Keysym::Return, false),
@@ -485,7 +485,7 @@ pub const KEYS: [KeyRow; 11] = [
         kind: Kind::Send,
         keys: "Shift+1–9",
         does: "send the window to a workspace",
-        legend: Some("⇧1–9 send"),
+        legend: Some("Shift+1–9 send"),
         example: (Keysym::_3, true),
     },
     KeyRow {
@@ -539,7 +539,7 @@ mod tests {
     fn the_legend_and_the_keys_agree() {
         assert_eq!(
             legend(),
-            "←↑↓→ choose · j k l… jump · ⏎ go · ⇧1–9 send · PgUp/PgDn weigh · M minimise · Del close · Esc back"
+            "← → ↑ ↓ choose · j k l… jump · ⏎ go · Shift+1–9 send · PgUp/PgDn weigh · M minimise · Del close · Esc back"
         );
         for row in &KEYS {
             let (key, shift) = row.example;

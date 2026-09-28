@@ -26,15 +26,13 @@ use crate::{
     icons,
     motion::HYPR,
     paint::{self, Painter},
-    panel,
+    panel::{self, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
 // Sizes in the mockup's pixels, as the toast and the bar use them.
 const WIDTH: f32 = 360.0;
 const HEIGHT: f32 = 72.0;
-/// Logical pixels per mockup pixel.
-const MOCKUP_PX: f32 = 0.8;
 /// How far the card's bottom edge sits above the bottom of the screen.
 const BOTTOM: f32 = 96.0;
 /// How long the card stays up after the last press.
@@ -44,7 +42,7 @@ const SHOWN_LOCK_KEY: f64 = 1.7;
 /// A charger's card isn't the answer to a key, so it may not be looked at straight away.
 const SHOWN_POWER: f64 = 2.5;
 /// Charging's colour, as on the bar's battery.
-const MINT: u32 = icons::CHARGING_RGBA;
+const MINT: u32 = panel::MINT;
 
 /// What Caps Lock's card says under its title. Both ways have a note, so on and off read alike.
 pub fn caps_lock_note(on: bool) -> &'static str {
@@ -309,8 +307,7 @@ impl Osd {
 }
 
 fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> Option<Painted> {
-    const TRACK: u32 = 0xffffff1f;
-    const DIM: u32 = 0x8a94a6ff;
+    const DIM: u32 = panel::HINT;
     // Room for the shadow all round.
     let m = panel::NOTICE_MARGIN;
     let logical = Size::<i32, Logical>::from((
@@ -334,7 +331,7 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
     p.icon(&kind.icon(level), dx + 22.0, dy + 24.0, 24.0, Some(ink));
     let label = Style {
         tabular: true,
-        ..Style::new(Face::Mono, 15.0, 0xdfe5eeff)
+        ..Style::new(Face::Mono, 15.0, panel::PROSE)
     };
     if kind.has_bar() {
         // The bar runs from the icon to the number, which keeps its own room whatever it says.
@@ -342,7 +339,7 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
         const BAR_W: f32 = 236.0;
         const BAR_H: f32 = 6.0;
         let (bar_x, y) = (dx + BAR_X, dy + HEIGHT / 2.0 - BAR_H / 2.0);
-        p.fill(bar_x, y, BAR_W, BAR_H, BAR_H / 2.0, TRACK);
+        p.fill(bar_x, y, BAR_W, BAR_H, BAR_H / 2.0, panel::TRACK);
         // Below about a percent there's nothing to draw, and a stub would read as more than none.
         let filled = BAR_W * level.min(100) as f32 / 100.0;
         if filled >= BAR_H {
@@ -385,7 +382,7 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
             tracking: 0.12,
             ..Style::new(Face::BodyBold, 10.0, DIM)
         };
-        let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
+        let title = Style::new(Face::Body, 15.0, panel::PROSE);
         p.text(
             &kind.label(level).to_uppercase(),
             dx + 60.0,
@@ -494,7 +491,7 @@ mod tests {
 
     #[test]
     fn every_lock_key_note_fits_the_card() {
-        let title = Style::new(Face::Body, 15.0, 0xdfe5eeff);
+        let title = Style::new(Face::Body, 15.0, panel::PROSE);
         let bools = [true, false];
         for on in bools {
             for note in [caps_lock_note(on), num_lock_note(on), awake_note(on)] {

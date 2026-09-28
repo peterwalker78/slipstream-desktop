@@ -20,6 +20,7 @@ use smithay::{
 use crate::{
     icons, meter,
     paint::{self, Painter},
+    panel::{self, AMBER, ink_on},
     status::Reading,
     text::{self, Face, Style},
 };
@@ -158,24 +159,15 @@ impl Bar {
     }
 }
 
-const INK: u32 = 0xdfe4ecff;
+const INK: u32 = panel::PROSE;
 /// The 1 px ring inside the button of the workspace bullet time started on.
 const HOME_RING: u32 = 0x33ccff99;
-const AMBER: u32 = 0xffb547ff;
 /// Awake's chip: the cyan of the rest of the bar's accents.
 const AWAKE: u32 = 0x33ccffff;
 /// The dot that says the screen is being shared. Red, and nothing else on the bar is.
 const LIVE: u32 = 0xff5a5aff;
-
-/// Dark ink on a light chip, light ink on a dark one.
-fn ink_on(rgba: u32) -> u32 {
-    let [r, g, b, _] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
-    if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 {
-        0x1a1206ff
-    } else {
-        0xf2f4f8ff
-    }
-}
+/// The alpha of the faint pills that say a state is on: Caps Lock, Awake, sharing.
+const PILL: u32 = 0x24;
 
 /// Paints the bar for a screen `width` logical pixels wide, and says where its buttons are.
 fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
@@ -199,8 +191,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         ));
     };
 
-    p.fill(0.0, 0.0, wide, TALL, 0.0, 0x0a0c11e6);
-    p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, 0xffffff10);
+    p.fill(0.0, 0.0, wide, TALL, 0.0, panel::CHIP | 0xe6);
+    p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER);
 
     // Left: the apps button, then the workspaces.
     let mut x = 8.0;
@@ -228,7 +220,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         } else if content.occupied.get(index).copied().unwrap_or(false) {
             0xcdd6f4ff
         } else {
-            0x7f8aa3ff
+            panel::PLACEHOLDER
         };
         let style = Style::new(Face::Mono, 15.0, color);
         let label_w = text::width(&label, &style);
@@ -239,7 +231,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         } else if on {
             p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff14);
         } else if content.elsewhere.get(index).copied().unwrap_or(false) {
-            p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x8f98a8b0);
+            p.inset_bottom(x, 7.0, w, 26.0, 6.0, (panel::HINT & 0xffffff00) | 0xb0);
         }
         if content.home == Some(index) {
             p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
@@ -249,7 +241,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         x += w + 6.0;
     }
     x += OVERVIEW_GAP;
-    p.icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(0x9aa4b6ff));
+    p.icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(panel::TERTIARY));
     target(Target::Overview, x, OVERVIEW_W);
     x += OVERVIEW_W + 8.0;
 
@@ -259,7 +251,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
             ..Style::new(Face::MonoBold, 15.0, ink_on(chip))
         };
         let w = text::width(mode, &style) + 20.0;
-        p.fill(x, 7.0, w, 26.0, 5.0, chip);
+        p.fill(x, 7.0, w, 26.0, 6.0, chip);
         p.text(mode, x + 10.0, 20.0, &style);
         x += w + 8.0;
     }
@@ -268,9 +260,9 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     let status = &content.status;
     let clock = Style {
         tabular: true,
-        ..Style::new(Face::Body, 16.0, 0xeef1f6ff)
+        ..Style::new(Face::Body, 16.0, panel::BRIGHT)
     };
-    let date = Style::new(Face::Body, 14.0, 0x9aa4b6ff);
+    let date = Style::new(Face::Body, 14.0, panel::TERTIARY);
     let time_w = text::width(&status.time, &clock);
     let centre_w = 14.0 + time_w + 10.0 + text::width(&status.date, &date) + 14.0;
     let centre_x = ((wide - centre_w) / 2.0).round();
@@ -287,7 +279,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     // The title of this screen's window fills what's left of the left column, dimmed where the
     // keyboard isn't.
     let title_ink = if content.keyboard_here {
-        0x98a2b4ff
+        panel::TERTIARY
     } else {
         0x626b7cff
     };
@@ -318,7 +310,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         } else {
             content.unread.to_string()
         };
-        let style = Style::new(Face::MonoBold, 10.0, 0x1a1206ff);
+        let style = Style::new(Face::MonoBold, 10.0, panel::DARK);
         let count_w = text::width(&count, &style);
         let badge_w = (count_w + 8.0).max(16.0);
         let badge_x = right + 36.0 - 2.0 - badge_w;
@@ -328,7 +320,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
 
     let battery = status.battery.map(|(percent, charging)| {
         let ink = match (percent, charging) {
-            (_, true) => icons::CHARGING_RGBA,
+            (_, true) => panel::MINT,
             (..=15, false) => AMBER,
             _ => INK,
         };
@@ -416,8 +408,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let word = "CAPS";
         let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
         right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, 0xffb54722);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0xffb54770);
+        p.fill(right, 8.0, w, 24.0, 12.0, (AMBER & 0xffffff00) | PILL);
+        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (AMBER & 0xffffff00) | 0x70);
         p.icon(icons::CAPS_LOCK, right + 10.0, 13.0, 14.0, Some(AMBER));
         p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
     }
@@ -432,8 +424,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let word = "AWAKE";
         let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
         right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, 0x33ccff22);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0x33ccff70);
+        p.fill(right, 8.0, w, 24.0, 12.0, (AWAKE & 0xffffff00) | PILL);
+        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (AWAKE & 0xffffff00) | 0x70);
         p.icon(icons::EYE, right + 10.0, 13.0, 14.0, Some(AWAKE));
         p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
         target(Target::Awake, right, w);
@@ -449,8 +441,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let word = "SHARING";
         let w = 12.0 + 8.0 + 8.0 + text::width(word, &style) + 12.0;
         right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, 0xff5a5a26);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, 0xff5a5a80);
+        p.fill(right, 8.0, w, 24.0, 12.0, (LIVE & 0xffffff00) | PILL);
+        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (LIVE & 0xffffff00) | 0x80);
         p.fill(right + 12.0, 16.0, 8.0, 8.0, 4.0, LIVE);
         p.text(word, right + 12.0 + 8.0 + 8.0, 20.0, &style);
         target(Target::Sharing, right, w);

@@ -17,10 +17,36 @@ pub const PADDING: f32 = 18.0;
 /// Between the card's rows.
 pub const GAP: f32 = 14.0;
 
+/// Text, from the brightest down: what's typed or chosen, headings and names, prose, then two
+/// steps of secondary text above `HINT` and `PLACEHOLDER`.
+pub const BRIGHT: u32 = 0xf2f4f8ff;
 pub const INK: u32 = 0xe7ebf1ff;
+pub const PROSE: u32 = 0xdfe5eeff;
+pub const SECONDARY: u32 = 0xaab2c0ff;
+pub const TERTIARY: u32 = 0x9aa4b6ff;
 pub const AMBER: u32 = 0xffb547ff;
 /// Text on amber.
 pub const DARK: u32 = 0x1a1206ff;
+/// The code rain's mint, and the charging battery's.
+pub const MINT: u32 = 0x3cf0c0ff;
+/// A hairline between a panel's parts.
+pub const DIVIDER: u32 = 0xffffff12;
+/// A quiet button or keycap, the same under the pointer, and its 1 px edge.
+pub const QUIET: u32 = 0xffffff12;
+pub const QUIET_LIT: u32 = 0xffffff26;
+pub const EDGE: u32 = 0xffffff24;
+/// A tile that isn't lit: a switcher window, a notification, a quick settings toggle.
+pub const TILE: u32 = 0xffffff0a;
+/// Corner radii: tiles, and selectable rows and rectangular buttons.
+pub const TILE_RADIUS: f32 = 12.0;
+pub const ROW_RADIUS: f32 = 9.0;
+/// The near-black of dark chips, the bar and wells, without its alpha: each surface picks its
+/// own. The same as the code rain's cards, so they sit on the default wallpaper as one.
+pub const CHIP: u32 = 0x0b0d1200;
+/// A level's empty track on a notice.
+pub const TRACK: u32 = 0xffffff1a;
+/// How far in from the frame's left and right edges a panel's head row sits.
+pub const HEAD_INSET: f32 = 26.0;
 /// Where the keyboard is, until the settings are read: the focused window's ring colour at the
 /// same four fifths' opacity the window ring is drawn with. `Slipstream::panel_ring` hands the
 /// chosen one to each panel.
@@ -64,6 +90,74 @@ pub const HINT: u32 = 0x8f98a8ff;
 /// What an empty search box says.
 pub const PLACEHOLDER: u32 = 0x7d8697ff;
 
+/// Dark ink on a light colour, light ink on a dark one.
+pub fn ink_on(rgba: u32) -> u32 {
+    let [r, g, b, _] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
+    if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 {
+        DARK
+    } else {
+        BRIGHT
+    }
+}
+
+/// A selection's fill: the ring colour, faint.
+pub fn selection_fill(ring: u32) -> u32 {
+    (ring & 0xffffff00) | 0x1c
+}
+
+/// The chosen row of a list: its box filled faintly in the ring colour, with a 2 px edge in it.
+pub fn selected_row(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, ring: u32) {
+    p.fill(x, y, w, h, ROW_RADIUS, selection_fill(ring));
+    p.border(x, y, w, h, ROW_RADIUS, 2.0, ring);
+}
+
+/// A quiet button's box: faint, lighter under the pointer (`lit`), with a 1 px edge.
+pub fn quiet_button(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, radius: f32, lit: bool) {
+    p.fill(x, y, w, h, radius, if lit { QUIET_LIT } else { QUIET });
+    p.border(x, y, w, h, radius, 1.0, EDGE);
+}
+
+/// A section's title in small capitals.
+pub fn section_style() -> crate::text::Style {
+    crate::text::Style {
+        tracking: 0.12,
+        ..crate::text::Style::new(crate::text::Face::Body, 12.0, PLACEHOLDER)
+    }
+}
+
+/// An app with no icon: a `side`-pixel square at (`x`, `y`), coloured by its name, with its
+/// initial in capitals `px` pixels tall.
+pub fn app_placeholder(
+    p: &mut Painter,
+    name: &str,
+    x: f32,
+    y: f32,
+    side: f32,
+    radius: f32,
+    px: f32,
+) {
+    const COLOURS: [u32; 6] = [MINT, 0x33ccffff, AMBER, 0xff7a93ff, 0xa78bfaff, 0x7fe3ffff];
+    let hash = name.bytes().fold(0u32, |hash, byte| {
+        hash.wrapping_mul(31).wrapping_add(byte as u32)
+    });
+    p.fill(
+        x,
+        y,
+        side,
+        side,
+        radius,
+        COLOURS[hash as usize % COLOURS.len()],
+    );
+    let initial: String = name
+        .chars()
+        .next()
+        .map(|ch| ch.to_uppercase().collect())
+        .unwrap_or_default();
+    let style = crate::text::Style::new(crate::text::Face::MonoBold, px, 0x10131aff);
+    let w = crate::text::width(&initial, &style);
+    p.text(&initial, x + (side - w) / 2.0, y + side / 2.0, &style);
+}
+
 /// A notice's card, `w` × `h` at (`x`, `y`), with its shadow.
 pub fn notice(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
     let (dy, blur, shadow) = NOTICE_SHADOW;
@@ -72,24 +166,37 @@ pub fn notice(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
     p.border(x, y, w, h, NOTICE_RADIUS, 1.0, NOTICE_EDGE);
 }
 
-/// A footer's hint ending at `right`, centred on `centre`: its keycaps, then what they do.
-/// Returns where it starts.
-pub fn key_hint(p: &mut Painter, right: f32, centre: f32, keys: &[&str], label: &str) -> f32 {
-    const GAP: f32 = 4.0;
-    let style = crate::text::Style::new(crate::text::Face::Body, 13.0, HINT);
+/// Between a footer's hints.
+pub const HINT_GAP: f32 = 20.0;
+/// Between a hint's keycaps, and before its words.
+const KEY_GAP: f32 = 4.0;
+
+fn hint_style() -> crate::text::Style {
+    crate::text::Style::new(crate::text::Face::Body, 13.0, HINT)
+}
+
+/// How wide `key_hint` draws `keys` and `label`.
+pub fn key_hint_width(keys: &[&str], label: &str) -> f32 {
     let caps: f32 = keys
         .iter()
-        .map(|key| crate::paint::keycap_width(key) + GAP)
+        .map(|key| crate::paint::keycap_width(key) + KEY_GAP)
         .sum();
     let label_w = if label.is_empty() {
         0.0
     } else {
-        GAP + crate::text::width(label, &style)
+        KEY_GAP + crate::text::width(label, &hint_style())
     };
-    let start = right - (caps - GAP) - label_w;
+    caps - KEY_GAP + label_w
+}
+
+/// A footer's hint ending at `right`, centred on `centre`: its keycaps, then what they do.
+/// Returns where it starts.
+pub fn key_hint(p: &mut Painter, right: f32, centre: f32, keys: &[&str], label: &str) -> f32 {
+    let style = hint_style();
+    let start = right - key_hint_width(keys, label);
     let mut x = start;
     for key in keys {
-        x += p.keycap(key, x, centre) + GAP;
+        x += p.keycap(key, x, centre) + KEY_GAP;
     }
     if !label.is_empty() {
         p.text(label, x, centre, &style);

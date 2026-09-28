@@ -21,11 +21,10 @@ use smithay::{
 };
 
 use crate::{
-    card::{self, Btn, Button, Card, DIM, Hit, Row},
+    card::{self, Btn, Button, Card, Hit, Row},
     motion::HYPR,
     paint::Painted,
     panel::{self, AMBER, BELOW, MARGIN, MOCKUP_PX},
-    text::{Face, Style},
 };
 
 /// After the close request, before anything left over is named.
@@ -493,7 +492,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                     WAIT
                 };
                 let left = self.left.len();
-                let bar = SLIM_WIDTH - 2.0 * 22.0;
+                let bar = SLIM_WIDTH - 2.0 * crate::toast::PAD;
                 let gone = ((total - (until - now)) / total).clamp(0.0, 1.0);
                 Shape::Slim(Slim {
                     title: self.intent.title().to_string(),
@@ -710,18 +709,15 @@ fn row<W>(open: &Open<W>) -> Row {
     Row {
         name: open.app.clone(),
         title: open.title.clone(),
-        note: open.minimised.then(|| ("minimised".to_string(), DIM)),
+        note: open
+            .minimised
+            .then(|| ("minimised".to_string(), panel::HINT)),
     }
 }
 
 fn paint_slim(slim: &Slim, scale: f64) -> Option<Painted> {
-    let heading = Style {
-        tracking: 0.1,
-        ..Style::new(Face::BodyBold, 13.0, AMBER)
-    };
-    let prose = Style::new(Face::Body, 16.0, 0xdfe5eeff);
-    let pad = 22.0;
-    let height = 16.0 + 20.0 + 4.0 + 24.0 + 10.0 + 4.0 + 16.0;
+    // The toast's card, with the grace's bar under its line.
+    let height = crate::toast::card_height(1, 10.0 + 4.0);
     let logical = Size::<i32, Logical>::from((
         ((SLIM_WIDTH + 2.0 * MARGIN) * MOCKUP_PX).ceil() as i32,
         ((height + 2.0 * MARGIN + BELOW) * MOCKUP_PX).ceil() as i32,
@@ -729,33 +725,15 @@ fn paint_slim(slim: &Slim, scale: f64) -> Option<Painted> {
     Painted::new(logical, scale, |p| {
         p.f *= MOCKUP_PX;
         let (fx, fy) = (MARGIN, MARGIN);
-        // The toast's shape: an amber edge, the card over the rest of it.
-        let radius = panel::NOTICE_RADIUS;
-        let (dy, blur, shadow) = panel::NOTICE_SHADOW;
-        p.shadow(fx, fy, SLIM_WIDTH, height, radius, dy, blur, shadow);
-        p.fill(fx, fy, SLIM_WIDTH, height, radius, AMBER);
-        p.fill(
-            fx + 4.0,
-            fy,
-            SLIM_WIDTH - 4.0,
-            height,
-            radius - 3.0,
-            panel::NOTICE,
-        );
-        p.border(fx, fy, SLIM_WIDTH, height, radius, 1.0, panel::NOTICE_EDGE);
-        p.text(
-            &slim.title.to_uppercase(),
-            fx + pad,
-            fy + 16.0 + 10.0,
-            &heading,
-        );
-        p.text(&slim.note, fx + pad, fy + 16.0 + 24.0 + 12.0, &prose);
+        let lines = [slim.note.clone()];
+        crate::toast::paint_card(p, fx, fy, SLIM_WIDTH, height, &slim.title, &lines);
         // How much of the grace has gone.
+        let left = fx + crate::toast::PAD;
         let bar_y = fy + height - 16.0 - 4.0;
-        let bar_w = SLIM_WIDTH - 2.0 * pad;
-        p.fill(fx + pad, bar_y, bar_w, 4.0, 2.0, 0xffffff14);
+        let bar_w = SLIM_WIDTH - 2.0 * crate::toast::PAD;
+        p.fill(left, bar_y, bar_w, 4.0, 2.0, panel::TRACK);
         if slim.filled > 0 {
-            p.fill(fx + pad, bar_y, slim.filled as f32, 4.0, 2.0, AMBER);
+            p.fill(left, bar_y, slim.filled as f32, 4.0, 2.0, AMBER);
         }
     })
 }

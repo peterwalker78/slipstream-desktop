@@ -14,10 +14,10 @@ use smithay::{
 };
 
 use crate::{
-    card::{self, Btn, Button, Card, DIM, Hit, Row},
+    card::{self, Btn, Button, Card, Hit, Row},
     motion::HYPR,
     paint::Painted,
-    panel::MOCKUP_PX,
+    panel::{self, MOCKUP_PX},
 };
 
 /// The card opens as the way out's does, and as the explorer does.
@@ -142,7 +142,7 @@ impl Offer {
                 .map(|app| Row {
                     name: app.clone(),
                     title: String::new(),
-                    note: Some(("no app found".to_string(), DIM)),
+                    note: Some(("no app found".to_string(), panel::HINT)),
                 })
                 .collect(),
             more: None,

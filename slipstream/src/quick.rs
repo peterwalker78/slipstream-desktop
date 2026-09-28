@@ -557,7 +557,7 @@ impl QuickSettings {
                 y + 12.0,
                 &battery,
             );
-            let small = Style::new(Face::Body, 13.0, 0x8f98a8ff);
+            let small = Style::new(Face::Body, 13.0, panel::HINT);
             let name_w = p.text(
                 &text::ellipsize(&facts.user, &small, room - (text_x - x0)),
                 text_x,
@@ -569,15 +569,10 @@ impl QuickSettings {
                 Control::Battery,
                 [x0 - 6.0, y + 1.0, header_w + 12.0, 40.0, 8.0],
             ));
-            let fill = if look.power_menu {
-                0xffffff24
-            } else {
-                0xffffff10
-            };
-            p.fill(lock_x, y + 1.0, 40.0, 40.0, 20.0, 0xffffff10);
+            panel::quiet_button(p, lock_x, y + 1.0, 40.0, 40.0, 20.0, false);
             p.icon(icons::LOCK, lock_x + 11.0, y + 12.0, 18.0, Some(INK));
             shapes.push((Control::Lock, [lock_x, y + 1.0, 40.0, 40.0, 20.0]));
-            p.fill(power_x, y + 1.0, 40.0, 40.0, 20.0, fill);
+            panel::quiet_button(p, power_x, y + 1.0, 40.0, 40.0, 20.0, look.power_menu);
             p.icon(icons::POWER, power_x + 11.0, y + 12.0, 18.0, Some(INK));
             shapes.push((Control::Power, [power_x, y + 1.0, 40.0, 40.0, 20.0]));
             y += HEAD_H + GAP;
@@ -587,7 +582,7 @@ impl QuickSettings {
                 let w = (inner - 3.0 * 8.0) / 4.0;
                 for (i, control) in POWER_MENU.into_iter().enumerate() {
                     let x = x0 + i as f32 * (w + 8.0);
-                    p.fill(x, y, w, MENU_H, 10.0, 0xffffff10);
+                    panel::quiet_button(p, x, y, w, MENU_H, panel::ROW_RADIUS, false);
                     let label_w = text::width(control.label(), &label);
                     p.text(
                         control.label(),
@@ -595,7 +590,7 @@ impl QuickSettings {
                         y + MENU_H / 2.0,
                         &label,
                     );
-                    shapes.push((control, [x, y, w, MENU_H, 10.0]));
+                    shapes.push((control, [x, y, w, MENU_H, panel::ROW_RADIUS]));
                 }
                 y += MENU_H + GAP;
             }
@@ -606,8 +601,8 @@ impl QuickSettings {
                 let x = x0 + (i % 2) as f32 * (tile_w + TILE_GAP);
                 let top = y + (i / 2) as f32 * (TILE_H + TILE_GAP);
                 let (on, detail) = tile(control, facts);
-                let fill = if on { panel::AMBER } else { 0xffffff0d };
-                p.fill(x, top, tile_w, TILE_H, 13.0, fill);
+                let fill = if on { panel::AMBER } else { panel::TILE };
+                p.fill(x, top, tile_w, TILE_H, panel::TILE_RADIUS, fill);
                 let ink = if on { DARK } else { INK };
                 let icon = match control {
                     Control::WiFi if !status.wifi => icons::WIFI_OFF,
@@ -628,7 +623,7 @@ impl QuickSettings {
                     top + 22.0,
                     &title,
                 );
-                let detail_ink = if on { 0x5a3f10ff } else { 0x9aa3b2ff };
+                let detail_ink = if on { 0x5a3f10ff } else { panel::TERTIARY };
                 let detail_style = Style::new(Face::Body, 12.5, detail_ink);
                 p.text(
                     &text::ellipsize(&detail, &detail_style, room),
@@ -639,7 +634,7 @@ impl QuickSettings {
                 // The chevron's zone, listed before its tile so a click there finds it first.
                 if let Some(page) = page {
                     let zone = x + tile_w - CHEVRON_W;
-                    p.fill(zone, top + 14.0, 1.0, TILE_H - 28.0, 0.0, 0xffffff14);
+                    p.fill(zone, top + 14.0, 1.0, TILE_H - 28.0, 0.0, panel::DIVIDER);
                     p.icon(
                         icons::CHEVRON,
                         zone + (CHEVRON_W - 16.0) / 2.0,
@@ -647,9 +642,9 @@ impl QuickSettings {
                         16.0,
                         Some(detail_ink),
                     );
-                    shapes.push((page, [zone, top, CHEVRON_W, TILE_H, 13.0]));
+                    shapes.push((page, [zone, top, CHEVRON_W, TILE_H, panel::TILE_RADIUS]));
                 }
-                shapes.push((control, [x, top, tile_w, TILE_H, 13.0]));
+                shapes.push((control, [x, top, tile_w, TILE_H, panel::TILE_RADIUS]));
             }
             y += 3.0 * TILE_H + 2.0 * TILE_GAP + GAP;
 
@@ -662,7 +657,7 @@ impl QuickSettings {
                 let filled = track_w * level.min(100) as f32 / 100.0;
                 p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, 0x3a3f4bff);
                 let muted = control == Control::Volume && status.muted;
-                let bar_ink = if muted { 0x8e97a8ff } else { panel::AMBER };
+                let bar_ink = if muted { panel::HINT } else { panel::AMBER };
                 p.fill(track_x, centre - 3.0, filled, 6.0, 3.0, bar_ink);
                 let knob = track_x + filled;
                 p.shadow(
@@ -681,7 +676,7 @@ impl QuickSettings {
                 } else {
                     format!("{level}%")
                 };
-                let value_style = Style::new(Face::Mono, 13.0, 0xaab2c0ff);
+                let value_style = Style::new(Face::Mono, 13.0, panel::SECONDARY);
                 let value_w = text::width(&value, &value_style);
                 p.text(&value, x0 + inner - 6.0 - value_w, centre, &value_style);
                 targets.push((control, on_screen(x0, y, 36.0, SLIDER_H)));
@@ -699,7 +694,7 @@ impl QuickSettings {
             // The meter's report: each section's name, its gauges with the time until each starts
             // over, and its note. Old numbers are dimmed.
             if !sections.is_empty() {
-                p.fill(x0, y, inner, 1.0, 0.0, 0xffffff12);
+                p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
                 y += METER_TOP;
                 for section in sections {
                     let shade = |rgba: u32| {
@@ -717,7 +712,7 @@ impl QuickSettings {
                         centre,
                         &name,
                     );
-                    let quiet = Style::new(Face::Body, 12.5, shade(0x8f98a8ff));
+                    let quiet = Style::new(Face::Body, 12.5, shade(panel::HINT));
                     if let Some(detail) = &section.detail {
                         p.text(
                             &text::ellipsize(detail, &quiet, inner / 2.0 - 10.0),
@@ -727,14 +722,14 @@ impl QuickSettings {
                         );
                     }
                     if section.stale && section.note.is_none() {
-                        let old = Style::new(Face::Body, 12.5, 0x8f98a8ff);
+                        let old = Style::new(Face::Body, 12.5, panel::HINT);
                         let word = "Not up to date";
                         p.text(word, x0 + inner - text::width(word, &old), centre, &old);
                     }
                     y += METER_HEAD_H;
                     for gauge in &section.gauges {
                         let centre = y + METER_ROW_H / 2.0;
-                        let label = Style::new(Face::Body, 13.0, shade(0xaab2c0ff));
+                        let label = Style::new(Face::Body, 13.0, shade(panel::SECONDARY));
                         p.text(
                             &text::ellipsize(&gauge.label, &label, 124.0),
                             x0,
@@ -744,7 +739,7 @@ impl QuickSettings {
                         let percent = format!("{}%", gauge.percent);
                         let number = Style {
                             tabular: true,
-                            ..Style::new(Face::Mono, 13.0, shade(0xaab2c0ff))
+                            ..Style::new(Face::Mono, 13.0, shade(panel::SECONDARY))
                         };
                         p.text(
                             &percent,
@@ -768,7 +763,7 @@ impl QuickSettings {
                             );
                         }
                         if let Some(left) = &gauge.resets_in {
-                            let small = Style::new(Face::Body, 12.0, shade(0x8f98a8ff));
+                            let small = Style::new(Face::Body, 12.0, shade(panel::HINT));
                             let left = text::ellipsize(left, &small, 96.0);
                             p.text(
                                 &left,
@@ -794,7 +789,7 @@ impl QuickSettings {
             }
 
             // The footer: the way into the Settings app, and the keys.
-            p.fill(x0, y, inner, 1.0, 0.0, 0xffffff12);
+            p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
             let centre = y + FOOT_H - 9.0;
             let link = Style::new(Face::Body, 14.0, 0xffd08aff);
             let link_w = p.text("All settings", x0, centre, &link);

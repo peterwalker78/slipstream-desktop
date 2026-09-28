@@ -3781,7 +3781,7 @@ impl Slipstream {
                         "The whole screen".to_string()
                     },
                     title: String::new(),
-                    note: size.map(|size| (size, card::DIM)),
+                    note: size.map(|size| (size, crate::panel::HINT)),
                 }
             }
             share::Source::Window { identifier } => match self.captures.window_for(identifier) {
@@ -3793,7 +3793,7 @@ impl Slipstream {
                         .streams
                         .iter()
                         .any(|stream| stream.window == window)
-                        .then(|| ("minimised".to_string(), card::DIM)),
+                        .then(|| ("minimised".to_string(), crate::panel::HINT)),
                 },
                 None => card::Row {
                     name: "A window".to_string(),

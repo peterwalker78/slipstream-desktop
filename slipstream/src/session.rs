@@ -27,7 +27,6 @@
 //! (`Slipstream::tick_record`), so a crash or a power cut still leaves a layout to come back to,
 //! and once more when the way out's card goes up, from which point the windows are closing and
 //! the desktop is no record of anything. `restore.rs` reads it back at the next login.
-#![allow(dead_code)]
 
 use std::{
     fs, io,

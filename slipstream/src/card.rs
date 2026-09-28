@@ -10,7 +10,7 @@ use smithay::utils::{Logical, Size};
 use crate::{
     icons,
     paint::{Painted, Painter},
-    panel::{self, AMBER, BELOW, DARK, INK, MARGIN, MOCKUP_PX},
+    panel::{self, AMBER, BELOW, DARK, HINT, INK, MARGIN, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
@@ -30,12 +30,6 @@ const KEY_GAP: f32 = 10.0;
 const CHECK: f32 = 18.0;
 const CHECK_ROW: f32 = 26.0;
 
-pub const DIM: u32 = 0x8f98a8ff;
-pub const HINT: u32 = crate::panel::HINT;
-/// A quiet button, and the same under the pointer.
-const QUIET: u32 = 0xffffff12;
-const QUIET_LIT: u32 = 0xffffff26;
-const EDGE: u32 = 0xffffff24;
 /// The amber button under the pointer.
 const AMBER_LIT: u32 = 0xffc978ff;
 /// The key hint inside the amber button.
@@ -121,16 +115,14 @@ impl Hit {
 /// A button, filled amber when it's the one Enter presses and quiet glass otherwise, with the key
 /// that does the same thing inside it. Returns where it was drawn, so it can be clicked.
 fn paint_button(p: &mut Painter, button: &Btn, x: f32, y: f32, w: f32, lit: bool) -> Hit {
-    let (fill, ink, key_ink) = match (button.primary, lit) {
-        (true, false) => (AMBER, DARK, ON_AMBER),
-        (true, true) => (AMBER_LIT, DARK, ON_AMBER),
-        (false, false) => (QUIET, INK, HINT),
-        (false, true) => (QUIET_LIT, INK, DIM),
+    let (ink, key_ink) = if button.primary {
+        let fill = if lit { AMBER_LIT } else { AMBER };
+        p.fill(x, y, w, BUTTON_H, panel::ROW_RADIUS, fill);
+        (DARK, ON_AMBER)
+    } else {
+        panel::quiet_button(p, x, y, w, BUTTON_H, panel::ROW_RADIUS, lit);
+        (INK, if lit { INK } else { HINT })
     };
-    p.fill(x, y, w, BUTTON_H, 9.0, fill);
-    if !button.primary {
-        p.border(x, y, w, BUTTON_H, 9.0, 1.0, EDGE);
-    }
     let label = Style::new(Face::BodyBold, 14.0, ink);
     let key = Style::new(Face::Mono, 12.0, key_ink);
     let middle = y + BUTTON_H / 2.0;
@@ -175,9 +167,9 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
         tracking: 0.02,
         ..Style::new(Face::Display, 27.0, INK)
     };
-    let note = Style::new(Face::Body, 15.0, DIM);
+    let note = Style::new(Face::Body, 15.0, HINT);
     let name = Style::new(Face::BodyBold, 15.0, INK);
-    let where_ = Style::new(Face::Body, 14.0, 0x9aa3b2ff);
+    let where_ = Style::new(Face::Body, 14.0, panel::TERTIARY);
     let inner = WIDTH - 2.0 * PADDING;
     let lines = text::wrap(&card.note, &note, inner);
     let height = measure(card, lines.len());
@@ -208,10 +200,16 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
                     let lit = card.hover == Some(Button::Row(index));
                     let (rx, rw) = (x0 - 10.0, inner + 20.0);
                     if index == chosen {
-                        p.fill(rx, y + 1.0, rw, ROW_H - 2.0, 7.0, QUIET_LIT);
-                        p.border(rx, y + 1.0, rw, ROW_H - 2.0, 7.0, 1.5, ring);
+                        panel::selected_row(p, rx, y + 1.0, rw, ROW_H - 2.0, ring);
                     } else if lit {
-                        p.fill(rx, y + 1.0, rw, ROW_H - 2.0, 7.0, QUIET);
+                        p.fill(
+                            rx,
+                            y + 1.0,
+                            rw,
+                            ROW_H - 2.0,
+                            panel::ROW_RADIUS,
+                            panel::QUIET,
+                        );
                     }
                     hits.push(Hit {
                         which: Button::Row(index),
@@ -256,7 +254,7 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
         // The footer: the answers, in the same order everywhere, the one Enter presses at the
         // right where the eye ends up.
         let foot_y = fy + height - FOOT_H;
-        p.fill(fx, foot_y, WIDTH, 1.0, 0.0, 0xffffff10);
+        p.fill(fx, foot_y, WIDTH, 1.0, 0.0, panel::DIVIDER);
         let button_y = foot_y + (FOOT_H - BUTTON_H) / 2.0;
         let mut right = fx + WIDTH - PADDING;
         for button in card.buttons.iter().rev() {
@@ -280,22 +278,14 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
 /// row is clickable, not just the box, because a 18-pixel target is a mouse-only cruelty.
 fn paint_switch(p: &mut Painter, on: bool, x: f32, y: f32, inner: f32, lit: bool) -> Hit {
     let label = Style::new(Face::Body, 15.0, INK);
-    let key = Style::new(Face::Mono, 12.0, if lit { DIM } else { HINT });
+    let key = Style::new(Face::Mono, 12.0, if lit { INK } else { HINT });
     let under = Style::new(Face::Body, 12.0, HINT);
     let box_y = y + (CHECK_ROW - CHECK) / 2.0;
     if on {
         p.fill(x, box_y, CHECK, CHECK, 5.0, AMBER);
         p.icon(icons::TICK, x + 2.0, box_y + 2.0, CHECK - 4.0, Some(DARK));
     } else {
-        p.fill(
-            x,
-            box_y,
-            CHECK,
-            CHECK,
-            5.0,
-            if lit { QUIET_LIT } else { QUIET },
-        );
-        p.border(x, box_y, CHECK, CHECK, 5.0, 1.0, EDGE);
+        panel::quiet_button(p, x, box_y, CHECK, CHECK, 5.0, lit);
     }
     let middle = y + CHECK_ROW / 2.0;
     let text_x = x + CHECK + 12.0;

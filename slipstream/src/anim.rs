@@ -2,7 +2,6 @@
 //! wall time, so bullet time slows all of them at once and brings them back in sync.
 //!
 //! Window animations (`motion.rs`) run on it, and bullet time slows it.
-#![allow(dead_code)]
 
 use std::time::Instant;
 
@@ -133,6 +132,7 @@ impl Clock {
     }
 
     /// Whether the clock is running at anything other than normal speed.
+    #[cfg(test)]
     pub fn is_dilated(&self) -> bool {
         self.phase != Phase::Normal
     }

@@ -233,10 +233,11 @@ fn paint(look: &Look) -> Option<Painted> {
         let x = MARGIN + PADDING + index as f32 * (TILE_W + TILE_GAP);
         let y = MARGIN + PADDING;
         if index == look.selected {
-            p.fill(x, y, TILE_W, tile_h, 12.0, (look.ring & 0xffffff00) | 0x1c);
-            panel::focus_ring(&mut p, x, y, TILE_W, tile_h, 12.0, look.ring);
+            let fill = panel::selection_fill(look.ring);
+            p.fill(x, y, TILE_W, tile_h, panel::TILE_RADIUS, fill);
+            panel::focus_ring(&mut p, x, y, TILE_W, tile_h, panel::TILE_RADIUS, look.ring);
         } else {
-            p.fill(x, y, TILE_W, tile_h, 12.0, 0xffffff08);
+            p.fill(x, y, TILE_W, tile_h, panel::TILE_RADIUS, panel::TILE);
         }
         let (px, py) = (x + INSET, y + INSET);
         for &([nx, ny, nw, nh], centre) in look.pictures.get(index).into_iter().flatten() {
@@ -246,7 +247,7 @@ fn paint(look: &Look) -> Option<Painted> {
             let fill = if centre {
                 (look.ring & 0xffffff00) | 0x99
             } else {
-                0xffffff26
+                panel::QUIET_LIT
             };
             p.fill(wx, wy, ww, wh, 3.0, fill);
         }
@@ -264,8 +265,20 @@ fn paint(look: &Look) -> Option<Painted> {
     let right = MARGIN + card_w - PADDING;
     let centre = MARGIN + PADDING + tile_h + FOOT_H / 2.0 + 4.0;
     let start = panel::key_hint(&mut p, right, centre, &["Esc"], "put it back");
-    let start = panel::key_hint(&mut p, start - 20.0, centre, &["Super"], "let go to keep");
-    panel::key_hint(&mut p, start - 20.0, centre, &["T", "←", "→"], "choose");
+    let start = panel::key_hint(
+        &mut p,
+        start - panel::HINT_GAP,
+        centre,
+        &["Super"],
+        "let go to keep",
+    );
+    panel::key_hint(
+        &mut p,
+        start - panel::HINT_GAP,
+        centre,
+        &["T", "←", "→"],
+        "choose",
+    );
 
     Some(Painted {
         buffer: paint::buffer(&p.pixmap),

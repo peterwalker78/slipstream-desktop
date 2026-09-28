@@ -23,7 +23,7 @@ use crate::{
 const WIDTH: f32 = 1040.0;
 const TOP: f32 = 130.0;
 const MARGIN: f32 = 64.0;
-const PADDING: f32 = 28.0;
+const PADDING: f32 = panel::HEAD_INSET;
 const HEAD_H: f32 = 64.0;
 const COLUMN_GAP: f32 = 40.0;
 const TITLE_H: f32 = 34.0;
@@ -111,7 +111,11 @@ fn keycaps(bindings: &[(Mods, Keysym)]) -> Vec<String> {
             caps.push(keys::mods_prefix(mods) + &joined);
         } else {
             for key in group {
-                let cap = keys::label(mods, key);
+                // Enter is drawn as its symbol on every keycap.
+                let cap = match key {
+                    Keysym::Return | Keysym::KP_Enter => keys::mods_prefix(mods) + "⏎",
+                    _ => keys::label(mods, key),
+                };
                 if !caps.contains(&cap) {
                     caps.push(cap);
                 }
@@ -173,7 +177,7 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
             Group::PanelsAndSystem => section.rows.extend([
                 fixed(&["Esc"], "in a panel: back out one level"),
                 fixed(&["Tab", "← → ↑ ↓"], "in a panel: move"),
-                fixed(&["Enter"], "in a panel: press"),
+                fixed(&["⏎"], "in a panel: press"),
                 fixed(&["Home End", "PgUp PgDn"], "in a panel: jump"),
                 fixed(&["Caps Lock"], "hold: Awake, the screen stays on"),
             ]),
@@ -198,7 +202,7 @@ fn filtered(sections: Vec<Section>, query: &str) -> Vec<Section> {
                     || row
                         .keys
                         .iter()
-                        .any(|key| key.to_lowercase().contains(&query))
+                        .any(|key| key.to_lowercase().replace('⏎', "enter").contains(&query))
             });
             section
         })
@@ -437,14 +441,14 @@ fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
     let mut right_x = fx + width - PADDING;
     right_x -= paint::keycap_width("Esc");
     p.keycap("Esc", right_x, centre);
-    p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, 0xffffff12);
+    p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
     // The stage: a little screen with the tiles doing what the lesson says.
     let stage = crate::tour::stage(step, t);
     let sx = fx + PADDING;
     let sy = fy + HEAD_H + 20.0;
     let (sw, sh) = (width - 2.0 * PADDING, TOUR_STAGE_H - 40.0);
-    p.fill(sx, sy, sw, sh, 10.0, 0x0a0c11ff);
+    p.fill(sx, sy, sw, sh, 10.0, panel::CHIP | 0xff);
     p.border(sx, sy, sw, sh, 10.0, 1.0, 0xffffff14);
     // The code rain's strip takes width from the tiles as it fills, as the real one does.
     let rain_w = stage.rain * sw * 0.18;
@@ -455,7 +459,7 @@ fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
             rain_w,
             sh,
             6.0,
-            (0x3cf0c000) | (0x40_u32 * stage.rain.min(1.0) as u32).min(0x40),
+            (panel::MINT & 0xffffff00) | (0x40_u32 * stage.rain.min(1.0) as u32).min(0x40),
         );
     }
     let area_w = sw - rain_w;
@@ -475,7 +479,7 @@ fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
     }
 
     // What it says, its keys, and where you are.
-    let words = Style::new(Face::Body, 15.0, 0xa8b1c2ff);
+    let words = Style::new(Face::Body, 15.0, panel::SECONDARY);
     let mut y = sy + sh + 22.0;
     for line in text::wrap(lesson.says, &words, width - 2.0 * PADDING) {
         p.text(&line, sx, y, &words);
@@ -497,7 +501,7 @@ fn paint_tour(look: &Look, step: usize, t: f32) -> Option<Painted> {
         dot_x += 12.0;
     }
     let next = if step + 1 < dots { "next" } else { "the keys" };
-    let hint = Style::new(Face::Body, 13.0, 0x7d8697ff);
+    let hint = Style::new(Face::Body, 13.0, panel::PLACEHOLDER);
     let hint_w = text::width(next, &hint);
     p.text(next, fx + width - PADDING - hint_w, y + 24.0, &hint);
     let cap_w = paint::keycap_width("⏎");
@@ -578,16 +582,16 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
             "type to filter",
             x + title_w + 16.0,
             centre + 1.0,
-            &Style::new(Face::Body, 15.0, 0x7d8697ff),
+            &Style::new(Face::Body, 15.0, panel::PLACEHOLDER),
         );
     } else {
         let typed = p.text(
             &look.query,
             x,
             centre,
-            &Style::new(Face::Body, 22.0, 0xf2f4f8ff),
+            &Style::new(Face::Body, 22.0, panel::BRIGHT),
         );
-        p.fill(x + typed + 2.0, centre - 11.0, 2.5, 22.0, 0.0, panel::AMBER);
+        p.fill(x + typed + 2.0, centre - 11.0, 3.0, 22.0, 0.0, panel::AMBER);
     }
     let mut right_x = fx + width - PADDING;
     for key in ["Esc", "Super+/"] {
@@ -599,19 +603,16 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
     // under a finger. Laid out from where those finished, so the two can never run together.
     if look.query.is_empty() {
         let says = "take the tour";
-        let hint = Style::new(Face::Body, 14.0, 0x8f98a8ff);
+        let hint = Style::new(Face::Body, 15.0, panel::PLACEHOLDER);
         right_x -= 14.0 + text::width(says, &hint);
         p.text(says, right_x, centre + 1.0, &hint);
         right_x -= KEY_GAP + paint::keycap_width("⏎");
         p.keycap("⏎", right_x, centre);
     }
-    p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, 0xffffff12);
+    p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
     let column_w = (width - 2.0 * PADDING - COLUMN_GAP) / 2.0;
-    let title = Style {
-        tracking: 0.08,
-        ..Style::new(Face::Mono, 12.0, 0x8f98a8ff)
-    };
+    let title = panel::section_style();
     let does = Style::new(Face::Body, 15.0, 0xcdd6f4ff);
     let top = fy + HEAD_H + 16.0;
     if sections.is_empty() {
@@ -619,7 +620,7 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
             &format!("No keys match “{}”.", look.query.trim()),
             fx + PADDING,
             top + 20.0,
-            &Style::new(Face::Body, 16.0, 0x8b93a3ff),
+            &Style::new(Face::Body, 16.0, panel::HINT),
         );
     }
     for (column, list) in [left, right].iter().enumerate() {

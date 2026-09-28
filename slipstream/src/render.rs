@@ -42,6 +42,7 @@ use crate::{
     motion,
     overview::{self, Overview},
     paint::{self, Painter},
+    panel::{self, MOCKUP_PX},
     rain::Rain,
     text::{self, Face, Style},
     tilt::{self, Tilt},
@@ -188,10 +189,9 @@ fn veil_colour() -> Color32F {
 /// A rung's tag: its name in amber, and the ladder beside it as a row of pips with this rung's
 /// filled, so where the window is on the ladder reads at a glance. Laid out in mockup pixels.
 fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
-    const MOCKUP_PX: f32 = 0.8;
     const PIP: f32 = 7.0;
     const PIP_GAP: f32 = 4.0;
-    const INK: u32 = 0x1a1206ff;
+    const INK: u32 = panel::DARK;
     let style = Style {
         tracking: 0.08,
         ..Style::new(Face::MonoBold, 16.0, INK)
@@ -208,7 +208,7 @@ fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         (size.h as f64 * scale).round() as u32,
         scale as f32 * MOCKUP_PX,
     )?;
-    p.fill(0.0, 0.0, w, h, 6.0, 0xffb547ff);
+    p.fill(0.0, 0.0, w, h, 6.0, panel::AMBER);
     p.text(&label, 12.0, h / 2.0, &style);
     let mut x = 12.0 + text_w + 12.0;
     for step in Rung::LADDER {
@@ -216,7 +216,7 @@ fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         if step == rung {
             p.fill(x, y, PIP, PIP, radius, INK);
         } else {
-            p.border(x, y, PIP, PIP, radius, 1.5, 0x1a120680);
+            p.border(x, y, PIP, PIP, radius, 1.5, (INK & 0xffffff00) | 0x80);
         }
         x += PIP + PIP_GAP;
     }
@@ -238,10 +238,12 @@ fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: 
 const TIPS_TEXT: &str = "Keyboard tips";
 const TIPS_KEY: &str = "Super+/";
 /// Under the pill: how to get the tour, which nothing else says. Quieter than the pill, because
-/// it is the second thing to read, not a second pill.
-const TIPS_UNDER: &str = "then Enter for the tour";
+/// it is the second thing to read, not a second pill. Its words either side of its keycap.
+const TIPS_UNDER: (&str, &str) = ("then", "for the tour");
+const TIPS_UNDER_KEY: &str = "⏎";
 const TIPS_UNDER_GAP: f32 = 10.0;
-const TIPS_UNDER_H: f32 = 17.0;
+const TIPS_UNDER_H: f32 = paint::KEYCAP_H;
+const TIPS_UNDER_SPACE: f32 = 6.0;
 /// Where it floats: this far down the screen, so it sits in the lower third clear of the
 /// wallpaper's logo, and drifts this far either side of that over `TIPS_DRIFT` seconds.
 const TIPS_DOWN: f64 = 0.72;
@@ -258,12 +260,11 @@ const TIPS_GAP: f32 = 12.0;
 /// out from. Painted once into the buffer; only its opacity moves.
 const TIPS_RINGS: i32 = 7;
 const TIPS_RING_STEP: f32 = 1.6;
-const TIPS_GLOW: u32 = 0x3cf0c0ff;
+const TIPS_GLOW: u32 = panel::MINT;
 
 /// Bullet time's key legend, a pill of its keys laid out in mockup pixels, painted at `scale`.
 fn paint_legend(scale: f64) -> Option<paint::Painted> {
-    const MOCKUP_PX: f32 = 0.8;
-    let style = Style::new(Face::Mono, 13.0, 0x8f98a8ff);
+    let style = Style::new(Face::Mono, 13.0, panel::HINT);
     let legend = bullet::legend();
     let (w, h) = (text::width(&legend, &style) + 32.0, 13.0 * 1.2 + 16.0);
     let logical =
@@ -273,7 +274,7 @@ fn paint_legend(scale: f64) -> Option<paint::Painted> {
         (logical.h as f64 * scale).round().max(1.0) as i32,
     );
     let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * MOCKUP_PX)?;
-    p.fill(0.0, 0.0, w, h, 10.0, 0x0a0c11cc);
+    p.fill(0.0, 0.0, w, h, 10.0, panel::CHIP | 0xcc);
     p.text(&legend, 16.0, h / 2.0, &style);
     Some(paint::Painted {
         buffer: paint::buffer(&p.pixmap),
@@ -283,11 +284,11 @@ fn paint_legend(scale: f64) -> Option<paint::Painted> {
     })
 }
 
-/// The keyboard-tips prompt, laid out in logical pixels and painted at `scale`: a glass pill
+/// The keyboard-tips prompt, laid out in mockup pixels and painted at `scale`: a glass pill
 /// saying what to press, inside a soft glow drawn as rings fading outwards. The glow is baked in
 /// and the whole thing is faded in and out as it floats, so nothing repaints per frame.
 fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
-    let words = Style::new(Face::Mono, 14.0, 0xdce3ecff);
+    let words = Style::new(Face::Mono, 14.0, panel::PROSE);
     let pill_w = (TIPS_PAD
         + text::width(TIPS_TEXT, &words)
         + TIPS_GAP
@@ -296,19 +297,22 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         .ceil();
     // Room around the pill for the glow to fade out into.
     let halo = TIPS_RINGS as f32 * TIPS_RING_STEP;
-    let under = Style::new(Face::Body, 13.0, 0x7f8a9bff);
-    let under_w = text::width(TIPS_UNDER, &under);
+    let under = Style::new(Face::Body, 13.0, panel::PLACEHOLDER);
+    let under_w = text::width(TIPS_UNDER.0, &under)
+        + 2.0 * TIPS_UNDER_SPACE
+        + paint::keycap_width(TIPS_UNDER_KEY)
+        + text::width(TIPS_UNDER.1, &under);
     // The line underneath may be wider than the pill; the pill then sits in the middle of it.
     let widest = pill_w.max(under_w);
     let pill_x = halo + (widest - pill_w) / 2.0;
     let size = Size::<i32, Logical>::from((
-        (widest + 2.0 * halo).ceil() as i32,
-        (TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H + 2.0 * halo).ceil() as i32,
+        ((widest + 2.0 * halo) * MOCKUP_PX).ceil() as i32,
+        ((TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H + 2.0 * halo) * MOCKUP_PX).ceil() as i32,
     ));
     let mut p = Painter::new(
         (size.w as f64 * scale).round() as u32,
         (size.h as f64 * scale).round() as u32,
-        scale as f32,
+        scale as f32 * MOCKUP_PX,
     )?;
     // Rings outwards from the pill's edge, each fainter than the last.
     for ring in (1..=TIPS_RINGS).rev() {
@@ -325,7 +329,14 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
             (TIPS_GLOW & 0xffffff00) | alpha,
         );
     }
-    p.fill(pill_x, halo, pill_w, TIPS_H, TIPS_H / 2.0, 0x0b0d12e0);
+    p.fill(
+        pill_x,
+        halo,
+        pill_w,
+        TIPS_H,
+        TIPS_H / 2.0,
+        panel::CHIP | 0xe0,
+    );
     p.border(
         pill_x,
         halo,
@@ -342,12 +353,11 @@ fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         pill_x + TIPS_PAD + text::width(TIPS_TEXT, &words) + TIPS_GAP,
         centre,
     );
-    p.text(
-        TIPS_UNDER,
-        halo + (widest - under_w) / 2.0,
-        halo + TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H / 2.0,
-        &under,
-    );
+    let under_centre = halo + TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H / 2.0;
+    let mut x = halo + (widest - under_w) / 2.0;
+    x += p.text(TIPS_UNDER.0, x, under_centre, &under) + TIPS_UNDER_SPACE;
+    x += p.keycap(TIPS_UNDER_KEY, x, under_centre) + TIPS_UNDER_SPACE;
+    p.text(TIPS_UNDER.1, x, under_centre, &under);
     Some((p.pixmap, size))
 }
 
@@ -2370,9 +2380,11 @@ fn deck_elements_for(
             chrome.deck_label = paint_deck_label(&label, scale).map(|painted| (label, painted));
         }
         if let Some((_, painted)) = chrome.deck_label.as_ref() {
+            // The painted area reaches past the card by its shadow's margin.
+            let m = (panel::MARGIN * MOCKUP_PX) as f64;
             let at = Point::<f64, Logical>::from((
-                (x - painted.logical.w as f64 / 2.0).max(8.0),
-                y + 22.0,
+                (x - painted.logical.w as f64 / 2.0).max(8.0 - m),
+                y + 22.0 - m,
             ));
             elements.splice(
                 0..0,
@@ -2396,21 +2408,30 @@ fn deck_elements_for(
     elements
 }
 
-/// The deck's name tag: the front window's name and where it lives, on a dark pill.
+/// The deck's name tag: the front window's name and where it lives, on the panels' glass.
+/// The painted area holds the card's shadow around it: `panel::MARGIN` mockup pixels at the
+/// sides and top, and `panel::BELOW` more underneath.
 fn paint_deck_label(label: &str, scale: f64) -> Option<paint::Painted> {
-    let style = Style::new(Face::Display, 22.0, 0xeef1f6ff);
-    let width = text::width(label, &style) + 40.0;
-    let height = 44.0;
-    paint::Painted::new(
-        Size::from((width.ceil() as i32, height as i32)),
-        scale,
-        |p| {
-            p.fill(0.0, 0.0, width, height, 12.0, 0x10131aee);
-            p.border(0.0, 0.0, width, height, 12.0, 1.0, 0xffffff1c);
-            p.text(label, 20.0, height / 2.0, &style);
-        },
-    )
+    let style = Style {
+        tracking: 0.02,
+        ..Style::new(Face::Display, 27.0, panel::BRIGHT)
+    };
+    let width = text::width(label, &style) + 2.0 * DECK_LABEL_PAD;
+    let m = panel::MARGIN;
+    let logical = Size::<i32, Logical>::from((
+        ((width + 2.0 * m) * MOCKUP_PX).ceil() as i32,
+        ((DECK_LABEL_H + 2.0 * m + panel::BELOW) * MOCKUP_PX).ceil() as i32,
+    ));
+    paint::Painted::new(logical, scale, |p| {
+        p.f *= MOCKUP_PX;
+        panel::glass(p, m, m, width, DECK_LABEL_H);
+        p.text(label, m + DECK_LABEL_PAD, m + DECK_LABEL_H / 2.0, &style);
+    })
 }
+
+/// The deck's name tag's height and the room at its ends, in mockup pixels.
+const DECK_LABEL_H: f32 = 56.0;
+const DECK_LABEL_PAD: f32 = 24.0;
 
 /// How far a window may overhang the tiling area before it is scaled into it: enough for the
 /// rounding at a fractional output scale, nowhere near a client that won't shrink.

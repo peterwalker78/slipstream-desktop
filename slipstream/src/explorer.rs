@@ -30,7 +30,7 @@ use crate::{
     keys::Mods,
     motion::HYPR,
     paint::{self, Painter},
-    panel,
+    panel::{self, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
@@ -54,8 +54,6 @@ const ICON_CACHE: usize = 256;
 const TILE_GAP: f32 = 6.0;
 const ICON: f32 = 66.0;
 const ROW_H: f32 = 42.0;
-/// Logical pixels per mockup pixel: the mockup is drawn for the laptop's 1.25×.
-const MOCKUP_PX: f32 = 0.8;
 /// Opening: 180 ms from 10 px higher and transparent. Closing is instant.
 const OPEN: f64 = 0.18;
 const REDUCED_FADE: f64 = 0.08;
@@ -159,7 +157,7 @@ type Painted = (MemoryRenderBuffer, Size<i32, Logical>, (i32, i32));
 /// The caret's size in mockup pixels. It's an element of its own, so blinking never repaints the
 /// explorer.
 const CARET: (f32, f32) = (3.0, 29.7);
-const CARET_COLOUR: u32 = 0xffb547ff;
+const CARET_COLOUR: u32 = panel::AMBER;
 
 /// Everything the painted explorer depends on.
 #[derive(Clone, PartialEq)]
@@ -836,32 +834,23 @@ impl Explorer {
 
         // Glass. The mockup's is 92% opaque over a 26 px blur; with no blur behind it, text
         // under it showed through, so it's nearly solid.
-        p.card(
-            fx,
-            fy,
-            width,
-            HEIGHT,
-            18.0,
-            (40.0, 110.0, 0x000000b0),
-            panel::GLASS,
-            panel::GLASS_EDGE,
-        );
+        panel::glass(&mut p, fx, fy, width, HEIGHT);
 
         // The search row.
         let centre = fy + SEARCH_H / 2.0;
         p.icon(
             icons::SEARCH,
-            fx + 26.0,
+            fx + panel::HEAD_INSET,
             centre - 14.0,
             28.0,
-            Some(0x8f99aaff),
+            Some(panel::HINT),
         );
-        let mut x = fx + 26.0 + 28.0 + 16.0;
+        let mut x = fx + panel::HEAD_INSET + 28.0 + 16.0;
         x += p.text(
             &look.query,
             x,
             centre,
-            &Style::new(Face::Body, 27.0, 0xf2f4f8ff),
+            &Style::new(Face::Body, 27.0, panel::BRIGHT),
         );
         // In logical pixels from the painted area's corner.
         self.caret_at = Point::from((
@@ -876,8 +865,14 @@ impl Explorer {
                 &Style::new(Face::Body, 27.0, panel::PLACEHOLDER),
             );
         }
-        panel::key_hint(&mut p, fx + width - 26.0, centre, &["Super"], "");
-        p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, 0xffffff12);
+        panel::key_hint(
+            &mut p,
+            fx + width - panel::HEAD_INSET,
+            centre,
+            &["Super"],
+            "",
+        );
+        p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, panel::DIVIDER);
 
         // The apps grid.
         let body_y = fy + SEARCH_H + 1.0;
@@ -894,7 +889,7 @@ impl Explorer {
                 &message,
                 fx + 30.0,
                 body_y + 62.0,
-                &Style::new(Face::Body, 16.0, 0x8b93a3ff),
+                &Style::new(Face::Body, 16.0, panel::HINT),
             );
         }
         let icon_px = (ICON * f).round() as u32;
@@ -911,8 +906,15 @@ impl Explorer {
             let y = body_y + 20.0 + row as f32 * (TILE_H + TILE_GAP);
             let selected = index == look.selected;
             if selected {
-                p.fill(x, y, tile_w, TILE_H, 12.0, selection_fill(look.ring));
-                p.border(x, y, tile_w, TILE_H, 12.0, 2.0, look.ring);
+                p.fill(
+                    x,
+                    y,
+                    tile_w,
+                    TILE_H,
+                    panel::TILE_RADIUS,
+                    panel::selection_fill(look.ring),
+                );
+                p.border(x, y, tile_w, TILE_H, panel::TILE_RADIUS, 2.0, look.ring);
             }
             let icon_x = x + (tile_w - ICON) / 2.0;
             match self.tile_icon(app, icon_px) {
@@ -924,7 +926,7 @@ impl Explorer {
             let style = Style::new(
                 Face::Body,
                 15.0,
-                if selected { 0xffffffff } else { 0xe6e9efff },
+                if selected { 0xffffffff } else { panel::INK },
             );
             let name = text::ellipsize(&app.name, &style, tile_w - 12.0);
             let name_w = text::width(&name, &style);
@@ -960,7 +962,7 @@ impl Explorer {
 
         // The side column: run, files, system.
         let side_x = fx + apps_w;
-        p.fill(side_x, body_y, 1.0, BODY_H, 0.0, 0xffffff10);
+        p.fill(side_x, body_y, 1.0, BODY_H, 0.0, panel::DIVIDER);
         let (row_x, row_w) = (side_x + 17.0, width - apps_w - 33.0);
         let mut y = body_y + 14.0;
         let mut index = results.apps.len();
@@ -1157,17 +1159,18 @@ impl Explorer {
 
         // The footer.
         let foot_y = body_y + BODY_H;
-        p.fill(fx, foot_y, width, 1.0, 0.0, 0xffffff10);
+        p.fill(fx, foot_y, width, 1.0, 0.0, panel::DIVIDER);
         let mut right = fx + width - 22.0;
         let keys: &[(&[&str], &str)] = &[
             (&["Esc"], "clear, close"),
-            (&["Shift+Enter"], "new window"),
-            (&["Enter"], "open"),
+            (&["Shift+⏎"], "new window"),
+            (&["⏎"], "open"),
             (&["Tab"], "next"),
-            (&["↑ ↓ ← →"], "choose"),
+            (&["← → ↑ ↓"], "choose"),
         ];
         for (keys, label) in keys {
-            right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label) - 20.0;
+            right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label)
+                - panel::HINT_GAP;
         }
 
         self.origin = on_screen(0.0, 0.0, 0.0, 0.0).loc;
@@ -1218,33 +1221,17 @@ fn file_name(path: &std::path::Path) -> String {
 
 /// An app with no icon gets a coloured square with its initial, as the mockup draws every app.
 fn placeholder(p: &mut Painter, name: &str, x: f32, y: f32) {
-    const COLOURS: [u32; 6] = [
-        0x3cf0c0ff, 0x33ccffff, 0xffb547ff, 0xff7a93ff, 0xa78bfaff, 0x7fe3ffff,
-    ];
-    let hash = name.bytes().fold(0u32, |hash, byte| {
-        hash.wrapping_mul(31).wrapping_add(byte as u32)
-    });
-    p.fill(
-        x + 4.0,
-        y + 4.0,
-        ICON - 8.0,
-        ICON - 8.0,
-        15.0,
-        COLOURS[hash as usize % COLOURS.len()],
-    );
-    let initial: String = name.chars().next().into_iter().collect();
-    let style = Style::new(Face::MonoBold, 30.0, 0x10131aff);
-    let w = text::width(&initial, &style);
-    p.text(&initial, x + (ICON - w) / 2.0, y + ICON / 2.0, &style);
+    panel::app_placeholder(p, name, x + 4.0, y + 4.0, ICON - 8.0, 15.0, 30.0);
 }
 
 /// A section title in the side column. Returns the height it takes.
 fn header(p: &mut Painter, x: f32, y: f32, title: &str) -> f32 {
-    let style = Style {
-        tracking: 0.12,
-        ..Style::new(Face::Body, 12.0, 0x7d8697ff)
-    };
-    p.text(&title.to_uppercase(), x + 10.0, y + 19.0, &style);
+    p.text(
+        &title.to_uppercase(),
+        x + 10.0,
+        y + 19.0,
+        &panel::section_style(),
+    );
     32.0
 }
 
@@ -1258,11 +1245,6 @@ struct Row<'a> {
     dim: bool,
     /// Text drawn in the icon's place: an emoji.
     glyph: Option<&'a str>,
-}
-
-/// The selection's fill: the ring colour, faint.
-fn selection_fill(ring: u32) -> u32 {
-    (ring & 0xffffff00) | 0x1c
 }
 
 /// The answer to a sum or a conversion: what was understood, then the value, which decodes out of
@@ -1279,18 +1261,23 @@ fn answer_row(
     decoding: Option<f64>,
 ) {
     if selected {
-        p.fill(x, y, w, ROW_H, 9.0, selection_fill(ring));
-        p.border(x, y, w, ROW_H, 9.0, 2.0, ring);
+        panel::selected_row(p, x, y, w, ROW_H, ring);
     }
     let centre = y + ROW_H / 2.0;
-    p.icon(icons::RUN, x + 12.0, centre - 11.0, 22.0, Some(0x9aa4b6ff));
+    p.icon(
+        icons::RUN,
+        x + 12.0,
+        centre - 11.0,
+        22.0,
+        Some(panel::TERTIARY),
+    );
     let right = x + w - 12.0;
     let hint = "copy";
     let hint_style = Style::new(Face::Body, 12.0, panel::HINT);
     let hint_w = text::width(hint, &hint_style);
     p.text(hint, right - hint_w, centre, &hint_style);
     let room = w - 46.0 - hint_w - 24.0;
-    let colour = if selected { 0xffffffff } else { 0xe6e9efff };
+    let colour = if selected { 0xffffffff } else { panel::INK };
     let style = Style::new(Face::Body, 15.0, colour);
     // What was understood, the value, and any unit after it: `5 km = ` `3.107` ` mi`.
     let (lead, value, tail) = match answer.shown.rfind(&answer.value) {
@@ -1342,14 +1329,17 @@ fn answer_row(
 
 fn side_row(p: &mut Painter, x: f32, y: f32, w: f32, row: &Row, ring: u32) {
     if row.selected {
-        p.fill(x, y, w, ROW_H, 9.0, selection_fill(ring));
-        p.border(x, y, w, ROW_H, 9.0, 2.0, ring);
+        panel::selected_row(p, x, y, w, ROW_H, ring);
     }
     let centre = y + ROW_H / 2.0;
-    let ink = if row.dim { panel::HINT } else { 0x9aa4b6ff };
+    let ink = if row.dim {
+        panel::HINT
+    } else {
+        panel::TERTIARY
+    };
     match row.glyph {
         Some(glyph) => {
-            let style = Style::new(Face::Body, 20.0, 0xf2f4f8ff);
+            let style = Style::new(Face::Body, 20.0, panel::BRIGHT);
             let glyph_w = text::width(glyph, &style);
             p.text(glyph, x + 12.0 + (22.0 - glyph_w) / 2.0, centre, &style);
         }
@@ -1374,7 +1364,7 @@ fn side_row(p: &mut Painter, x: f32, y: f32, w: f32, row: &Row, ring: u32) {
     } else if row.selected {
         0xffffffff
     } else {
-        0xe6e9efff
+        panel::INK
     };
     let style = Style::new(Face::Body, 15.0, colour);
     p.text(

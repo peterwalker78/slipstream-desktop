@@ -24,7 +24,7 @@ pub struct Lesson {
 pub const LESSONS: [Lesson; 6] = [
     Lesson {
         title: "Windows share the screen",
-        keys: &["Super+Return"],
+        keys: &["Super+⏎"],
         says: "Open a second window and the first makes room for it. Nothing is hidden behind \
                anything else, so there is never a window you have to go looking for.",
     },

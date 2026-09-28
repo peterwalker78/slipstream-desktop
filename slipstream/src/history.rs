@@ -516,7 +516,7 @@ impl History {
         let (fx, fy) = (MARGIN, MARGIN);
         panel::glass(&mut p, fx, fy, width, height);
 
-        // The head: what this is, and how many.
+        // The head: what this is, and how many, lined up with the rows' boxes below it.
         let centre = fy + HEAD_H / 2.0;
         let title = Style::new(Face::Body, 22.0, panel::INK);
         let title_w = p.text("Clipboard", fx + PADDING, centre, &title);
@@ -527,13 +527,13 @@ impl History {
         };
         p.text(
             &count,
-            fx + PADDING + title_w + 14.0,
+            fx + PADDING + title_w + 16.0,
             centre + 1.0,
             &Style::new(Face::Body, 15.0, panel::PLACEHOLDER),
         );
         let key_w = paint::keycap_width("Super+V");
         p.keycap("Super+V", fx + width - PADDING - key_w, centre);
-        p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, 0xffffff12);
+        p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
         let mut rows = Vec::new();
         let mut y = fy + HEAD_H + PADDING;
@@ -542,10 +542,10 @@ impl History {
                 "Nothing copied yet. Whatever you copy shows up here.",
                 fx + PADDING,
                 y + TEXT_ROW / 2.0,
-                &Style::new(Face::Body, 16.0, 0x8b93a3ff),
+                &Style::new(Face::Body, 16.0, panel::HINT),
             );
         }
-        let mono = Style::new(Face::Mono, 14.0, 0xdfe5eeff);
+        let mono = Style::new(Face::Mono, 14.0, panel::PROSE);
         let [r, g, b, _] = look.ring.to_be_bytes();
         let glyph = Style::new(Face::Mono, 14.0, u32::from_be_bytes([r, g, b, 0xff]));
         let char_w = text::width("M", &mono);
@@ -554,8 +554,7 @@ impl History {
             let (x, w) = (fx + PADDING, width - 2.0 * PADDING);
             let selected = index == look.selected;
             if selected {
-                p.fill(x, y, w, h, 10.0, 0xffb5471c);
-                p.border(x, y, w, h, 10.0, 1.5, 0xffb547b0);
+                panel::selected_row(&mut p, x, y, w, h, look.ring);
             }
             rows.push((
                 index,
@@ -617,7 +616,7 @@ impl History {
                 } => {
                     let thumb_x = x + 12.0;
                     let thumb_y = y + (h - THUMB_H) / 2.0;
-                    p.fill(thumb_x, thumb_y, THUMB_W, THUMB_H, 6.0, 0x0b0d12ff);
+                    p.fill(thumb_x, thumb_y, THUMB_W, THUMB_H, 6.0, panel::CHIP | 0xff);
                     if let Some(thumb) = thumb {
                         // The thumbnail is at twice the mockup's pixels; drawn at the card's.
                         let k = f / 2.0;
@@ -640,7 +639,7 @@ impl History {
                         "Picture",
                         thumb_x + THUMB_W + 16.0,
                         y + h / 2.0 - 10.0,
-                        &Style::new(Face::Body, 16.0, 0xdfe5eeff),
+                        &Style::new(Face::Body, 16.0, panel::PROSE),
                     );
                     p.text(
                         &format!("{pw} × {ph}"),
@@ -655,7 +654,7 @@ impl History {
 
         // The foot: the keys.
         let foot = fy + height - FOOT_H / 2.0;
-        p.fill(fx, fy + height - FOOT_H, width, 1.0, 0.0, 0xffffff10);
+        p.fill(fx, fy + height - FOOT_H, width, 1.0, 0.0, panel::DIVIDER);
         let mut right = fx + width - PADDING;
         for (keys, label) in [
             (&["Esc"][..], "close"),
@@ -663,7 +662,7 @@ impl History {
             (&["⏎"][..], "paste"),
             (&["↑", "↓"][..], "choose"),
         ] {
-            right = panel::key_hint(&mut p, right, foot, keys, label) - 20.0;
+            right = panel::key_hint(&mut p, right, foot, keys, label) - panel::HINT_GAP;
         }
         let painted = Painted {
             buffer: paint::buffer(&p.pixmap),

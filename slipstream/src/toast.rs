@@ -15,7 +15,7 @@ use smithay::{
 use crate::{
     motion::HYPR,
     paint::{self, Painter},
-    panel,
+    panel::{self, MOCKUP_PX},
     text::{self, Face, Style},
 };
 
@@ -38,8 +38,6 @@ const TAG_INSET: f32 = 22.0;
 const TAG_HEIGHT: f32 = 30.0;
 /// Where the toast's top edge sits, in logical pixels.
 pub const TOP_LOGICAL: f64 = (TOP * MOCKUP_PX) as f64;
-/// Logical pixels per mockup pixel.
-const MOCKUP_PX: f32 = 0.8;
 const SHOWN: f64 = 2.6;
 const FADE: f64 = 0.25;
 const REDUCED_FADE: f64 = 0.08;
@@ -145,15 +143,58 @@ impl Toast {
     }
 }
 
-fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
-    const AMBER: u32 = 0xffb547ff;
+/// The toast's words.
+fn prose() -> Style {
+    Style::new(Face::Body, 16.0, panel::PROSE)
+}
+
+/// The room the words' lines have in a card `width` wide.
+fn prose_width(width: f32) -> f32 {
+    width - PAD - 18.0
+}
+
+/// From the card's left edge to its words.
+pub const PAD: f32 = 22.0;
+/// A line of the toast's words.
+const LINE: f32 = 24.0;
+
+/// How tall a toast's card is with `lines` of words, and `extra` more under them.
+pub fn card_height(lines: usize, extra: f32) -> f32 {
+    16.0 + 20.0 + 4.0 + lines as f32 * LINE + extra + 16.0
+}
+
+/// A toast's card, `width` × `height` with its corner at (`x`, `y`): the notice's shadow and
+/// card with an amber left edge, the title in amber capitals, and `lines` of words under it.
+pub fn paint_card(
+    p: &mut Painter,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    title: &str,
+    lines: &[String],
+) {
     let heading = Style {
         tracking: 0.1,
-        ..Style::new(Face::BodyBold, 13.0, AMBER)
+        ..Style::new(Face::BodyBold, 13.0, panel::AMBER)
     };
-    let prose = Style::new(Face::Body, 16.0, 0xdfe5eeff);
-    let lines = text::wrap(body, &prose, WIDTH - 22.0 - 18.0);
-    let height = 16.0 + 20.0 + 4.0 + lines.len() as f32 * 24.0 + 16.0;
+    let prose = prose();
+    let radius = panel::NOTICE_RADIUS;
+    let (dy, blur, shadow) = panel::NOTICE_SHADOW;
+    p.shadow(x, y, width, height, radius, dy, blur, shadow);
+    p.fill(x, y, width, height, radius, panel::AMBER);
+    p.fill(x + 4.0, y, width - 4.0, height, radius - 3.0, panel::NOTICE);
+    p.border(x, y, width, height, radius, 1.0, panel::NOTICE_EDGE);
+    p.text(&title.to_uppercase(), x + PAD, y + 16.0 + 10.0, &heading);
+    let top = y + 16.0 + 20.0 + 4.0;
+    for (i, line) in lines.iter().enumerate() {
+        p.text(line, x + PAD, top + i as f32 * LINE + 12.0, &prose);
+    }
+}
+
+fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
+    let lines = text::wrap(body, &prose(), prose_width(WIDTH));
+    let height = card_height(lines.len(), 0.0);
     let m = panel::NOTICE_MARGIN;
     let logical = Size::<i32, Logical>::from((
         ((WIDTH + 2.0 * m) * MOCKUP_PX).ceil() as i32,
@@ -164,22 +205,7 @@ fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
         (logical.h as f64 * scale).round() as i32,
     );
     let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * MOCKUP_PX)?;
-    // The notice's shadow, the amber left edge, then the card over the rest of it.
-    let radius = panel::NOTICE_RADIUS;
-    let (dy, blur, shadow) = panel::NOTICE_SHADOW;
-    p.shadow(m, m, WIDTH, height, radius, dy, blur, shadow);
-    p.fill(m, m, WIDTH, height, radius, AMBER);
-    p.fill(m + 4.0, m, WIDTH - 4.0, height, radius - 3.0, panel::NOTICE);
-    p.border(m, m, WIDTH, height, radius, 1.0, panel::NOTICE_EDGE);
-    p.text(&title.to_uppercase(), m + 22.0, m + 16.0 + 10.0, &heading);
-    for (i, line) in lines.iter().enumerate() {
-        p.text(
-            line,
-            m + 22.0,
-            m + 16.0 + 24.0 + 12.0 + i as f32 * 24.0,
-            &prose,
-        );
-    }
+    paint_card(&mut p, m, m, WIDTH, height, title, &lines);
     Some(Painted {
         scale,
         buffer: paint::buffer(&p.pixmap),

@@ -38,7 +38,7 @@ const MARGIN: f32 = 64.0;
 const ICON: f32 = 48.0;
 const INSET: f32 = 14.0;
 /// The code rain's green, for the glyph that marks a minimised window.
-const RAIN: u32 = 0x3cf0c0ff;
+const RAIN: u32 = panel::MINT;
 
 /// What letting go of Alt does.
 #[derive(Debug, PartialEq)]
@@ -289,7 +289,7 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
     panel::glass(&mut p, MARGIN, MARGIN, card_w, card_h);
 
     let name_style = Style::new(Face::Body, 14.0, panel::INK);
-    let title_style = Style::new(Face::Body, 12.0, 0x8f98a8ff);
+    let title_style = Style::new(Face::Body, 12.0, panel::HINT);
     let chip_style = Style::new(Face::Mono, 11.0, 0xc4cad6ff);
     let icon_px = (ICON * f).round() as u32;
     let visible = look
@@ -302,10 +302,17 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
         let x = MARGIN + PADDING + column as f32 * (TILE_W + TILE_GAP);
         let y = MARGIN + PADDING;
         if index == look.selected {
-            p.fill(x, y, TILE_W, TILE_H, 12.0, (look.ring & 0xffffff00) | 0x1c);
-            panel::focus_ring(&mut p, x, y, TILE_W, TILE_H, 12.0, look.ring);
+            p.fill(
+                x,
+                y,
+                TILE_W,
+                TILE_H,
+                panel::TILE_RADIUS,
+                panel::selection_fill(look.ring),
+            );
+            panel::focus_ring(&mut p, x, y, TILE_W, TILE_H, panel::TILE_RADIUS, look.ring);
         } else {
-            p.fill(x, y, TILE_W, TILE_H, 12.0, 0xffffff08);
+            p.fill(x, y, TILE_W, TILE_H, panel::TILE_RADIUS, panel::TILE);
         }
         match tile.app_id.as_deref().and_then(|id| icon(id, icon_px)) {
             Some(pixmap) => p.image(&pixmap, x + INSET, y + INSET),
@@ -317,7 +324,7 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
             Some(label) => {
                 let label = text::ellipsize(label, &chip_style, 80.0);
                 let w = text::width(&label, &chip_style) + 14.0;
-                p.fill(right - w, y + INSET, w, 20.0, 5.0, 0xffffff12);
+                p.fill(right - w, y + INSET, w, 20.0, 5.0, panel::QUIET);
                 p.text(&label, right - w + 7.0, y + INSET + 10.0, &chip_style);
             }
             None => {
@@ -352,24 +359,7 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
 
 /// A coloured square with the app's initial, for an app with no icon.
 fn placeholder(p: &mut Painter, name: &str, x: f32, y: f32) {
-    const COLOURS: [u32; 6] = [
-        0x3cf0c0ff, 0x33ccffff, 0xffb547ff, 0xff7a93ff, 0xa78bfaff, 0x7fe3ffff,
-    ];
-    let hash = name.bytes().fold(0u32, |hash, byte| {
-        hash.wrapping_mul(31).wrapping_add(byte as u32)
-    });
-    p.fill(
-        x + 4.0,
-        y + 4.0,
-        ICON - 8.0,
-        ICON - 8.0,
-        11.0,
-        COLOURS[hash as usize % 6],
-    );
-    let initial: String = name.chars().next().into_iter().collect();
-    let style = Style::new(Face::MonoBold, 22.0, 0x10131aff);
-    let w = text::width(&initial, &style);
-    p.text(&initial, x + (ICON - w) / 2.0, y + ICON / 2.0, &style);
+    panel::app_placeholder(p, name, x + 4.0, y + 4.0, ICON - 8.0, 11.0, 22.0);
 }
 
 impl Slipstream {
