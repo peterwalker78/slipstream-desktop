@@ -31,7 +31,7 @@ use slipstream_config::Effects;
 
 use crate::{
     glmatrix::{Band, Glyphs, Look},
-    layout::Rect,
+    layout::{INNER_GAP, OUTER_GAP, Rect},
     louvre::Louvre,
     paint::{self, Painter},
     panel::DESIGN_PX,
@@ -39,12 +39,14 @@ use crate::{
     usage::Meter,
 };
 
-// Sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`) to
-// match.
-const STREAM: f32 = 45.0;
-/// How far below the bar a stream's header card starts, in design pixels. The card its rain
-/// falls down stops the same distance above the foot of the screen.
-const HEAD_GAP: f32 = 12.0;
+// Streams keep to the windows' spacing, in logical pixels: `OUTER_GAP` from the screen's edges,
+// the bar included, so their tops and feet line up with the windows', and `INNER_GAP` from the
+// windows beside them, as one more column. Between two streams the gap is smaller, so they read
+// as one group.
+const STREAM_GAP: i32 = 4;
+
+// Other sizes in design pixels. Streams are narrow, and their headers are scaled down (`HEADER`)
+// to match.
 /// The button's width, height and corner radius, the card's radius too, in design pixels before
 /// `HEADER`.
 const BUTTON_W: f32 = 58.0;
@@ -169,7 +171,7 @@ pub fn glyph_size(scale: f64) -> (usize, usize) {
 }
 
 /// Where a stream's card goes, in screen pixels, for a button with its corner at `button`: as
-/// wide as the button and straight under it, `CARD_GAP` below its lower edge, down to `HEAD_GAP`
+/// wide as the button and straight under it, `CARD_GAP` below its lower edge, down to `OUTER_GAP`
 /// above the foot of a screen `screen_h` logical pixels tall. The size is in whole logical
 /// pixels, so the buffer is shown one to one.
 fn card_frame(
@@ -181,9 +183,9 @@ fn card_frame(
     let x = button.x;
     let edge = (button.y as f64 + BUTTON_H as f64 * f).round() as i32;
     let y = edge + (CARD_GAP * scale).floor().max(1.0) as i32;
-    let bottom = (screen_h as f64 * scale).round() as i32
-        - ((HEAD_GAP * DESIGN_PX) as f64 * scale).round() as i32;
-    let w = (BUTTON_W * DESIGN_PX * HEADER).round() as i32;
+    let bottom =
+        (screen_h as f64 * scale).round() as i32 - (OUTER_GAP as f64 * scale).round() as i32;
+    let w = stream_w();
     let h = (((bottom - y) as f64 / scale).floor() as i32).max(1);
     (Point::from((x, y)), Size::from((w, h)))
 }
@@ -291,14 +293,11 @@ impl Rain {
         self.streams.len()
     }
 
-    /// Logical pixels the tiling area gives up on the right: 20 design pixels, and `STREAM`
-    /// more per stream.
+    /// Logical pixels the tiling area gives up on the right: the streams, the gaps between them,
+    /// and a window's gap before them. The tiling area's own outer gap is the streams' margin
+    /// from the screen's edge.
     pub fn reserve(&self) -> i32 {
-        if self.streams.is_empty() {
-            0
-        } else {
-            ((20.0 + self.streams.len() as f32 * STREAM) * DESIGN_PX).round() as i32
-        }
+        reserve(self.streams.len())
     }
 
     pub fn contains(&self, window: &Window) -> bool {
@@ -314,13 +313,12 @@ impl Rain {
 
     /// Where stream `index` sits on `screen`, below `top`: the column its window pours into.
     pub fn column(index: usize, screen: Rect, top: i32) -> Rect {
-        let centre = (screen.x + screen.w) as f32
-            - (10.0 + STREAM / 2.0 + index as f32 * STREAM) * DESIGN_PX;
-        let half = BUTTON_W * DESIGN_PX * HEADER / 2.0;
+        let w = stream_w();
+        let right = screen.x + screen.w - OUTER_GAP - index as i32 * (w + STREAM_GAP);
         Rect {
-            x: (centre - half).round() as i32,
+            x: right - w,
             y: screen.y + top,
-            w: (2.0 * half).round() as i32,
+            w,
             h: (screen.h - top).max(1),
         }
     }
@@ -465,7 +463,7 @@ impl Rain {
             let centre = column.x as f64 + column.w as f64 / 2.0;
             let button = Point::<f64, Logical>::from((
                 centre - header.logical.w as f64 / 2.0,
-                top as f64 + (HEAD_GAP * DESIGN_PX) as f64,
+                (top + OUTER_GAP) as f64,
             ))
             .to_physical(scale)
             .to_i32_round::<i32>();
@@ -658,6 +656,19 @@ fn paint_header(
     })
 }
 
+/// A stream's width in logical pixels: its button's, and its card's under it.
+fn stream_w() -> i32 {
+    (BUTTON_W * DESIGN_PX * HEADER).round() as i32
+}
+
+/// What `count` streams take from the tiling area, in logical pixels.
+fn reserve(count: usize) -> i32 {
+    match count {
+        0 => 0,
+        n => n as i32 * stream_w() + (n as i32 - 1) * STREAM_GAP + INNER_GAP,
+    }
+}
+
 /// Three channels from 0 to 1 as opaque `0xrrggbbff`.
 fn rgb_colour(rgb: [f32; 3]) -> u32 {
     let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
@@ -722,12 +733,34 @@ mod tests {
         };
         let first = Rain::column(0, screen, 32);
         let second = Rain::column(1, screen, 32);
-        assert!(first.x + first.w <= 1536 - 8);
-        assert!(
-            second.x + second.w <= first.x,
+        assert_eq!(
+            first.x + first.w,
+            1536 - OUTER_GAP,
+            "a window's margin from the edge"
+        );
+        assert_eq!(
+            first.x - (second.x + second.w),
+            STREAM_GAP,
             "the next stream goes to its left"
         );
         assert_eq!((first.y, first.h), (32, 928));
+    }
+
+    #[test]
+    fn windows_keep_a_window_s_gap_from_the_streams() {
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            w: 1536,
+            h: 960,
+        };
+        for count in 1..=6 {
+            // The tiling area ends `reserve` short of the edge, and its windows `OUTER_GAP` inside
+            // that; the leftmost stream is `INNER_GAP` beyond them.
+            let windows_end = screen.w - reserve(count) - OUTER_GAP;
+            let leftmost = Rain::column(count - 1, screen, 32);
+            assert_eq!(leftmost.x - windows_end, INNER_GAP, "{count} streams");
+        }
     }
 
     #[test]
@@ -743,7 +776,7 @@ mod tests {
             );
             let bottom = at.y + (size.h as f64 * scale).round() as i32;
             let margin = (768.0 * scale).round() as i32 - bottom;
-            let wanted = (9.6 * scale).round() as i32;
+            let wanted = (OUTER_GAP as f64 * scale).round() as i32;
             assert!(
                 (wanted..=wanted + scale.ceil() as i32 + 1).contains(&margin),
                 "{margin} px above the foot at {scale}×, wanted {wanted}"
