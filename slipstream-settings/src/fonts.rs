@@ -1,5 +1,5 @@
-//! The mockup's fonts, embedded as the compositor embeds them, and handed to Pango from files in
-//! the cache folder, so the app looks like the mockup without installing fonts system-wide.
+//! Slipstream's fonts, embedded as the compositor embeds them, and handed to Pango from files in
+//! the cache folder, so the app matches the desktop without installing fonts system-wide.
 
 use std::{fs, path::PathBuf};
 

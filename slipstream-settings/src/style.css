@@ -238,7 +238,7 @@ dropdown > button {
   color: #dfe2e9;
 }
 
-/* Keyboard focus, in the mockup's amber */
+/* Keyboard focus, in Slipstream's amber */
 .side > row:focus-visible,
 .row switch:focus-visible,
 .row checkbutton:focus-visible,
@@ -272,7 +272,7 @@ dropdown > button:focus-visible {
   outline-offset: -2px;
 }
 
-/* Power: the battery card, as the mockup's, with its charge in a mint bar. */
+/* Power: the battery card, with its charge in a mint bar. */
 .card.batt {
   padding: 16px;
 }

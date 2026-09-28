@@ -883,9 +883,9 @@ pub struct Borders {
 }
 
 /// Ice cyan. It sits 73° of hue from the code rain, so the ring reads against it rather than
-/// dissolving into it, and it is the mockup's colour for what's active.
+/// dissolving into it, and it is Slipstream's colour for what's active.
 pub const SELECTED_TILE: &str = "#42d3ff";
-/// The mockup's amber, near-opposite the ring's cyan: cold means the live desktop, warm the slow
+/// Slipstream's amber, near-opposite the ring's cyan: cold means the live desktop, warm the slow
 /// world.
 pub const BULLET_TIME: &str = "#ffb547";
 

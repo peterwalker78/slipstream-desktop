@@ -1,4 +1,4 @@
-//! Slipstream's Settings app (Super+I), laid out as the mockup's Settings window: pages in a
+//! Slipstream's Settings app (Super+I), laid out as the desktop's own panels are: pages in a
 //! sidebar, and groups of rows on each page. A change is saved to the settings file straight
 //! away, and Slipstream applies it as soon as the file changes. Only settings Slipstream actually
 //! follows are shown.
@@ -210,7 +210,7 @@ fn focus_css(rgb: [f32; 3]) -> String {
     )
 }
 
-/// The mockup's colours, spacing and fonts, over GTK's dark theme.
+/// Slipstream's colours, spacing and fonts, over GTK's dark theme.
 fn style() {
     let Some(display) = gdk::Display::default() else {
         return;
@@ -345,7 +345,7 @@ fn open_window(
     body.append(&side);
     body.append(&main);
 
-    // A tiling desktop has no use for minimise and maximise buttons; the mockup shows only ✕.
+    // A tiling desktop has no use for minimise and maximise buttons; the window has only ✕.
     let header = gtk::HeaderBar::new();
     header.set_decoration_layout(Some(":close"));
     header.set_title_widget(Some(

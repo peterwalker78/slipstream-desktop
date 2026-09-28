@@ -1,4 +1,4 @@
-//! The pages, as in the mockup's Settings window, keeping only the settings Slipstream follows.
+//! The pages of Settings, holding only the settings Slipstream follows.
 
 use std::{
     cell::{Cell, RefCell},
@@ -1735,7 +1735,7 @@ const POWER_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 fn power(_: &Store) -> gtk::Widget {
     let page = page("Power", "Battery and charging");
 
-    // The mockup's battery card: the charge, a bar, and the time.
+    // The battery card: the charge, a bar, and the time.
     let card = gtk::Box::builder()
         .spacing(18)
         .css_classes(["card", "batt"])
