@@ -428,6 +428,7 @@ impl Slipstream {
     }
 
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        self.something_changed();
         match event {
             InputEvent::Keyboard { event, .. } => {
                 self.key_event(event.key_code(), event.state(), Event::time(&event), false);

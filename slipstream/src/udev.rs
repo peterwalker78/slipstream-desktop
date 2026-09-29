@@ -80,6 +80,13 @@ struct Gpu {
 }
 
 /// One lit connector.
+/// The longest a screen goes without looking for something new to draw, once a few frames in a row
+/// have had nothing. Anything that moves keeps frames coming every refresh; this only spaces out
+/// the looks at a still desktop, and input or a window's update ends the wait at once, so what
+/// it delays is only the start of something the desktop changes by itself (the clock, a caret's
+/// blink), by a twentieth of a second at most.
+const IDLE_LOOK: Duration = Duration::from_millis(50);
+
 struct Screen {
     output: Output,
     /// Kept so the screen can be lit again after the lid puts it out.
@@ -89,8 +96,12 @@ struct Screen {
     drm_output: DrmOutput<Allocator, Exporter, Option<OutputPresentationFeedback>, DrmDeviceFd>,
     /// A frame is queued and the display hasn't shown it yet.
     waiting_for_vblank: bool,
-    /// A retry is scheduled because the last frame had nothing new.
-    retry_scheduled: bool,
+    /// The look scheduled because the last frame had nothing new, to cancel when something new
+    /// arrives sooner.
+    retry: Option<RegistrationToken>,
+    /// How many frames in a row have had nothing new: the looks after them space out, up to
+    /// `IDLE_LOOK`, until something changes.
+    empty_run: u32,
     /// The frame waiting for its vblank was drawn with the lock up.
     lock_frame_queued: bool,
 }
@@ -463,7 +474,8 @@ impl Slipstream {
                 global,
                 drm_output,
                 waiting_for_vblank: false,
-                retry_scheduled: false,
+                retry: None,
+                empty_run: 0,
                 lock_frame_queued: false,
             },
         );
@@ -714,6 +726,7 @@ impl Slipstream {
         let screenshots = self.take_screenshots();
         let elements =
             render::output_elements(self, &mut gpu.renderer, &output, Some(&mut udev.cursor));
+        let mut drew = false;
         match screen.drm_output.render_frame(
             &mut gpu.renderer,
             &elements,
@@ -722,6 +735,7 @@ impl Slipstream {
         ) {
             Ok(frame) => {
                 self.update_scanout_outputs(&output, &frame.states);
+                drew = !frame.is_empty;
                 if !frame.is_empty {
                     let feedback = self.presentation_feedback(&output, &frame.states);
                     match screen.drm_output.queue_frame(Some(feedback)) {
@@ -754,31 +768,75 @@ impl Slipstream {
 
         self.send_frames(&output);
 
-        // Nothing new to show: look again in a frame's time.
-        if !screen.waiting_for_vblank && !screen.retry_scheduled {
-            screen.retry_scheduled = true;
+        screen.empty_run = if drew {
+            0
+        } else {
+            screen.empty_run.saturating_add(1)
+        };
+        // Nothing new to show: look again in a frame's time, or a little longer after several
+        // frames in a row with nothing.
+        if !screen.waiting_for_vblank && screen.retry.is_none() {
             let refresh_mhz = output
                 .current_mode()
                 .map(|mode| mode.refresh)
                 .filter(|refresh| *refresh > 0)
                 .unwrap_or(60_000);
-            let delay = Duration::from_micros(1_000_000_000 / refresh_mhz as u64);
-            let timer =
-                self.loop_handle
-                    .insert_source(Timer::from_duration(delay), move |_, _, state| {
-                        if let Some(screen) = state
-                            .udev
-                            .as_mut()
-                            .and_then(|udev| udev.gpus.get_mut(&node))
-                            .and_then(|gpu| gpu.screens.get_mut(&crtc))
-                        {
-                            screen.retry_scheduled = false;
-                        }
-                        state.render_screen(node, crtc);
-                        TimeoutAction::Drop
-                    });
-            if timer.is_err() {
-                screen.retry_scheduled = false;
+            let period = Duration::from_micros(1_000_000_000 / refresh_mhz as u64);
+            let delay = look_after(period, screen.empty_run);
+            screen.retry = self.look_again(node, crtc, Timer::from_duration(delay));
+        }
+    }
+
+    /// Schedules a look at `node`'s screen `crtc` for when `timer` fires.
+    fn look_again(
+        &self,
+        node: DrmNode,
+        crtc: crtc::Handle,
+        timer: Timer,
+    ) -> Option<RegistrationToken> {
+        self.loop_handle
+            .insert_source(timer, move |_, _, state| {
+                if let Some(screen) = state
+                    .udev
+                    .as_mut()
+                    .and_then(|udev| udev.gpus.get_mut(&node))
+                    .and_then(|gpu| gpu.screens.get_mut(&crtc))
+                {
+                    screen.retry = None;
+                }
+                state.render_screen(node, crtc);
+                TimeoutAction::Drop
+            })
+            .ok()
+    }
+
+    /// Something new may be on its way to the screens (input, or a window's update): any screen
+    /// spacing out its looks at a still desktop looks again on the next pass instead.
+    pub fn something_changed(&mut self) {
+        let Some(udev) = self.udev.as_mut() else {
+            return;
+        };
+        let mut waiting = Vec::new();
+        for (node, gpu) in udev.gpus.iter_mut() {
+            for (crtc, screen) in gpu.screens.iter_mut() {
+                if screen.empty_run >= 2
+                    && let Some(token) = screen.retry.take()
+                {
+                    screen.empty_run = 0;
+                    waiting.push((*node, *crtc, token));
+                }
+            }
+        }
+        for (node, crtc, token) in waiting {
+            self.loop_handle.remove(token);
+            let retry = self.look_again(node, crtc, Timer::immediate());
+            if let Some(screen) = self
+                .udev
+                .as_mut()
+                .and_then(|udev| udev.gpus.get_mut(&node))
+                .and_then(|gpu| gpu.screens.get_mut(&crtc))
+            {
+                screen.retry = retry;
             }
         }
     }
@@ -1069,6 +1127,14 @@ impl DmabufHandler for Slipstream {
 }
 
 /// Touchpads tap to click, as on Windows and in Plasma 6.
+/// How long to wait before looking again after `empty_run` frames in a row with nothing new, on a
+/// screen refreshing every `period`: a frame's time for the first, doubling after that, never
+/// longer than `IDLE_LOOK` (and never shorter than a frame).
+fn look_after(period: Duration, empty_run: u32) -> Duration {
+    let doubled = period * (1 << empty_run.saturating_sub(1).min(3));
+    doubled.min(IDLE_LOOK).max(period)
+}
+
 fn configure_input_device(device: &mut libinput::Device) {
     if device.config_tap_finger_count() > 0 {
         let _ = device.config_tap_set_enabled(true);
@@ -1105,7 +1171,28 @@ fn scale_for_density(width_px: i32, width_mm: u32) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::scale_for_density;
+    use super::{IDLE_LOOK, look_after, scale_for_density};
+    use std::time::Duration;
+
+    #[test]
+    fn a_still_screen_looks_less_often_but_never_past_a_twentieth() {
+        let sixty = Duration::from_micros(16_667);
+        assert_eq!(look_after(sixty, 0), sixty);
+        assert_eq!(
+            look_after(sixty, 1),
+            sixty,
+            "the first empty frame looks again next frame"
+        );
+        assert_eq!(look_after(sixty, 2), sixty * 2);
+        assert_eq!(look_after(sixty, 3), IDLE_LOOK);
+        assert_eq!(look_after(sixty, 50), IDLE_LOOK);
+        let slow = Duration::from_millis(100);
+        assert_eq!(
+            look_after(slow, 5),
+            slow,
+            "never slower than the screen itself"
+        );
+    }
 
     #[test]
     fn scale_follows_pixel_density() {
