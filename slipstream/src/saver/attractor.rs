@@ -15,6 +15,7 @@
 //! returns most often. Its four numbers wander slowly, and the veil folds, splits and rejoins as
 //! they do. At the end of the turn the particles find their letters again.
 
+use super::smoothstep as ease;
 use super::{
     AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01,
     logo_dots, mix,
@@ -64,11 +65,6 @@ fn step(p: (f32, f32), [a, b, c, d]: [f32; 4]) -> (f32, f32) {
         (a * p.1).sin() + c * (a * p.0).cos(),
         (b * p.0).sin() + d * (b * p.1).cos(),
     )
-}
-
-fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 #[derive(Clone, Copy)]

@@ -1173,7 +1173,7 @@ pub fn output_elements(
                     (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xff,
                 )
             }),
-            status: state.status.lock().unwrap().clone(),
+            status: bar::Shown::of(&state.status.lock().unwrap()),
             do_not_disturb: state.settings.notifications.do_not_disturb,
             unread: state.notices.unread(),
             sharing: state.captures.sharing(),

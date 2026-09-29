@@ -410,6 +410,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         heartbeat.store(started.elapsed().as_secs(), Ordering::Relaxed);
         // The way out's timers run here, so a window closing ends the grace on the same pass.
         state.tick_exit();
+        // Idle listeners hear about this pass's input once, however many events it brought.
+        state.notify_idle_listeners();
         // And a recorded layout's, so it finishes on the pass its last window arrives.
         state.tick_restore();
         // The layout goes to disk here once the desktop has settled, so a crash still leaves one.

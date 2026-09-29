@@ -7,6 +7,7 @@
 //! It never goes up without a way to take it down: with no PAM service for Slipstream installed,
 //! locking is refused.
 
+use crate::motion::REDUCED_FADE;
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
@@ -49,8 +50,6 @@ pub const SERVICE_FILES: [&str; 2] = ["/etc/pam.d/slipstream", "/usr/lib/pam.d/s
 
 /// Locking fades the veil and the card in.
 const FADE_IN: f64 = 0.18;
-/// Reduced motion's fades, in and out.
-const REDUCED_FADE: f64 = 0.08;
 /// A wrong or empty Enter shakes the pill this long, this far each way (design pixels).
 const SHAKE: f64 = 0.3;
 const SHAKE_PX: f64 = 12.0;

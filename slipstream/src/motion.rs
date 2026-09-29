@@ -17,8 +17,8 @@ pub const MOVE: f64 = 0.34;
 /// A window opening: it grows from `OPEN_SCALE` and fades in.
 pub const OPEN: f64 = 0.24;
 pub const OPEN_SCALE: f64 = 0.82;
-/// With reduced motion, moves jump and effects become short fades.
-const REDUCED_FADE: f64 = 0.08;
+/// With reduced motion, moves jump and effects become short fades, this long, everywhere.
+pub const REDUCED_FADE: f64 = 0.08;
 /// Fades for a window that is travelling while it fades. Flatter than CSS's `ease-in` and
 /// `ease-out`, which still leave it about a third transparent halfway: these hold it above
 /// four fifths opaque to the middle of the journey, so it reads as a window going somewhere

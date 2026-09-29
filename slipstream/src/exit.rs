@@ -14,6 +14,7 @@
 //!
 //! Wall time throughout: bullet time must never stretch a logout.
 
+use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -33,7 +34,6 @@ const GRACE: f64 = 4.0;
 const WAIT: f64 = 10.0;
 /// The card opens as the explorer does.
 const OPEN: f64 = 0.18;
-const REDUCED_FADE: f64 = 0.08;
 /// The screen fades to black before the session ends.
 const FADE_OUT: f64 = 0.35;
 

@@ -281,12 +281,6 @@ impl<O: Clone + PartialEq + Named> Screens<O> {
             .position(|screen| screen.workspace == index)
     }
 
-    /// The workspace `output` is showing.
-    pub fn workspace_of(&self, output: &O) -> Option<usize> {
-        self.index_of(output)
-            .map(|index| self.list[index].workspace)
-    }
-
     /// Where a workspace is laid out and drawn: the screen showing it; else the screen that last
     /// showed it, if that one is lit; else the focused one, where it would appear if switched to.
     pub fn screen_for_workspace(&self, index: usize) -> usize {

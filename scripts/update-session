@@ -79,15 +79,15 @@ else
             *) box_repo=$repo ;;
         esac
         # shellcheck disable=SC2016 # expanded by the box's shell, from the argument after it
-        distrobox enter slipstream -- bash -lc 'cd "$1" && cargo build --locked' _ "$box_repo"
+        distrobox enter slipstream -- bash -lc 'cd "$1" && cargo build --locked --profile session' _ "$box_repo"
     elif have cargo; then
-        (cd "$repo" && cargo build --locked)
+        (cd "$repo" && cargo build --locked --profile session)
     else
         echo "update-session: no cargo to build with, and no slipstream distrobox." >&2
         echo "Install Rust (https://rustup.rs) and try again, or use a release with bin/ in it." >&2
         exit 1
     fi
-    built=${CARGO_TARGET_DIR:-$repo/target}/debug
+    built=${CARGO_TARGET_DIR:-$repo/target}/session
 fi
 
 for program in slipstream slipstream-settings; do

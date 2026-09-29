@@ -9,6 +9,7 @@
 //! density comes from. Now and then a falcon passes through and the flock parts round it. At the
 //! end of the turn the birds land back on their own dots, left of the logo first.
 
+use super::smoothstep as ease;
 use super::{BG, Frame, Grid, Layout, Variation, WHITE, braille, gradient, hash01, logo_dots, mix};
 
 /// One turn, in seconds of the animation clock.
@@ -49,11 +50,6 @@ const FALCON_REACH: f32 = 0.16;
 
 /// How much of a dot's light survives a step, so each bird leaves a short streak.
 const TRAIL: f32 = 0.35;
-
-fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 
 #[derive(Clone, Copy)]
 struct Bird {

@@ -3,6 +3,7 @@
 //! one of either replaces the other. A toast rises in over 250 ms and stays long enough to read:
 //! 2.6 s at least, longer for more words.
 
+use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
@@ -28,7 +29,6 @@ const SHOWN: f64 = 2.6;
 const SHOWN_MOST: f64 = 7.0;
 const PER_WORD: f64 = 0.3;
 const FADE: f64 = 0.25;
-const REDUCED_FADE: f64 = 0.08;
 
 struct Painted {
     scale: f64,

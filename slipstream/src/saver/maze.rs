@@ -7,6 +7,7 @@
 //! can be seen down the last corridor, and the walk stops where the letters on it stand exactly on
 //! the logo's own cells. Then the maze fades and the letters stay.
 
+use super::smoothstep as smooth;
 use std::f32::consts::{PI, TAU};
 
 use super::{
@@ -119,11 +120,6 @@ fn carve(seed: u64) -> (Map, Vec<(usize, usize)>) {
 /// The shortest turn from angle `a` to angle `b`.
 fn turn_between(a: f32, b: f32) -> f32 {
     (b - a + PI).rem_euclid(TAU) - PI
-}
-
-fn smooth(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 /// The walk: a line through map squares, with the heading along each piece.

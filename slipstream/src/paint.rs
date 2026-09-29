@@ -97,6 +97,14 @@ struct LayerKey {
 /// panels that grow with their content need one for each height they've been.
 const LAYER_CACHE_BYTES: usize = 48 << 20;
 
+/// A mask, and the pixmap size, radius and scale it was made for.
+type Corners = Option<((u32, u32, u32, u32), Mask)>;
+
+thread_local! {
+    /// The mask `Painter::round_corners` last used.
+    static CORNERS: std::cell::RefCell<Corners> = const { std::cell::RefCell::new(None) };
+}
+
 thread_local! {
     static LAYERS: std::cell::RefCell<Vec<(LayerKey, Pixmap)>> =
         const { std::cell::RefCell::new(Vec::new()) };
@@ -132,6 +140,10 @@ fn copy_onto_empty(dst: &mut Pixmap, src: &Pixmap, x: i32, y: i32) -> bool {
 pub struct Painter {
     pub pixmap: Pixmap,
     pub f: f32,
+    /// Whether shadows and cards painted here are kept for next time. A surface whose shadows
+    /// move every frame, as the tour's miniature's do, turns this off: its one-off shadows would
+    /// only push out the panels' cards the cache is for.
+    pub cache_layers: bool,
 }
 
 impl Painter {
@@ -139,6 +151,7 @@ impl Painter {
         Some(Self {
             pixmap: Pixmap::new(width, height)?,
             f,
+            cache_layers: true,
         })
     }
 
@@ -283,19 +296,47 @@ impl Painter {
             ],
             glass: layer.glass.is_some(),
         };
+        let paint_fresh = || {
+            let width = ((right - left) * f + offset.0).ceil() as u32 + 1;
+            let height = ((bottom - top) * f + offset.1).ceil() as u32 + 1;
+            let mut painter = Painter::new(width, height, f)?;
+            painter.paint_layer(&layer, offset, (-left, -top));
+            Some(painter.pixmap)
+        };
+        let place = |target: &mut Pixmap, pixmap: &Pixmap| {
+            if !copy_onto_empty(target, pixmap, col as i32, row as i32) {
+                target.draw_pixmap(
+                    col as i32,
+                    row as i32,
+                    pixmap.as_ref(),
+                    &PixmapPaint::default(),
+                    Transform::identity(),
+                    None,
+                );
+            }
+        };
+        if !self.cache_layers {
+            let found = LAYERS.with_borrow(|cache| {
+                cache
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, pixmap)| pixmap.clone())
+            });
+            if let Some(pixmap) = found.or_else(paint_fresh) {
+                place(&mut self.pixmap, &pixmap);
+            }
+            return;
+        }
         LAYERS.with_borrow_mut(|cache| {
             if let Some(at) = cache.iter().position(|(k, _)| *k == key) {
                 // The most recently used goes last, and the oldest first out.
                 let entry = cache.remove(at);
                 cache.push(entry);
             } else {
-                let width = ((right - left) * f + offset.0).ceil() as u32 + 1;
-                let height = ((bottom - top) * f + offset.1).ceil() as u32 + 1;
-                let Some(mut painter) = Painter::new(width, height, f) else {
+                let Some(pixmap) = paint_fresh() else {
                     return;
                 };
-                painter.paint_layer(&layer, offset, (-left, -top));
-                cache.push((key, painter.pixmap));
+                cache.push((key, pixmap));
                 while cache.len() > 1
                     && cache
                         .iter()
@@ -307,16 +348,7 @@ impl Painter {
                 }
             }
             let (_, pixmap) = cache.last().expect("found or just added");
-            if !copy_onto_empty(&mut self.pixmap, pixmap, col as i32, row as i32) {
-                self.pixmap.draw_pixmap(
-                    col as i32,
-                    row as i32,
-                    pixmap.as_ref(),
-                    &PixmapPaint::default(),
-                    Transform::identity(),
-                    None,
-                );
-            }
+            place(&mut self.pixmap, pixmap);
         });
     }
 
@@ -510,14 +542,23 @@ impl Painter {
     /// `overflow: hidden` does inside a `border-radius`.
     pub fn round_corners(&mut self, radius: f32) {
         let (w, h) = (self.pixmap.width(), self.pixmap.height());
-        let (Some(shape), Some(mut mask)) = (
-            rounded(0.0, 0.0, w as f32 / self.f, h as f32 / self.f, radius),
-            Mask::new(w, h),
-        ) else {
-            return;
-        };
-        mask.fill_path(&shape, FillRule::Winding, true, self.transform());
-        self.pixmap.apply_mask(&mask);
+        let key = (w, h, radius.to_bits(), self.f.to_bits());
+        // A surface repainted every frame at one size uses the same mask each time.
+        CORNERS.with_borrow_mut(|kept| {
+            if kept.as_ref().is_none_or(|(k, _)| *k != key) {
+                let (Some(shape), Some(mut mask)) = (
+                    rounded(0.0, 0.0, w as f32 / self.f, h as f32 / self.f, radius),
+                    Mask::new(w, h),
+                ) else {
+                    return;
+                };
+                mask.fill_path(&shape, FillRule::Winding, true, self.transform());
+                *kept = Some((key, mask));
+            }
+            if let Some((_, mask)) = kept.as_ref() {
+                self.pixmap.apply_mask(mask);
+            }
+        });
     }
 
     /// An image already rasterised at device pixels, with its corner at (`x`, `y`).

@@ -265,7 +265,8 @@ impl Streaks {
         self.draw_spine(&mut sum, w, h);
         for (pixel, value) in light.chunks_exact_mut(4).zip(sum.chunks_exact(3)) {
             for (channel, v) in pixel[..3].iter_mut().zip(value) {
-                *channel = (*channel as f32 + v * 255.0).round().min(255.0) as u8;
+                // A half and a saturating cast round to nearest without calling `roundf`.
+                *channel = (*channel as f32 + v * 255.0 + 0.5) as u8;
             }
         }
     }
@@ -350,6 +351,8 @@ fn column(
 }
 
 /// Softens the light: a box blur `radius` pixels each way, across then down, added back on top.
+/// Both passes keep a running total, so a pixel costs the same whatever the radius, and the pass
+/// down walks the rows in memory order.
 fn bloom(sum: &mut [f32], w: usize, h: usize, radius: usize) {
     if w == 0 || h == 0 {
         return;
@@ -357,32 +360,50 @@ fn bloom(sum: &mut [f32], w: usize, h: usize, radius: usize) {
     let mut across = vec![0f32; sum.len()];
     let span = (2 * radius + 1) as f32;
     for y in 0..h {
+        let row = y * w * 3;
+        let mut total = [0f32; 3];
+        for x in 0..(radius + 1).min(w) {
+            for c in 0..3 {
+                total[c] += sum[row + x * 3 + c];
+            }
+        }
         for x in 0..w {
-            let mut total = [0f32; 3];
-            for sx in x.saturating_sub(radius)..(x + radius + 1).min(w) {
-                let at = (y * w + sx) * 3;
+            for c in 0..3 {
+                across[row + x * 3 + c] = total[c] / span;
+            }
+            if x + radius + 1 < w {
                 for c in 0..3 {
-                    total[c] += sum[at + c];
+                    total[c] += sum[row + (x + radius + 1) * 3 + c];
                 }
             }
-            let at = (y * w + x) * 3;
-            for c in 0..3 {
-                across[at + c] = total[c] / span;
+            if x >= radius {
+                for c in 0..3 {
+                    total[c] -= sum[row + (x - radius) * 3 + c];
+                }
             }
         }
     }
-    for x in 0..w {
-        for y in 0..h {
-            let mut total = [0f32; 3];
-            for sy in y.saturating_sub(radius)..(y + radius + 1).min(h) {
-                let at = (sy * w + x) * 3;
-                for c in 0..3 {
-                    total[c] += across[at + c];
-                }
+    let stride = w * 3;
+    let mut totals = vec![0f32; stride];
+    for y in 0..(radius + 1).min(h) {
+        for (total, value) in totals.iter_mut().zip(&across[y * stride..(y + 1) * stride]) {
+            *total += value;
+        }
+    }
+    for y in 0..h {
+        for (out, total) in sum[y * stride..(y + 1) * stride].iter_mut().zip(&totals) {
+            *out += total / span * BLOOM_LIGHT;
+        }
+        if y + radius + 1 < h {
+            let add = &across[(y + radius + 1) * stride..(y + radius + 2) * stride];
+            for (total, value) in totals.iter_mut().zip(add) {
+                *total += value;
             }
-            let at = (y * w + x) * 3;
-            for c in 0..3 {
-                sum[at + c] += total[c] / span * BLOOM_LIGHT;
+        }
+        if y >= radius {
+            let gone = &across[(y - radius) * stride..(y - radius + 1) * stride];
+            for (total, value) in totals.iter_mut().zip(gone) {
+                *total -= value;
             }
         }
     }
@@ -459,6 +480,53 @@ fn spine(name: &str, width: usize, height: usize, scale: f64) -> Option<Spine> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The blur written the plain way, every neighbour added for every pixel.
+    fn bloom_plainly(sum: &mut [f32], w: usize, h: usize, radius: usize) {
+        let mut across = vec![0f32; sum.len()];
+        let span = (2 * radius + 1) as f32;
+        for y in 0..h {
+            for x in 0..w {
+                for c in 0..3 {
+                    let total: f32 = (x.saturating_sub(radius)..(x + radius + 1).min(w))
+                        .map(|sx| sum[(y * w + sx) * 3 + c])
+                        .sum();
+                    across[(y * w + x) * 3 + c] = total / span;
+                }
+            }
+        }
+        for y in 0..h {
+            for x in 0..w {
+                for c in 0..3 {
+                    let total: f32 = (y.saturating_sub(radius)..(y + radius + 1).min(h))
+                        .map(|sy| across[(sy * w + x) * 3 + c])
+                        .sum();
+                    sum[(y * w + x) * 3 + c] += total / span * BLOOM_LIGHT;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_running_bloom_matches_the_plain_one() {
+        for (w, h, radius) in [(39, 300, 5), (7, 9, 4), (3, 2, 6), (1, 1, 1)] {
+            let mut seed = 0x2545_f491_4f6c_dd1du64;
+            let light: Vec<f32> = (0..w * h * 3)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    (seed >> 40) as f32 / (1u64 << 24) as f32
+                })
+                .collect();
+            let (mut fast, mut plain) = (light.clone(), light);
+            bloom(&mut fast, w, h, radius);
+            bloom_plainly(&mut plain, w, h, radius);
+            for (a, b) in fast.iter().zip(&plain) {
+                assert!((a - b).abs() < 1e-4, "{w}x{h} r{radius}: {a} against {b}");
+            }
+        }
+    }
 
     const W: usize = 40;
     const H: usize = 700;

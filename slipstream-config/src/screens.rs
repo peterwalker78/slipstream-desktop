@@ -218,10 +218,6 @@ impl Remembered {
             .find(|screen| screen.monitor == monitor)
             .expect("just added")
     }
-
-    pub fn forget_monitor(&mut self, monitor: &str) {
-        self.screens.retain(|known| known.monitor != monitor);
-    }
 }
 
 /// `$XDG_STATE_HOME/slipstream`, else `~/.local/state/slipstream`.

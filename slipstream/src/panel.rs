@@ -2,6 +2,7 @@
 //! top right, just below the bar, that slides down into place as it opens. Only one panel, or the
 //! explorer, is open at a time.
 
+use crate::motion::REDUCED_FADE;
 use crate::{Slipstream, motion::HYPR, paint::Painter};
 
 /// Logical pixels per design pixel. Every surface is laid out in design pixels, sized for a 1.25×
@@ -55,7 +56,6 @@ pub const FOCUS: u32 = 0x42d3ffcc;
 
 /// Opening: 200 ms from 10 px higher and transparent. Closing is instant.
 const OPEN: f64 = 0.2;
-const REDUCED_FADE: f64 = 0.08;
 
 /// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
 /// nearly solid, as the explorer's is.

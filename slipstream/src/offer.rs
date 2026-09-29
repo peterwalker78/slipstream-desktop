@@ -7,6 +7,7 @@
 //!
 //! Wall time, like the way out: this is drawn while the desktop is still filling up.
 
+use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -22,7 +23,6 @@ use crate::{
 
 /// The card opens as the way out's does, and as the explorer does.
 const OPEN: f64 = 0.18;
-const REDUCED_FADE: f64 = 0.08;
 /// Apps named in the card's prose before it stops listing them.
 const MAX_NAMED: usize = 6;
 

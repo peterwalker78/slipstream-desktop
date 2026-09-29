@@ -56,11 +56,6 @@ pub struct Gamma {
 }
 
 impl Gamma {
-    /// Whether a client is driving this output's ramps, so the night light leaves it alone.
-    pub fn is_held(&self, output: &Output) -> bool {
-        self.held.contains_key(&output.name())
-    }
-
     /// Every output a client is driving.
     pub fn held_outputs(&self) -> Vec<String> {
         self.held.keys().cloned().collect()

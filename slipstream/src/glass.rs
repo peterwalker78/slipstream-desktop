@@ -187,15 +187,20 @@ void main() {
         edge = edge * edge * (3.0 - 2.0 * edge);
         float far = smoothstep(glass.x, fade.y, z);
         float radius = BLUR * edge + BLUR_DEEP * far;
-        // Samples spread over a disc, a golden angle apart: enough that thin lines blur rather
-        // than double.
-        for (int i = 0; i < 24; i++) {
-            float f = float(i);
-            float r = radius * sqrt((f + 0.5) / 24.0);
-            float a = f * 2.39996;
-            color += pane_at(at + vec2(cos(a), sin(a)) * r);
+        if (radius < 0.01) {
+            // Most of the pane is sharp: every sample would land on this same point.
+            color = pane_at(at);
+        } else {
+            // Samples spread over a disc, a golden angle apart: enough that thin lines blur
+            // rather than double.
+            for (int i = 0; i < 24; i++) {
+                float f = float(i);
+                float r = radius * sqrt((f + 0.5) / 24.0);
+                float a = f * 2.39996;
+                color += pane_at(at + vec2(cos(a), sin(a)) * r);
+            }
+            color /= 24.0;
         }
-        color /= 24.0;
         color.rgb += vec3(0.85, 0.95, 1.0) * LIGHT * edge * color.a;
         color.rgb *= 1.0 - FOG * far;
         color *= (1.0 - smoothstep(fade.x, fade.y, z)) * remaining;

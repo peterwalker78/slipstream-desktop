@@ -6,6 +6,7 @@
 //! just drawn from (`Picture`): a reference, not a copy. When the window goes, its last picture
 //! outlives the client and is drawn as plain textures until the fade ends.
 
+use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{
         ContextId,
@@ -27,7 +28,6 @@ use crate::motion::HYPR;
 
 /// Transparent over 220 ms, shrinking a little about its middle.
 const FADE: f64 = 0.22;
-const REDUCED_FADE: f64 = 0.08;
 const END_SCALE: f64 = 0.94;
 
 /// One surface of the window: its texture, where it sat from the window's corner, and how it

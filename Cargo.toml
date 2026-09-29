@@ -16,7 +16,6 @@ smithay = { git = "https://github.com/Smithay/smithay", rev = "0ff00983b6007257a
 smithay-drm-extras = { git = "https://github.com/Smithay/smithay", rev = "0ff00983b6007257a7a161a4fe8b14a778e2ac8f" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-bitflags = "2.2.1"
 png = "0.18"
 xcursor = "0.3.3"
 # The bar and overlays: text in Slipstream's own fonts, and its SVG icons (no text or system fonts in
@@ -48,10 +47,25 @@ pango = { version = "0.22", features = ["v1_56"] }
 [profile.dev]
 debug = "line-tables-only"
 
-# Release packages are built by CI (.github/workflows/release.yml), not on a laptop.
+# Release packages are built by CI (.github/workflows/release.yml), not on a laptop: whole-program
+# optimisation in one unit is slow and hungry to build, and makes the download smaller and a little
+# faster. Stripping the symbol table too takes about a third off the file; a panic still names the
+# file and line it came from.
 [profile.release]
-lto = "thin"
-strip = "debuginfo"
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# What `scripts/update-session` builds for the machine it runs on: optimised like a release, but
+# without link-time optimisation and with the compile split up, so it builds in a few gigabytes
+# and rebuilds quickly after a change.
+[profile.session]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+debug = "line-tables-only"
+strip = false
 
 [profile.dev.package."*"]
 opt-level = 2

@@ -4,6 +4,7 @@
 //! and each action's own description, bullet time's from the table its key handling reads, so a
 //! key added or changed shows up here without anyone remembering to list it.
 
+use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -37,7 +38,6 @@ const ROW: f32 = 30.0;
 const ROW_MIN: f32 = 22.0;
 const KEY_GAP: f32 = 6.0;
 const OPEN: f64 = 0.18;
-const REDUCED_FADE: f64 = 0.08;
 /// The tour's card is wider than the key list, so the miniature desktop on its left is big enough
 /// to read: it takes this share of the card, at the screen's own shape, and what the lesson says
 /// sits on the right.
@@ -701,6 +701,9 @@ fn paint_stage(look: &StageLook) -> Option<Painted> {
         // Laid out on the miniature's own grid and scaled to fill its place, so everything in it
         // grows with the card.
         p.f = look.scale as f32 * DESIGN_PX * sw / miniature::WIDTH;
+        // Its shadows move with its windows every frame; keeping them would only crowd the
+        // panels' cards out of the shared cache.
+        p.cache_layers = false;
         miniature::paint(p, &scene, &mini);
         p.round_corners(7.0);
     })

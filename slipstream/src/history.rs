@@ -26,10 +26,7 @@ use smithay::{
     utils::{Logical, Point, Rectangle, Size},
     wayland::selection::{
         SelectionTarget,
-        data_device::{
-            current_data_device_selection_userdata, request_data_device_client_selection,
-            set_data_device_selection,
-        },
+        data_device::{request_data_device_client_selection, set_data_device_selection},
     },
 };
 
@@ -390,11 +387,6 @@ impl History {
         } else {
             Outcome::Close
         }
-    }
-
-    /// The wheel moves the selection a row a notch.
-    pub fn wheel(&mut self, down: bool, now: f64) {
-        let _ = self.key(if down { Keysym::Down } else { Keysym::Up }, now);
     }
 
     pub fn contains(&self, pos: Point<f64, Logical>) -> bool {
@@ -823,12 +815,6 @@ impl Slipstream {
         if self.settings.clipboard.history && self.lock.is_none() {
             self.history.add(clip);
         }
-    }
-
-    /// Whether the clipboard holds something Slipstream itself put there.
-    pub fn clipboard_is_ours(&self) -> bool {
-        current_data_device_selection_userdata(&self.seat)
-            .is_some_and(|selection| !matches!(*selection, Selection::X11))
     }
 }
 

@@ -7,6 +7,7 @@
 //! Each carries a cross, so one that's in the way goes with a click on it rather than a trip
 //! through the notification centre.
 
+use crate::motion::REDUCED_FADE;
 use std::{collections::HashMap, path::Path};
 
 use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
@@ -42,7 +43,6 @@ const POPUP_LINES: usize = 3;
 /// Room around a pop-up for its shadow.
 const SHADOW: f32 = 48.0;
 const POP_IN: f64 = 0.3;
-const REDUCED_FADE: f64 = 0.08;
 /// How long a pop-up stays, unless the app asks for longer or shorter.
 pub const POPUP_SHOWN: f64 = 4.8;
 /// At most this many at once; a new one pushes the oldest off.
@@ -390,11 +390,6 @@ impl Notices {
         self.hits.retain(|(hit, _)| *hit != id);
         self.cross_hits.retain(|(hit, _)| *hit != id);
         self.button_hits.retain(|(hit, _, _)| *hit != id);
-    }
-
-    /// The pop-up at a point, in logical pixels from the output's corner.
-    pub fn popup_at(&self, x: f64, y: f64) -> Option<u32> {
-        popup_hit((x, y), (0.0, 0.0), &self.hits)
     }
 
     /// The close cross under `pointer`, in the space's coordinates, on pop-ups drawn on the

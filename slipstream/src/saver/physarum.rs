@@ -11,6 +11,7 @@
 //! dot, gently at first and then surely, so the veins pull in and the letters reassemble out of
 //! the mould before they stand solid again.
 
+use super::smoothstep as ease;
 use super::{
     AMBER, BG, CYAN, Frame, Grid, Layout, MINT, Variation, WHITE, braille, gradient, hash01,
     logo_dots, mix,
@@ -52,11 +53,6 @@ const SHOWS: f32 = 0.9;
 /// How long the reassembled dots take to hand over to the solid letters, in seconds.
 const SETTLE: f64 = 0.8;
 
-fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
 #[derive(Clone, Copy)]
 struct Agent {
     x: f32,
@@ -88,11 +84,8 @@ pub struct Physarum {
 
 impl Physarum {
     fn random(&mut self) -> f32 {
-        // xorshift64*: cheap, and the same every run for the same seed.
-        self.rng ^= self.rng >> 12;
-        self.rng ^= self.rng << 25;
-        self.rng ^= self.rng >> 27;
-        (self.rng.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 40) as f32 / (1u64 << 24) as f32
+        // Cheap, and the same every run for the same seed.
+        super::xorshift(&mut self.rng)
     }
 
     fn start(&mut self, layout: &Layout, turn: u64) {

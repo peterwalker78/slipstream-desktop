@@ -4,6 +4,7 @@
 //! Its side column lists recent files and a log-out action. With a query that matches no app,
 //! Enter runs the query as a command, as Windows' Run dialog does.
 
+use crate::motion::REDUCED_FADE;
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -56,7 +57,6 @@ const ICON: f32 = 66.0;
 const ROW_H: f32 = 42.0;
 /// Opening: 180 ms from 10 px higher and transparent. Closing is instant.
 const OPEN: f64 = 0.18;
-const REDUCED_FADE: f64 = 0.08;
 
 /// Something the explorer can open.
 #[derive(Debug, Clone, PartialEq)]
@@ -463,6 +463,15 @@ impl Explorer {
         });
     }
 
+    /// The sum or conversion the query answers, on its own: what each frame needs, without
+    /// searching every app for the rest of the results.
+    fn answer(&self) -> Option<crate::calc::Answer> {
+        if self.query.trim_start().starts_with(':') {
+            return None;
+        }
+        crate::calc::answer(&self.query)
+    }
+
     fn results(&self) -> Results {
         // `:` and a word looks for emoji and nothing else.
         if let Some(words) = self.query.trim_start().strip_prefix(':') {
@@ -476,7 +485,7 @@ impl Explorer {
                 shortcuts: false,
             };
         }
-        let answer = crate::calc::answer(&self.query);
+        let answer = self.answer();
         let query = self.query.trim().to_lowercase();
         let catalog = self.catalog.lock().unwrap();
         let apps: Vec<App> = apps::search(&catalog.apps, &query)
@@ -658,7 +667,7 @@ impl Explorer {
         self.warm_icons(scale);
         let since = now - self.opened_at;
         // A new answer decodes out of rain glyphs, on wall time.
-        let answer = self.results().answer.map(|answer| answer.value);
+        let answer = self.answer().map(|answer| answer.value);
         let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |elapsed| elapsed.as_secs_f64());

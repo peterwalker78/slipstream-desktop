@@ -12,6 +12,7 @@
 //! fallbacks either fail here (`slurp` needs a layer shell) or share a screen without asking, so
 //! the config `scripts/update-session` writes always names this chooser.
 
+use crate::motion::REDUCED_FADE;
 use std::{
     cell::RefCell,
     io::{ErrorKind, Read, Write},
@@ -41,7 +42,6 @@ use crate::{
 };
 
 const OPEN: f64 = 0.18;
-const REDUCED_FADE: f64 = 0.08;
 /// Rows shown at once; the list scrolls with the selection past that.
 const VISIBLE: usize = 9;
 /// How long a chooser gets to send its whole list, counted from when it connects. It sends it all

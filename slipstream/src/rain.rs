@@ -14,6 +14,7 @@
 //! app is doing — six idle streams and six flat out measure the same as the one shared band they
 //! replaced.
 
+use crate::motion::REDUCED_FADE;
 use resvg::tiny_skia::Pixmap;
 use smithay::{
     backend::renderer::{
@@ -84,7 +85,6 @@ pub fn icon_px(scale: f64) -> u32 {
 }
 /// A stream fades in over the time its window takes to pour into it.
 const APPEAR: f64 = 0.34;
-const REDUCED_FADE: f64 = 0.08;
 
 struct Painted {
     buffer: MemoryRenderBuffer,
@@ -327,15 +327,6 @@ impl Rain {
     /// rain is drawn on. A point on any other screen is no stream, even one lined up with a column.
     pub fn stream_hit(&self, x: f64, y: f64, screen: Rect, top: i32) -> Option<usize> {
         stream_hit(self.streams.len(), x, y, screen, top)
-    }
-
-    /// The stream under a point on `screen`.
-    pub fn stream_at(&self, x: f64, y: f64, screen: Rect, top: i32) -> Option<usize> {
-        (0..self.streams.len()).find(|&index| {
-            let column = Self::column(index, screen, top);
-            (column.x as f64..(column.x + column.w) as f64).contains(&x)
-                && (column.y as f64..(column.y + column.h) as f64).contains(&y)
-        })
     }
 
     /// Adds a stream for `window`.

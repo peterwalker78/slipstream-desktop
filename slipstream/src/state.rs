@@ -342,6 +342,9 @@ pub struct Slipstream {
     pub idle_inhibit_state: IdleInhibitManagerState,
     /// `ext-idle-notify`: what tells other programs the seat has gone quiet.
     pub idle_notifier_state: IdleNotifierState<Slipstream>,
+    /// Input arrived since `ext-idle-notify` was last told: it's told once a pass rather than on
+    /// every event, since each telling re-arms a timer per listener.
+    pub input_since_notified: bool,
     /// Which screens' gamma ramps a program of the user's own is driving.
     pub gamma: crate::gamma::Gamma,
     /// Screen captures asked for through `wlr-screencopy`, waiting for their screen to draw.
@@ -685,6 +688,7 @@ impl Slipstream {
             wallpaper: settings.wallpaper.clone(),
             idle_inhibit_state,
             idle_notifier_state,
+            input_since_notified: false,
             gamma: crate::gamma::Gamma::default(),
             screencopy: crate::screencopy::Screencopy::default(),
             keyboard_shortcuts_inhibit_state,
@@ -939,20 +943,6 @@ impl Slipstream {
             .focused_output()
             .map(|output| output.name())
             .unwrap_or_default()
-    }
-
-    /// This screen's set of drawing buffers, made the first time it is drawn.
-    pub fn chrome_for(&mut self, screen: &str) -> &mut Chrome {
-        self.chromes.entry(screen.to_string()).or_default()
-    }
-
-    /// This screen's living wallpaper, started the first time it is drawn.
-    pub fn saver_for(&mut self, screen: &str) -> &mut Saver {
-        let reduced = self.clock.reduced_motion;
-        let wallpaper = &self.wallpaper;
-        self.savers
-            .entry(screen.to_string())
-            .or_insert_with(|| Saver::new(reduced, wallpaper))
     }
 
     /// Forgets a screen's buffers when it goes out, so an unplugged monitor doesn't leave a
@@ -4838,11 +4828,18 @@ impl Slipstream {
     /// Any input. Returns true if the UI was faded out, so the input only brings it back.
     pub fn wake_ui(&mut self) -> bool {
         // Other programs waiting on `ext-idle-notify` hear about the same input we do, from the
-        // one place every input path already passes through.
-        let seat = self.seat.clone();
-        self.idle_notifier_state.notify_activity(&seat);
+        // one place every input path already passes through, once the pass is done.
+        self.input_since_notified = true;
         let now = self.clock.tick();
         self.idle.input(now)
+    }
+
+    /// Tells `ext-idle-notify` about the input this pass brought, if any.
+    pub fn notify_idle_listeners(&mut self) {
+        if std::mem::take(&mut self.input_since_notified) {
+            let seat = self.seat.clone();
+            self.idle_notifier_state.notify_activity(&seat);
+        }
     }
 
     /// Keeps `ext-idle-notify` in step with the idle inhibitors an app holds: while one is held
@@ -5042,7 +5039,6 @@ impl Slipstream {
         self.osd.show_with(kind, detail.to_string(), now);
     }
 
-    /// Applies the settings file's new contents straight away (`watch.rs` follows it).
     /// The keyboard's ring inside a panel: the window ring's colour at the same four fifths'
     /// opacity it is drawn with, packed as `0xrrggbbaa` for the painter.
     pub fn panel_ring(&self) -> u32 {
@@ -5051,6 +5047,7 @@ impl Slipstream {
         (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xcc
     }
 
+    /// Applies the settings file's new contents straight away (`watch.rs` follows it).
     pub fn apply_settings(&mut self, settings: slipstream_config::Settings) {
         if settings == self.settings {
             return;

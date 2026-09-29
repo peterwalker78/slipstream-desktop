@@ -77,10 +77,23 @@ pub fn battery(percent: u8, charging: bool) -> String {
     )
 }
 
-/// Draws the 24×24 icon `body` into `pixmap` at (`x`, `y`), `size` pixels square. With `ink`
-/// (0xRRGGBBAA), it's stroked in that colour, as every line icon is; without, the body
-/// brings its own paint.
-pub fn draw(pixmap: &mut Pixmap, body: &str, x: f32, y: f32, size: f32, ink: Option<u32>) {
+/// Parsed icons, by body and ink, so drawing one is only the rasterising: parsing the SVG costs
+/// more than drawing it at these sizes. Per thread, since a tree can't be shared between them.
+/// Bodies can be built on the fly (the battery's), so the cache is emptied once it grows past
+/// `PARSED_MAX` rather than kept for ever.
+const PARSED_MAX: usize = 256;
+
+type Parsed = std::collections::HashMap<(String, Option<u32>), std::rc::Rc<usvg::Tree>>;
+
+thread_local! {
+    static PARSED: std::cell::RefCell<Parsed> = std::cell::RefCell::new(Parsed::new());
+}
+
+fn parsed(body: &str, ink: Option<u32>) -> Option<std::rc::Rc<usvg::Tree>> {
+    let key = (body.to_string(), ink);
+    if let Some(tree) = PARSED.with(|parsed| parsed.borrow().get(&key).cloned()) {
+        return Some(tree);
+    }
     let paint = match ink {
         Some(rgba) => {
             let [r, g, b, a] = rgba.to_be_bytes();
@@ -96,20 +109,52 @@ pub fn draw(pixmap: &mut Pixmap, body: &str, x: f32, y: f32, size: f32, ink: Opt
     );
     match usvg::Tree::from_str(&svg, &usvg::Options::default()) {
         Ok(tree) => {
-            let k = size / 24.0;
-            resvg::render(
-                &tree,
-                Transform::from_row(k, 0.0, 0.0, k, x, y),
-                &mut pixmap.as_mut(),
-            );
+            let tree = std::rc::Rc::new(tree);
+            PARSED.with(|parsed| {
+                let mut parsed = parsed.borrow_mut();
+                if parsed.len() >= PARSED_MAX {
+                    parsed.clear();
+                }
+                parsed.insert(key, tree.clone());
+            });
+            Some(tree)
         }
-        Err(err) => tracing::warn!("couldn't draw an icon: {err}"),
+        Err(err) => {
+            tracing::warn!("couldn't draw an icon: {err}");
+            None
+        }
+    }
+}
+
+/// Draws the 24×24 icon `body` into `pixmap` at (`x`, `y`), `size` pixels square. With `ink`
+/// (0xRRGGBBAA), it's stroked in that colour, as every line icon is; without, the body
+/// brings its own paint.
+pub fn draw(pixmap: &mut Pixmap, body: &str, x: f32, y: f32, size: f32, ink: Option<u32>) {
+    if let Some(tree) = parsed(body, ink) {
+        let k = size / 24.0;
+        resvg::render(
+            &tree,
+            Transform::from_row(k, 0.0, 0.0, k, x, y),
+            &mut pixmap.as_mut(),
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_parsed_icon_draws_the_same_as_a_fresh_one() {
+        let draw_once = || {
+            let mut pixmap = Pixmap::new(40, 40).unwrap();
+            draw(&mut pixmap, WIFI, 3.3, 2.7, 30.0, Some(0xe7ebf1ff));
+            pixmap.data().to_vec()
+        };
+        PARSED.with(|parsed| parsed.borrow_mut().clear());
+        let fresh = draw_once();
+        assert_eq!(draw_once(), fresh, "the second draw came from the cache");
+    }
 
     fn coverage(body: &str, ink: Option<u32>) -> usize {
         let mut pixmap = Pixmap::new(48, 48).unwrap();

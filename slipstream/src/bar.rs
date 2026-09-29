@@ -52,7 +52,7 @@ pub struct Content {
     pub title: String,
     /// A mode's label, such as `BULLET TIME`, and the colour of its chip, 0xRRGGBBAA.
     pub mode: Option<(&'static str, u32)>,
-    pub status: Reading,
+    pub status: Shown,
     /// Do not disturb is on, so the bell shows its sign instead.
     pub do_not_disturb: bool,
     /// Notifications since the notification centre was last opened, on the bell's badge.
@@ -65,6 +65,32 @@ pub struct Content {
     pub awake: bool,
     /// What the meter's command last reported, when there is a meter.
     pub meter: Option<meter::Reading>,
+}
+
+/// The part of the status reading the bar draws. The bar is repainted when its content changes,
+/// so the volume, brightness, device names and the battery's time left, which only quick settings
+/// shows, are left out: a change to one of them has nothing to redraw here.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Shown {
+    pub time: String,
+    pub date: String,
+    pub battery: Option<(u8, bool)>,
+    pub online: bool,
+    pub bluetooth: bool,
+    pub muted: bool,
+}
+
+impl Shown {
+    pub fn of(reading: &Reading) -> Self {
+        Self {
+            time: reading.time.clone(),
+            date: reading.date.clone(),
+            battery: reading.battery,
+            online: reading.online,
+            bluetooth: reading.bluetooth,
+            muted: reading.muted,
+        }
+    }
 }
 
 /// Where each button is, in logical pixels from the screen's top-left corner.
@@ -501,12 +527,12 @@ mod tests {
             labels: (1..=5).map(|n| n.to_string()).collect(),
             title: "Firefox".into(),
             mode: Some(("BULLET TIME", AMBER)),
-            status: Reading {
+            status: Shown {
                 time: "17:24".into(),
                 date: "Fri 11 Sep".into(),
                 battery: Some((93, false)),
                 bluetooth: true,
-                ..Reading::default()
+                ..Shown::default()
             },
             do_not_disturb: false,
             unread: 0,

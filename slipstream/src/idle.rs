@@ -11,6 +11,7 @@
 //! only Awake, a fullscreen window or an app asking for the screen to stay awake holds it off, and nor does an open panel or card, since neither is a
 //! sign anyone is there.
 
+use crate::motion::REDUCED_FADE;
 use std::time::{Duration, Instant};
 
 use smithay::{reexports::wayland_server::protocol::wl_surface::WlSurface, utils::IsAlive};
@@ -24,7 +25,6 @@ use crate::anim::{Easing, Tween};
 /// once.
 const FADE: f64 = 0.6;
 const RETURN: f64 = 0.5;
-const REDUCED_FADE: f64 = 0.08;
 
 pub struct Idle {
     last_input: Instant,
@@ -62,11 +62,6 @@ impl Idle {
     /// The wait before locking, from the settings, counted from the last input; 0 never locks.
     pub fn set_lock_after(&mut self, mins: u64) {
         self.lock_after = (mins > 0).then(|| Duration::from_secs(mins.saturating_mul(60)));
-    }
-
-    /// Whether the screen locks by itself after a while idle.
-    pub fn locks_by_itself(&self) -> bool {
-        self.lock_after.is_some()
     }
 
     /// Whether the screen should lock by itself at `now`: its wait has passed with no input,

@@ -65,6 +65,11 @@ const TWEEN_LEVELS: u8 = 16;
 /// The cross-fade when one variation hands over to the next, in seconds of animation clock.
 const HANDOVER: f64 = 1.2;
 
+/// With reduced motion the picture is still, so it's composed again only when what it shows may
+/// have changed; this is the longest it goes without, in case a variation shows something the
+/// readings don't cover.
+const STILL_EVERY: f64 = 60.0;
+
 /// How often the saver reports what it has cost, in wall-clock time.
 const COST_EVERY: Duration = Duration::from_secs(10);
 
@@ -739,11 +744,15 @@ fn ink_fill(
     rgb: [u8; 3],
     weight: f32,
 ) {
+    // The step each channel takes is the same across the whole rectangle, so it's worked out
+    // once, with the half that rounds it folded in.
+    let step: [f32; 3] =
+        std::array::from_fn(|c| (rgb[c] as f32 - BACKGROUND[c] as f32) * weight + 0.5);
     for row in y..y + h {
         let start = (row * width + x) * 4;
         for pixel in pixels[start..start + w * 4].chunks_exact_mut(4) {
-            for ((channel, &ink), &ground) in pixel[..3].iter_mut().zip(&rgb).zip(&BACKGROUND) {
-                *channel = add_ink(*channel, ink, ground, weight);
+            for (channel, step) in pixel[..3].iter_mut().zip(step) {
+                *channel = (*channel as f32 + step) as u8;
             }
         }
     }
@@ -752,9 +761,9 @@ fn ink_fill(
 /// `channel` plus `amount` of the step from the background to `ink`. A cell fading out and the
 /// one fading in, drawn over the background, add up to a blend of the two.
 fn add_ink(channel: u8, ink: u8, ground: u8, amount: f32) -> u8 {
-    (channel as f32 + (ink as f32 - ground as f32) * amount)
-        .round()
-        .clamp(0.0, 255.0) as u8
+    // Adding a half and truncating rounds to nearest; the cast saturates at 0 and 255 on its own,
+    // which spares the per-channel calls to `roundf` a baseline x86-64 build would otherwise make.
+    (channel as f32 + (ink as f32 - ground as f32) * amount + 0.5) as u8
 }
 
 /// Draws a cell as `look` says: one cell, or two cross-fading between steps.
@@ -1088,6 +1097,13 @@ pub struct Saver {
     readings: Readings,
     utc_offset: Option<i64>,
     pub reduced_motion: bool,
+    /// Whether the grid on show was composed as reduced motion's still picture, and whether the
+    /// readings have changed since: between them, whether a still picture needs composing again.
+    composed_still: bool,
+    readings_changed: bool,
+    /// The step and the point in the fade between steps last painted, so a frame with neither
+    /// changed skips painting.
+    painted: Option<(u64, u8)>,
     /// How fast the wallpaper runs against the animation clock: 1 normally, less to save power.
     pub pace: f64,
     /// How far the wallpaper's own clock has fallen behind the animation clock while slowed.
@@ -1131,6 +1147,9 @@ impl Saver {
             readings: Readings::default(),
             utc_offset: None,
             reduced_motion,
+            composed_still: false,
+            readings_changed: false,
+            painted: None,
             pace: 1.0,
             lag: 0.0,
             last_drawn: None,
@@ -1174,6 +1193,7 @@ impl Saver {
         if *readings != self.readings {
             self.readings.clone_from(readings);
             self.utc_offset = self.readings.utc_offset(epoch_now()).or(self.utc_offset);
+            self.readings_changed = true;
         }
     }
 
@@ -1250,6 +1270,17 @@ impl Saver {
             .unwrap_or((self.index + 1) % self.chosen.len())
     }
 
+    /// Whether it's time to compose the next grid. A still picture, under reduced motion, is
+    /// composed again only when it could look different: a new variation (which puts
+    /// `stepped_to` far back), new readings, or reduced motion just turned on.
+    fn due(&self, now: f64) -> bool {
+        if self.reduced_motion && self.composed_still && !self.readings_changed {
+            now - self.stepped_to >= STILL_EVERY
+        } else {
+            now - self.stepped_to >= self.step_secs()
+        }
+    }
+
     /// How long a step lasts. A variation asks for a rate; a screen with big cells, where every
     /// changed cell costs several times as much ink, is held to a slower one.
     fn step_secs(&self) -> f64 {
@@ -1310,7 +1341,7 @@ impl Saver {
         if !paused {
             self.maybe_hand_over(now, tween);
         }
-        if (fresh || now - self.stepped_to >= self.step_secs()) && !paused {
+        if (fresh || self.due(now)) && !paused {
             let started = thread_cpu();
             self.step(now);
             self.cost.compose += thread_cpu().saturating_sub(started);
@@ -1331,9 +1362,18 @@ impl Saver {
         } else {
             1.0
         };
-        let started = thread_cpu();
-        self.paint(along);
-        self.cost.paint += thread_cpu().saturating_sub(started);
+        // Nothing to draw when no step has happened and the fade between steps hasn't moved on:
+        // most display frames, for a variation stepping slower than the screen refreshes.
+        let key = (
+            self.stepped_to.to_bits(),
+            (along * TWEEN_LEVELS as f64).round() as u8,
+        );
+        if self.shown.is_empty() || self.painted != Some(key) {
+            let started = thread_cpu();
+            self.paint(along);
+            self.cost.paint += thread_cpu().saturating_sub(started);
+            self.painted = Some(key);
+        }
         self.cost.report(self.current.id());
         self.again(renderer, size, alpha)
     }
@@ -1374,6 +1414,8 @@ impl Saver {
             (now - self.stepped_to).clamp(0.0, 0.1) as f32
         };
         self.stepped_to = now;
+        self.composed_still = self.reduced_motion;
+        self.readings_changed = false;
         let frame = Frame {
             layout: &layout,
             elapsed: now - self.started.unwrap_or(now),
@@ -1758,6 +1800,29 @@ mod tests {
             at(pair[1]) == (at(pair[0]) + 1) % saver.chosen.len()
         });
         assert!(!in_file_order, "the order is shuffled: {shown:?}");
+    }
+
+    #[test]
+    fn a_still_picture_is_composed_again_only_when_it_could_change() {
+        let mut saver = Saver::new(true, &slipstream_config::Wallpaper::default());
+        saver.stepped_to = 10.0;
+        saver.composed_still = true;
+        assert!(!saver.due(11.0), "nothing new to show");
+        assert!(!saver.due(69.0));
+        assert!(saver.due(70.5), "but not for ever");
+        saver.set_readings(&Readings {
+            time: "12:01".into(),
+            ..Default::default()
+        });
+        assert!(saver.due(11.0), "the minute changed");
+        saver.readings_changed = false;
+        saver.composed_still = false;
+        assert!(saver.due(11.0), "reduced motion was only just turned on");
+        let moving = Saver {
+            stepped_to: 10.0,
+            ..Saver::new(false, &slipstream_config::Wallpaper::default())
+        };
+        assert!(moving.due(11.0), "moving pictures keep stepping");
     }
 
     #[test]
