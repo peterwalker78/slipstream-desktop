@@ -5,9 +5,10 @@
 //! mode's 26 glyphs, drawn from the rain's own font, so one texture carries both and the shader
 //! needs nothing else.
 //!
-//! Wake, with Slipstream's own effects: the window, still one rigid pane, drops away off the bottom
-//! of the screen, leaving a slipstream behind it: streaks of light like the streams', coloured from
-//! the window and turning to the rain's green as they fade.
+//! Wake, with Slipstream's own effects: the window, still one rigid pane, drops towards the bottom
+//! of the screen while a slipstream pours down through it faster than it falls, eating it from the
+//! top: streaks of light like the streams', coloured from the window and turning to the rain's
+//! green as they fade.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -45,10 +46,13 @@ pub const DEREZ: f64 = 1.2 / PACE;
 /// How fast falling glyphs speed up, in logical pixels a second a second.
 const GRAVITY: f64 = 3400.0;
 /// How long a closed window takes to drop away, in animation seconds: it lets go after 0.06 s, is
-/// off the screen 0.42 s later, and its wake has faded 0.4 s after that. The shader has the same
+/// eaten through 0.42 s later, and its wake has faded 0.4 s after that. The shader has the same
 /// numbers.
 pub const WAKE: f64 = 0.88;
 const WAKE_GO: f64 = 0.42;
+/// How far the pane drops while its wake eats through it, as a share of the way to the screen's
+/// foot.
+const WAKE_DROP: f64 = 0.5;
 
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
@@ -216,12 +220,18 @@ impl Fx {
                     GRAVITY * scale,
                 )
             }
-            Effects::Slipstream => (
-                content,
-                self.wake.clone()?,
-                t,
-                2.0 * content.h as f64 / (WAKE_GO * WAKE_GO),
-            ),
+            // Here `gravity` is the shower's: it reaches the pane's foot, or the screen's if that
+            // comes first, as the pane finishes its drop, so the window is gone when a window
+            // dropping clear of the screen would have been.
+            Effects::Slipstream => {
+                let reach = (WAKE_DROP * content.h as f64 + window_h as f64).min(content.h as f64);
+                (
+                    content,
+                    self.wake.clone()?,
+                    t,
+                    2.0 * reach / (WAKE_GO * WAKE_GO),
+                )
+            }
         };
         tilt::draw_offscreen(
             renderer,
@@ -452,51 +462,86 @@ void main() {
 }
 "#;
 
-/// Wake. The window holds still for a moment, then drops off the bottom of the screen as one rigid
-/// pane, speeding up and drawing back a little into the distance as it goes. Behind it pours its
-/// slipstream, drawn as the streams draw their light, half seen-through: streaks at different
-/// depths and paces, near ones wider, brighter and quicker, far ones fine, dim and slow, each with
-/// a glowing head
-/// close behind the pane. Each takes its colour from the part of the window it came from, starting
-/// in the window's own colours and turning to the rain's green, and all of them fade once the pane
-/// has gone.
+/// Wake. The window holds still for a moment, then drops towards the bottom of the screen as one
+/// rigid pane, speeding up and drawing back a little into the distance as it goes. Its slipstream
+/// pours down through it faster than it falls, drawn as the streams draw their light, half
+/// seen-through, and eats it from the top, ragged and glowing where it bites, until nothing is
+/// left: streaks at different depths and paces, near ones wider, brighter and quicker, their
+/// glowing heads on the bite, far ones fine, dim and slow. Each takes its colour from the part of
+/// the window it came from, starting in the window's own colours and turning to the rain's green,
+/// and all of them fade once the pane has gone.
 const WAKE_MAIN: &str = r#"
 uniform float window_h;
 uniform float window_w;
+// How fast the shower falls, in screen pixels a second a second.
 uniform float gravity;
 // One logical pixel, in screen pixels.
 uniform float unit;
 
-// The same timings as `WAKE_GO` and `WAKE` in `fx.rs`.
+// The same timings as `WAKE_GO`, `WAKE_DROP` and `WAKE` in `fx.rs`.
 const float LEAN = 0.06;
 const float GO = 0.42;
+const float DROP = 0.5;
 const float WAKE = 0.4;
-// How far into the distance the pane draws back as it leaves.
+// How far into the distance the pane draws back as it drops.
 const float RECEDE = 0.08;
+// The bite's ragged edge, up to this many logical pixels behind the shower, in teeth this wide.
+const float RAG = 26.0;
+const float TOOTH = 14.0;
+// How far below the bite the pane glows, in logical pixels.
+const float SEAR = 10.0;
 // Three layers of streaks, each in cells this many logical pixels wide, some left empty.
 const float CELL = 22.0;
 const float EMPTY = 0.3;
 // How much light the shower gives: it is seen through, over whatever the window uncovers.
 const float SHOWER = 0.55;
 
-// How far the pane has dropped, `u` seconds in, and how large it is.
-float pane_y(float u) {
+// How far the shower has fallen from the pane's top edge, `u` seconds in.
+float shower_y(float u) {
     float a = max(u - LEAN, 0.0);
     return 0.5 * gravity * a * a;
 }
 
-float pane_scale(float u) {
-    return 1.0 - RECEDE * clamp(pane_y(u) / content.y, 0.0, 1.0);
+// How far the pane has dropped: the same way as the shower, more slowly.
+float pane_y(float u) {
+    float a = max(u - LEAN, 0.0) / GO;
+    return DROP * content.y * a * a;
 }
 
-// The pane's picture at point `p`, `u` seconds in: nothing outside it.
+float pane_scale(float u) {
+    return 1.0 - RECEDE * clamp(pane_y(u) / (DROP * content.y), 0.0, 1.0);
+}
+
+// How far behind the shower the bite is at `x` across the pane: broad teeth, with a finer edge.
+float rag(float x) {
+    float c = x / (TOOTH * unit);
+    float i = floor(c);
+    float f = fract(c);
+    float broad = mix(hash(vec2(i, 9.0)), hash(vec2(i + 1.0, 9.0)), f * f * (3.0 - 2.0 * f));
+    float fine = hash(vec2(floor(x / (4.0 * unit)), 10.0));
+    return (0.75 * broad + 0.25 * fine) * RAG * unit;
+}
+
+// The pane's picture at point `p`, `u` seconds in: nothing outside it, nor above the bite, and a
+// glow just below it.
 vec4 pane_at(vec2 p, float u) {
     vec2 middle = vec2(window_w, window_h) * 0.5;
-    vec2 local = (p - vec2(0.0, pane_y(u)) - middle) / pane_scale(u) + middle;
+    float scale = pane_scale(u);
+    vec2 local = (p - vec2(0.0, pane_y(u)) - middle) / scale + middle;
     if (local.x < 0.0 || local.y < 0.0 || local.x >= window_w || local.y >= window_h) {
         return vec4(0.0);
     }
-    return picture(local);
+    float bite = (shower_y(u) - pane_y(u) - middle.y) / scale + middle.y - rag(local.x);
+    float below = local.y - bite;
+    if (below <= 0.0) {
+        return vec4(0.0);
+    }
+    vec4 c = picture(local) * clamp(below / (1.5 * unit), 0.0, 1.0);
+    float sear = pow(1.0 - clamp(below / (SEAR * unit), 0.0, 1.0), 2.0) * step(LEAN, u);
+    vec3 own = c.rgb * 1.2 + ink * 0.2;
+    vec3 hot = mix(mix(own, ink, clamp((u - LEAN) / 0.18, 0.0, 1.0)), vec3(1.0), 0.5);
+    c.rgb += hot * sear * 0.8;
+    return c;
 }
 
 // One layer's streak at `px`, if its cell has one.
@@ -511,15 +556,16 @@ vec3 streak(vec2 px, float layer) {
     // Nearer in the first layer, farther in the last.
     float near = clamp(hash(vec2(cell, seed + 2.0)) * 0.6 + (2.0 - layer) * 0.2, 0.0, 1.0);
     float cx = (cell + 0.25 + 0.5 * hash(vec2(cell, seed + 3.0))) * cw - off;
-    // Far streaks fall behind the pane; near ones keep close to it.
+    // Far streaks fall behind the bite; near ones keep close to it.
     float lag = 0.01 + 0.16 * (1.0 - near) * hash(vec2(cell, seed + 4.0));
     float u = t - lag;
     if (u <= LEAN) {
         return vec3(0.0);
     }
-    // Each streak keeps its own pace, from half the pane's to all of it, near ones quicker.
-    float pace = 0.5 + 0.5 * mix(hash(vec2(cell, seed + 6.0)), 1.0, near * 0.4);
-    float head = pane_y(u) * pace + 5.0 * unit;
+    // Each streak keeps its own pace, from seven tenths of the shower's to all of it, near ones
+    // quicker, so the nearest bite into the pane.
+    float pace = 0.7 + 0.3 * mix(hash(vec2(cell, seed + 6.0)), 1.0, near);
+    float head = shower_y(u) * pace + 5.0 * unit;
     float speed = gravity * (u - LEAN) * pace;
     float len = (60.0 + 220.0 * near) * unit + speed * 0.08;
     float width = mix(2.5, 9.0, near) * unit;
@@ -553,7 +599,7 @@ void main() {
         finish(color);
         return;
     }
-    // The pane itself, whole.
+    // What's left of the pane.
     color = pane_at(px, t);
     // Its wake, fading once the pane is gone.
     float fade = 1.0 - clamp((t - LEAN - GO) / WAKE, 0.0, 1.0);
