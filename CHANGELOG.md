@@ -2,12 +2,12 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.8.0 - 2026-09-29
 
-- **Slipstream's own effects.** Settings → Appearance → Effects chooses between the Matrix rain and Slipstream (`[motion] effects`). With Slipstream, a minimised app becomes streaks of light falling at different depths, near ones wider, brighter and faster with a soft glow at the head, more of them, faster and greener the harder the app works. Its name runs down the card on its side like a book's spine, dim until the light passes over it. A closed window drops off the bottom of the screen in one piece, and a shower of the same streaks pours off it, coloured from the window at first and then green, fading once it has gone.
+- **Slipstream's own effects.** Settings → Appearance → Effects chooses between the Matrix rain and Slipstream (`[motion] effects`). With Slipstream, a minimised app becomes streaks of light falling at different depths, near ones wider, brighter and faster with a soft glow at the head, more of them, faster and greener the harder the app works, at the same pace as the code rain. Its name runs down the card on its side like a book's spine, dim until the light passes over it. A closed window drops off the bottom of the screen in one piece, and a shower of the same streaks pours off it, coloured from the window at first and then green, fading once it has gone.
 - **Minimised apps have flatter buttons:** a dark card with the app's icon and a green load bar under it, in place of the taller card edged and lit in the app's colour. The bar stays green however quiet the app, and its length says the load. The icon and bar sit with the same space above and below as at the sides, and the bar is as wide as the icon.
 - **Holding Caps Lock while the screensaver is up turns Awake on**, as it does before the screen fades. A tap there still only brings the desktop back, without turning Caps Lock on.
-- **Minimised apps keep the windows' spacing.** The group keeps one window gap all round, from the windows beside it, the screen's edge, the bar and the foot of the screen, and the streams are a little apart from each other, where before they almost touched.
+- **Minimised apps are spaced evenly.** The group keeps one window gap all round, from the windows beside it, the screen's edge, the bar and the foot of the screen, and the streams are a little apart from each other, where before they almost touched.
 - **No Caps Lock card.** The amber CAPS chip on the bar, and the arrow in the lock screen's password box, already say it's on.
 - **Westering comes with Slipstream**, installed and kept up to date like Glimmerwood: a few quiet minutes under tonight's real sky in fine dots, with things to find, somewhere to set down what's on your mind, and a last line that sends you outside. `install=no` in `~/.config/slipstream/extras/westering.conf` leaves it out.
 

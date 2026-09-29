@@ -113,9 +113,13 @@ Read, learn or make something and it brightens and gives off little motes of lig
 
 <img src="assets/readme/westering.webp" alt="Westering: the night sky drawn in fine dots, with the Milky Way running through it." width="960">
 
-For when your head won't switch off. **[Westering](https://github.com/peterwalker78/westering) is a small stargazing game that is designed to let you go.** It draws the real sky over you tonight in fine dots, the same dots as Slipstream's wallpapers, with a handful of things to find. It slows as you play, dims before the end because eyes need twenty minutes to open to the dark, and its last line names something real to go outside and see.
+For when your head won't switch off. **[Westering](https://github.com/peterwalker78/westering) is Slipstream's companion for the end of the day: a small stargazing game that is designed to let you go.** It's a few quiet minutes to wind down and come back to what matters: the people who are there for you, something to look forward to, and setting down what's weighing on you so it's lighter in the morning.
 
-Along the way you can set down what's weighing on you and watch it set in the west, and now and then the sky asks a small question. Everything goes into a logbook of plain files, and the app has no network access at all. Slipstream installs it and keeps it up to date, like Glimmerwood.
+It draws the real sky over you tonight in fine dots, the same dots as Slipstream's wallpapers: the real stars, the Moon at its real phase, the planets that are really up. Sweep across it for the night's finds, and some nights follow a star-hop, a story told among the stars that are up, or a walk along the Moon's edge of night. The wisp from Glimmerwood comes along, out for the night, to show you around on your first visit and keep quiet after that.
+
+Every evening has the same three parts: **set it down**, where anything on your mind hangs low in the west; **look up**; and **wind down**, when the screen dims because eyes need twenty minutes to open to the dark, and the sky carries your weights down behind the horizon. Its last line names something real to go outside and see, or something from tonight worth keeping.
+
+Everything you write stays in a logbook of plain files, and the app has no network access at all. Slipstream installs it and keeps it up to date, like Glimmerwood; it's its own project, and runs on any Linux desktop.
 
 ## Everything else you'd expect
 
