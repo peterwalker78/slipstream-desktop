@@ -62,7 +62,8 @@ Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the cap
 - **It checks first, and writes all or nothing.** Its system files are staged and moved into place together, so a failure part way changes nothing. A refusal writes nothing at all.
 - **It leaves other files alone**, and never replaces or removes a file it didn't write.
 - **Packages are your call.** It names what's missing and offers to install it with your own package manager; on atomic systems, where that rewrites the system image, it prints the command instead of running it. Without a terminal it asks nothing and installs nothing.
-- **`scripts/install-session --uninstall`** removes exactly what it wrote, keeping your settings unless you add `--purge`.
+- **It asks before adding the apps that come with it,** Glimmerwood and Westering, one at a time, from the next release on. A no is remembered.
+- **`--uninstall`** removes exactly what it wrote, keeping your settings unless you add `--purge`.
 
 ## Building it yourself
 
@@ -105,11 +106,12 @@ Slipstream never checks for updates by itself, and nothing here contacts the int
 
 ## Uninstalling
 
-From another desktop, in the unpacked download (the one command leaves it in `~/.cache/slipstream-install/slipstream-VERSION-linux-x86_64`) or your clone:
+From another desktop, the same one command with `--uninstall`:
 
 ```sh
-scripts/install-session --uninstall           # the session, the programs, their units and portal settings
-scripts/install-session --uninstall --purge   # and your Slipstream settings, log and saved layout
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --uninstall
 ```
+
+It removes the session, the programs, their units and portal settings, exactly as the installer listed them. Add `--purge` for your Slipstream settings, log and saved layout too. From an unpacked download or a clone, `scripts/install-session --uninstall` does the same.
 
 Packages you added for it stay, since other things may use them.

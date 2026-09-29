@@ -10,6 +10,7 @@
 #   --version vX.Y.Z install that release instead of the newest
 #   --dir DIR        unpack there instead of the cache folder
 #   --yes            don't ask anything; take every step the installer offers
+#   --uninstall      remove what the installer wrote (add --purge for your settings too)
 set -eu
 
 project=peterwalker78/slipstream-desktop
@@ -19,11 +20,14 @@ mode=install
 version=
 dir=
 yes=
+purge=
 while [ $# -gt 0 ]; do
     case $1 in
         --check) mode=check ;;
         --yes | -y) yes=--yes ;;
         --try) mode=try ;;
+        --uninstall) mode=uninstall ;;
+        --purge) purge=--purge ;;
         --version)
             version=${2:?--version needs a tag such as v0.5.0}
             shift
@@ -35,9 +39,9 @@ while [ $# -gt 0 ]; do
         -h | --help)
             # Run as sh -c "$(curl ...)", $0 is no file, so there's no header to show.
             if [ -f "$0" ]; then
-                sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+                sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
             else
-                echo "install.sh [--check] [--try] [--version vX.Y.Z] [--dir DIR] [--yes]"
+                echo "install.sh [--check] [--try] [--version vX.Y.Z] [--dir DIR] [--yes] [--uninstall [--purge]]"
             fi
             exit 0
             ;;
@@ -135,6 +139,11 @@ cd "$folder"
 case $mode in
     check)
         exec sh scripts/install-session --check
+        ;;
+    uninstall)
+        # Any release's installer can take away what an earlier one wrote: it removes what the
+        # list it left behind names, and nothing else.
+        exec sh scripts/install-session --uninstall ${purge:+"$purge"} ${yes:+"$yes"}
         ;;
     try)
         sh scripts/try-slipstream || true

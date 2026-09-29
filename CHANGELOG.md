@@ -4,6 +4,8 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- **The installer asks before adding Glimmerwood and Westering,** one at a time, and remembers a no. `--yes` still answers yes to everything, and with no terminal to ask in it leaves them out.
+- **Uninstalling is the install command with `--uninstall`** (and `--purge` for your settings too), so there's no need to find the unpacked download first.
 - **A tour for anyone new to tiling.** Super+/, then Enter: sixteen lessons in four parts, where there were six. Each says why before what to press, with a note for hands that know Windows, and plays out on a miniature of the desktop (its bar, apps that look like apps, the focus ring in your colour and the streams in your chosen effects) with the key lighting up as it's pressed. Press a lesson's keys to try the move on the miniature.
 - **A closing window is eaten by the light.** With Slipstream's own effects, the shower of streaks now pours down through the window faster than it falls and bites it away from the top along a ragged, glowing edge, with the brightest heads on the bite, where before the whole pane dropped off the screen. It takes as long as before.
 - **Long addresses wrap.** A link or any other word too long for a notification, toast or card breaks across lines, after its slashes, dashes or `=` signs where it can, instead of running off the side.

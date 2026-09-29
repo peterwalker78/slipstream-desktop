@@ -41,8 +41,10 @@ echo "xdg-settings $*" >>"$STUB_LOG"
 EOF
 chmod +x "$stubs/flatpak" "$stubs/xdg-settings"
 
-# A fresh home, log and checkout for each case.
+# A fresh home, log and checkout for each case. A reply set before a function call can outlive it
+# in some shells, so none is carried over.
 fresh() {
+    unset SLIPSTREAM_TEST_REPLY
     rm -rf "${work:?}/home" "${work:?}/installed" "${work:?}/checkout" "${work:?}/bundles" \
         "${work:?}/defaults"
     mkdir -p "$work/home/.config/slipstream/extras" "$work/installed" "$work/bundles" "$work/defaults"
@@ -73,6 +75,7 @@ run() {
         STUB_INSTALLED="$work/installed" \
         SLIPSTREAM_TEST_EXTRAS=yes \
         SLIPSTREAM_EXTRAS_DEFAULTS="$work/defaults" \
+        ${SLIPSTREAM_TEST_REPLY+SLIPSTREAM_TEST_REPLY="$SLIPSTREAM_TEST_REPLY"} \
         "$shell" "$repo/scripts/install-extras" "$@" >"$work/out" 2>&1
 }
 
@@ -291,6 +294,60 @@ expect_status 1
 expect_count '^built' 1
 grep -q "broken: no app_id" "$work/out" || fail "$case_name: didn't name the broken file"
 grep -q "not KEY=value" "$work/out" || fail "$case_name: didn't flag the bad line"
+
+# A shipped app described in the defaults, from a bundle, as Slipstream ships them.
+shipped() {
+    echo "$app" >"$work/bundles/browser.flatpak"
+    sha=$(sha256sum "$work/bundles/browser.flatpak" | cut -d ' ' -f 1)
+    printf 'app_id=%s\nbundle_url=file://%s\nbundle_sha256=%s\nabout=Browser, a test app\n' "$app" \
+        "$work/bundles/browser.flatpak" "$sha" >"$work/defaults/browser.conf"
+}
+
+case_name="--ask installs a shipped app when the answer is yes"
+fresh
+shipped
+SLIPSTREAM_TEST_REPLY=y expect_status 0 --ask
+expect_count 'flatpak install' 1
+
+case_name="--ask leaves a shipped app out on no, and remembers it"
+fresh
+shipped
+SLIPSTREAM_TEST_REPLY=n expect_status 0 --ask
+expect_count 'flatpak install' 0
+grep -q '^install=no' "$work/home/.config/slipstream/extras/browser.conf" 2>/dev/null ||
+    fail "$case_name: the no wasn't written down"
+SLIPSTREAM_TEST_REPLY=y expect_status 0 --ask
+expect_count 'flatpak install' 0
+grep -q "left out" "$work/out" || fail "$case_name: asked again instead of leaving it out"
+
+case_name="--ask with nobody to answer leaves it out this time only"
+fresh
+shipped
+expect_status 0 --ask
+expect_count 'flatpak install' 0
+if [ -e "$work/home/.config/slipstream/extras/browser.conf" ]; then
+    fail "$case_name: wrote a no nobody gave"
+fi
+grep -q "no terminal" "$work/out" || fail "$case_name: didn't say why"
+
+case_name="--ask doesn't ask about an app that's already installed"
+fresh
+shipped
+: >"$work/installed/$app"
+SLIPSTREAM_TEST_REPLY=n expect_status 0 --ask
+if [ -e "$work/home/.config/slipstream/extras/browser.conf" ]; then
+    fail "$case_name: asked, and took the answer"
+fi
+
+case_name="--ask doesn't ask about an app of your own"
+fresh
+conf <<EOF
+app_id=$app
+checkout=$work/checkout
+build=./build.sh
+EOF
+SLIPSTREAM_TEST_REPLY=n expect_status 0 --ask
+expect_count '^built' 1
 
 echo "$passed passed, $failures failed ($shell)"
 [ "$failures" -eq 0 ]
