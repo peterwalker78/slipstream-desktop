@@ -105,13 +105,13 @@ impl Contours {
     }
 
     fn draw(&self, layout: &Layout, grid: &mut Grid, t: f32) {
-        let (lx, ly, lw, lh) = layout.logo;
-        let inside = |col: i32, row: i32| {
-            (lx - 2..lx + lw + 2).contains(&col) && (ly - 1..ly + lh + 1).contains(&row)
-        };
+        // Only the letters' own cells are kept clear: the chart runs on between them and round
+        // them, so the logo sits in the weather rather than in a box cut out of it.
+        let letters = letter_cells(layout);
+        let is_letter = |col: i32, row: i32| letters.at(col, row);
         for row in 0..layout.rows {
             for col in 0..layout.cols {
-                if inside(col, row) {
+                if is_letter(col, row) {
                     continue;
                 }
                 let at = |c: i32, r: i32| {
@@ -155,6 +155,7 @@ impl Contours {
             grid.put(x, y, ch, mix(rgb, WHITE, 0.35));
         }
         // The logo, faint, as the thing the map is drawn round.
+        let (lx, lw) = (layout.logo.0, layout.logo.2);
         for letter in &layout.letters {
             let across = (letter.col - lx) as f32 / lw.max(1) as f32;
             grid.put(
@@ -168,6 +169,8 @@ impl Contours {
 
     /// Writes an isobar's pressure into a gap cut in it, down a few columns across the chart.
     fn label(&self, layout: &Layout, grid: &mut Grid) {
+        let letters = letter_cells(layout);
+        let is_letter = |col: i32, row: i32| letters.at(col, row);
         for share in LABEL_AT {
             let col = (layout.cols as f32 * share) as i32;
             let mut last_label = -10;
@@ -188,11 +191,10 @@ impl Contours {
                     text[k + 1] = char::from_digit((hpa / place % 10) as u32, 10).unwrap_or(' ');
                 }
                 let start = col - text.len() as i32 / 2;
-                let (lx, ly, lw, lh) = layout.logo;
-                if (ly - 2..ly + lh + 2).contains(&row)
-                    && start + text.len() as i32 > lx - 3
-                    && start < lx + lw + 3
-                {
+                // A figure keeps a cell's distance from every letter, so none reads as part of it.
+                let crowds = (start - 1..start + text.len() as i32 + 1)
+                    .any(|c| (row - 1..=row + 1).any(|r| is_letter(c, r)));
+                if crowds {
                     continue;
                 }
                 for (k, &ch) in text.iter().enumerate() {
@@ -210,6 +212,35 @@ impl Contours {
 }
 
 /// An isobar's colour.
+/// Which cells the logo's letters take, to look up by column and row.
+struct LetterCells {
+    cols: i32,
+    rows: i32,
+    taken: Vec<bool>,
+}
+
+impl LetterCells {
+    fn at(&self, col: i32, row: i32) -> bool {
+        (0..self.cols).contains(&col)
+            && (0..self.rows).contains(&row)
+            && self.taken[(row * self.cols + col) as usize]
+    }
+}
+
+fn letter_cells(layout: &Layout) -> LetterCells {
+    let mut taken = vec![false; (layout.cols * layout.rows).max(0) as usize];
+    for cell in &layout.letters {
+        if (0..layout.cols).contains(&cell.col) && (0..layout.rows).contains(&cell.row) {
+            taken[(cell.row * layout.cols + cell.col) as usize] = true;
+        }
+    }
+    LetterCells {
+        cols: layout.cols,
+        rows: layout.rows,
+        taken,
+    }
+}
+
 fn band_colour(level: i32) -> [f32; 3] {
     // Each isobar a step round the palette from the one before, as a relief map tints its
     // heights, so neighbouring lines are told apart.
@@ -266,8 +297,17 @@ mod tests {
     }
 
     #[test]
-    fn isobars_are_lines_not_areas_and_leave_the_logo_clear() {
+    fn isobars_run_between_the_letters_but_never_over_them() {
         let (grid, layout) = map(3.0, false);
+        let (lx, ly, lw, lh) = layout.logo;
+        let between = (ly..ly + lh)
+            .flat_map(|row| (lx..lx + lw).map(move |col| (col, row)))
+            .filter(|&(col, row)| {
+                !layout.letters.iter().any(|l| l.col == col && l.row == row)
+                    && grid.cells[(row * layout.cols + col) as usize].ch != ' '
+            })
+            .count();
+        assert!(between > 0, "the chart shows through the logo's box");
         let cells = (layout.cols * layout.rows) as usize;
         assert!(drawn(&grid) > cells / 30, "{} isobar cells", drawn(&grid));
         assert!(drawn(&grid) < cells / 3, "{} isobar cells", drawn(&grid));

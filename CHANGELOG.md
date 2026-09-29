@@ -5,6 +5,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 ## Unreleased
 
 - **Lighter on the processor.** With reduced motion, a wallpaper's still picture is drawn again only when the time, date, workspace or battery it shows changes: physarum was taking a whole core to redraw the same picture. The wallpaper skips frames where nothing moved, the streams' glow is blurred in a single pass whatever its size, icons are parsed once, the bar no longer repaints when only the volume or brightness changes, the explorer no longer searches every app on every frame, and the glass fade skips its blur where the glass is sharp. None of it changes how anything looks.
+- **Contours no longer cuts a black box round the logo.** The chart runs between the letters and round them, as the other wallpapers do, and its pressure figures keep clear of the letters.
 - **Smaller downloads.** Releases are built with whole-program optimisation and without their symbol table.
 - **Slipstream's own effects are the default.** Minimised apps become streaks of light and closed windows drop away through a shower of them, unless you choose the code rain in Settings → Appearance → Effects, which now lists Slipstream first. A settings file that already names either keeps it.
 - **The installer asks before adding Glimmerwood and Westering,** one at a time, and remembers a no. `--yes` still answers yes to everything, and with no terminal to ask in it leaves them out.
