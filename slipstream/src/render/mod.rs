@@ -48,6 +48,18 @@ use crate::{
     tilt::{self, Tilt},
 };
 
+mod chrome;
+mod deck;
+mod frames;
+mod lock;
+mod png_file;
+
+pub use chrome::Chrome;
+use chrome::*;
+use deck::*;
+use lock::*;
+pub use png_file::{copy_frame, encode_png, save_png};
+
 /// The desktop's backdrop colour, behind every window.
 pub const BACKGROUND: Color32F = Color32F::new(0.043, 0.055, 0.075, 1.0);
 /// The focused window's ring, until the settings are read: `borders.selected-tile` chooses it,
@@ -94,535 +106,6 @@ impl std::fmt::Debug for OutputElement {
             Self::Texture(e) => f.debug_tuple("Texture").field(e).finish(),
             Self::_GenericCatcher(e) => f.debug_tuple("_GenericCatcher").field(e).finish(),
         }
-    }
-}
-
-/// A painted surface: the scale it was painted at, its buffer, and its size in logical pixels.
-type Painted = (f64, MemoryRenderBuffer, Size<i32, Logical>);
-
-/// What Slipstream draws itself: the bar, the focus ring, and the key hint on an empty
-/// workspace. The buffers live between frames, so damage tracking redraws only changes.
-pub struct Chrome {
-    pub bar: Bar,
-    ring: [SolidColorBuffer; 4],
-    /// One per distant window drawn this frame.
-    dims: Vec<SolidColorBuffer>,
-    tags: HashMap<Rung, Painted>,
-    /// The keyboard-tips prompt on an empty workspace.
-    tips: Option<Painted>,
-    /// Bullet time's key legend along the foot of the screen.
-    legend: Option<paint::Painted>,
-    /// Bullet time's overlays.
-    pub overview: Overview,
-    /// Bullet time's 3D.
-    stage: tilt::Stage,
-    /// The UI's glass fade to the wallpaper and back.
-    glass: crate::glass::Glass,
-    /// The fade to black on the way out.
-    blackout: SolidColorBuffer,
-    /// The white flash when a screenshot is taken.
-    flash: SolidColorBuffer,
-    /// The lock's veil over the wallpaper.
-    veil: SolidColorBuffer,
-    /// The desktop as it comes back from behind the lock, and whether that texture failed.
-    unlock: Option<tilt::Canvas>,
-    unlock_broken: bool,
-    /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
-    panes: crate::pane::Panes,
-    /// A closed window falling away as code.
-    fx: crate::fx::Fx,
-    /// The dark behind Alt+Tab's deck.
-    deck_dim: SolidColorBuffer,
-    /// The name under the deck's front pane, and what it says.
-    deck_label: Option<(String, paint::Painted)>,
-}
-
-impl Default for Chrome {
-    fn default() -> Self {
-        Self {
-            bar: Bar::default(),
-            ring: std::array::from_fn(|_| SolidColorBuffer::new((0, 0), FOCUS)),
-            dims: Vec::new(),
-            tags: HashMap::new(),
-            tips: None,
-            legend: None,
-            overview: Overview::default(),
-            stage: tilt::Stage::default(),
-            glass: crate::glass::Glass::default(),
-            blackout: SolidColorBuffer::new((0, 0), BLACK),
-            panes: crate::pane::Panes::default(),
-            fx: crate::fx::Fx::default(),
-            deck_dim: SolidColorBuffer::new((0, 0), BLACK),
-            deck_label: None,
-            flash: SolidColorBuffer::new((0, 0), WHITE),
-            veil: SolidColorBuffer::new((0, 0), veil_colour()),
-            unlock: None,
-            unlock_broken: false,
-        }
-    }
-}
-
-/// A tier tag's opacity and how far above its resting place it is, in design pixels, `age`
-/// seconds after it appeared: it drops 8 px into place while fading in, holds, and fades out.
-/// Reduced motion leaves out the drop and shortens both fades.
-fn tag_motion(age: f64, reduced_motion: bool) -> (f64, f64) {
-    if reduced_motion {
-        let alpha = (age / TAG_REDUCED_FADE).min((TAG_SHOWN - age) / TAG_REDUCED_FADE);
-        return (alpha.clamp(0.0, 1.0), 0.0);
-    }
-    let progress = age / TAG_SHOWN;
-    if progress < 0.12 {
-        (progress / 0.12, -8.0 * (1.0 - progress / 0.12))
-    } else if progress < 0.8 {
-        (1.0, 0.0)
-    } else {
-        ((1.0 - progress) / 0.2, 0.0)
-    }
-}
-
-/// The lock's veil, premultiplied as the renderer takes colours.
-fn veil_colour() -> Color32F {
-    let [r, g, b, a] = crate::lock::VEIL;
-    Color32F::new(r * a, g * a, b * a, a)
-}
-
-/// A rung's tag: its name in amber, and the ladder beside it as a row of pips with this rung's
-/// filled, so where the window is on the ladder reads at a glance. Laid out in design pixels.
-fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
-    const PIP: f32 = 7.0;
-    const PIP_GAP: f32 = 4.0;
-    const INK: u32 = panel::DARK;
-    let style = Style {
-        tracking: 0.08,
-        ..Style::new(Face::MonoBold, 16.0, INK)
-    };
-    let label = rung.label().to_uppercase();
-    let rungs = Rung::LADDER.len() as f32;
-    let pips_w = rungs * PIP + (rungs - 1.0) * PIP_GAP;
-    let text_w = text::width(&label, &style);
-    let (w, h) = (12.0 + text_w + 12.0 + pips_w + 12.0, 30.0);
-    let size =
-        Size::<i32, Logical>::from(((w * DESIGN_PX).ceil() as i32, (h * DESIGN_PX).ceil() as i32));
-    let mut p = Painter::new(
-        (size.w as f64 * scale).round() as u32,
-        (size.h as f64 * scale).round() as u32,
-        scale as f32 * DESIGN_PX,
-    )?;
-    p.fill(0.0, 0.0, w, h, 6.0, panel::AMBER);
-    p.text(&label, 12.0, h / 2.0, &style);
-    let mut x = 12.0 + text_w + 12.0;
-    for step in Rung::LADDER {
-        let (y, radius) = ((h - PIP) / 2.0, 2.0);
-        if step == rung {
-            p.fill(x, y, PIP, PIP, radius, INK);
-        } else {
-            p.border(x, y, PIP, PIP, radius, 1.5, (INK & 0xffffff00) | 0x80);
-        }
-        x += PIP + PIP_GAP;
-    }
-    Some((p.pixmap, size))
-}
-
-/// How far a window on workspace `index` is shifted from where it sits in the layout of screens,
-/// on a screen at `here` whose view is at `camera` with workspaces `step` apart. `origin` is the
-/// left edge of the screen the workspace is laid out for: its windows sit that far along, and are
-/// drawn from this screen's edge instead, a workspace's distance from the view to the side.
-fn shift_for_workspace(index: usize, camera: f64, step: f64, here: i32, origin: i32) -> f64 {
-    (index as f64 - camera) * step + (here - origin) as f64
-}
-
-/// The prompt on an empty workspace: where to find every key, and nothing else, so the wallpaper
-/// stays clear at the one moment it is all there is to look at. Super+/ lists every key, so the
-/// empty workspace only has to say so.
-const TIPS_TEXT: &str = "Keyboard tips";
-const TIPS_KEY: &str = "Super+/";
-/// Under the pill: how to get the tour, which nothing else says. Quieter than the pill, because
-/// it is the second thing to read, not a second pill. Its words either side of its keycap.
-const TIPS_UNDER: (&str, &str) = ("then", "for the tour");
-const TIPS_UNDER_KEY: &str = "⏎";
-const TIPS_UNDER_GAP: f32 = 10.0;
-const TIPS_UNDER_H: f32 = paint::KEYCAP_H;
-const TIPS_UNDER_SPACE: f32 = 6.0;
-/// Where it floats: this far down the screen, so it sits in the lower third clear of the
-/// wallpaper's logo, and drifts this far either side of that over `TIPS_DRIFT` seconds.
-const TIPS_DOWN: f64 = 0.72;
-const TIPS_FLOAT_PX: f64 = 4.0;
-const TIPS_DRIFT: f64 = 5.0;
-/// How far its glow breathes, and over how long.
-const TIPS_DIM: f32 = 0.15;
-const TIPS_BREATH: f64 = 4.0;
-/// The pill: its height, the padding at its ends, and the gap between the words and the key.
-const TIPS_H: f32 = 34.0;
-const TIPS_PAD: f32 = 16.0;
-const TIPS_GAP: f32 = 12.0;
-/// The glow: how many rings are drawn around the pill, how far apart, and the colour they fade
-/// out from. Painted once into the buffer; only its opacity moves.
-const TIPS_RINGS: i32 = 7;
-const TIPS_RING_STEP: f32 = 1.6;
-const TIPS_GLOW: u32 = panel::MINT;
-
-/// Bullet time's key legend, a pill of its keys laid out in design pixels, painted at `scale`.
-fn paint_legend(scale: f64) -> Option<paint::Painted> {
-    let style = Style::new(Face::Mono, 13.0, panel::HINT);
-    let legend = bullet::legend();
-    let (w, h) = (text::width(&legend, &style) + 32.0, 13.0 * 1.2 + 16.0);
-    let logical =
-        Size::<i32, Logical>::from(((w * DESIGN_PX).ceil() as i32, (h * DESIGN_PX).ceil() as i32));
-    let device = (
-        (logical.w as f64 * scale).round().max(1.0) as i32,
-        (logical.h as f64 * scale).round().max(1.0) as i32,
-    );
-    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * DESIGN_PX)?;
-    p.fill(0.0, 0.0, w, h, 10.0, panel::CHIP | 0xcc);
-    p.text(&legend, 16.0, h / 2.0, &style);
-    Some(paint::Painted {
-        buffer: paint::buffer(&p.pixmap),
-        logical,
-        device,
-        scale,
-    })
-}
-
-/// The keyboard-tips prompt, laid out in design pixels and painted at `scale`: a glass pill
-/// saying what to press, inside a soft glow drawn as rings fading outwards. The glow is baked in
-/// and the whole thing is faded in and out as it floats, so nothing repaints per frame.
-fn paint_tips(scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
-    let words = Style::new(Face::Mono, 14.0, panel::PROSE);
-    let pill_w = (TIPS_PAD
-        + text::width(TIPS_TEXT, &words)
-        + TIPS_GAP
-        + paint::keycap_width(TIPS_KEY)
-        + TIPS_PAD)
-        .ceil();
-    // Room around the pill for the glow to fade out into.
-    let halo = TIPS_RINGS as f32 * TIPS_RING_STEP;
-    let under = Style::new(Face::Body, 13.0, panel::PLACEHOLDER);
-    let under_w = text::width(TIPS_UNDER.0, &under)
-        + 2.0 * TIPS_UNDER_SPACE
-        + paint::keycap_width(TIPS_UNDER_KEY)
-        + text::width(TIPS_UNDER.1, &under);
-    // The line underneath may be wider than the pill; the pill then sits in the middle of it.
-    let widest = pill_w.max(under_w);
-    let pill_x = halo + (widest - pill_w) / 2.0;
-    let size = Size::<i32, Logical>::from((
-        ((widest + 2.0 * halo) * DESIGN_PX).ceil() as i32,
-        ((TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H + 2.0 * halo) * DESIGN_PX).ceil() as i32,
-    ));
-    let mut p = Painter::new(
-        (size.w as f64 * scale).round() as u32,
-        (size.h as f64 * scale).round() as u32,
-        scale as f32 * DESIGN_PX,
-    )?;
-    // Rings outwards from the pill's edge, each fainter than the last.
-    for ring in (1..=TIPS_RINGS).rev() {
-        let grow = ring as f32 * TIPS_RING_STEP;
-        let alpha = 0x30 / (ring as u32 + 1);
-        let radius = (TIPS_H + 2.0 * grow) / 2.0;
-        p.border(
-            pill_x - grow,
-            halo - grow,
-            pill_w + 2.0 * grow,
-            TIPS_H + 2.0 * grow,
-            radius,
-            TIPS_RING_STEP,
-            (TIPS_GLOW & 0xffffff00) | alpha,
-        );
-    }
-    p.fill(
-        pill_x,
-        halo,
-        pill_w,
-        TIPS_H,
-        TIPS_H / 2.0,
-        panel::CHIP | 0xe0,
-    );
-    p.border(
-        pill_x,
-        halo,
-        pill_w,
-        TIPS_H,
-        TIPS_H / 2.0,
-        1.0,
-        (TIPS_GLOW & 0xffffff00) | 0x66,
-    );
-    let centre = halo + TIPS_H / 2.0;
-    p.text(TIPS_TEXT, pill_x + TIPS_PAD, centre, &words);
-    p.keycap(
-        TIPS_KEY,
-        pill_x + TIPS_PAD + text::width(TIPS_TEXT, &words) + TIPS_GAP,
-        centre,
-    );
-    let under_centre = halo + TIPS_H + TIPS_UNDER_GAP + TIPS_UNDER_H / 2.0;
-    let mut x = halo + (widest - under_w) / 2.0;
-    x += p.text(TIPS_UNDER.0, x, under_centre, &under) + TIPS_UNDER_SPACE;
-    x += p.keycap(TIPS_UNDER_KEY, x, under_centre) + TIPS_UNDER_SPACE;
-    p.text(TIPS_UNDER.1, x, under_centre, &under);
-    Some((p.pixmap, size))
-}
-
-impl Chrome {
-    /// Paints its text again next frame: a face for characters it lacked has landed.
-    pub fn forget_painted_text(&mut self) {
-        self.bar.forget_painted_text();
-        self.overview.forget_painted_text();
-        self.tags.clear();
-        self.tips = None;
-        self.legend = None;
-    }
-
-    /// A shade over a distant window. `index` keeps each distant window's shade separate.
-    fn dim(
-        &mut self,
-        index: usize,
-        over: Rectangle<i32, Logical>,
-        scale: Scale<f64>,
-        alpha: f32,
-    ) -> SolidColorRenderElement {
-        while self.dims.len() <= index {
-            self.dims.push(SolidColorBuffer::new((0, 0), DIM));
-        }
-        let buffer = &mut self.dims[index];
-        buffer.update(over.size, DIM);
-        SolidColorRenderElement::from_buffer(
-            buffer,
-            over.loc.to_physical_precise_round(scale),
-            scale,
-            alpha,
-            Kind::Unspecified,
-        )
-    }
-
-    /// The tag for a window's new rung, near the top of it: it drops in, holds, and fades, over
-    /// 1.8 s. With reduced motion it appears where it rests, with a short fade either end.
-    fn tag<R>(
-        &mut self,
-        renderer: &mut R,
-        rung: Rung,
-        window: Rectangle<f64, Logical>,
-        age: f64,
-        scale: Scale<f64>,
-        reduced_motion: bool,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (alpha, drop) = tag_motion(age, reduced_motion);
-        if self
-            .tags
-            .get(&rung)
-            .is_none_or(|(painted_at, ..)| *painted_at != scale.x)
-        {
-            let (pixmap, size) = paint_tag(rung, scale.x)?;
-            self.tags
-                .insert(rung, (scale.x, paint::buffer(&pixmap), size));
-        }
-        let (_, buffer, size) = self.tags.get(&rung)?;
-        let device = (
-            (size.w as f64 * scale.x).round(),
-            (size.h as f64 * scale.x).round(),
-        );
-        let location = Point::<f64, Logical>::from((
-            window.loc.x + (window.size.w - size.w as f64) / 2.0,
-            window.loc.y + (22.0 + drop) * 0.8,
-        ))
-        .to_physical(scale)
-        .to_i32_round::<i32>()
-        .to_f64();
-        MemoryRenderBufferRenderElement::from_buffer(
-            renderer,
-            location,
-            buffer,
-            Some(alpha.clamp(0.0, 1.0) as f32),
-            Some(Rectangle::from_size(device.into())),
-            Some(*size),
-            Kind::Unspecified,
-        )
-        .ok()
-    }
-
-    fn ring(
-        &mut self,
-        around: Rectangle<i32, Logical>,
-        colour: Color32F,
-        scale: Scale<f64>,
-        alpha: f32,
-    ) -> Vec<SolidColorRenderElement> {
-        let Rectangle { loc, size } = around;
-        let edges = [
-            (loc.x - RING, loc.y - RING, size.w + 2 * RING, RING),
-            (loc.x - RING, loc.y + size.h, size.w + 2 * RING, RING),
-            (loc.x - RING, loc.y, RING, size.h),
-            (loc.x + size.w, loc.y, RING, size.h),
-        ];
-        self.ring
-            .iter_mut()
-            .zip(edges)
-            .map(|(buffer, (x, y, w, h))| {
-                buffer.update((w, h), colour);
-                let location: Point<i32, Physical> =
-                    Point::<i32, Logical>::from((x, y)).to_physical_precise_round(scale);
-                SolidColorRenderElement::from_buffer(
-                    buffer,
-                    location,
-                    scale,
-                    alpha * RING_ALPHA,
-                    Kind::Unspecified,
-                )
-            })
-            .collect()
-    }
-
-    /// The keyboard-tips prompt, floating in the lower third of an empty workspace, which is `dx`
-    /// from the screen while sliding. `drifting` is wall time, to float and breathe by, and
-    /// `None` under reduced motion, which holds it still at full strength: it drifts a few pixels
-    /// up and down and its glow breathes, so it reads as hovering rather than stuck to the
-    /// wallpaper. Painted again whenever the scale changes.
-    fn tips<R>(
-        &mut self,
-        renderer: &mut R,
-        screen: Size<i32, Logical>,
-        dx: f64,
-        scale: Scale<f64>,
-        alpha: f32,
-        drifting: Option<f64>,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        if self
-            .tips
-            .as_ref()
-            .is_none_or(|(painted_at, ..)| *painted_at != scale.x)
-        {
-            let (pixmap, size) = paint_tips(scale.x)?;
-            self.tips = Some((scale.x, paint::buffer(&pixmap), size));
-        }
-        let (_, buffer, size) = self.tips.as_ref()?;
-        let (float, breath) = match drifting {
-            None => (0.0, 1.0),
-            Some(now) => {
-                let turn = std::f64::consts::TAU;
-                (
-                    (now / TIPS_DRIFT * turn).sin() * TIPS_FLOAT_PX,
-                    1.0 - TIPS_DIM as f64 * (0.5 - 0.5 * (now / TIPS_BREATH * turn).cos()),
-                )
-            }
-        };
-        let top = (screen.h as f64 * TIPS_DOWN - size.h as f64 / 2.0 + float)
-            .clamp(bar::HEIGHT as f64, (screen.h - size.h).max(0) as f64);
-        let device = (
-            (size.w as f64 * scale.x).round(),
-            (size.h as f64 * scale.x).round(),
-        );
-        // Whole screen pixels, so the text stays sharp.
-        let location = Point::<f64, Logical>::from((((screen.w - size.w) / 2) as f64 + dx, top))
-            .to_physical(scale)
-            .to_i32_round::<i32>()
-            .to_f64();
-        MemoryRenderBufferRenderElement::from_buffer(
-            renderer,
-            location,
-            buffer,
-            Some(alpha * breath as f32),
-            Some(Rectangle::from_size(device.into())),
-            Some(*size),
-            Kind::Unspecified,
-        )
-        .ok()
-    }
-}
-
-/// Everything on `output`, front to back. `cursor` is `None` when a host desktop draws the
-/// pointer (nested).
-impl Slipstream {
-    /// Frame callbacks after `output` has drawn: to every window in the space, and to the windows
-    /// drawn outside it in that frame, which bullet time shows live. Nothing else hidden gets
-    /// them, so windows on workspaces out of sight stay cheap.
-    /// Who wants to hear when this frame reaches `output`: every window on it whose surfaces
-    /// were drawn, per `states`.
-    pub fn presentation_feedback(
-        &self,
-        output: &Output,
-        states: &RenderElementStates,
-    ) -> OutputPresentationFeedback {
-        let mut feedback = OutputPresentationFeedback::new(output);
-        for window in self.space.elements() {
-            if !self.space.outputs_for_element(window).contains(output) {
-                continue;
-            }
-            window.take_presentation_feedback(
-                &mut feedback,
-                |_, _| Some(output.clone()),
-                |surface, _| surface_presentation_feedback_flags_from_states(surface, None, states),
-            );
-        }
-        for layer in smithay::desktop::layer_map_for_output(output).layers() {
-            layer.take_presentation_feedback(
-                &mut feedback,
-                |_, _| Some(output.clone()),
-                |surface, _| surface_presentation_feedback_flags_from_states(surface, None, states),
-            );
-        }
-        feedback
-    }
-
-    /// After drawing a screen: notes, per surface, which screen it is really being shown on.
-    /// `send_frames` then paces each window by that screen's refresh rate rather than by whichever
-    /// screen happened to draw last. Without this a window on a 60 Hz panel is woken at 60 plus
-    /// 144 Hz when a 144 Hz monitor is plugged in, and a client that draws on every callback runs
-    /// at the sum of every screen's rate.
-    pub fn update_scanout_outputs(&mut self, output: &Output, states: &RenderElementStates) {
-        use smithay::{
-            backend::renderer::element::default_primary_scanout_output_compare,
-            desktop::utils::update_surface_primary_scanout_output,
-        };
-        // Windows drawn from workspaces no screen is showing (bullet time, a window being shared)
-        // count too: they are on this screen's frame, so this screen should pace them.
-        let off_space = self.drawn_off_space.clone();
-        for window in self.space.elements().chain(off_space.iter()) {
-            window.with_surfaces(|surface, surface_states| {
-                update_surface_primary_scanout_output(
-                    surface,
-                    output,
-                    surface_states,
-                    None,
-                    states,
-                    default_primary_scanout_output_compare,
-                );
-            });
-        }
-        for layer in smithay::desktop::layer_map_for_output(output).layers() {
-            layer.with_surfaces(|surface, surface_states| {
-                update_surface_primary_scanout_output(
-                    surface,
-                    output,
-                    surface_states,
-                    None,
-                    states,
-                    default_primary_scanout_output_compare,
-                );
-            });
-        }
-    }
-
-    pub fn send_frames(&mut self, output: &Output) {
-        use smithay::desktop::utils::surface_primary_scanout_output;
-        let now = self.start_time.elapsed();
-        let off_space = std::mem::take(&mut self.drawn_off_space);
-        // A surface this screen isn't showing still gets a callback this often, so a window that
-        // is hidden or fully covered carries on rather than freezing until it is looked at again.
-        let throttle = Some(Duration::from_secs(1));
-        let mut sent: Vec<&Window> = Vec::new();
-        for window in self.space.elements().chain(off_space.iter()) {
-            if sent.contains(&window) {
-                continue;
-            }
-            window.send_frame(output, now, throttle, surface_primary_scanout_output);
-            sent.push(window);
-        }
-        self.send_layer_frames(output, now);
     }
 }
 
@@ -894,71 +377,6 @@ pub fn output_elements(
         // Ready before the explorer first opens.
         state.explorer.warm_icons(scale.x);
     }
-    if first_output && state.explorer.is_open() {
-        let running = state.running_apps();
-        let ring = state.panel_ring();
-        elements.extend(
-            state
-                .explorer
-                .element(renderer, output_geo.size.w, scale.x, now, running, ring)
-                .into_iter()
-                .map(OutputElement::Memory),
-        );
-    }
-    if first_output && state.quick.is_open() {
-        let facts = state.quick_facts();
-        elements.extend(
-            state
-                .quick
-                .element(renderer, output_geo.size.w, scale.x, now, facts)
-                .map(OutputElement::Memory),
-        );
-    }
-    if first_output && state.centre.is_open() {
-        let facts = state.centre_facts();
-        elements.extend(
-            state
-                .centre
-                .element(
-                    renderer,
-                    output_geo.size,
-                    scale.x,
-                    now,
-                    facts,
-                    &state.notices,
-                )
-                .map(OutputElement::Memory),
-        );
-    }
-    if first_output && state.history.is_open() {
-        let ring = state.panel_ring();
-        let now = state.wall();
-        elements.extend(
-            state
-                .history
-                .element(renderer, output_geo.size, scale.x, now, ring)
-                .map(OutputElement::Memory),
-        );
-    }
-    if first_output && state.sheet.is_open() {
-        let ring = state.panel_ring();
-        let effects = state.settings.motion.effects;
-        elements.extend(
-            state
-                .sheet
-                .element(
-                    renderer,
-                    output_geo.size,
-                    scale.x,
-                    now,
-                    &state.bindings,
-                    ring,
-                    effects,
-                )
-                .into_iter()
-                .map(OutputElement::Memory),
-        );
-    }
     // Alt+Tab's deck of glass panes, drawn with the windows below; the flat card stands in where
     // panes can't be drawn.
     let deck_shown = first_output
@@ -968,87 +386,16 @@ pub fn output_elements(
     if first_output && !deck_shown {
         state.deck = None;
     }
-    // Alt+Tab's switcher, on the screen the keyboard is on.
-    if first_output && state.switcher.is_some() && !deck_shown {
-        elements.extend(
-            state
-                .switcher_element(renderer, output_geo.size, scale.x)
-                .map(OutputElement::Memory),
-        );
-    }
-    // Gravity's arrangements, while Super is held after Super+T.
-    if first_output && state.arrange.is_some() {
-        elements.extend(
-            state
-                .arrange_element(renderer, output_geo.size, scale.x)
-                .map(OutputElement::Memory),
-        );
-    }
-    // The low battery card, above everything but the lock.
-    if first_output && state.battery.card.is_some() {
-        let mut card = state.battery.card.take();
-        if let Some(card) = card.as_mut() {
-            elements.extend(
-                card.element(renderer, output_geo.size, scale.x, wall)
-                    .map(OutputElement::Memory),
-            );
-        }
-        state.battery.card = card;
-    }
-    // The card asking what a screen never seen here should show. Drawn where the keyboard is, as
-    // the other cards are: that is the screen being looked at when the lead goes in.
-    if first_output && state.connect.is_some() {
-        let mut connect = state.connect.take();
-        if let Some(connect) = connect.as_mut() {
-            elements.extend(
-                connect
-                    .element(renderer, output_geo.size, scale.x, wall)
-                    .map(OutputElement::Memory),
-            );
-        }
-        state.connect = connect;
-    }
-    // The offer at login, above everything else it is asking about.
-    if first_output && state.offer.is_some() {
-        let mut offer = state.offer.take();
-        if let Some(offer) = offer.as_mut() {
-            elements.extend(
-                offer
-                    .element(renderer, output_geo.size, scale.x, wall)
-                    .map(OutputElement::Memory),
-            );
-        }
-        state.offer = offer;
-    }
-    // The share picker, on the screen the keyboard is on: the app waiting for it is usually the
-    // one being looked at.
-    if first_output && state.share.is_some() {
-        let [r, g, b] = state
-            .ring_rgb
-            .map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
-        let ring = u32::from_be_bytes([r, g, b, 0xff]);
-        let mut share = state.share.take();
-        if let Some(share) = share.as_mut() {
-            elements.extend(
-                share
-                    .element(renderer, output_geo.size, scale.x, wall, ring)
-                    .map(OutputElement::Memory),
-            );
-        }
-        state.share = share;
-    }
-    // The way out: the ask card in the middle of the screen, or the slim one while the apps are
-    // closing. It draws whatever else is up, and the fade to black goes over everything below.
-    if first_output && state.exit.is_some() {
-        let ring = state.panel_ring();
-        let mut exit = state.exit.take();
-        if let Some(exit) = exit.as_mut() {
-            elements.extend(
-                exit.element(renderer, output_geo.size, scale.x, wall, ring)
-                    .map(OutputElement::Memory),
-            );
-        }
-        state.exit = exit;
+    if first_output {
+        elements.extend(card_elements(
+            state,
+            renderer,
+            output_geo.size,
+            scale.x,
+            now,
+            wall,
+            deck_shown,
+        ));
     }
     // Where the pop-ups, the toast and the display below are drawn, for the pointer.
     let mut over_windows = Vec::new();
@@ -1132,58 +479,7 @@ pub fn output_elements(
     // follows the overview: the workspace being looked at is highlighted, the one it started on is
     // ringed, and the title names what's chosen.
     if tiling_output && ui > 0.0 && !state.fullscreen_on(active) {
-        let bullet = state.bullet.as_ref().filter(|_| first_output);
-        let (highlighted, home) = bullet::bar_workspaces(active, bullet);
-        let keyboard_here = first_output;
-        let title = match bullet {
-            Some(_) => state.bullet_bar_title(),
-            None if keyboard_here => state.focused_title(),
-            // Where the keyboard isn't, the window it would come back to on this screen.
-            None => state
-                .workspaces
-                .get(active)
-                .last_focus
-                .as_ref()
-                .filter(|window| state.workspaces.find(window) == Some(active))
-                .map(crate::state::window_title)
-                .unwrap_or_default(),
-        };
-        let content = bar::Content {
-            active: highlighted,
-            home,
-            occupied: used.clone(),
-            elsewhere: (0..state.workspaces.count())
-                .map(|index| {
-                    state
-                        .screens
-                        .showing(index)
-                        .is_some_and(|showing| Some(showing) != screen_index)
-                })
-                .collect(),
-            keyboard_here,
-            labels: (0..state.workspaces.count())
-                .map(|index| state.workspaces.label(index))
-                .collect(),
-            title,
-            mode: state.bullet.as_ref().map(|_| {
-                let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
-                let [r, g, b] = state.bullet_rgb;
-                (
-                    "BULLET TIME",
-                    (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xff,
-                )
-            }),
-            status: bar::Shown::of(&state.status.lock().unwrap()),
-            do_not_disturb: state.settings.notifications.do_not_disturb,
-            unread: state.notices.unread(),
-            sharing: state.captures.sharing(),
-            caps_lock: state
-                .seat
-                .get_keyboard()
-                .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
-            awake: state.awake,
-            meter: state.meter.lock().unwrap().clone(),
-        };
+        let content = bar_content(state, active, screen_index, first_output, &used);
         elements.extend(
             chrome
                 .bar
@@ -2079,375 +1375,225 @@ pub fn output_elements(
     elements
 }
 
-/// The lock's veil over a whole screen.
-fn veil(
-    chrome: &mut Chrome,
-    size: Size<i32, Logical>,
-    scale: Scale<f64>,
-    alpha: f32,
-) -> OutputElement {
-    chrome.veil.update(size, veil_colour());
-    OutputElement::Solid(SolidColorRenderElement::from_buffer(
-        &chrome.veil,
-        (0, 0),
-        scale,
-        alpha,
-        Kind::Unspecified,
-    ))
-}
-
-/// Everything on a screen while it's locked, front to back: the plain pointer, then on the
-/// focused screen the volume and brightness display and the lock's card, then the veil and the
-/// living wallpaper. No window, pop-up, toast, bar or client cursor is read.
-#[allow(clippy::too_many_arguments)]
-fn lock_elements(
-    state: &mut Slipstream,
-    renderer: &mut GlesRenderer,
-    output: &Output,
-    output_geo: Rectangle<i32, Logical>,
-    chrome: &mut Chrome,
-    saver: &mut crate::saver::Saver,
-    cursor: Option<&mut Cursor>,
-    scale: Scale<f64>,
-) -> Vec<OutputElement> {
-    let mut elements = Vec::new();
-    let now = state.clock.now();
-    let wall = state.wall();
-    if let Some(cursor) = cursor {
-        let pointer = state.pointer_location();
-        if output_geo.to_f64().contains(pointer) {
-            let pos = pointer - output_geo.loc.to_f64();
-            let (buffer, hotspot) = cursor.image(
-                CursorIcon::Default.name(),
-                scale.x,
-                state.start_time.elapsed(),
-            );
-            match MemoryRenderBufferRenderElement::from_buffer(
-                renderer,
-                (pos - hotspot).to_physical(scale),
-                &buffer,
-                None,
-                None,
-                None,
-                Kind::Cursor,
-            ) {
-                Ok(element) => elements.push(OutputElement::Memory(element)),
-                Err(err) => tracing::warn!("couldn't draw the pointer: {err:?}"),
-            }
-        }
-    }
-    if state.screens.focused_output().as_ref() == Some(output) {
-        let ring = state.panel_ring();
-        elements.extend(
-            state
-                .osd
-                .element(renderer, output_geo.size, scale.x, ring, now)
-                .map(OutputElement::Memory),
-        );
-        let facts = state.lock_facts();
-        if let Some(lock) = state.lock.as_mut() {
-            elements.extend(
-                lock.elements(renderer, output_geo.size, scale.x, &facts, wall)
-                    .into_iter()
-                    .map(OutputElement::Memory),
-            );
-        }
-    }
-    let shown = state.lock.as_ref().map_or(1.0, |lock| lock.shown(wall));
-    elements.push(veil(chrome, output_geo.size, scale, shown));
-    if let Some(index) = state.screens.index_of(output) {
-        let readings = {
-            let status = state.status.lock().unwrap();
-            crate::saver::Readings {
-                time: status.time.clone(),
-                date: status.date.clone(),
-                place: state
-                    .screens
-                    .get(index)
-                    .map(|screen| state.workspaces.label(screen.workspace))
-                    .unwrap_or_default(),
-                battery: status.battery,
-            }
-        };
-        saver.set_readings(&readings);
-        elements.extend(
-            saver
-                .element(
-                    renderer,
-                    output_geo.size,
-                    scale.x,
-                    now,
-                    crate::lock::WALLPAPER_GLOW,
-                    false,
-                    false,
-                )
-                .map(OutputElement::Memory),
-        );
-    }
-    elements
-}
-
-/// `pane`, the desktop, drawn into the screen's unlock texture and shown `zoom` of its size about
-/// the screen's centre at `opacity`. `None` when the texture can't be made, and the desktop is
-/// drawn plainly instead.
-#[allow(clippy::too_many_arguments)]
-fn unlock_zoom(
-    renderer: &mut GlesRenderer,
-    chrome: &mut Chrome,
-    pane: &[OutputElement],
-    logical: Size<i32, Logical>,
-    physical: Size<i32, Physical>,
-    scale: f64,
-    zoom: f64,
-    opacity: f32,
-) -> Option<TextureRenderElement<GlesTexture>> {
-    if chrome.unlock_broken {
-        return None;
-    }
-    tilt::draw_offscreen(
-        renderer,
-        &mut chrome.unlock,
-        &mut chrome.unlock_broken,
-        pane,
-        logical,
-        physical,
-        scale,
-        "the unlock",
-    )?;
-    let texture = &chrome.unlock.as_ref()?.texture;
-    let shown = Size::<i32, Logical>::from((
-        (logical.w as f64 * zoom).round() as i32,
-        (logical.h as f64 * zoom).round() as i32,
-    ));
-    let at = Point::<f64, Logical>::from((
-        (logical.w - shown.w) as f64 / 2.0,
-        (logical.h - shown.h) as f64 / 2.0,
-    ))
-    .to_physical(scale);
-    Some(TextureRenderElement::from_static_texture(
-        Id::new(),
-        renderer.context_id(),
-        at,
-        texture.clone(),
-        1,
-        Transform::Normal,
-        Some(opacity),
-        Some(Rectangle::from_size(
-            (physical.w as f64, physical.h as f64).into(),
-        )),
-        Some(shown),
-        None,
-        Kind::Unspecified,
-    ))
-}
-
-/// Alt+Tab's deck on the screen `output`: each window's pane, nearest first, the name of the one
-/// at the front, and the dark behind them all. The panes lift from where their windows are drawn
-/// and fly back there.
-#[allow(clippy::too_many_arguments)]
-fn deck_elements_for(
-    state: &mut Slipstream,
-    chrome: &mut Chrome,
-    renderer: &mut GlesRenderer,
-    deck: &mut crate::deck::Deck<Window>,
-    output: &Output,
-    output_geo: Rectangle<i32, Logical>,
-    scale: f64,
-    now: f64,
-    wall: f64,
-    camera: f64,
-    step: f64,
-    rain_output: bool,
-    ui_alpha: f32,
-) -> Vec<OutputElement> {
-    use crate::pane::{Look, Pose};
-    let _ = output;
-    let screen = (output_geo.size.w as f64, output_geo.size.h as f64);
-    let eye = crate::deck::camera(screen);
-    let off_screen = Pose {
-        z: 3.0 * screen.0,
-        ..Pose::flat([
-            screen.0 * 0.25,
-            screen.1 * 0.25,
-            screen.0 * 0.5,
-            screen.1 * 0.5,
-        ])
-    };
-    // Where each window is drawn now, which is where its pane lifts from and lands.
-    let live: Vec<Pose> = deck
-        .windows
-        .iter()
-        .map(|window| {
-            if rain_output && let Some(stream) = state.rain.index_of(window) {
-                let screen_rect = Rect {
-                    x: 0,
-                    y: 0,
-                    w: output_geo.size.w,
-                    h: output_geo.size.h,
-                };
-                let column = Rain::column(stream, screen_rect, bar::HEIGHT);
-                let w = column.w as f64;
-                return Pose::flat([column.x as f64, column.y as f64, w, w * 0.75]);
-            }
-            let (Some(index), Some(frame)) = (
-                state.workspaces.find(window),
-                state.motion.frame(window, now),
-            ) else {
-                return off_screen;
-            };
-            let origin = state
-                .screen_rect_for_workspace(index)
-                .map_or(output_geo.loc.x, |rect| rect.x);
-            let dx = shift_for_workspace(index, camera, step, output_geo.loc.x, origin);
-            let own = window.geometry().size;
-            let [x, y, w, h] = frame.rect;
-            let (w, h) = if frame.moving {
-                (w, h)
-            } else {
-                (own.w as f64, own.h as f64)
-            };
-            Pose::flat([
-                x + dx - output_geo.loc.x as f64,
-                y - output_geo.loc.y as f64,
-                w,
-                h,
-            ])
-        })
-        .collect();
-    let releasing = deck.releasing();
-    let mut panes: Vec<(usize, Pose, f32, f32)> = Vec::new();
-    for (i, window) in deck.windows.iter().enumerate() {
-        if !window.alive() {
-            continue;
-        }
-        let own = window.geometry().size;
-        let (pose, alpha, shade) = deck.pose(
-            i,
-            live[i],
-            (own.w.max(1) as f64, own.h.max(1) as f64),
-            screen,
-            wall,
-        );
-        panes.push((i, pose, alpha, shade));
-    }
-    if !releasing {
-        for (i, pose, ..) in &panes {
-            deck.last[*i] = Some(*pose);
-        }
-    }
-    // Nearest first, as elements go front to back.
-    panes.sort_by(|a, b| a.1.z.total_cmp(&b.1.z));
-    let mut elements = Vec::new();
-    let mut hits = Vec::new();
-    for (i, pose, alpha, shade) in &panes {
-        let ring = (!releasing && *i == deck.front()).then_some((state.ring_rgb, 0.9));
-        let look = Look {
-            alpha: alpha * ui_alpha,
-            ring,
-            shade: *shade,
-            ..Default::default()
-        };
-        if let Some(element) = chrome.panes.element(
-            renderer,
-            &deck.windows[*i],
-            pose,
-            &eye,
-            output_geo.size,
-            scale,
-            &look,
-        ) {
-            elements.push(OutputElement::Shaded(element));
-        }
-        if *alpha > 0.5
-            && let Some(bounds) = crate::pane::bounds(pose, &eye, 0.0)
-        {
-            hits.push((*i, bounds));
-        }
-    }
-    let dim = deck.dim(wall) as f32;
-    // The front pane's name, under it.
-    if !releasing
-        && let Some((_, front, ..)) = panes.iter().find(|(i, ..)| *i == deck.front())
-        && let Some((x, y)) = crate::pane::project(front, &eye, (0.5, 1.0))
-    {
-        let window = &deck.windows[deck.front()];
-        let place = if state.rain.contains(window) {
-            "in the rain".to_string()
-        } else {
-            state
-                .workspaces
-                .find(window)
-                .map(|index| format!("workspace {}", state.workspaces.label(index)))
-                .unwrap_or_default()
-        };
-        let label = format!("{}  ·  {place}", state.stream_name(window));
-        if chrome
-            .deck_label
-            .as_ref()
-            .is_none_or(|(said, painted)| *said != label || painted.scale != scale)
-        {
-            chrome.deck_label = paint_deck_label(&label, scale).map(|painted| (label, painted));
-        }
-        if let Some((_, painted)) = chrome.deck_label.as_ref() {
-            // The painted area reaches past the card by its shadow's margin.
-            let m = (panel::MARGIN * DESIGN_PX) as f64;
-            let at = Point::<f64, Logical>::from((
-                (x - painted.logical.w as f64 / 2.0).max(8.0 - m),
-                y + 22.0 - m,
-            ));
-            elements.splice(
-                0..0,
-                painted
-                    .element(renderer, at, dim * ui_alpha)
-                    .map(OutputElement::Memory),
-            );
-        }
-    }
-    chrome.deck_dim.update(output_geo.size, BLACK);
-    elements.push(OutputElement::Solid(SolidColorRenderElement::from_buffer(
-        &chrome.deck_dim,
-        Point::<i32, Physical>::from((0, 0)),
-        Scale::from(scale),
-        0.62 * dim * ui_alpha,
-        Kind::Unspecified,
-    )));
-    if let Some(switcher) = state.switcher.as_mut() {
-        switcher.set_hits(hits);
-    }
-    elements
-}
-
-/// The deck's name tag: the front window's name and where it lives, on the panels' glass.
-/// The painted area holds the card's shadow around it: `panel::MARGIN` design pixels at the
-/// sides and top, and `panel::BELOW` more underneath.
-fn paint_deck_label(label: &str, scale: f64) -> Option<paint::Painted> {
-    let style = Style {
-        tracking: 0.02,
-        ..Style::new(Face::Display, 27.0, panel::BRIGHT)
-    };
-    let width = text::width(label, &style) + 2.0 * DECK_LABEL_PAD;
-    let m = panel::MARGIN;
-    let logical = Size::<i32, Logical>::from((
-        ((width + 2.0 * m) * DESIGN_PX).ceil() as i32,
-        ((DECK_LABEL_H + 2.0 * m + panel::BELOW) * DESIGN_PX).ceil() as i32,
-    ));
-    paint::Painted::new(logical, scale, |p| {
-        p.f *= DESIGN_PX;
-        panel::glass(p, m, m, width, DECK_LABEL_H);
-        p.text(label, m + DECK_LABEL_PAD, m + DECK_LABEL_H / 2.0, &style);
-    })
-}
-
-/// The deck's name tag's height and the room at its ends, in design pixels.
-const DECK_LABEL_H: f32 = 56.0;
-const DECK_LABEL_PAD: f32 = 24.0;
-
 /// How far a window may overhang the tiling area before it is scaled into it: enough for the
 /// rounding at a fractional output scale, nowhere near a client that won't shrink.
 const SLACK: f64 = 4.0;
 
-/// Where a window drawn at `rect` goes to stay inside both its `tile` and the tiling `area`:
-/// scaled down evenly (never up) and moved in from any edge it crosses. Rects are x, y, w, h.
+/// What the bar on screen `screen_index` shows, with workspace `active` on screen and `used`
+/// saying which workspaces hold windows. On the screen the keyboard is on (`first_output`) it
+/// follows bullet time's overview while that's open, and names what has the keyboard; elsewhere
+/// it names the window the keyboard would come back to there.
+fn bar_content(
+    state: &Slipstream,
+    active: usize,
+    screen_index: Option<usize>,
+    first_output: bool,
+    used: &[bool],
+) -> bar::Content {
+    let bullet = state.bullet.as_ref().filter(|_| first_output);
+    let (highlighted, home) = bullet::bar_workspaces(active, bullet);
+    let keyboard_here = first_output;
+    let title = match bullet {
+        Some(_) => state.bullet_bar_title(),
+        None if keyboard_here => state.focused_title(),
+        // Where the keyboard isn't, the window it would come back to on this screen.
+        None => state
+            .workspaces
+            .get(active)
+            .last_focus
+            .as_ref()
+            .filter(|window| state.workspaces.find(window) == Some(active))
+            .map(crate::state::window_title)
+            .unwrap_or_default(),
+    };
+    bar::Content {
+        active: highlighted,
+        home,
+        occupied: used.to_vec(),
+        elsewhere: (0..state.workspaces.count())
+            .map(|index| {
+                state
+                    .screens
+                    .showing(index)
+                    .is_some_and(|showing| Some(showing) != screen_index)
+            })
+            .collect(),
+        keyboard_here,
+        labels: (0..state.workspaces.count())
+            .map(|index| state.workspaces.label(index))
+            .collect(),
+        title,
+        mode: state.bullet.as_ref().map(|_| {
+            let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let [r, g, b] = state.bullet_rgb;
+            (
+                "BULLET TIME",
+                (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xff,
+            )
+        }),
+        status: bar::Shown::of(&state.status.lock().unwrap()),
+        do_not_disturb: state.settings.notifications.do_not_disturb,
+        unread: state.notices.unread(),
+        sharing: state.captures.sharing(),
+        caps_lock: state
+            .seat
+            .get_keyboard()
+            .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
+        awake: state.awake,
+        meter: state.meter.lock().unwrap().clone(),
+    }
+}
+
+/// The panels and cards, on the screen the keyboard is on, front to back: the explorer, quick
+/// settings, notifications, clipboard history, the key list, Alt+Tab's flat switcher (when the deck
+/// isn't drawn), gravity's arrangements, the low battery card, the new screen card, the offer at
+/// login, the share picker and the way out.
+#[allow(clippy::too_many_arguments)]
+fn card_elements(
+    state: &mut Slipstream,
+    renderer: &mut GlesRenderer,
+    size: Size<i32, Logical>,
+    scale: f64,
+    now: f64,
+    wall: f64,
+    deck_shown: bool,
+) -> Vec<OutputElement> {
+    let mut elements = Vec::new();
+    if state.explorer.is_open() {
+        let running = state.running_apps();
+        let ring = state.panel_ring();
+        elements.extend(
+            state
+                .explorer
+                .element(renderer, size.w, scale, now, running, ring)
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
+    if state.quick.is_open() {
+        let facts = state.quick_facts();
+        elements.extend(
+            state
+                .quick
+                .element(renderer, size.w, scale, now, facts)
+                .map(OutputElement::Memory),
+        );
+    }
+    if state.centre.is_open() {
+        let facts = state.centre_facts();
+        elements.extend(
+            state
+                .centre
+                .element(renderer, size, scale, now, facts, &state.notices)
+                .map(OutputElement::Memory),
+        );
+    }
+    if state.history.is_open() {
+        let ring = state.panel_ring();
+        let now = state.wall();
+        elements.extend(
+            state
+                .history
+                .element(renderer, size, scale, now, ring)
+                .map(OutputElement::Memory),
+        );
+    }
+    if state.sheet.is_open() {
+        let ring = state.panel_ring();
+        let effects = state.settings.motion.effects;
+        elements.extend(
+            state
+                .sheet
+                .element(renderer, size, scale, now, &state.bindings, ring, effects)
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
+    // Alt+Tab's switcher, on the screen the keyboard is on.
+    if state.switcher.is_some() && !deck_shown {
+        elements.extend(
+            state
+                .switcher_element(renderer, size, scale)
+                .map(OutputElement::Memory),
+        );
+    }
+    // Gravity's arrangements, while Super is held after Super+T.
+    if state.arrange.is_some() {
+        elements.extend(
+            state
+                .arrange_element(renderer, size, scale)
+                .map(OutputElement::Memory),
+        );
+    }
+    // The low battery card, above everything but the lock.
+    if state.battery.card.is_some() {
+        let mut card = state.battery.card.take();
+        if let Some(card) = card.as_mut() {
+            elements.extend(
+                card.element(renderer, size, scale, wall)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.battery.card = card;
+    }
+    // The card asking what a screen never seen here should show. Drawn where the keyboard is, as
+    // the other cards are: that is the screen being looked at when the lead goes in.
+    if state.connect.is_some() {
+        let mut connect = state.connect.take();
+        if let Some(connect) = connect.as_mut() {
+            elements.extend(
+                connect
+                    .element(renderer, size, scale, wall)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.connect = connect;
+    }
+    // The offer at login, above everything else it is asking about.
+    if state.offer.is_some() {
+        let mut offer = state.offer.take();
+        if let Some(offer) = offer.as_mut() {
+            elements.extend(
+                offer
+                    .element(renderer, size, scale, wall)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.offer = offer;
+    }
+    // The share picker, on the screen the keyboard is on: the app waiting for it is usually the
+    // one being looked at.
+    if state.share.is_some() {
+        let [r, g, b] = state
+            .ring_rgb
+            .map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+        let ring = u32::from_be_bytes([r, g, b, 0xff]);
+        let mut share = state.share.take();
+        if let Some(share) = share.as_mut() {
+            elements.extend(
+                share
+                    .element(renderer, size, scale, wall, ring)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.share = share;
+    }
+    // The way out: the ask card in the middle of the screen, or the slim one while the apps are
+    // closing. It draws whatever else is up, and the fade to black goes over everything below.
+    if state.exit.is_some() {
+        let ring = state.panel_ring();
+        let mut exit = state.exit.take();
+        if let Some(exit) = exit.as_mut() {
+            elements.extend(
+                exit.element(renderer, size, scale, wall, ring)
+                    .map(OutputElement::Memory),
+            );
+        }
+        state.exit = exit;
+    }
+    elements
+}
+
 /// Whether `window` has been sent a size it hasn't acked and drawn yet.
 fn awaiting_size(window: &Window) -> bool {
     use smithay::wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData};
@@ -2469,6 +1615,8 @@ fn awaiting_size(window: &Window) -> bool {
     sent.is_some() && sent != acked
 }
 
+/// Where a window drawn at `rect` goes to stay inside both its `tile` and the tiling `area`:
+/// scaled down evenly (never up) and moved in from any edge it crosses. Rects are x, y, w, h.
 fn fit_within(rect: [f64; 4], tile: [f64; 4], area: [f64; 4]) -> [f64; 4] {
     let (left, top) = (tile[0].max(area[0]), tile[1].max(area[1]));
     let right = (tile[0] + tile[2]).min(area[0] + area[2]);
@@ -2482,56 +1630,6 @@ fn fit_within(rect: [f64; 4], tile: [f64; 4], area: [f64; 4]) -> [f64; 4] {
         w,
         h,
     ]
-}
-
-/// Draws `elements` into an offscreen texture and saves it as a PNG, for `shot:` debug steps.
-/// `scale` must be the output's: client surfaces size themselves by it when drawn.
-pub fn save_png(
-    renderer: &mut GlesRenderer,
-    elements: &[OutputElement],
-    size: Size<i32, Physical>,
-    scale: f64,
-    path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let pixels = copy_frame(renderer, elements, size, scale)?;
-    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
-    encode_png(file, &pixels, size.w as u32, size.h as u32)?;
-    Ok(())
-}
-
-/// Draws `elements` into an offscreen texture and reads it back as opaque RGBA bytes, a row at a
-/// time from the top. `scale` must be the output's.
-pub fn copy_frame<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
-    renderer: &mut GlesRenderer,
-    elements: &[E],
-    size: Size<i32, Physical>,
-    scale: f64,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let buffer_size = Size::<i32, Buffer>::from((size.w, size.h));
-    let mut texture: GlesTexture = renderer.create_buffer(Fourcc::Abgr8888, buffer_size)?;
-    let mut target = renderer.bind(&mut texture)?;
-    let mut damage = OutputDamageTracker::new(size, scale, Transform::Normal);
-    damage.render_output(renderer, &mut target, 0, elements, BACKGROUND)?;
-    let mapping =
-        renderer.copy_framebuffer(&target, Rectangle::from_size(buffer_size), Fourcc::Abgr8888)?;
-    let mut pixels = renderer.map_texture(&mapping)?.to_vec();
-    for pixel in pixels.chunks_exact_mut(4) {
-        pixel[3] = 255;
-    }
-    Ok(pixels)
-}
-
-/// RGBA bytes, `w` × `h`, as a PNG written to `out`.
-pub fn encode_png(
-    out: impl std::io::Write,
-    pixels: &[u8],
-    w: u32,
-    h: u32,
-) -> Result<(), png::EncodingError> {
-    let mut encoder = png::Encoder::new(out, w, h);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.write_header()?.write_image_data(pixels)
 }
 
 #[cfg(test)]
