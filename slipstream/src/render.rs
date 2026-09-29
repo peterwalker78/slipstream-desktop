@@ -941,10 +941,21 @@ pub fn output_elements(
         );
     }
     if first_output && state.sheet.is_open() {
+        let ring = state.panel_ring();
+        let effects = state.settings.motion.effects;
         elements.extend(
             state
                 .sheet
-                .element(renderer, output_geo.size, scale.x, now, &state.bindings)
+                .element(
+                    renderer,
+                    output_geo.size,
+                    scale.x,
+                    now,
+                    &state.bindings,
+                    ring,
+                    effects,
+                )
+                .into_iter()
                 .map(OutputElement::Memory),
         );
     }

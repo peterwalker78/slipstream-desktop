@@ -1,6 +1,6 @@
 # Every key
 
-Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter there for the tour: six lessons on what tiling is, each one drawn happening.
+Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter there for the tour: sixteen short lessons for anyone new to tiling, each one drawn happening on a miniature of the desktop.
 
 [← back to the README](../README.md)
 

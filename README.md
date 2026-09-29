@@ -134,7 +134,7 @@ Everything you write stays in a logbook of plain files, and the app has no netwo
 - **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
-- **A tour that shows you, rather than telling you.** Six lessons on what tiling actually is, each one drawn happening. Super+/, then Enter.
+- **A tour that shows you, rather than telling you.** Sixteen short lessons for anyone new to tiling: what it is and why it beats overlapping windows, arranging, getting around, and what Slipstream does that other desktops don't. Each plays out on a miniature of the desktop, and pressing a lesson's keys tries the move on the spot. Super+/, then Enter.
 - **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)

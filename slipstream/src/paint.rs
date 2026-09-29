@@ -506,6 +506,20 @@ impl Painter {
         );
     }
 
+    /// Clears everything outside a rounded rectangle as big as the whole pixmap, as CSS
+    /// `overflow: hidden` does inside a `border-radius`.
+    pub fn round_corners(&mut self, radius: f32) {
+        let (w, h) = (self.pixmap.width(), self.pixmap.height());
+        let (Some(shape), Some(mut mask)) = (
+            rounded(0.0, 0.0, w as f32 / self.f, h as f32 / self.f, radius),
+            Mask::new(w, h),
+        ) else {
+            return;
+        };
+        mask.fill_path(&shape, FillRule::Winding, true, self.transform());
+        self.pixmap.apply_mask(&mask);
+    }
+
     /// An image already rasterised at device pixels, with its corner at (`x`, `y`).
     pub fn image(&mut self, image: &Pixmap, x: f32, y: f32) {
         self.pixmap.draw_pixmap(

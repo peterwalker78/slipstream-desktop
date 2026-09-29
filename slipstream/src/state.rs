@@ -5815,6 +5815,12 @@ impl Slipstream {
                 }
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
+                debug::Step::Tour(step, t) => {
+                    self.close_panels();
+                    let now = self.clock.tick();
+                    self.sheet.reduced_motion = self.clock.reduced_motion;
+                    self.sheet.hold_tour(step, t, now);
+                }
                 debug::Step::SheetKey(name) => {
                     let sym = xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS);
                     self.sheet_key(sym, None);

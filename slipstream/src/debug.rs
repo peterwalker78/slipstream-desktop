@@ -5,7 +5,8 @@
 //! focused window to workspace N), `close`, `shot:PATH` (save the next rendered frame as a PNG),
 //! `run:COMMAND` (start a program the way key bindings do, so X11 apps get XWayland's display),
 //! `explore` (open or close the app explorer), `hkey:NAME` (a key in the shortcut sheet, which is
-//! how the tour is stepped through), `type:TEXT` and `key:NAME` (type into the open explorer, or
+//! how the tour is stepped through), `tour:N` or `tour:N@T` (the tour at lesson N, from 0, its
+//! miniature held T of the way through its loop if given), `type:TEXT` and `key:NAME` (type into the open explorer, or
 //! press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`), `heavier`,
 //! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
 //! `tile:DIRECTION` (Super+Alt+arrow: move the focused tile `left`, `right`, `up` or `down`),
@@ -104,6 +105,8 @@ pub enum Step {
     Explore,
     /// A key in the shortcut sheet, by its xkb name: what steps through the tour.
     SheetKey(String),
+    /// The tour at a lesson, its miniature held at a point in its loop if one is given.
+    Tour(usize, Option<f32>),
     Type(String),
     Key(String),
     MoveTile(Direction),
@@ -314,6 +317,12 @@ impl Script {
                     ("run", Some(command)) => Step::Run(command.to_string()),
                     ("explore", None) => Step::Explore,
                     ("hkey", Some(name)) => Step::SheetKey(name.to_string()),
+                    ("tour", Some(at)) => match at.split_once('@') {
+                        Some((step, t)) => {
+                            Step::Tour(step.trim().parse().ok()?, Some(t.trim().parse().ok()?))
+                        }
+                        None => Step::Tour(at.trim().parse().ok()?, None),
+                    },
                     ("type", Some(text)) => Step::Type(text.to_string()),
                     ("key", Some(name)) => Step::Key(name.to_string()),
                     ("tile", Some(direction)) => Step::MoveTile(match direction.trim() {

@@ -125,6 +125,13 @@ impl Slipstream {
 
     /// A key binding pressed: an open panel makes way for it first.
     fn run_bound(&mut self, action: Action) {
+        // On the tour, a key the lesson teaches is tried on its miniature, not the real windows.
+        if self.sheet.touring() {
+            let now = self.clock.tick();
+            if self.sheet.practise(&action, now) {
+                return;
+            }
+        }
         // Alt+F4 with a panel open closes the panel, never the window behind it.
         let panel_open = self.explorer.is_open()
             || self.quick.is_open()

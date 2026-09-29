@@ -60,6 +60,7 @@ mod lock;
 mod logind;
 mod media;
 mod meter;
+mod miniature;
 mod motion;
 mod nightlight;
 mod notices;
