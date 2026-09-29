@@ -51,6 +51,11 @@ fn paint_of(rgba: u32) -> Paint<'static> {
 }
 
 fn rounded(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<tiny_skia::Path> {
+    // Nothing to fill: a shape shrunk to nothing as it animates in or out. tiny-skia would warn
+    // about an empty path on every frame it's asked to fill one.
+    if !(w > 0.0 && h > 0.0) {
+        return None;
+    }
     let r = radius.min(w / 2.0).min(h / 2.0);
     if r <= 0.0 {
         return Some(PathBuilder::from_rect(tiny_skia::Rect::from_xywh(

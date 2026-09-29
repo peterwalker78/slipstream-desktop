@@ -796,6 +796,9 @@ impl Slipstream {
         let critical = incoming.urgency >= 2 && !watching;
         // A critical notification brings the faded UI back to show itself, though not the lock's
         // screen, which shows nothing of what arrives.
+        if critical && self.screens_off {
+            self.set_screens_off(false);
+        }
         if critical && self.lock.is_none() && self.idle.is_faded() {
             let now = self.clock.tick();
             self.idle.wake(now);

@@ -693,7 +693,9 @@ impl Slipstream {
     }
 
     fn render_screen_with(&mut self, udev: &mut UdevData, node: DrmNode, crtc: crtc::Handle) {
-        if !udev.session.is_active() {
+        // Off, nothing is drawn and nothing is scheduled: the input that lights the screens again
+        // draws them.
+        if !udev.session.is_active() || self.screens_off {
             return;
         }
         let Some(gpu) = udev.gpus.get_mut(&node) else {
@@ -778,6 +780,51 @@ impl Slipstream {
             if timer.is_err() {
                 screen.retry_scheduled = false;
             }
+        }
+    }
+
+    /// Turns every screen off, or lights them all again. Off, a screen's CRTC is disabled, which
+    /// is what powers a panel or monitor down; the first frame queued afterwards enables it again.
+    pub fn set_screens_off(&mut self, off: bool) {
+        if self.screens_off == off {
+            return;
+        }
+        self.screens_off = off;
+        tracing::info!(off, "screens {}", if off { "off" } else { "on" });
+        let Some(udev) = self.udev.as_mut() else {
+            // Nested there's no panel to power; drawing simply stops until the next input.
+            return;
+        };
+        let mut lit = Vec::new();
+        for (node, gpu) in udev.gpus.iter_mut() {
+            for (crtc, screen) in gpu.screens.iter_mut() {
+                // A frame queued before the screen went off may never be reported shown, so
+                // nothing waits for one: the screen is drawn afresh when it's lit.
+                screen.waiting_for_vblank = false;
+                screen.lock_frame_queued = false;
+                if off {
+                    if let Err(err) = screen.drm_output.with_compositor(|c| c.clear()) {
+                        tracing::warn!(
+                            output = screen.output.name(),
+                            "couldn't turn the screen off: {err:?}"
+                        );
+                    }
+                } else {
+                    // The next frame must be queued even if nothing on the desktop changed while
+                    // the screen was off, since queuing is what lights it: this makes it count as
+                    // new.
+                    if let Err(err) = screen.drm_output.with_compositor(|c| c.reset_state()) {
+                        tracing::warn!(
+                            output = screen.output.name(),
+                            "couldn't reset the screen to light it: {err:?}"
+                        );
+                    }
+                    lit.push((*node, *crtc));
+                }
+            }
+        }
+        for (node, crtc) in lit {
+            self.render_screen(node, crtc);
         }
     }
 

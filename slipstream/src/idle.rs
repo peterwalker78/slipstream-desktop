@@ -26,6 +26,9 @@ use crate::anim::{Easing, Tween};
 const FADE: f64 = 0.6;
 const RETURN: f64 = 0.5;
 
+/// How long the lock screen stays lit with no input before the screens go off.
+const LOCKED_SCREEN_OFF: Duration = Duration::from_secs(60);
+
 pub struct Idle {
     last_input: Instant,
     timeout: Option<Duration>,
@@ -39,6 +42,13 @@ pub struct Idle {
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
     lock_after: Option<Duration>,
+    /// The last input, or the last moment something held the screens on, or the lock came or
+    /// went.
+    screen_idle_since: Instant,
+    /// How long without input before the screens go off; `None` never.
+    screen_off_after: Option<Duration>,
+    /// Whether the lock was up at the last look, so its coming or going restarts the wait.
+    locked_when_looked: bool,
     /// The UI's opacity held for a debug step, whatever the fade is doing.
     pub pinned: Option<f64>,
 }
@@ -55,6 +65,9 @@ impl Idle {
             inhibitors: Vec::new(),
             lock_idle_since: Instant::now(),
             lock_after: None,
+            screen_idle_since: Instant::now(),
+            screen_off_after: None,
+            locked_when_looked: false,
             pinned: None,
         }
     }
@@ -75,6 +88,32 @@ impl Idle {
         }
         self.lock_after
             .is_some_and(|after| now.saturating_duration_since(self.lock_idle_since) >= after)
+    }
+
+    /// The wait before the screens go off, from the settings; 0 never.
+    pub fn set_screen_off_after(&mut self, mins: u64) {
+        self.screen_off_after = (mins > 0).then(|| Duration::from_secs(mins.saturating_mul(60)));
+    }
+
+    /// Whether the screens should go off at `now`. The same things hold it off as hold off the
+    /// lock. The lock screen turns them off after `LOCKED_SCREEN_OFF`, counted from when it came
+    /// up, whatever the setting: nobody is reading it.
+    pub fn screen_off_due(&mut self, now: Instant, held: bool, locked: bool) -> bool {
+        self.inhibitors.retain(|surface| surface.alive());
+        if locked != self.locked_when_looked {
+            self.locked_when_looked = locked;
+            self.screen_idle_since = now;
+        }
+        if held || !self.inhibitors.is_empty() {
+            self.screen_idle_since = now;
+            return false;
+        }
+        let after = if locked {
+            Some(LOCKED_SCREEN_OFF)
+        } else {
+            self.screen_off_after
+        };
+        after.is_some_and(|after| now.saturating_duration_since(self.screen_idle_since) >= after)
     }
 
     /// Starts the wait before locking again, as input does.
@@ -105,6 +144,7 @@ impl Idle {
     pub fn input(&mut self, now: f64) -> bool {
         self.last_input = Instant::now();
         self.lock_idle_since = self.last_input;
+        self.screen_idle_since = self.last_input;
         if !self.faded {
             return false;
         }
@@ -182,6 +222,51 @@ fn timeout(secs: u64) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_screens_go_off_after_their_wait_and_sooner_on_the_lock_screen() {
+        let start = Instant::now();
+        let mut idle = Idle::new(false, 120);
+        idle.screen_idle_since = start;
+        let later = |secs: u64| start + Duration::from_secs(secs);
+        assert!(
+            !idle.screen_off_due(later(3600), false, false),
+            "never, unless set"
+        );
+
+        idle.set_screen_off_after(15);
+        assert!(!idle.screen_off_due(later(14 * 60), false, false));
+        assert!(idle.screen_off_due(later(15 * 60), false, false));
+        assert!(
+            !idle.screen_off_due(later(20 * 60), true, false),
+            "Awake or a fullscreen window holds them on"
+        );
+        assert!(!idle.screen_off_due(later(34 * 60), false, false));
+        assert!(
+            idle.screen_off_due(later(35 * 60), false, false),
+            "counted from the holding"
+        );
+
+        // The lock coming up starts a shorter wait, from that moment.
+        assert!(
+            !idle.screen_off_due(later(40 * 60), false, true),
+            "just locked"
+        );
+        assert!(!idle.screen_off_due(later(40 * 60 + 59), false, true));
+        assert!(
+            idle.screen_off_due(later(41 * 60), false, true),
+            "a minute on"
+        );
+        idle.set_screen_off_after(0);
+        assert!(
+            idle.screen_off_due(later(42 * 60), false, true),
+            "the lock screen goes off even when the setting says never"
+        );
+        assert!(
+            !idle.screen_off_due(later(43 * 60), false, false),
+            "and unlocked, never"
+        );
+    }
 
     #[test]
     fn auto_lock_is_off_by_default_and_waits_its_minutes_unless_inhibited_or_fullscreen() {

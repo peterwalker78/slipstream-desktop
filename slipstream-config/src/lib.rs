@@ -21,6 +21,7 @@
 //! night-light-schedule = "off"
 //! night-light-from = "21:00"
 //! night-light-to = "07:00"
+//! screen-off-mins = 15
 //!
 //! [notifications]
 //! do-not-disturb = false
@@ -505,6 +506,10 @@ pub struct Display {
     /// is earlier than the start.
     pub night_light_from: String,
     pub night_light_to: String,
+    /// Turn the screens off after this many minutes with no keyboard or mouse input; 0 never
+    /// does. Held off by the same things that hold off the lock: Awake, a fullscreen window, or an
+    /// app asking for the screen to stay awake. The lock screen turns them off after a minute.
+    pub screen_off_mins: u64,
     /// Where each screen sits, for the ones that shouldn't simply follow the one before. A screen
     /// with no entry goes to the right of the one before it, tops level, which is what Slipstream
     /// did before there was any say in it.
@@ -663,6 +668,7 @@ impl Default for Display {
             night_light_schedule: NightSchedule::Off,
             night_light_from: "21:00".into(),
             night_light_to: "07:00".into(),
+            screen_off_mins: 15,
             screens: Vec::new(),
         }
     }
@@ -1136,6 +1142,7 @@ mod tests {
     fn lock_defaults() {
         let settings = parse("").unwrap();
         assert_eq!(settings.lock.after_idle_mins, 0, "nothing locks by itself");
+        assert_eq!(settings.display.screen_off_mins, 15);
         assert!(settings.lock.before_sleep);
         let set = parse("[lock]\nafter-idle-mins = 5\nbefore-sleep = false\n").unwrap();
         assert_eq!(
@@ -1450,6 +1457,7 @@ mod tests {
                 night_light_schedule: NightSchedule::Custom,
                 night_light_from: "22:15".into(),
                 night_light_to: "06:45".into(),
+                screen_off_mins: 30,
                 screens: vec![ScreenPlace {
                     monitor: "Made Up MU27 0001".into(),
                     position: Position::Above,

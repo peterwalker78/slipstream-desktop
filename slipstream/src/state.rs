@@ -345,6 +345,8 @@ pub struct Slipstream {
     /// Input arrived since `ext-idle-notify` was last told: it's told once a pass rather than on
     /// every event, since each telling re-arms a timer per listener.
     pub input_since_notified: bool,
+    /// The screens are off after a spell with no input; the next input lights them again.
+    pub screens_off: bool,
     /// Which screens' gamma ramps a program of the user's own is driving.
     pub gamma: crate::gamma::Gamma,
     /// Screen captures asked for through `wlr-screencopy`, waiting for their screen to draw.
@@ -689,6 +691,7 @@ impl Slipstream {
             idle_inhibit_state,
             idle_notifier_state,
             input_since_notified: false,
+            screens_off: false,
             gamma: crate::gamma::Gamma::default(),
             screencopy: crate::screencopy::Screencopy::default(),
             keyboard_shortcuts_inhibit_state,
@@ -729,6 +732,9 @@ impl Slipstream {
         state
             .idle
             .set_lock_after(state.settings.lock.after_idle_mins);
+        state
+            .idle
+            .set_screen_off_after(state.settings.display.screen_off_mins);
         state
     }
 
@@ -4830,6 +4836,9 @@ impl Slipstream {
         // Other programs waiting on `ext-idle-notify` hear about the same input we do, from the
         // one place every input path already passes through, once the pass is done.
         self.input_since_notified = true;
+        if self.screens_off {
+            self.set_screens_off(false);
+        }
         let now = self.clock.tick();
         self.idle.input(now)
     }
@@ -5055,6 +5064,8 @@ impl Slipstream {
         tracing::info!(?settings, "settings changed");
         self.idle.set_fade_after(settings.wallpaper.fade_after_secs);
         self.idle.set_lock_after(settings.lock.after_idle_mins);
+        self.idle
+            .set_screen_off_after(settings.display.screen_off_mins);
         // Night light follows on the next pass; a new schedule is looked at afresh.
         let (new, old) = (&settings.display, &self.settings.display);
         if (
@@ -5812,6 +5823,7 @@ impl Slipstream {
                 }
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
+                debug::Step::ScreensOff(off) => self.set_screens_off(off),
                 debug::Step::Tour(step, t) => {
                     self.close_panels();
                     let now = self.clock.tick();

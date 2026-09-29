@@ -6,7 +6,8 @@
 //! `run:COMMAND` (start a program the way key bindings do, so X11 apps get XWayland's display),
 //! `explore` (open or close the app explorer), `hkey:NAME` (a key in the shortcut sheet, which is
 //! how the tour is stepped through), `tour:N` or `tour:N@T` (the tour at lesson N, from 0, its
-//! miniature held T of the way through its loop if given), `type:TEXT` and `key:NAME` (type into the open explorer, or
+//! miniature held T of the way through its loop if given), `power:off` and `power:on` (the
+//! screens off, as after a long idle, and lit again), `type:TEXT` and `key:NAME` (type into the open explorer, or
 //! press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`), `heavier`,
 //! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
 //! `tile:DIRECTION` (Super+Alt+arrow: move the focused tile `left`, `right`, `up` or `down`),
@@ -107,6 +108,9 @@ pub enum Step {
     SheetKey(String),
     /// The tour at a lesson, its miniature held at a point in its loop if one is given.
     Tour(usize, Option<f32>),
+    /// Turns the screens off (`power:off`) or lights them (`power:on`), as a long idle and
+    /// the next input do.
+    ScreensOff(bool),
     Type(String),
     Key(String),
     MoveTile(Direction),
@@ -317,6 +321,8 @@ impl Script {
                     ("run", Some(command)) => Step::Run(command.to_string()),
                     ("explore", None) => Step::Explore,
                     ("hkey", Some(name)) => Step::SheetKey(name.to_string()),
+                    ("power", Some("off")) => Step::ScreensOff(true),
+                    ("power", Some("on")) => Step::ScreensOff(false),
                     ("tour", Some(at)) => match at.split_once('@') {
                         Some((step, t)) => {
                             Step::Tour(step.trim().parse().ok()?, Some(t.trim().parse().ok()?))

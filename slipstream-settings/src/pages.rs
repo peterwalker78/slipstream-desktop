@@ -1673,6 +1673,26 @@ fn session(store: &Store) -> gtk::Widget {
         ),
         &after,
     );
+    let current = store.get().display.screen_off_mins;
+    let waits = lock_choices(current);
+    let names: Vec<String> = waits.iter().map(|&mins| describe(mins * 60)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let off_after = gtk::DropDown::from_strings(&names);
+    off_after.set_selected(waits.iter().position(|&mins| mins == current).unwrap_or(0) as u32);
+    let off_store = store.clone();
+    off_after.connect_selected_notify(move |off_after| {
+        if let Some(&mins) = waits.get(off_after.selected() as usize) {
+            off_store.change(|settings| settings.display.screen_off_mins = mins);
+        }
+    });
+    row(
+        &lock,
+        "Turn the screen off after",
+        Some(
+            "Time with no keyboard or mouse input, held off by the same things as the lock. Any key or movement lights it again. The lock screen turns it off after a minute.",
+        ),
+        &off_after,
+    );
     let before_sleep = gtk::Switch::new();
     before_sleep.set_active(store.get().lock.before_sleep);
     let sleep_store = store.clone();

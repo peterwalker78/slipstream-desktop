@@ -79,6 +79,13 @@ pub fn init_winit(
                 WinitEvent::Input(event) => state.process_input_event(event),
                 WinitEvent::Redraw => {
                     state.run_due_debug_steps();
+                    // Off, the window keeps its last picture and nothing is drawn, as a real
+                    // screen would show nothing; the debug steps and clients keep being served.
+                    if state.screens_off {
+                        let _ = state.display_handle.flush_clients();
+                        backend.window().request_redraw();
+                        return;
+                    }
                     let screenshots = state.take_screenshots();
 
                     let size = backend.window_size();

@@ -1011,6 +1011,11 @@ impl Slipstream {
             self.idle.restart_lock_wait(now);
             self.lock_for(Reason::ByItself);
         }
+        let locked = self.lock.is_some();
+        if self.idle.screen_off_due(now, held && !locked, locked) && !self.screens_off {
+            tracing::info!(locked, "idle long enough to turn the screens off");
+            self.set_screens_off(true);
+        }
         if self.sleep_delay.waiting() {
             let drawn = self.lock.as_ref().is_some_and(|lock| {
                 self.screens
