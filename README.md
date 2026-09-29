@@ -106,7 +106,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 - **Look first.** Add `-- --try` to the end and it opens in a window on the desktop you're using now, installing nothing. `-- --check` says what it would do and writes nothing.
 - **Check it.** Read [`install.sh`](install.sh) before you run it, or confirm a download was built here: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
-- **Two companion apps come with it,** Glimmerwood and Westering, as Flatpaks. From the next release the installer asks about each one first.
+- **Two companion apps come with it,** Glimmerwood and Westering, as Flatpaks. The installer asks about each one first.
 - **Take it away** with the same command and `-- --uninstall`. It removes exactly what it wrote.
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.

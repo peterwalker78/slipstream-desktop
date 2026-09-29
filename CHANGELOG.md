@@ -2,19 +2,19 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.9.0 - 2026-09-29
 
+- **Slipstream's own effects are the default.** Minimised apps become streaks of light and closed windows drop away through a shower of them, unless you choose the code rain in Settings → Appearance → Effects, which now lists Slipstream first. A settings file that already names either keeps it.
+- **A closing window is eaten by the light.** With Slipstream's own effects, the shower of streaks now pours down through the window faster than it falls and bites it away from the top along a ragged, glowing edge, with the brightest heads on the bite, where before the whole pane dropped off the screen. It takes as long as before.
+- **A tour for anyone new to tiling.** Super+/, then Enter: sixteen lessons in four parts, where there were six. Each says why before what to press, with a note for hands that know Windows, and plays out on a miniature of the desktop (its bar, apps that look like apps, the focus ring in your colour and the streams in your chosen effects) with the key lighting up as it's pressed. Press a lesson's keys to try the move on the miniature.
 - **The screens turn off when nobody's there.** After 15 minutes with no keyboard or mouse input (Settings → Session → Turn the screen off after, `[display] screen-off-mins`), and a minute after the lock screen comes up. Awake, a fullscreen window or a playing video holds it off, and any key or movement lights the screens again. Until now they stayed lit, drawing the wallpaper, until the machine slept.
 - **Lighter on the processor.** With reduced motion, a wallpaper's still picture is drawn again only when the time, date, workspace or battery it shows changes: physarum was taking a whole core to redraw the same picture. The wallpaper skips frames where nothing moved, the streams' glow is blurred in a single pass whatever its size, icons are parsed once, the bar no longer repaints when only the volume or brightness changes, the explorer no longer searches every app on every frame, and the glass fade skips its blur where the glass is sharp. None of it changes how anything looks.
-- **Contours no longer cuts a black box round the logo.** The chart runs between the letters and round them, as the other wallpapers do, and its pressure figures keep clear of the letters.
 - **A still desktop is looked at less often.** While anything moves, frames come every refresh as before; after a few frames with nothing new, the compositor checks at most every 50 ms instead of every refresh, and any input or window update brings it straight back.
 - **Smaller downloads.** Releases are built with whole-program optimisation and without their symbol table.
-- **Slipstream's own effects are the default.** Minimised apps become streaks of light and closed windows drop away through a shower of them, unless you choose the code rain in Settings → Appearance → Effects, which now lists Slipstream first. A settings file that already names either keeps it.
+- **Contours no longer cuts a black box round the logo.** The chart runs between the letters and round them, as the other wallpapers do, and its pressure figures keep clear of the letters.
+- **Long addresses wrap.** A link or any other word too long for a notification, toast or card breaks across lines, after its slashes, dashes or `=` signs where it can, instead of running off the side.
 - **The installer asks before adding Glimmerwood and Westering,** one at a time, and remembers a no. `--yes` still answers yes to everything, and with no terminal to ask in it leaves them out.
 - **Uninstalling is the install command with `--uninstall`** (and `--purge` for your settings too), so there's no need to find the unpacked download first.
-- **A tour for anyone new to tiling.** Super+/, then Enter: sixteen lessons in four parts, where there were six. Each says why before what to press, with a note for hands that know Windows, and plays out on a miniature of the desktop (its bar, apps that look like apps, the focus ring in your colour and the streams in your chosen effects) with the key lighting up as it's pressed. Press a lesson's keys to try the move on the miniature.
-- **A closing window is eaten by the light.** With Slipstream's own effects, the shower of streaks now pours down through the window faster than it falls and bites it away from the top along a ragged, glowing edge, with the brightest heads on the bite, where before the whole pane dropped off the screen. It takes as long as before.
-- **Long addresses wrap.** A link or any other word too long for a notification, toast or card breaks across lines, after its slashes, dashes or `=` signs where it can, instead of running off the side.
 
 ## 0.8.0 - 2026-09-29
 
