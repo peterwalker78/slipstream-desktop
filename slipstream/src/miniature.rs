@@ -1393,7 +1393,7 @@ fn deal(p: &mut Painter, deck: &Deck, scene: &Scene, frame: &Frame, look: &Look)
         let Some(win) = scene.windows.get(window) else {
             continue;
         };
-        let k = 0.62 - depth * 0.07;
+        let k = 0.6 - depth * 0.04;
         let (pw, ph) = (aw * k, ah * k);
         // The pane going round dips out below the others on its way.
         let dip = if depth > 0.0 && window == deck.order[0] {
@@ -1401,8 +1401,10 @@ fn deal(p: &mut Painter, deck: &Deck, scene: &Scene, frame: &Frame, look: &Look)
         } else {
             0.0
         };
-        let x = cx - pw / 2.0 + depth * 22.0;
-        let y = cy - ph / 2.0 - depth * 14.0 + dip;
+        // Fanned up and to the right, the fan centred on the area.
+        let spread = depth - (count - 1.0) / 2.0;
+        let x = cx - pw / 2.0 + spread * 46.0;
+        let y = cy - ph / 2.0 - spread * 30.0 + dip;
         // Panes are solid glass: the ones further back are darker, not see-through.
         let alpha = deck.alpha;
         window_pane(p, win.kind, x, y, pw, ph, k, alpha, scene, look);
