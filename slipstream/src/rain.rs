@@ -39,10 +39,9 @@ use crate::{
     usage::Meter,
 };
 
-// Streams keep to the windows' spacing, in logical pixels: `OUTER_GAP` below the bar and above
-// the foot of the screen, so their tops and feet line up with the windows'; a window's gap,
-// `INNER_GAP`, either side of the group, from the windows and from the screen's edge; and a
-// smaller gap between two streams, so they read as one group.
+// Streams keep a window's gap, `INNER_GAP`, all round the group: from the windows beside it, from
+// the screen's edge, below the bar and above the foot of the screen. Between two streams the gap is
+// smaller, so they read as one group.
 const STREAM_GAP: i32 = 4;
 const STREAM_EDGE: i32 = INNER_GAP;
 
@@ -172,7 +171,7 @@ pub fn glyph_size(scale: f64) -> (usize, usize) {
 }
 
 /// Where a stream's card goes, in screen pixels, for a button with its corner at `button`: as
-/// wide as the button and straight under it, `CARD_GAP` below its lower edge, down to `OUTER_GAP`
+/// wide as the button and straight under it, `CARD_GAP` below its lower edge, down to `STREAM_EDGE`
 /// above the foot of a screen `screen_h` logical pixels tall. The size is in whole logical
 /// pixels, so the buffer is shown one to one.
 fn card_frame(
@@ -185,7 +184,7 @@ fn card_frame(
     let edge = (button.y as f64 + BUTTON_H as f64 * f).round() as i32;
     let y = edge + (CARD_GAP * scale).floor().max(1.0) as i32;
     let bottom =
-        (screen_h as f64 * scale).round() as i32 - (OUTER_GAP as f64 * scale).round() as i32;
+        (screen_h as f64 * scale).round() as i32 - (STREAM_EDGE as f64 * scale).round() as i32;
     let w = stream_w();
     let h = (((bottom - y) as f64 / scale).floor() as i32).max(1);
     (Point::from((x, y)), Size::from((w, h)))
@@ -464,7 +463,7 @@ impl Rain {
             let centre = column.x as f64 + column.w as f64 / 2.0;
             let button = Point::<f64, Logical>::from((
                 centre - header.logical.w as f64 / 2.0,
-                (top + OUTER_GAP) as f64,
+                (top + STREAM_EDGE) as f64,
             ))
             .to_physical(scale)
             .to_i32_round::<i32>();
@@ -780,7 +779,7 @@ mod tests {
             );
             let bottom = at.y + (size.h as f64 * scale).round() as i32;
             let margin = (768.0 * scale).round() as i32 - bottom;
-            let wanted = (OUTER_GAP as f64 * scale).round() as i32;
+            let wanted = (STREAM_EDGE as f64 * scale).round() as i32;
             assert!(
                 (wanted..=wanted + scale.ceil() as i32 + 1).contains(&margin),
                 "{margin} px above the foot at {scale}×, wanted {wanted}"
