@@ -81,6 +81,10 @@ Each stream spells out its app's name as it falls. Click one to bring the window
 
 <br clear="right">
 
+**Closing works the same way.** Close a window and it's read out into falling code, with the flicker of a failing CRT. With Slipstream's own look it drops while a shower of streaks of light pours down through it, eating it away from the top.
+
+<img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
+
 ## Bullet time
 
 <img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
@@ -96,6 +100,12 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 - **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
 - **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into the code rain instead, with a quiet toast to say so.
 - **Slipstream can tell that you're typing, so it knows not to interrupt you** - but never what you're typing.
+
+## New to tiling? Take the tour
+
+<img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, the whole layout turning a quarter, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
+
+Press Super+/, then Enter. Sixteen short lessons take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to what Slipstream does that other desktops don't. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
 
 ## The other half: Glimmerwood
 
@@ -125,7 +135,6 @@ Everything you write stays in a logbook of plain files, and the app has no netwo
 
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
-- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT. With Slipstream's own effects it drops while a shower of streaks of light pours down through it, eating it away from the top.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
 - **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
 - **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
@@ -134,7 +143,6 @@ Everything you write stays in a logbook of plain files, and the app has no netwo
 - **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
-- **A tour that shows you, rather than telling you.** Sixteen short lessons for anyone new to tiling: what it is and why it beats overlapping windows, arranging, getting around, and what Slipstream does that other desktops don't. Each plays out on a miniature of the desktop, and pressing a lesson's keys tries the move on the spot. Super+/, then Enter.
 - **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
