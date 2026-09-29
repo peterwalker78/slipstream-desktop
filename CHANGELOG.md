@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- **Long addresses wrap.** A link or any other word too long for a notification, toast or card breaks across lines, after its slashes, dashes or `=` signs where it can, instead of running off the side.
+
 ## 0.8.0 - 2026-09-29
 
 - **Slipstream's own effects.** Settings → Appearance → Effects chooses between the Matrix rain and Slipstream (`[motion] effects`). With Slipstream, a minimised app becomes streaks of light falling at different depths, near ones wider, brighter and faster with a soft glow at the head, more of them, faster and greener the harder the app works, at the same pace as the code rain. Its name runs down the card on its side like a book's spine, dim until the light passes over it. A closed window drops off the bottom of the screen in one piece, and a shower of the same streaks pours off it, coloured from the window at first and then green, fading once it has gone.

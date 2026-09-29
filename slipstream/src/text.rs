@@ -169,8 +169,8 @@ pub fn ellipsize(text: &str, style: &Style, room: f32) -> String {
     String::new()
 }
 
-/// `text` broken at spaces into lines no wider than `room`. A single word wider than that gets a
-/// line to itself.
+/// `text` broken at spaces into lines no wider than `room`. A single word wider than that, such
+/// as a long address, is broken too, where it has a natural place to (`break_point`).
 pub fn wrap(text: &str, style: &Style, room: f32) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
@@ -180,16 +180,49 @@ pub fn wrap(text: &str, style: &Style, room: f32) -> Vec<String> {
         } else {
             format!("{line} {word}")
         };
-        if line.is_empty() || width(&longer, style) <= room {
+        if width(&longer, style) <= room {
             line = longer;
-        } else {
-            lines.push(std::mem::replace(&mut line, word.to_string()));
+            continue;
         }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+        }
+        let mut rest = word;
+        while width(rest, style) > room {
+            let cut = break_point(rest, style, room);
+            lines.push(rest[..cut].to_string());
+            rest = &rest[cut..];
+        }
+        line = rest.to_string();
     }
     if !line.is_empty() {
         lines.push(line);
     }
     lines
+}
+
+/// Where to break `word`, which is wider than `room`: after the last of `/ ? & = . - _ # :` that
+/// leaves the first part fitting and at least half the room filled, so an address breaks between
+/// its parts; otherwise after as many characters as fit. Always at least one character, so a
+/// room too narrow for anything still moves on.
+fn break_point(word: &str, style: &Style, room: f32) -> usize {
+    let mut fits = 0;
+    let mut natural = None;
+    for (at, ch) in word.char_indices() {
+        let end = at + ch.len_utf8();
+        let wide = width(&word[..end], style);
+        if wide > room {
+            break;
+        }
+        fits = end;
+        if matches!(ch, '/' | '?' | '&' | '=' | '.' | '-' | '_' | '#' | ':') && wide >= room * 0.5 {
+            natural = Some(end);
+        }
+    }
+    if fits == 0 {
+        return word.chars().next().map_or(word.len(), char::len_utf8);
+    }
+    natural.unwrap_or(fits)
 }
 
 /// Draws `text` from `x` with its baseline at `y`, blended over what's in `pixmap`. Returns its
@@ -283,6 +316,32 @@ mod tests {
         assert!(lines.iter().all(|line| width(line, &style) <= 150.0));
         assert_eq!(lines.join(" "), body);
         assert!(wrap("", &style, 150.0).is_empty());
+    }
+
+    #[test]
+    fn a_long_address_breaks_to_fit_and_keeps_every_character() {
+        let style = Style::new(Face::Body, 14.0, 0xffffffff);
+        let url = "https://example.org/a/very/long/path/to/something?with=a&query=string&and=more#section-four";
+        let body = format!("See {url} for the details.");
+        let lines = wrap(&body, &style, 150.0);
+        assert!(lines.len() > 2);
+        for line in &lines {
+            assert!(width(line, &style) <= 150.0, "{line:?} is too wide");
+        }
+        assert_eq!(lines.concat().replace(' ', ""), body.replace(' ', ""));
+        // It breaks after the address's own separators where it can.
+        let breaks: Vec<char> = lines[..lines.len() - 1]
+            .iter()
+            .filter_map(|line| line.chars().last())
+            .collect();
+        assert!(breaks.iter().any(|c| "/?&=.-_#:".contains(*c)), "{lines:?}");
+    }
+
+    #[test]
+    fn a_room_too_narrow_for_one_character_still_finishes() {
+        let style = Style::new(Face::Body, 14.0, 0xffffffff);
+        let lines = wrap("abc", &style, 1.0);
+        assert_eq!(lines, ["a", "b", "c"]);
     }
 
     #[test]
