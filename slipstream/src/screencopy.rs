@@ -588,7 +588,7 @@ mod tests {
         assert!(!screencopy.allowed_once(&grim));
         screencopy.allow_once(grim.clone());
         screencopy.allow_once(grim.clone());
-        assert_eq!(screencopy.once, [grim.clone()]);
+        assert_eq!(screencopy.once, std::slice::from_ref(&grim));
         assert!(screencopy.allowed_once(&grim));
         // A program of the same name somewhere else is a different program.
         assert!(!screencopy.allowed_once(Path::new("/home/someone/bin/grim")));

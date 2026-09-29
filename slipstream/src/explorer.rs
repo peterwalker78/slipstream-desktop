@@ -1694,8 +1694,8 @@ mod tests {
             run_label("~/Documents", false),
             (true, "Open “~/Documents”".into())
         );
-        assert_eq!(run_label("htop -d 5", false).0, false);
-        assert_eq!(run_label("https://example.org", false).0, true);
+        assert!(!run_label("htop -d 5", false).0);
+        assert!(run_label("https://example.org", false).0);
         // The look-up itself: a program file in a made-up folder.
         let dir = crate::files::test_scratch("run-label");
         let tool = dir.join("tool");

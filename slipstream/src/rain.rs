@@ -781,10 +781,10 @@ mod tests {
     #[test]
     fn the_light_stays_inside_its_card() {
         let mut glyphs = Glyphs::load().expect("the font loads");
-        for scale in [1.0, 1.25, 2.0] {
+        for scale in [1.0_f64, 1.25, 2.0] {
             let device = (
-                (35.0 * scale as f64).round() as i32,
-                (600.0 * scale as f64).round() as i32,
+                (35.0 * scale).round() as i32,
+                (600.0 * scale).round() as i32,
             );
             let card = Card::paint(device, scale).expect("the card paints");
             let (iw, ih) = card.inner;

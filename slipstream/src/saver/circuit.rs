@@ -394,7 +394,7 @@ mod tests {
         let layout = layout(1920, 1200).unwrap();
         let mut circuit = Circuit::default();
         circuit.reset(&layout, 3);
-        let carrier = (hash01(0 ^ 0xca77) * circuit.tracks.len() as f32) as usize;
+        let carrier = (hash01(0xca77) * circuit.tracks.len() as f32) as usize;
         let track = &circuit.tracks[carrier];
         let len = track.steps.len() as f32;
         // The first time its pulse reaches the pad, a little after.

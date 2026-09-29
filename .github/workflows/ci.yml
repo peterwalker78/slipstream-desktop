@@ -52,7 +52,7 @@ jobs:
         run: . ~/.cargo/env && cargo fmt --all --check
 
       - name: Clippy
-        run: . ~/.cargo/env && cargo clippy --workspace --locked -- -D warnings
+        run: . ~/.cargo/env && cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
         run: . ~/.cargo/env && cargo test --workspace --locked

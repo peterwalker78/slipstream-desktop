@@ -843,8 +843,10 @@ mod tests {
 
     #[test]
     fn left_and_right_walk_a_notifications_buttons_and_enter_presses_one() {
-        let mut centre = Centre::default();
-        centre.selected = Item::Notice(7);
+        let mut centre = Centre {
+            selected: Item::Notice(7),
+            ..Centre::default()
+        };
         centre.buttons.insert(7, 2);
         let ids = [7];
         centre.key(Keysym::Right, false, &ids);
