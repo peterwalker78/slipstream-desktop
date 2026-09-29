@@ -125,7 +125,7 @@ Everything you write stays in a logbook of plain files, and the app has no netwo
 
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
-- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT. With Slipstream's own effects it drops away in a shower of streaks of light.
+- **Close into the rain.** A closing window is read out into falling code, with the flicker of a failing CRT. With Slipstream's own effects it drops while a shower of streaks of light pours down through it, eating it away from the top.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
 - **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
 - **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
