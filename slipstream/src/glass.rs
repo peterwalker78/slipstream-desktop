@@ -261,9 +261,9 @@ pub struct Glass {
     /// A shader or texture failed, so the UI fades plainly instead.
     broken: bool,
     /// The UI, flat.
-    texture: Option<(GlesTexture, Size<i32, Physical>)>,
+    texture: Option<tilt::Canvas>,
     /// The screen with the wallpaper over the UI.
-    through: Option<(GlesTexture, Size<i32, Physical>)>,
+    through: Option<tilt::Canvas>,
 }
 
 impl Glass {
@@ -317,7 +317,7 @@ impl Glass {
             scale,
             "the glass fade",
         )?;
-        let (texture, _) = self.texture.as_ref()?;
+        let texture = &self.texture.as_ref()?.texture;
         Some(TextureShaderElement::new(
             whole_screen(renderer, texture, logical, physical),
             self.program.clone()?,
@@ -344,7 +344,7 @@ impl Glass {
             return None;
         }
         let pane = {
-            let (texture, _) = self.texture.as_ref()?;
+            let texture = &self.texture.as_ref()?.texture;
             TextureShaderElement::new(
                 whole_screen(renderer, texture, logical, physical),
                 self.program.clone()?,

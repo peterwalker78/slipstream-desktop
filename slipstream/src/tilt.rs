@@ -232,7 +232,7 @@ pub struct Stage {
     program: Option<GlesTexProgram>,
     /// The shader or texture failed, so the overview is drawn flat instead.
     broken: bool,
-    texture: Option<(GlesTexture, Size<i32, Physical>)>,
+    texture: Option<Canvas>,
 }
 
 impl Stage {
@@ -339,13 +339,24 @@ pub fn supersample(physical: Size<i32, Physical>) -> f64 {
     }
 }
 
+/// A picture an effect draws off screen, kept from frame to frame with the damage tracker that drew
+/// it, so the next frame redraws only what changed in it rather than all of it. Bullet time draws
+/// the desktop at twice its density this way; the glass fade, Alt+Tab's panes, a closing window
+/// and the unlock draw theirs too.
+pub struct Canvas {
+    pub texture: GlesTexture,
+    size: Size<i32, Physical>,
+    scale: f64,
+    damage: OutputDamageTracker,
+}
+
 /// Draws `elements` into `texture` (made, or made again at a new size, as needed) and returns it
 /// as an element covering the screen, for a shader to show. A texture that can't be made sets
 /// `broken`, so the effect gives way to plain drawing. `what` names the effect in the log.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_offscreen(
     renderer: &mut GlesRenderer,
-    texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
+    texture: &mut Option<Canvas>,
     broken: &mut bool,
     elements: &[OutputElement],
     logical: Size<i32, Logical>,
@@ -371,7 +382,7 @@ pub fn draw_offscreen(
 #[allow(clippy::too_many_arguments)]
 pub fn draw_offscreen_over(
     renderer: &mut GlesRenderer,
-    texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
+    texture: &mut Option<Canvas>,
     broken: &mut bool,
     elements: &[OutputElement],
     logical: Size<i32, Logical>,
@@ -381,10 +392,20 @@ pub fn draw_offscreen_over(
     clear: Color32F,
     alpha: Option<f32>,
 ) -> Option<TextureRenderElement<GlesTexture>> {
-    if texture.as_ref().is_none_or(|(_, size)| *size != physical) {
+    if texture
+        .as_ref()
+        .is_none_or(|kept| kept.size != physical || kept.scale != scale)
+    {
         let size = Size::<i32, Buffer>::from((physical.w, physical.h));
         match renderer.create_buffer(Fourcc::Abgr8888, size) {
-            Ok(made) => *texture = Some((made, physical)),
+            Ok(made) => {
+                *texture = Some(Canvas {
+                    texture: made,
+                    size: physical,
+                    scale,
+                    damage: OutputDamageTracker::new(physical, scale, Transform::Normal),
+                })
+            }
             Err(err) => {
                 tracing::warn!("no texture for {what}, so it's drawn plainly: {err}");
                 *broken = true;
@@ -392,15 +413,22 @@ pub fn draw_offscreen_over(
             }
         }
     }
-    let (texture, _) = texture.as_mut()?;
+    let kept = texture.as_mut()?;
     {
-        let mut target = renderer.bind(texture).ok()?;
-        let mut damage = OutputDamageTracker::new(physical, scale, Transform::Normal);
-        if let Err(err) = damage.render_output(renderer, &mut target, 0, elements, clear) {
+        let mut target = renderer.bind(&mut kept.texture).ok()?;
+        // Age 1: the texture still holds the last frame this tracker drew, so only what has
+        // changed since is drawn again. A new tracker has no last frame and draws everything.
+        if let Err(err) = kept
+            .damage
+            .render_output(renderer, &mut target, 1, elements, clear)
+        {
             tracing::warn!("couldn't draw {what}: {err:?}");
+            // Whatever the texture holds now isn't what the tracker thinks: start afresh.
+            kept.damage = OutputDamageTracker::new(physical, scale, Transform::Normal);
             return None;
         }
     }
+    let texture = &kept.texture;
     Some(TextureRenderElement::from_static_texture(
         Id::new(),
         renderer.context_id(),

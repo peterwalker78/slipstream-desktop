@@ -125,7 +125,7 @@ pub struct Chrome {
     /// The lock's veil over the wallpaper.
     veil: SolidColorBuffer,
     /// The desktop as it comes back from behind the lock, and whether that texture failed.
-    unlock: Option<(GlesTexture, Size<i32, Physical>)>,
+    unlock: Option<tilt::Canvas>,
     unlock_broken: bool,
     /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
     panes: crate::pane::Panes,
@@ -2214,7 +2214,7 @@ fn unlock_zoom(
         scale,
         "the unlock",
     )?;
-    let (texture, _) = chrome.unlock.as_ref()?;
+    let texture = &chrome.unlock.as_ref()?.texture;
     let shown = Size::<i32, Logical>::from((
         (logical.w as f64 * zoom).round() as i32,
         (logical.h as f64 * zoom).round() as i32,

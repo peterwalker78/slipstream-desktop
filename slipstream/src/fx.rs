@@ -19,7 +19,7 @@ use smithay::backend::renderer::{
         texture::TextureRenderElement,
     },
     gles::{
-        GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
+        GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType,
         element::TextureShaderElement,
     },
 };
@@ -187,7 +187,7 @@ impl Fx {
         &mut self,
         renderer: &mut GlesRenderer,
         effects: Effects,
-        texture: &mut Option<(GlesTexture, Size<i32, Physical>)>,
+        texture: &mut Option<tilt::Canvas>,
         mut elements: Vec<OutputElement>,
         rect: Rectangle<f64, Logical>,
         bottom: f64,
@@ -252,7 +252,7 @@ impl Fx {
             Id::new(),
             renderer.context_id(),
             corner.to_f64(),
-            texture.as_ref()?.0.clone(),
+            texture.as_ref()?.texture.clone(),
             1,
             Transform::Normal,
             None,

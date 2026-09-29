@@ -11,8 +11,8 @@ use smithay::{
         Renderer,
         element::{AsRenderElements, Id, Kind, texture::TextureRenderElement},
         gles::{
-            GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
-            UniformValue, element::TextureShaderElement,
+            GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType, UniformValue,
+            element::TextureShaderElement,
         },
     },
     desktop::Window,
@@ -192,7 +192,7 @@ impl Axis {
 /// A window's picture for its pane, and whether it was drawn this frame.
 struct Kept {
     window: Window,
-    texture: Option<(GlesTexture, Size<i32, Physical>)>,
+    texture: Option<crate::tilt::Canvas>,
     used: bool,
 }
 
@@ -310,7 +310,7 @@ impl Panes {
             scale,
             "a glass pane",
         )?;
-        let (texture, _) = texture.as_ref()?;
+        let texture = &texture.as_ref()?.texture;
         // The picture is laid out in the window's own logical pixels, which the pose may show
         // bigger or smaller: from those to the pose's, then on to the screen.
         let stretch = [

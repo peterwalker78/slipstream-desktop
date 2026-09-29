@@ -61,7 +61,7 @@ pub struct Ghost {
     /// Falls away in these effects rather than fading (`fx.rs`), and the picture that's drawn
     /// from.
     pub rain: Option<Effects>,
-    pub texture: Option<(GlesTexture, Size<i32, Physical>)>,
+    pub texture: Option<crate::tilt::Canvas>,
 }
 
 impl Picture {
