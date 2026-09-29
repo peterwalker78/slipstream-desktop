@@ -3,3 +3,8 @@ lettering: heavy slab letters cut by thin slits, drawn on the wallpapers' quarte
 Regenerate with:
 
     python3 slipstream-logo.py slipstream-logo
+
+readme/wordmark-dark.svg and readme/wordmark-light.svg are the same letters as vector shapes, in the
+logo's amber, mint and cyan and in deeper shades of them for light pages. Regenerate with:
+
+    python3 slipstream-wordmark.py readme/wordmark

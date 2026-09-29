@@ -1,11 +1,17 @@
 <div align="center">
 
-# Slipstream
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/readme/wordmark-dark.svg">
+  <img src="assets/readme/wordmark-light.svg" alt="Slipstream" width="560">
+</picture>
 
 **The Linux desktop the movies promised.**
 
-Apps that transfer to digital rain. Wallpapers that come alive the moment you walk away.<br>
-Nothing that interrupts you. Nothing that ever leaves your machine.
+A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,<br>
+in one download that installs beside the desktop you have.
+
+Windows that pour away into digital rain. Wallpapers that come alive when you step away.<br>
+Nothing that interrupts you, and nothing that leaves your machine.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
@@ -15,39 +21,15 @@ Nothing that interrupts you. Nothing that ever leaves your machine.
 
 <sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
-[**Get it**](#get-slipstream) · [**Why**](#why-slipstream-exists) · [**Glimmerwood**](#the-other-half-glimmerwood) · [**Westering**](#after-dark-westering) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
+[**Get it**](#get-slipstream) · [**Questions**](#questions) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
 
 </div>
 
 ## Why Slipstream exists
 
-Movies always made computers look better than what big tech has delivered. Screens of falling green code, one key that does something enormous, someone who clearly knows exactly what they're doing. Then you sit down at a real computer, and there's a taskbar.
+Films always showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. That last part is the one the films got right. The people who look like wizards on screen are just people who do everything from the keyboard.
 
-**And everything on that screen is competing for you.** Infinite feeds, red badges, autoplay, notifications timed to pull you back the moment you settle into something that matters. It has quietly trained all of us to check one thing and lose an hour.
-
-**So Slipstream is the other kind of computer: a workshop, not a slot machine.** Good-looking enough that you want to sit down at it. Quiet enough that you get lost in the work instead of the machine. Everything a keystroke away - which is the part the movies genuinely got right, because the people who look like wizards on screen are just people who never reach for the mouse.
-
-Free, open source, and yours to keep. It installs **beside** the desktop you already use, so trying it costs you nothing: pick Slipstream at the login screen, and go back whenever you like.
-
-## Get Slipstream
-
-One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
-
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
-```
-
-Then log out and choose **Slipstream** on the login screen. Super+/ shows every key.
-
-**Rather look before you leap?** Add `-- --try` and it opens in a window on the desktop you're using now, installing nothing:
-
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
-```
-
-**Status: beta.** Slipstream is developed and used as a daily desktop on Bazzite (Fedora Atomic), and every release is checked on Debian, Ubuntu, Fedora, Arch and openSUSE. Expect rough edges, and changes between versions.
-
-[**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
+Most screens now are built to keep you checking one more thing. **Slipstream is a workshop, not a slot machine.** Good-looking enough that you want to sit down at it, quiet enough that you get lost in the work instead of the machine, and everything a keystroke away. It's a whole desktop with nothing to assemble, free and open source, and it sits beside the one you use now: pick it at the login screen, and go back whenever you like.
 
 ## Your wallpaper is alive
 
@@ -69,7 +51,7 @@ Step away from your desk and the desktop dissolves and hands over the screen. Th
 
 <img src="assets/readme/rain.webp" alt="The right edge of the screen: a window pours into a new stream of code rain beside two that are already running, each under the icon of the app it came from, and a moment later it comes back out. The busy app's stream falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
 
-Put a window away and it doesn't disappear into a bar along the bottom. It pours down the side of the screen as a stream of falling green code, and carries on running there.
+Put a window away and it pours down the side of the screen as a stream of falling green code, and carries on running there.
 
 **The rain is a readout.** A busy app races, bright green. A quiet one drifts down slowly in grey. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
 
@@ -77,13 +59,9 @@ Put a window away and it doesn't disappear into a bar along the bottom. It pours
 
 Each stream spells out its app's name as it falls. Click one to bring the window back.
 
-**Or Slipstream's own look.** Settings → Appearance → Effects swaps the code for streaks of light falling at different depths, with the app's name down the card like a book's spine, lit wherever the light passes. It says the same things: more light, faster and greener, the harder the app works.
+Prefer something calmer? Settings swaps the code for [streaks of falling light](guide/features.md#the-code-rain-in-full).
 
 <br clear="right">
-
-**Closing works the same way.** Close a window and it's read out into falling code, with the flicker of a failing CRT. With Slipstream's own look it drops while a shower of streaks of light pours down through it, eating it away from the top.
-
-<img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
 
 ## Bullet time
 
@@ -95,7 +73,7 @@ One shortcut tips the whole desktop back into the distance, with every window yo
 
 <img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
 
-Most desktops let any app break your train of thought at any moment. Slipstream doesn't.
+Slipstream puts your concentration first.
 
 - **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
 - **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into the code rain instead, with a quiet toast to say so.
@@ -105,31 +83,28 @@ Most desktops let any app break your train of thought at any moment. Slipstream 
 
 <img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, the whole layout turning a quarter, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
 
-Press Super+/, then Enter. Sixteen short lessons take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to what Slipstream does that other desktops don't. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
+Press Super+/, then Enter. Sixteen short lessons take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to the ideas Slipstream is built on. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
 
-## The other half: Glimmerwood
+## Get Slipstream
 
-<img src="assets/readme/glimmerwood.webp" alt="Glimmerwood showing a Wikipedia article. Its chrome is a single dark bar with the address in it, and up in the corner the wisp, a small glowing flame with a friendly face, sits in its nook." width="960">
+One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
 
-The desktop keeps your focus. **[Glimmerwood](https://github.com/peterwalker78/glimmerwood) looks after the hours you spend online.** It's a quiet, lightweight browser, and home to **the wisp**: a small glowing flame with a face who sits in the corner of the toolbar and reflects how your time online really feels, the way the sky reflects the weather.
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
+```
 
-Read, learn or make something and it brightens and gives off little motes of light. Sink into an endless feed and it clouds over and grows sleepy, as if it's hoping you'll step outside too. **Close the laptop and it recovers fastest of all.** It never blocks a page, never nags and never shames you - and like Slipstream, nothing about you ever leaves your computer.
+Then log out and choose **Slipstream** on the login screen. Tap Super for your apps, Super+Enter for a terminal, Super and the arrows to move around, Super+Tab for bullet time, and Super+/ for every key and the tour.
 
-**Super+B opens a new browser window,** whichever browser you've set as your default.
+- **Look first.** Add `-- --try` to the end and it opens in a window on the desktop you're using now, installing nothing. `-- --check` says what it would do and writes nothing.
+- **Check it.** Read [`install.sh`](install.sh) before you run it, or confirm a download was built here: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
+- **Two companion apps come with it,** Glimmerwood and Westering, as Flatpaks. From the next release the installer asks about each one first.
+- **Take it away** with the same command and `-- --uninstall`. It removes exactly what it wrote.
 
-**Slipstream and Glimmerwood are two halves of the same desktop.** Slipstream installs it and keeps it up to date for you; Glimmerwood is its own project, and just as happy on any other Linux desktop.
+**You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 
-## After dark: Westering
+**Status: beta (0.8).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. Expect changes between versions; the [changelog](CHANGELOG.md) says what's new in each.
 
-<img src="assets/readme/westering.webp" alt="Westering: the night sky drawn in fine dots, with the Milky Way running through it." width="960">
-
-For when your head won't switch off. **[Westering](https://github.com/peterwalker78/westering) is Slipstream's companion for the end of the day: a small stargazing game that is designed to let you go.** It's a few quiet minutes to wind down and come back to what matters: the people who are there for you, something to look forward to, and setting down what's weighing on you so it's lighter in the morning.
-
-It draws the real sky over you tonight in fine dots, the same dots as Slipstream's wallpapers: the real stars, the Moon at its real phase, the planets that are really up. Sweep across it for the night's finds, and some nights follow a star-hop, a story told among the stars that are up, or a walk along the Moon's edge of night. The wisp from Glimmerwood comes along, out for the night, to show you around on your first visit and keep quiet after that.
-
-Every evening has the same three parts: **set it down**, where anything on your mind hangs low in the west; **look up**; and **wind down**, when the screen dims because eyes need twenty minutes to open to the dark, and the sky carries your weights down behind the horizon. Its last line names something real to go outside and see, or something from tonight worth keeping.
-
-Everything you write stays in a logbook of plain files, and the app has no network access at all. Slipstream installs it and keeps it up to date, like Glimmerwood; it's its own project, and runs on any Linux desktop.
+[**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 
 ## Everything else you'd expect
 
@@ -151,9 +126,34 @@ Everything you write stays in a logbook of plain files, and the app has no netwo
 
 - No telemetry, ever. What you do on your computer stays on your computer.
 - Nothing in Slipstream is built to keep you looking at it for longer than you meant to.
-- No AI in the desktop. Slipstream has no AI features and none are planned.
+- No AI features, ever.
 - Keybindings never take keys that input methods, screen readers, games or apps rely on.
 - Every effect has a reduced-motion version, switched live from Settings.
+
+## Questions
+
+**Is it a whole desktop?** Yes: compositor, bar, notifications, lock screen, app explorer and a Settings app, with nothing to put together yourself. Settings are kept in plain text, in `~/.config/slipstream/settings.toml`.
+
+**Is it built on another compositor?** No. It's a Wayland compositor of its own, written in Rust with the [Smithay](https://github.com/Smithay/smithay) library.
+
+**Will it change the desktop I have?** No. It's added to the login screen beside it, and uninstalling removes exactly what the installer wrote.
+
+**Will my apps run?** Wayland apps, X11 apps through XWayland, Flatpaks and games all do. Screenshot and recording tools like `grim` and `wf-recorder` keep working too.
+
+**Does it phone home?** No. There's no telemetry, and it never checks for updates by itself.
+
+**What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
+
+## Companions
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="https://github.com/peterwalker78/glimmerwood"><img src="assets/readme/glimmerwood.webp" alt="Glimmerwood showing a Wikipedia article. Its chrome is a single dark bar with the address in it, and up in the corner the wisp, a small glowing flame with a friendly face, sits in its nook." width="100%"></a><br><b><a href="https://github.com/peterwalker78/glimmerwood">Glimmerwood</a></b>, a quiet, lightweight browser. Its wisp, a small flame in the toolbar, brightens when you read, learn or make something, and grows sleepy in an endless feed. It never blocks or nags.</td>
+<td width="50%" valign="top"><a href="https://github.com/peterwalker78/westering"><img src="assets/readme/westering.webp" alt="Westering: the night sky drawn in fine dots, with the Milky Way running through it." width="100%"></a><br><b><a href="https://github.com/peterwalker78/westering">Westering</a></b>, for the end of the day: a few quiet minutes under tonight's real sky, drawn in the same fine dots as the wallpapers, to set down what's on your mind. It has no network access at all.</td>
+</tr>
+</table>
+
+Both are projects of their own that run on any Linux desktop. The installer adds them as Flatpaks; Super+B opens a new window of whichever browser you've made your default.
 
 ## Help and detail
 

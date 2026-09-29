@@ -46,6 +46,10 @@ It's built from xscreensaver's GLMatrix, the classic recreation of the movie's e
 
 <br clear="right">
 
+**Closing works the same way.** Close a window and it's read out into falling code, with the flicker of a failing CRT. With Slipstream's own look it drops while a shower of streaks of light pours down through it, eating it away from the top.
+
+<img src="../assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
+
 ## Bullet time, in full
 
 <img src="../assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
