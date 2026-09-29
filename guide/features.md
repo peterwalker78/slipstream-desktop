@@ -86,6 +86,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
 - **Notifications** (Super+N): pop-ups with action buttons, sounds from your sound theme, a notification centre, do not disturb. Each notification knows the window it came from, even `notify-send` in a terminal, and opening it takes you there.
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
+- **The screens turn off when nobody's there:** after 15 minutes with no input (Settings → Session), and a minute after the lock screen comes up. Awake, a fullscreen window or a playing video holds it off; any key or movement lights them again.
 - **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied.
 - **Screens** (Settings → Screens): resolution, refresh rate and scale per screen, and where each one sits so the pointer and Super+arrows cross between them the way they really are on your desk. A screen is remembered by what it reports about itself, so moving it to another port keeps its settings.
 - **Works with the wider Wayland world:** input methods (IBus, fcitx5) and on-screen keyboards, launchers and pickers that use layer shell (fuzzel, wofi, slurp), cursor themes by name, frame timing for smooth video, touchpad gestures, and pointer lock for games.
