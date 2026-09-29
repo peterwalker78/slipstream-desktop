@@ -13,7 +13,7 @@
 //!
 //! [motion]
 //! reduced = false
-//! effects = "matrix"
+//! effects = "slipstream"
 //! close-into-rain = true
 //!
 //! [display]
@@ -483,12 +483,12 @@ impl Default for Motion {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Effects {
-    /// Code rain: glyphs falling in columns, and a closed window read out into them.
-    #[default]
-    Matrix,
     /// Streaks of light falling at different depths, and a closed window dropping away with a
     /// wake of light.
+    #[default]
     Slipstream,
+    /// Code rain: glyphs falling in columns, and a closed window read out into them.
+    Matrix,
 }
 
 /// The screens.
@@ -1103,7 +1103,7 @@ mod tests {
         assert_eq!(settings.wallpaper.change_every_mins, 10);
         assert!(!settings.motion.reduced);
         assert!(settings.motion.close_into_rain);
-        assert_eq!(settings.motion.effects, Effects::Matrix);
+        assert_eq!(settings.motion.effects, Effects::Slipstream);
         assert!(!settings.display.night_light);
         assert!(!settings.notifications.do_not_disturb);
         assert!(settings.notifications.wait_while_typing);

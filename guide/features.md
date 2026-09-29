@@ -32,21 +32,24 @@ The same keys work in both, meaning what they mean there:
 - **Super+F** fills the area with the window, and back, in either.
 - **Super+R** turns a tiling layout a quarter, every window going with it, and Super+Shift+R turns it back. That one is tiling's alone.
 
-## The code rain, in full
+## The streams, in full
 
-<img src="../assets/readme/rain.webp" alt="The right edge of the screen: a window pours into a new stream of code rain beside two that are already running, each under the icon of the app it came from, and a moment later it comes back out. The busy app's stream falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
+<table align="right">
+<tr>
+<td align="center"><img src="../assets/readme/streams-slipstream.webp" alt="The right edge of the screen in Slipstream's own effects: a window pours into a new stream beside two that are already running, each under its app's icon, and a moment later it comes back out. The busy app's stream pours fast, bright green streaks of light; the idle one sends a few slow grey ones." width="180"><br><sub>Slipstream</sub></td>
+<td align="center"><img src="../assets/readme/streams-matrix.webp" alt="The same scene in the code rain: a window pours into a new stream of falling green code beside two that are already running, and comes back out. The busy app's rain falls fast and bright, the idle one slow and grey, and each stream spells out its app's name." width="180"><br><sub>Code rain</sub></td>
+</tr>
+</table>
 
-Press **Super+M** and the window doesn't vanish into a taskbar. It pours into a stream of digital rain at the edge of the screen, and keeps running there.
+Press **Super+M** and the window pours into a stream at the edge of the screen, under its app's icon, and keeps running there.
 
-The rain is a live readout of that app. **An idle app's rain drifts down slow and grey. A busy one pours fast and bright green,** from its own CPU and memory use, so a build finishing or a tab running away shows up out of the corner of your eye. Each stream spells out its app's name as it falls.
+The stream is a live readout of that app, from its own CPU and memory use. **Streaks of light fall at different depths, near ones wider, brighter and faster; an idle app sends a few slow grey ones, and a busy one pours bright green,** so a build finishing or a tab running away shows up out of the corner of your eye. The app's name runs down the card on its side like a book's spine, barely there while it's idle and glowing as the light passes. A click on a stream, or **Super+Shift+M**, brings the window back.
 
-It's built from xscreensaver's GLMatrix, the classic recreation of the movie's effect, rather than random characters in a font. A click on a stream, or **Super+Shift+M**, brings the window back.
-
-**Settings → Appearance → Effects** offers Slipstream's own look instead: streaks of light falling at different depths, near ones wider, brighter and faster, with the app's name down the card on its side like a book's spine. The same readout holds. An idle app sends a few slow grey streaks and its name is barely there; a busy one pours bright green and its name glows as the light passes.
+**Settings → Appearance → Effects** offers the code rain instead: falling green code rebuilt from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. The same readout holds, and each stream spells out its app's name as it falls.
 
 <br clear="right">
 
-**Closing works the same way.** Close a window and it's read out into falling code, with the flicker of a failing CRT. With Slipstream's own look it drops while a shower of streaks of light pours down through it, eating it away from the top.
+**Closing works the same way.** Close a window and it drops while a shower of streaks of light pours down through it, eating it away from the top. With the code rain, it's read out into falling code, with the flicker of a failing CRT.
 
 <img src="../assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
 
@@ -65,7 +68,7 @@ While it's open, **everything on screen drops to a quarter of its speed**: windo
 Most desktops let any app break your train of thought at any moment. Slipstream doesn't.
 
 - **Notifications that arrive while you type wait for a natural pause**, then come up as one card. The bell counts them straight away, and Super+N shows them any time. Critical ones never wait, and nothing waits more than 15 minutes.
-- **Windows you didn't ask for don't take the screen or the keyboard.** An app opening a window by itself, or a window from another app while you type, pours into the code rain with a toast instead. Windows you open yourself, dialogs of the app you're in, and anything that appears just after a click still come straight to you.
+- **Windows you didn't ask for don't take the screen or the keyboard.** An app opening a window by itself, or a window from another app while you type, pours into a stream at the edge with a toast instead. Windows you open yourself, dialogs of the app you're in, and anything that appears just after a click still come straight to you.
 - **Slipstream knows you're typing because keys are arriving somewhere, never because of which keys they are.** You count as typing until you pause for 15 seconds, use a shortcut, click, or move to another window.
 
 Settings → Notifications has the switches.
@@ -77,7 +80,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Tiling** across named workspaces (up to 20), several screens, a laptop lid that hands the workspace over to the external screen, fullscreen, and X11 apps through XWayland.
 - **App explorer** (tap Super): every installed app, Flatpaks included, plus recent files, sums, unit conversions and emoji. Type a command that matches no app and Enter runs it.
 - **A tour** (Super+/, then Enter) for anyone new to tiling, in sixteen short lessons and four parts: the basics, arranging, getting around, and why Slipstream. Each lesson says why the desktop works the way it does before what to press, with a note for hands that know Windows, and plays out on a miniature of the desktop with its bar, apps that look like apps, your ring colour and your chosen effects. A lesson's own keys play its move on the miniature, never on your real windows.
-- **Hide everything** (Super+H): every window on the workspace pours into the code rain at once, and the same windows come back on the next press. Windows' "minimise all", where Super+M is one window.
+- **Hide everything** (Super+H): every window on the workspace pours into a stream at once, and the same windows come back on the next press. Windows' "minimise all", where Super+M is one window.
 - **The way out** (Ctrl+Alt+Del): lock, log out, restart or shut down, on one card. Every app is asked to close first and waited for, and anything that doesn't close is named. Your layout can be reopened at the next login.
 - **Alt+Tab** deals your windows as a deck of glass panes, each Tab sending the front one round to the back; with reduced motion it's a flat card. Alt+F4, Super+arrows and the rest of the Windows keys you already know work too, with tiles moved and resized from the keyboard. Two tiles swapped with Super+Alt+arrows pass through each other.
 - **Bar and quick settings** (Super+A): clock and calendar, Wi-Fi, Bluetooth, volume, brightness, night light (on a schedule if you like), power mode. Media keys work with any player that speaks MPRIS.
@@ -92,7 +95,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
 - **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. [How to set it up](help.md#the-meter-on-the-bar).
-- **Close into the rain:** a closing window is read out into falling code, with the flicker of a failing CRT, or, with Slipstream's own effects, dropping towards the bottom of the screen as a shower of streaks of light pours down through it faster than it falls, eating it away from the top along a ragged, glowing edge. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
+- **Close into the rain:** a closing window drops towards the bottom of the screen as a shower of streaks of light pours down through it faster than it falls, eating it away from the top along a ragged, glowing edge; with the code rain, it's read out into falling code, with the flicker of a failing CRT. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
 - **Every effect has a reduced-motion version**, switched live from Settings.
 
 

@@ -4,6 +4,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- **Slipstream's own effects are the default.** Minimised apps become streaks of light and closed windows drop away through a shower of them, unless you choose the code rain in Settings → Appearance → Effects, which now lists Slipstream first. A settings file that already names either keeps it.
 - **The installer asks before adding Glimmerwood and Westering,** one at a time, and remembers a no. `--yes` still answers yes to everything, and with no terminal to ask in it leaves them out.
 - **Uninstalling is the install command with `--uninstall`** (and `--purge` for your settings too), so there's no need to find the unpacked download first.
 - **A tour for anyone new to tiling.** Super+/, then Enter: sixteen lessons in four parts, where there were six. Each says why before what to press, with a note for hands that know Windows, and plays out on a miniature of the desktop (its bar, apps that look like apps, the focus ring in your colour and the streams in your chosen effects) with the key lighting up as it's pressed. Press a lesson's keys to try the move on the miniature.

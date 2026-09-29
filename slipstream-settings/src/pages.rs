@@ -201,8 +201,8 @@ fn appearance(store: &Store) -> gtk::Widget {
         &reduced,
     );
     let styles = [
-        (slipstream_config::Effects::Matrix, "Matrix rain"),
         (slipstream_config::Effects::Slipstream, "Slipstream"),
+        (slipstream_config::Effects::Matrix, "Matrix rain"),
     ];
     let names: Vec<&str> = styles.iter().map(|(_, name)| *name).collect();
     let effects = gtk::DropDown::from_strings(&names);

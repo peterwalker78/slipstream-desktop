@@ -1646,7 +1646,7 @@ impl Slipstream {
         self.rain.add(window.clone(), name.clone(), icon, pid, now);
         self.retile();
         self.show_toast(
-            "Opened in the code rain",
+            "Opened in a stream",
             &format!("{name}: Super+Shift+M or a click on its stream brings it in."),
         );
         tracing::info!(

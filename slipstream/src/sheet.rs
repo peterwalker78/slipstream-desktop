@@ -976,7 +976,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                "minimise to the code rain",
+                "minimise to a stream",
                 "bring back the last minimised",
                 "minimise"
             ]

@@ -151,7 +151,7 @@ impl Action {
             Action::Explorer => "apps",
             Action::Weigh { .. } => "heavier, lighter",
             Action::ToggleGravity => "tiling or gravity; hold to choose",
-            Action::Minimise => "minimise to the code rain",
+            Action::Minimise => "minimise to a stream",
             Action::Restore => "bring back the last minimised",
             Action::HideAll => "hide every window, and back",
             Action::BulletTime => "bullet time",

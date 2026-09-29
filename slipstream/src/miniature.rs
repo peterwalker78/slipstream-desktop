@@ -635,7 +635,7 @@ fn config(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32, s
         &[
             ("effects", TERMINAL_INK),
             (" = ", DIM),
-            ("\"matrix\"", STRING),
+            ("\"slipstream\"", STRING),
         ],
         &[
             ("close-into-rain", TERMINAL_INK),
@@ -1296,8 +1296,8 @@ fn settings(
             }
             None => {
                 let value = style(Face::Body, 6.0 * k, panel::SECONDARY, alpha);
-                let vw = text::width("Code rain", &value);
-                p.text("Code rain", right - 7.0 * k - vw, cy, &value);
+                let vw = text::width("Slipstream", &value);
+                p.text("Slipstream", right - 7.0 * k - vw, cy, &value);
             }
         }
     }

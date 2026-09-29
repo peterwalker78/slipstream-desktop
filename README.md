@@ -7,7 +7,7 @@
 
 **The Linux desktop the movies promised.**
 
-A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,<br>
+A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,
 in one download that installs beside the desktop you have.
 
 Windows that pour away into digital rain. Wallpapers that come alive when you step away.<br>
@@ -29,7 +29,7 @@ Nothing that interrupts you, and nothing that leaves your machine.
 
 Films always showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. That last part is the one the films got right. The people who look like wizards on screen are just people who do everything from the keyboard.
 
-Most screens now are built to keep you checking one more thing. **Slipstream is a workshop, not a slot machine.** Good-looking enough that you want to sit down at it, quiet enough that you get lost in the work instead of the machine, and everything a keystroke away. It's a whole desktop with nothing to assemble, free and open source, and it sits beside the one you use now: pick it at the login screen, and go back whenever you like.
+Most screens now are built to keep you constantly checking one last thing, over and over. **Slipstream is a workshop, not a slot machine.** Good-looking enough that you want to sit down at it, quiet enough that you get lost in the work instead of the machine, and everything a keystroke away. It's a whole desktop with nothing to assemble, free and open source, and it sits beside the one you use now: pick it at the login screen, and go back whenever you like.
 
 ## Your wallpaper is alive
 
@@ -47,21 +47,30 @@ Step away from your desk and the desktop dissolves and hands over the screen. Th
 
 [**All twenty →**](guide/wallpapers.md)
 
-## Windows fall into the Matrix
+## Windows pour away into light
 
-<img src="assets/readme/rain.webp" alt="The right edge of the screen: a window pours into a new stream of code rain beside two that are already running, each under the icon of the app it came from, and a moment later it comes back out. The busy app's stream falls fast and bright green, the idle ones slow and grey, and each spells out its app's name." width="240" align="right">
+<table align="right">
+<tr>
+<td align="center"><img src="assets/readme/streams-slipstream.webp" alt="The right edge of the screen in Slipstream's own effects: a window pours into a new stream beside two that are already running, each under its app's icon, and a moment later it comes back out. The busy app's stream pours fast, bright green streaks of light; the idle one sends a few slow grey ones." width="180"><br><sub>Slipstream</sub></td>
+<td align="center"><img src="assets/readme/streams-matrix.webp" alt="The same scene in the code rain: a window pours into a new stream of falling green code beside two that are already running, and comes back out. The busy app's rain falls fast and bright, the idle one slow and grey, and each stream spells out its app's name." width="180"><br><sub>Code rain</sub></td>
+</tr>
+</table>
 
-Put a window away and it pours down the side of the screen as a stream of falling green code, and carries on running there.
+Put a window away and it pours down the side of the screen as a stream of falling light, and carries on running there, with its name down the card like the spine of a book.
 
-**The rain is a readout.** A busy app races, bright green. A quiet one drifts down slowly in grey. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
+**The stream is a readout.** A busy app pours fast, bright green streaks. A quiet one sends down a few slow grey ones. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
 
 **Pop-ups you never asked for are sent there too.** An app that opens a window by itself, or throws one in front of you while you're typing, pours straight into the rain instead of taking the screen, with a quiet toast to say what happened. Windows you opened yourself, dialogs belonging to the app you're in, and anything that appears just after a click still come to you as normal.
 
-Each stream spells out its app's name as it falls. Click one to bring the window back.
+Click a stream to bring the window back.
 
-Prefer something calmer? Settings swaps the code for [streaks of falling light](guide/features.md#the-code-rain-in-full).
+**Or the film's code rain.** Settings → Appearance → Effects swaps the light for falling green code, each stream spelling out its app's name as it falls. It reads the same way.
 
 <br clear="right">
+
+**Closing, too.** Close a window and it drops while a shower of streaks pours down through it, eating it away from the top. With the code rain, it's read out into falling code with the flicker of a failing CRT.
+
+<img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
 
 ## Bullet time
 
@@ -76,7 +85,7 @@ One shortcut tips the whole desktop back into the distance, with every window yo
 Slipstream puts your concentration first.
 
 - **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
-- **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into the code rain instead, with a quiet toast to say so.
+- **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into a stream at the edge instead, with a quiet toast to say so.
 - **Slipstream can tell that you're typing, so it knows not to interrupt you** - but never what you're typing.
 
 ## New to tiling? Take the tour
