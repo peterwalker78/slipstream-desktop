@@ -19,8 +19,6 @@ pub enum Action {
     MoveTile(Direction),
     /// Move the split beside the focused tile: wider or narrower, taller or shorter.
     Resize(Resize),
-    /// Turn the split the focused window sits in, and everything inside it, so rows become
-    /// columns and columns become rows.
     /// Turn the layout a quarter, clockwise or anticlockwise.
     Rotate { clockwise: bool },
     /// Go to a workspace by its number; the number keys reach 1–9.
