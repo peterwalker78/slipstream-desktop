@@ -151,7 +151,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 **Does it phone home?** No. There's no telemetry, and it never checks for updates by itself.
 
-**What if I do use an AI agent?** Slipstream will never put AI in front of you. But bring an agent of your own and you'll find it a great desktop to run one on: your agent's sessions can come back with your layout, right where you left them; a meter on the bar can show your plan's limits at a glance; and a notification takes you straight to the terminal that sent it. You don't need a new operating system for it: Slipstream installs on the distribution you already have. [**Bringing an agent's session back →**](guide/help.md#bringing-an-ai-agents-session-back)
+**What if I do use an AI agent?** Slipstream will never put AI in front of you. But bring an agent of your own and you'll find it a great desktop to run one on: your agent's sessions can come back with your layout, right where you left them; a meter on the bar can show your plan's limits at a glance; a notification takes you straight to the terminal that sent it; and once the desktop has faded, the wallpaper shows which of your agents are still working. You don't need a new operating system for it: Slipstream installs on the distribution you already have. [**Bringing an agent's session back →**](guide/help.md#bringing-an-ai-agents-session-back)
 
 **What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
 
@@ -172,7 +172,7 @@ Both are projects of their own that run on any Linux desktop. The installer adds
 |---|---|
 | [**Installing**](guide/install.md) | what you need, every install route, which distributions, updating, uninstalling, building from source |
 | [**Every key**](guide/keys.md) | the whole table - Super+/ shows it in the desktop too |
-| [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, the bar's meter, apps that come with your desktop, and bringing an AI agent's session back |
+| [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, the bar's meter, apps that come with your desktop, bringing an AI agent's session back, and seeing one at work from across the room |
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
 | [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |

@@ -79,6 +79,7 @@ mod render;
 mod restore;
 mod resume;
 mod saver;
+mod scope;
 mod screen;
 mod screencopy;
 mod screenshot;
@@ -103,6 +104,7 @@ mod udev;
 mod usage;
 mod watch;
 mod winit;
+mod working;
 mod workspace;
 mod xwayland;
 
@@ -427,6 +429,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.tick_battery();
         // Night light's schedule, and its warmth easing in and out.
         state.tick_night_light();
+        // Which agents are at work, for the faded desktop's traces.
+        state.tick_agents();
         state.drop_dead_streams();
         state.refresh_pointer_focus();
         // The portal picks windows to share from this list.

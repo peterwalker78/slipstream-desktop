@@ -1680,6 +1680,13 @@ pub fn output_elements(
             }
         };
         saver.set_readings(&readings);
+        // A trace for each agent at work, over the wallpaper once the desktop has gone.
+        elements.extend(
+            state
+                .scope
+                .element(renderer, &name, output_geo.size, scale.x, now, ui)
+                .map(OutputElement::Memory),
+        );
         elements.extend(
             saver
                 .element(renderer, output_geo.size, scale.x, now, glow, paused, tween)

@@ -12,8 +12,22 @@ impl Slipstream {
         if self.screens_off {
             self.set_screens_off(false);
         }
+        self.scope.touched();
         let now = self.clock.tick();
         self.idle.input(now)
+    }
+
+    /// Reads which agents say they are working, once a second.
+    pub fn tick_agents(&mut self) {
+        let now = std::time::Instant::now();
+        if self
+            .agents_read
+            .is_some_and(|read| now.duration_since(read) < std::time::Duration::from_secs(1))
+        {
+            return;
+        }
+        self.agents_read = Some(now);
+        self.scope.follow(&crate::working::at_work());
     }
 
     /// Tells `ext-idle-notify` about the input this pass brought, if any.

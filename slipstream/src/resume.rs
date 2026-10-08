@@ -52,19 +52,26 @@ const SHELLS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh"];
 
 /// Where programs leave their notes, if there is a runtime folder to keep them in.
 pub fn notes_dir() -> Option<PathBuf> {
+    notes_about("resume")
+}
+
+/// The folder for one kind of note an agent leaves, each kind in a folder of its own.
+pub fn notes_about(kind: &str) -> Option<PathBuf> {
     let runtime = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
     runtime
         .is_absolute()
-        .then(|| runtime.join("slipstream").join("resume"))
+        .then(|| runtime.join("slipstream").join(kind))
 }
 
-/// Makes the notes folder, so an agent has somewhere to write without making it itself.
+/// Makes the notes folders, so an agent has somewhere to write without making them itself.
 pub fn make_notes_dir() {
-    let Some(dir) = notes_dir() else {
-        return;
-    };
-    if let Err(err) = fs::create_dir_all(&dir) {
-        tracing::debug!(path = %dir.display(), "couldn't make the folder for resume notes: {err}");
+    for dir in [notes_dir(), crate::working::notes_dir()]
+        .into_iter()
+        .flatten()
+    {
+        if let Err(err) = fs::create_dir_all(&dir) {
+            tracing::debug!(path = %dir.display(), "couldn't make a folder for agents' notes: {err}");
+        }
     }
 }
 
@@ -208,7 +215,7 @@ fn note(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Option<Str
 }
 
 /// When `pid` started, in seconds since the epoch: the boot time plus how long after it.
-fn started(proc: &Path, pid: u32, ticks: u64) -> Option<u64> {
+pub fn started(proc: &Path, pid: u32, ticks: u64) -> Option<u64> {
     let boot: u64 = fs::read_to_string(proc.join("stat"))
         .ok()?
         .lines()

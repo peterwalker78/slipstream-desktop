@@ -309,6 +309,10 @@ pub struct Slipstream {
     pub toast: Toast,
     /// The volume and brightness display, low on the screen.
     pub osd: crate::osd::Osd,
+    /// The traces the faded desktop shows for agents at work, and when the agents were last asked
+    /// after.
+    pub scope: crate::scope::Scope,
+    pub agents_read: Option<std::time::Instant>,
     /// The way out, while it's on screen: Ctrl+Alt+Del, or Log out, Restart or Shut down.
     pub exit: Option<Exit<Window>>,
     /// The windows Super+H put into the code rain, so the next press brings back those and
@@ -698,6 +702,8 @@ impl Slipstream {
             notices: Default::default(),
             toast: Toast::new(false),
             osd: crate::osd::Osd::new(false),
+            scope: crate::scope::Scope::new(false),
+            agents_read: None,
             exit: None,
             exit_record: None,
             hidden: None,
@@ -782,6 +788,7 @@ impl Slipstream {
         self.history.reduced_motion = on;
         self.toast.reduced_motion = on;
         self.osd.reduced_motion = on;
+        self.scope.reduced_motion = on;
         self.rain.reduced_motion = on;
         self.idle.reduced_motion = on;
         for saver in self.savers.values_mut() {
