@@ -5,7 +5,8 @@
 //! Apps and places only. **No window titles**, because a title is often a document name, a URL or
 //! a correspondent, and this file goes to disk without being asked about each time. A terminal
 //! in which an AI agent has left word of how to reopen its session (`resume.rs`) also has that
-//! command and the folder to run it from. Nothing else about a terminal is kept.
+//! command, the folder to run it from, the shell to run it in and the agent's search path.
+//! Nothing else about a terminal is kept, and nothing else of anything's environment.
 //!
 //! ```toml
 //! version = 1
@@ -56,7 +57,8 @@ const HEADER: &str = "\
 # What Slipstream had open when the session ended, so the layout can be put back. Written only
 # while `remember` is on under [session] in settings.toml; turning it off deletes this file.
 # Apps and places, never window titles. A terminal where an AI agent left a note saying how to
-# reopen its session also has that command and the folder to run it from.
+# reopen its session also has that command, the folder and shell to run it in, and the agent's
+# search path.
 
 ";
 
@@ -104,6 +106,12 @@ pub struct Win {
     /// The folder to run `resume` from: the one the terminal's shell was in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directory: Option<String>,
+    /// The shell to run it in: the one the agent was typed into.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    /// The search path to give it: the agent's own. Nothing else of its environment is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_path: Option<String>,
 }
 
 /// One workspace's tiling tree, as the string grammar below.
@@ -374,6 +382,8 @@ mod tests {
                     focused: true,
                     resume: Some("agent --resume 7".into()),
                     directory: Some("/home/sam/site".into()),
+                    shell: Some("/usr/bin/zsh".into()),
+                    search_path: Some("/opt/tools/bin:/usr/bin".into()),
                     ..Win::default()
                 },
                 Win {

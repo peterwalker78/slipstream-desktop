@@ -58,9 +58,12 @@ pub struct Entry {
 pub struct Start {
     pub exec: Vec<String>,
     pub in_terminal: bool,
-    /// An agent's session to reopen inside it, and the folder to do that from.
+    /// An agent's session to reopen inside it, the folder to do that from, the shell to do it
+    /// in and the search path to give it.
     pub resume: Option<String>,
     pub directory: Option<String>,
+    pub shell: Option<String>,
+    pub search_path: Option<String>,
 }
 
 /// One recorded window, waiting for its app to open it.
@@ -77,6 +80,8 @@ pub struct Place {
     /// else given a command to run would make nonsense of it.
     pub resume: Option<String>,
     pub directory: Option<String>,
+    pub shell: Option<String>,
+    pub search_path: Option<String>,
     /// 0-based. `None` for a window that was in the code rain, which belongs to no workspace.
     pub workspace: Option<usize>,
     /// Its place among that workspace's windows: what the recorded tree's leaves refer to.
@@ -177,6 +182,8 @@ impl<W: Clone + PartialEq> Plan<W> {
                 in_terminal: entry.in_terminal,
                 resume: win.resume.clone().filter(|_| entry.emulates_terminal),
                 directory: win.directory.clone().filter(|_| entry.emulates_terminal),
+                shell: win.shell.clone().filter(|_| entry.emulates_terminal),
+                search_path: win.search_path.clone().filter(|_| entry.emulates_terminal),
                 workspace,
                 slot,
                 focused: win.focused,
@@ -220,6 +227,8 @@ impl<W: Clone + PartialEq> Plan<W> {
                 in_terminal: place.in_terminal,
                 resume: place.resume.clone(),
                 directory: place.directory.clone(),
+                shell: place.shell.clone(),
+                search_path: place.search_path.clone(),
             })
             .collect()
     }
@@ -486,6 +495,8 @@ mod tests {
                 in_terminal: false,
                 resume: None,
                 directory: None,
+                shell: None,
+                search_path: None,
             }]
         );
     }
@@ -743,6 +754,7 @@ mod tests {
         let mut first = win("org.kde.konsole", 1, 0);
         first.resume = Some("agent --resume 7".into());
         first.directory = Some("/work/site".into());
+        first.shell = Some("/usr/bin/zsh".into());
         let mut second = win("org.kde.konsole", 2, 0);
         second.resume = Some("agent --resume 8".into());
         record(vec![first, second], vec![])
@@ -755,6 +767,7 @@ mod tests {
         let starts = plan.to_launch();
         assert_eq!(starts[0].resume.as_deref(), Some("agent --resume 7"));
         assert_eq!(starts[0].directory.as_deref(), Some("/work/site"));
+        assert_eq!(starts[0].shell.as_deref(), Some("/usr/bin/zsh"));
         assert_eq!(starts[1].resume.as_deref(), Some("agent --resume 8"));
         plan.started(0, 700);
         plan.started(1, 800);
@@ -783,9 +796,13 @@ mod tests {
         let mut browser = win("firefox", 1, 0);
         browser.resume = Some("agent --resume 7".into());
         browser.directory = Some("/work/site".into());
+        browser.shell = Some("/usr/bin/zsh".into());
+        browser.search_path = Some("/opt/tools/bin".into());
         let record = record(vec![browser], vec![]);
         let start = &plan(&record).to_launch()[0];
         assert_eq!(start.resume, None);
         assert_eq!(start.directory, None);
+        assert_eq!(start.shell, None);
+        assert_eq!(start.search_path, None);
     }
 }

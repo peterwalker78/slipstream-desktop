@@ -68,9 +68,9 @@ Slipstream has no AI in it. This is for people who run an AI coding agent of the
 echo "my-agent --resume $SESSION_ID" > "$XDG_RUNTIME_DIR/slipstream/resume/$AGENT_PID"
 ```
 
-At the next login that terminal is started in the folder its shell was in and runs the line with `$SHELL -c`. When the agent exits you are left at a shell, as if you had started it by hand. The line isn't typed at a prompt, so your shell's interactive startup file hasn't run: give the agent's full path if that file is the only thing that puts it on your search path.
+At the next login that terminal is started in the folder its shell was in and runs the line. It runs in the shell you typed the agent into, started the way a shell at a prompt is, and with the search path the agent had, so it finds the same tools as before. When the agent exits you are left at a shell, as if you had started it by hand.
 
 - **Only the note is ever run.** Slipstream never works a command out from what happens to be running, and a terminal with no note comes back as it always has: a new shell.
 - **One window, one shell.** A terminal with tabs, or one that keeps all its windows in a single process, can't say which shell belongs to which window, so it comes back as an ordinary terminal.
 - **The conversation, not the work in progress.** What comes back is whatever the agent's own command reopens. Anything it was in the middle of running is not carried on.
-- **Where it is kept.** The command and the folder go in the layout record, `~/.local/state/slipstream/session.toml`, which is deleted when you turn **Remember the layout** off.
+- **Where it is kept.** The command, the folder, the shell and the agent's search path go in the layout record, `~/.local/state/slipstream/session.toml`, which is deleted when you turn **Remember the layout** off. Nothing else of the agent's environment is kept.

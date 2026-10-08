@@ -35,7 +35,20 @@ pub struct Session {
     pub command: String,
     /// The folder the terminal's shell was in, to run it from.
     pub directory: Option<String>,
+    /// That shell, if it was an interactive one: the session is reopened in the same, so the
+    /// agent has the search path and settings its startup files gave it the first time.
+    pub shell: Option<String>,
+    /// The agent's search path, so it finds the same tools: a terminal's shell is often given
+    /// folders at login that nothing later adds again. Only this of its environment is kept,
+    /// which holds no secrets and doesn't go stale from one login to the next.
+    pub search_path: Option<String>,
 }
+
+/// A search path longer than this is left out rather than written down.
+const LONGEST_PATH: usize = 4096;
+
+/// Shells that take `-i -c`, by the name of their program.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "fish", "dash", "ksh", "mksh"];
 
 /// Where programs leave their notes, if there is a runtime folder to keep them in.
 pub fn notes_dir() -> Option<PathBuf> {
@@ -72,11 +85,11 @@ fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Option<Ses
     let (Some(shell), None) = (shells.next(), shells.next()) else {
         return None;
     };
-    let mut left = tree(proc, shell)
-        .into_iter()
-        .filter_map(|process| note(proc, notes, process, uid, ticks));
+    let mut left = tree(proc, shell).into_iter().filter_map(|process| {
+        note(proc, notes, process, uid, ticks).map(|command| (process, command))
+    });
     // Two sessions under one shell can't both have the window, so neither is guessed at.
-    let (Some(command), None) = (left.next(), left.next()) else {
+    let (Some((agent, command)), None) = (left.next(), left.next()) else {
         return None;
     };
     let directory = fs::read_link(proc.join(shell.to_string()).join("cwd"))
@@ -84,7 +97,44 @@ fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Option<Ses
         .and_then(|dir| dir.to_str().map(String::from))
         // A folder deleted from under the shell reads back with a suffix in place of a path.
         .filter(|dir| dir.starts_with('/') && !dir.ends_with(" (deleted)"));
-    Some(Session { command, directory })
+    Some(Session {
+        command,
+        directory,
+        shell: interactive_shell(proc, shell),
+        search_path: search_path(proc, agent),
+    })
+}
+
+/// `PATH` as `pid` was started with it, and nothing else from its environment.
+fn search_path(proc: &Path, pid: u32) -> Option<String> {
+    let environment = fs::read(proc.join(pid.to_string()).join("environ")).ok()?;
+    let path = environment
+        .split(|&byte| byte == 0)
+        .find_map(|entry| entry.strip_prefix(b"PATH="))?;
+    let path = std::str::from_utf8(path).ok()?;
+    (!path.is_empty() && path.len() <= LONGEST_PATH && !path.chars().any(char::is_control))
+        .then(|| path.to_string())
+}
+
+/// The program of `pid`, if it is a shell at a prompt rather than one running a command for
+/// something else. A shell started with `-c` and no `-i` never read its interactive startup
+/// file, and starting one that does in its place could behave quite differently.
+fn interactive_shell(proc: &Path, pid: u32) -> Option<String> {
+    let dir = proc.join(pid.to_string());
+    let program = fs::read_link(dir.join("exe")).ok()?;
+    let name = program.file_name()?.to_str()?;
+    if !SHELLS.contains(&name) {
+        return None;
+    }
+    let line = fs::read_to_string(dir.join("cmdline")).ok()?;
+    let flags = |letter: char| {
+        line.split('\0')
+            .skip(1)
+            .any(|arg| arg.starts_with('-') && !arg.starts_with("--") && arg.contains(letter))
+    };
+    (!flags('c') || flags('i'))
+        .then(|| program.to_str().map(String::from))
+        .flatten()
 }
 
 /// The fields of `/proc/<pid>/stat` after the command name, which can itself hold spaces and
@@ -213,6 +263,20 @@ mod tests {
             }
         }
 
+        /// What `pid` is running, and how it was started.
+        fn program(&self, pid: u32, exe: &str, args: &[&str]) {
+            let dir = self.root.join(format!("proc/{pid}"));
+            let _ = fs::remove_file(dir.join("exe"));
+            symlink(exe, dir.join("exe")).unwrap();
+            fs::write(dir.join("cmdline"), args.join("\0") + "\0").unwrap();
+        }
+
+        /// The environment `pid` was started with.
+        fn environment(&self, pid: u32, entries: &[&str]) {
+            let path = self.root.join(format!("proc/{pid}/environ"));
+            fs::write(path, entries.join("\0") + "\0").unwrap();
+        }
+
         /// `pid` leaves `text`, `after` seconds after boot.
         fn note(&self, pid: u32, text: &str, after: u64) {
             let path = self.root.join(format!("notes/{pid}"));
@@ -250,6 +314,7 @@ mod tests {
         let machine = Machine::new(name);
         machine.process(10, 1, false, "/");
         machine.process(11, 10, true, "/work/site");
+        machine.program(11, "/usr/bin/zsh", &["zsh"]);
         machine.process(12, 11, false, "/work/site");
         machine
     }
@@ -277,7 +342,61 @@ mod tests {
             Some(Session {
                 command: "agent --resume 7".into(),
                 directory: Some("/work/site".into()),
+                shell: Some("/usr/bin/zsh".into()),
+                search_path: None,
             })
+        );
+    }
+
+    #[test]
+    fn only_the_search_path_is_kept_of_an_agents_environment() {
+        let machine = one_terminal("resume-path");
+        machine.note(12, "agent --resume 7", 200);
+        machine.environment(
+            12,
+            &[
+                "HOME=/home/sam",
+                "API_TOKEN=secret",
+                "PATH=/opt/tools/bin:/usr/bin",
+                "LANG=C",
+            ],
+        );
+        let session = machine.look(10).unwrap();
+        assert_eq!(
+            session.search_path.as_deref(),
+            Some("/opt/tools/bin:/usr/bin")
+        );
+        assert!(!format!("{session:?}").contains("secret"));
+        // The shell's own path is not the agent's.
+        machine.environment(11, &["PATH=/usr/bin"]);
+        machine.environment(12, &["HOME=/home/sam"]);
+        assert_eq!(machine.look(10).unwrap().search_path, None);
+    }
+
+    #[test]
+    fn the_session_is_reopened_in_the_shell_it_was_typed_into() {
+        let machine = one_terminal("resume-shell");
+        machine.note(12, "agent --resume 7", 200);
+        let shell = |machine: &Machine| machine.look(10).and_then(|session| session.shell);
+        assert_eq!(shell(&machine).as_deref(), Some("/usr/bin/zsh"));
+        // Started to run one command, it never was the shell anyone typed into.
+        machine.program(
+            11,
+            "/usr/bin/bash",
+            &["/bin/bash", "-c", "agent --resume 7"],
+        );
+        assert_eq!(shell(&machine), None);
+        // Unless it was started as an interactive one all the same.
+        machine.program(11, "/usr/bin/zsh", &["zsh", "-i", "-c", "agent --resume 7"]);
+        assert_eq!(shell(&machine).as_deref(), Some("/usr/bin/zsh"));
+        machine.program(11, "/usr/bin/zsh", &["zsh", "-ic", "agent --resume 7"]);
+        assert_eq!(shell(&machine).as_deref(), Some("/usr/bin/zsh"));
+        // A program that isn't a shell is never started as though it were one.
+        machine.program(11, "/usr/bin/python3", &["python3"]);
+        assert_eq!(shell(&machine), None);
+        assert_eq!(
+            machine.look(10).map(|session| session.command).as_deref(),
+            Some("agent --resume 7")
         );
     }
 

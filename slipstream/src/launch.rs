@@ -221,48 +221,67 @@ fn settings_app() -> Option<Vec<String>> {
 
 /// Starts an app's command from its desktop entry. Terminal apps open inside a terminal.
 pub fn app(exec: &[String], in_terminal: bool) -> Result<(), Failure> {
-    again(exec, in_terminal, None, None).map(drop)
+    again(exec, in_terminal, None).map(drop)
 }
 
-/// Starts an app the layout record names, and says which process it became. A terminal with an
-/// AI agent's session to reopen (`resume.rs`) runs `resume` in `directory`, and is left at a
-/// shell when the agent exits, as it would have been had the agent been started by hand.
-pub fn again(
-    exec: &[String],
-    in_terminal: bool,
-    resume: Option<&str>,
-    directory: Option<&str>,
-) -> Result<u32, Failure> {
+/// An AI agent's session to reopen inside a terminal (`resume.rs`): the command its note gave,
+/// the folder to run it from, the shell it was typed into and the search path it had.
+#[derive(Debug, Clone, Copy)]
+pub struct Reopen<'a> {
+    pub command: &'a str,
+    pub directory: Option<&'a str>,
+    pub shell: Option<&'a str>,
+    pub search_path: Option<&'a str>,
+}
+
+/// Starts an app the layout record names, and says which process it became. A terminal with a
+/// session to reopen runs it, and is left at a shell when the agent exits, as it would have
+/// been had the agent been started by hand.
+pub fn again(exec: &[String], in_terminal: bool, reopen: Option<Reopen>) -> Result<u32, Failure> {
     if in_terminal {
         let Some(command) = in_a_terminal(exec, terminal()) else {
             tracing::warn!(?exec, "no terminal installed to run it in");
             return Err(Failure::NothingInstalled);
         };
-        return start(&command, None).map_err(Failure::Spawn);
+        return start(&command, None, None).map_err(Failure::Spawn);
     }
-    let Some(resume) = resume else {
-        return start(exec, None).map_err(Failure::Spawn);
+    let Some(reopen) = reopen else {
+        return start(exec, None, None).map_err(Failure::Spawn);
     };
-    let command = in_a_terminal(&resuming(resume, &shell()), Some(exec.to_vec()))
-        .ok_or(Failure::NothingInstalled)?;
+    // A shell that has gone since, in an upgrade say, is no more use than one never known.
+    let typed_into = reopen.shell.filter(|shell| {
+        shell.starts_with('/') && !shell.contains('\'') && executable(Path::new(shell))
+    });
+    let command = in_a_terminal(
+        &resuming(reopen.command, typed_into, &login_shell()),
+        Some(exec.to_vec()),
+    )
+    .ok_or(Failure::NothingInstalled)?;
     // A folder that has gone since is no reason not to reopen the session.
-    let directory = directory.map(Path::new).filter(|dir| dir.is_dir());
-    start(&command, directory).map_err(Failure::Spawn)
+    let directory = reopen.directory.map(Path::new).filter(|dir| dir.is_dir());
+    start(&command, directory, reopen.search_path).map_err(Failure::Spawn)
 }
 
-/// The person's shell, from `$SHELL`, else the one every system has.
-fn shell() -> String {
+/// The person's login shell, from `$SHELL`, else the one every system has.
+fn login_shell() -> String {
     std::env::var("SHELL")
         .ok()
         .filter(|shell| shell.starts_with('/') && !shell.contains('\'') && installed(shell))
         .unwrap_or_else(|| "/bin/sh".to_string())
 }
 
-/// `resume` run by `shell`, which then takes its place. Not an interactive shell: a startup file
-/// that hands over to another shell would do so before the command was ever looked at. The
-/// agent is found on the session's own search path, so a note gives a full path if it needs one.
-fn resuming(resume: &str, shell: &str) -> Vec<String> {
-    strings(&[shell, "-c", &format!("{resume}; exec '{shell}'")])
+/// `command` run by a shell, which then takes its place.
+///
+/// The shell the agent was typed into runs it, started as an interactive one, so the agent
+/// finds the search path and settings that shell's startup files gave it the first time. Where
+/// that shell isn't known the login shell runs it plainly instead: started as an interactive
+/// one, a login shell whose startup file hands over to another shell would do so before the
+/// command was ever looked at.
+fn resuming(command: &str, typed_into: Option<&str>, login: &str) -> Vec<String> {
+    match typed_into {
+        Some(shell) => strings(&[shell, "-i", "-c", &format!("{command}; exec '{shell}'")]),
+        None => strings(&[login, "-c", &format!("{command}; exec '{login}'")]),
+    }
 }
 
 /// `exec` run inside `terminal`, told the way that terminal expects.
@@ -543,11 +562,16 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 /// Starts `command` with its output kept out of Slipstream's log, and reaps it when it exits.
 /// An error means it never started: most often, no program by that name.
 pub fn spawn(command: &[String]) -> io::Result<()> {
-    start(command, None).map(drop)
+    start(command, None, None).map(drop)
 }
 
-/// `spawn`, in `directory` if one is given, saying which process the command became.
-fn start(command: &[String], directory: Option<&Path>) -> io::Result<u32> {
+/// `spawn`, in `directory` and with `search_path` if they are given, saying which process the
+/// command became.
+fn start(
+    command: &[String],
+    directory: Option<&Path>,
+    search_path: Option<&str>,
+) -> io::Result<u32> {
     let Some((program, args)) = command.split_first() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -565,6 +589,9 @@ fn start(command: &[String], directory: Option<&Path>) -> io::Result<u32> {
     }
     if let Some(directory) = directory {
         process.current_dir(directory);
+    }
+    if let Some(search_path) = search_path {
+        process.env("PATH", search_path);
     }
     match process.spawn() {
         Ok(mut child) => {
@@ -587,14 +614,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_session_is_reopened_by_the_shell_which_then_stays() {
+    fn a_session_is_reopened_in_the_shell_it_was_typed_into() {
         assert_eq!(
-            resuming("agent --resume 7", "/usr/bin/zsh"),
+            resuming("agent --resume 7", Some("/usr/bin/zsh"), "/bin/bash"),
             [
                 "/usr/bin/zsh",
+                "-i",
                 "-c",
                 "agent --resume 7; exec '/usr/bin/zsh'"
             ]
+        );
+        // With no shell known, the login shell runs it without reading its interactive startup.
+        assert_eq!(
+            resuming("agent --resume 7", None, "/bin/bash"),
+            ["/bin/bash", "-c", "agent --resume 7; exec '/bin/bash'"]
         );
     }
 

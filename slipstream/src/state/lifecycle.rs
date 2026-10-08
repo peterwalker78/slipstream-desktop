@@ -187,7 +187,11 @@ impl Slipstream {
                         .then(|| workspace.gravity.rung(window).label().to_string()),
                     pinned: workspace.gravity.is_pinned(window),
                     resume: session.as_ref().map(|session| session.command.clone()),
-                    directory: session.and_then(|session| session.directory),
+                    directory: session
+                        .as_ref()
+                        .and_then(|session| session.directory.clone()),
+                    shell: session.as_ref().and_then(|session| session.shell.clone()),
+                    search_path: session.and_then(|session| session.search_path),
                 });
             }
             if let Some(shape) = workspace.layout.shape() {
@@ -211,7 +215,11 @@ impl Slipstream {
                     slot,
                     in_rain: true,
                     resume: session.as_ref().map(|session| session.command.clone()),
-                    directory: session.and_then(|session| session.directory),
+                    directory: session
+                        .as_ref()
+                        .and_then(|session| session.directory.clone()),
+                    shell: session.as_ref().and_then(|session| session.shell.clone()),
+                    search_path: session.and_then(|session| session.search_path),
                     ..session::Win::default()
                 });
             }
@@ -228,7 +236,11 @@ impl Slipstream {
                 slot: self.rain.streams.len(),
                 in_rain: true,
                 resume: session.as_ref().map(|session| session.command.clone()),
-                directory: session.and_then(|session| session.directory),
+                directory: session
+                    .as_ref()
+                    .and_then(|session| session.directory.clone()),
+                shell: session.as_ref().and_then(|session| session.shell.clone()),
+                search_path: session.and_then(|session| session.search_path),
                 ..session::Win::default()
             });
         }
@@ -336,12 +348,13 @@ impl Slipstream {
         tracing::info!(apps = launching.len(), "putting the layout back");
         for (index, start) in launching.into_iter().enumerate() {
             // A failure is in the log; the card already named anything it can't bring back.
-            let started = launch::again(
-                &start.exec,
-                start.in_terminal,
-                start.resume.as_deref(),
-                start.directory.as_deref(),
-            );
+            let reopen = start.resume.as_deref().map(|command| launch::Reopen {
+                command,
+                directory: start.directory.as_deref(),
+                shell: start.shell.as_deref(),
+                search_path: start.search_path.as_deref(),
+            });
+            let started = launch::again(&start.exec, start.in_terminal, reopen);
             if let Ok(pid) = started {
                 plan.started(index, pid);
             }
