@@ -509,7 +509,7 @@ mod tests {
         // A gigabyte in a second, and not a tick of processor time.
         probe.score(start + SECOND, 0, 500 * MB, 1 << 30);
         assert_eq!(probe.reading.load, APP_NETWORK_MOST);
-        assert!(APP_NETWORK_MOST < 1.0);
+        assert!(probe.reading.load < 1.0);
     }
 
     #[test]
