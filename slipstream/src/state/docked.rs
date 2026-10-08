@@ -18,7 +18,13 @@ impl Slipstream {
     /// Where the pane rests at `size`, in the space's coordinates: in the tiling area of the
     /// screen the streams are on.
     pub fn dock_rect(&self, size: Size) -> Option<Rect> {
-        self.screen_area(0).map(|area| dock::rect(area, size))
+        self.screen_area(0).map(|area| {
+            if self.rain.is_empty() {
+                dock::rect(area, size)
+            } else {
+                dock::rect_beside_streams(area, size)
+            }
+        })
     }
 
     /// Where the docked pane rests now.

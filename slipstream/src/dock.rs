@@ -158,6 +158,17 @@ pub fn rect(area: Rect, size: Size) -> Rect {
     }
 }
 
+/// Where it rests when streams run down the edge beside it. The tiling area runs on a little way
+/// under the streams, where its windows keep clear with a margin of their own; the pane has no
+/// margin, so it stops short by that much and is left a window's gap from them, as the tiles are.
+pub fn rect_beside_streams(area: Rect, size: Size) -> Rect {
+    let rect = rect(area, size);
+    Rect {
+        x: rect.x - crate::layout::OUTER_GAP,
+        ..rect
+    }
+}
+
 /// The bar's material round a pane resting at `rect`, its top on the bar's lower edge.
 pub fn frame(rect: Rect) -> Rect {
     Rect {

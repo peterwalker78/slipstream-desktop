@@ -752,6 +752,36 @@ mod tests {
     }
 
     #[test]
+    fn a_docked_pane_keeps_a_window_s_gap_from_the_streams() {
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            w: 1536,
+            h: 960,
+        };
+        for count in 1..=4 {
+            let area = Rect {
+                w: screen.w - reserve(count),
+                ..screen
+            };
+            let leftmost = Rain::column(count - 1, screen, 0);
+            for size in [
+                crate::dock::Size::Small,
+                crate::dock::Size::Small.next(),
+                crate::dock::Size::Small.next().next(),
+            ] {
+                let pane = crate::dock::rect_beside_streams(area, size);
+                let frame = crate::dock::frame(pane);
+                assert_eq!(
+                    leftmost.x - (frame.x + frame.w),
+                    INNER_GAP,
+                    "{count} streams"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn windows_keep_a_window_s_gap_from_the_streams() {
         let screen = Rect {
             x: 0,
