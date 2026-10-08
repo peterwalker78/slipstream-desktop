@@ -68,7 +68,7 @@ Click a stream to bring the window back.
 
 <br clear="right">
 
-**Closing, too.** Close a window and it drops while a shower of streaks pours down through it, eating it away from the top. With the code rain, it's read out into falling code with the flicker of a failing CRT.
+**Closing, too.** Close a window and it drops while a shower of streaks pours down through it, eating it away from the top; with the code rain, it's read out into falling code. Either way it goes with the scanlines and flicker of a failing CRT.
 
 <img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
 

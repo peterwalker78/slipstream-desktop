@@ -51,7 +51,7 @@ The stream is a live readout of that app, from its own CPU and memory use. **Str
 
 <br clear="right">
 
-**Closing works the same way.** Close a window and it drops while a shower of streaks of light pours down through it, eating it away from the top. With the code rain, it's read out into falling code, with the flicker of a failing CRT.
+**Closing works the same way.** Close a window and it drops while a shower of streaks of light pours down through it, eating it away from the top; with the code rain, it's read out into falling code. Either way it goes with the scanlines and flicker of a failing CRT.
 
 <img src="../assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
 
@@ -98,7 +98,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
 - **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
 - **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. [How to set it up](help.md#the-meter-on-the-bar).
-- **Close into the rain:** a closing window drops towards the bottom of the screen as a shower of streaks of light pours down through it faster than it falls, eating it away from the top along a ragged, glowing edge; with the code rain, it's read out into falling code, with the flicker of a failing CRT. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
+- **Close into the rain:** a closing window drops towards the bottom of the screen as a shower of streaks of light pours down through it faster than it falls, eating it away from the top along a ragged, glowing edge; with the code rain, it's read out into falling code. Both go with the scanlines and flicker of a failing CRT. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
 - **Every effect has a reduced-motion version**, switched live from Settings.
 
 

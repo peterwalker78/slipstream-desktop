@@ -9,6 +9,9 @@
 //! of the screen while a slipstream pours down through it faster than it falls, eating it from the
 //! top: streaks of light like the streams', coloured from the window and turning to the rain's
 //! green as they fade.
+//!
+//! Either way it goes as a picture on a failing tube does: both are shown through the same
+//! scanlines, flicker, colour fringes and torn bands, worst where the window is being taken apart.
 
 use resvg::tiny_skia::Pixmap;
 use smithay::backend::renderer::{
@@ -281,6 +284,7 @@ impl Fx {
 /// What the shader starts with: Smithay's texture shader's inputs, and the code rain's own look
 /// from GLMatrix — its glyphs, the brightness wave running down each column, each column's depth
 /// fog, and light added in the rain's tint — so a closing window's rain is the minimised rain's.
+/// Then the failing CRT that either effect's `scene` is shown through.
 const HEAD: &str = r#"#version 100
 
 //_DEFINES_
@@ -369,6 +373,40 @@ vec4 picture(vec2 px) {
     return texture2D(tex, px / texpx);
 }
 
+// What the effect draws at `p`, before the tube's own effects.
+vec4 scene(vec2 p);
+
+// The scene at `px` as a failing CRT shows it: scanlines, a flicker, colour fringes and torn bands
+// of picture shifting sideways. `line` is the row where the window is being taken apart, where the
+// picture tears worst while `live` is 1, and which is itself lit as brightly as `beam`. `tearing`
+// is how much of the rest of the picture tears.
+vec4 crt(vec2 px, float line, float live, float beam, float tearing) {
+    float frame = floor(t / 0.04);
+    // Torn bands: some slices of the picture jump sideways for a frame or two, and always around
+    // the line.
+    float band = floor(px.y / (cell.y * 0.6));
+    float torn = step(0.8, hash(vec2(band, frame))) * tearing;
+    float near = (1.0 - clamp(abs(px.y - line) / (cell.y * 2.5), 0.0, 1.0)) * live;
+    float shift = (torn * 5.0 + near * 2.5) * (hash(vec2(band + 3.0, frame)) - 0.5) * cell.x;
+    vec2 p = vec2(px.x + shift, px.y);
+    // Colour fringes, wider where the picture tears.
+    float split = 1.5 + 6.0 * max(torn, near);
+    vec4 mid = scene(p);
+    vec4 color = vec4(
+        scene(p + vec2(split, 0.0)).r,
+        mid.g,
+        scene(p - vec2(split, 0.0)).b,
+        mid.a);
+    // The line itself, bright and jittering.
+    float jitter = (hash(vec2(frame, 4.0)) - 0.5) * 3.0;
+    color.rgb += ink * (1.0 - clamp(abs(px.y - line - jitter) / 2.5, 0.0, 1.0)) * beam * 0.9;
+    // Scanlines, every other screen row, and the tube's flicker.
+    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : 0.62;
+    float flicker = 0.88 + 0.12 * hash(vec2(frame, 1.0));
+    color.rgb *= scan * flicker;
+    return color;
+}
+
 void finish(vec4 color) {
 #if defined(NO_ALPHA)
     color = vec4(color.rgb, 1.0) * alpha;
@@ -385,18 +423,18 @@ void finish(vec4 color) {
 }
 "#;
 
-/// Derez. The window is read out into glyphs from the top down, like a picture on a failing CRT:
-/// scanlines, a flicker, colour fringes and torn bands of picture shifting sideways, worst at the
-/// bright line doing the reading. Each column of glyphs, once enough of it is read, lets go and
-/// falls, faster and faster, fading as it goes. Below the reading line the window is still itself.
+/// Derez. The window is read out into glyphs from the top down, like a picture on a failing CRT,
+/// which tears worst at the bright line doing the reading. Each column of glyphs, once enough of
+/// it is read, lets go and falls, faster and faster, fading as it goes. Below the reading line the
+/// window is still itself.
 const DEREZ_MAIN: &str = r#"
 uniform float window_h;
 uniform float gravity;
 
 const float READ = 0.42;
 
-// The window and its glyphs at `p`, before the screen's own effects.
-vec4 layer(vec2 p) {
+// The window and its glyphs at `p`.
+vec4 scene(vec2 p) {
     if (p.x < 0.0 || p.x >= content.x) {
         return vec4(0.0);
     }
@@ -431,34 +469,11 @@ vec4 layer(vec2 p) {
 
 void main() {
     vec2 px = v_coords * texpx;
+    // The picture tears round the reading line until just after the reading is done, and the
+    // line is lit across the window while it reads.
     float line = window_h * clamp(t / READ, 0.0, 1.0);
-    float frame = floor(t / 0.04);
-    // Torn bands: some slices of the picture jump sideways for a frame or two, more of them early
-    // on, and always around the reading line.
-    float band = floor(px.y / (cell.y * 0.6));
-    float torn = step(0.8, hash(vec2(band, frame))) * (1.0 - smoothstep(0.35, 0.8, t));
-    float near = 1.0 - clamp(abs(px.y - line) / (cell.y * 2.5), 0.0, 1.0);
-    near *= step(t, READ + 0.05);
-    float shift = (torn * 5.0 + near * 2.5) * (hash(vec2(band + 3.0, frame)) - 0.5) * cell.x;
-    vec2 p = vec2(px.x + shift, px.y);
-    // Colour fringes, wider where the picture tears.
-    float split = 1.5 + 6.0 * max(torn, near);
-    vec4 mid = layer(p);
-    vec4 color = vec4(
-        layer(p + vec2(split, 0.0)).r,
-        mid.g,
-        layer(p - vec2(split, 0.0)).b,
-        mid.a);
-    // The reading line itself, bright and jittering.
-    float jitter = (hash(vec2(frame, 4.0)) - 0.5) * 3.0;
-    float beam = (1.0 - clamp(abs(px.y - line - jitter) / 2.5, 0.0, 1.0)) * step(t, READ)
-        * step(px.y, window_h);
-    color.rgb += ink * beam * 0.9;
-    // Scanlines, every other screen row, and the tube's flicker.
-    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : 0.62;
-    float flicker = 0.88 + 0.12 * hash(vec2(frame, 1.0));
-    color.rgb *= scan * flicker;
-    finish(color);
+    float beam = step(t, READ) * step(px.y, window_h);
+    finish(crt(px, line, step(t, READ + 0.05), beam, 1.0 - smoothstep(0.35, 0.8, t)));
 }
 "#;
 
@@ -469,7 +484,8 @@ void main() {
 /// left: streaks at different depths and paces, near ones wider, brighter and quicker, their
 /// glowing heads on the bite, far ones fine, dim and slow. Each takes its colour from the part of
 /// the window it came from, starting in the window's own colours and turning to the rain's green,
-/// and all of them fade once the pane has gone.
+/// and all of them fade once the pane has gone. The failing CRT it is shown on tears worst where
+/// the shower bites.
 const WAKE_MAIN: &str = r#"
 uniform float window_h;
 uniform float window_w;
@@ -592,19 +608,41 @@ vec3 streak(vec2 px, float layer) {
     return (colour * body + hot * glow) * bright * SHOWER;
 }
 
-void main() {
-    vec2 px = v_coords * texpx;
-    vec4 color = vec4(0.0);
-    if (px.x < 0.0 || px.x >= content.x) {
-        finish(color);
-        return;
+// The pane and its wake at `p`.
+vec4 scene(vec2 p) {
+    if (p.x < 0.0 || p.x >= content.x) {
+        return vec4(0.0);
     }
     // What's left of the pane.
-    color = pane_at(px, t);
+    vec4 color = pane_at(p, t);
     // Its wake, fading once the pane is gone.
     float fade = 1.0 - clamp((t - LEAN - GO) / WAKE, 0.0, 1.0);
-    vec3 shower = streak(px, 0.0) + streak(px, 1.0) + streak(px, 2.0);
+    vec3 shower = streak(p, 0.0) + streak(p, 1.0) + streak(p, 2.0);
     color.rgb += shower * fade;
-    finish(color);
+    return color;
+}
+
+void main() {
+    vec2 px = v_coords * texpx;
+    // The picture tears round the shower's front from when the pane lets go until just after it
+    // is eaten through. No row is lit: the bite has a glow of its own.
+    float eating = step(LEAN, t) * step(t, LEAN + GO + 0.05);
+    finish(crt(px, shower_y(t), eating, 0.0, 1.0 - smoothstep(0.25, 0.6, t)));
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn both_closing_effects_go_through_the_failing_crt() {
+        assert!(HEAD.contains("vec4 crt(vec2 px"));
+        for main in [DEREZ_MAIN, WAKE_MAIN] {
+            // Each draws its own scene, and shows it only through the tube.
+            assert!(main.contains("vec4 scene(vec2 p) {"));
+            assert!(main.contains("finish(crt(px, "));
+            assert_eq!(main.matches("finish(").count(), 1);
+        }
+    }
+}
