@@ -87,6 +87,12 @@ impl Slipstream {
     /// can't hold the save off.
     pub fn tick_record(&mut self) {
         let Some(due) = self.record_due else {
+            // An agent's session starts and ends inside a terminal without anything moving, so
+            // a desktop that has stood still is looked at again now and then.
+            if self.settings.session.remember && self.owns_state && self.wall() >= self.record_again
+            {
+                self.record_due = Some(self.wall());
+            }
             return;
         };
         // The record belongs to the compositor that owns the state folder.
@@ -108,6 +114,7 @@ impl Slipstream {
             return;
         }
         self.record_due = None;
+        self.record_again = self.wall() + RECORD_REFRESH;
         if !self.settings.session.remember {
             return;
         }
@@ -138,11 +145,26 @@ impl Slipstream {
 
     /// The desktop as it stands: which app is on which workspace, where it sits in the tiling, what
     /// gravity was doing with it, and what is in the code rain. Apps and places only — no window
-    /// titles are ever written down.
+    /// titles are ever written down. A terminal in which an AI agent has left word of how to
+    /// reopen its session has that with it.
     pub(super) fn take_record(&self) -> session::Record {
         let mut windows = Vec::new();
         let mut workspaces = Vec::new();
         let focused = self.focused_window();
+        // A process with more than one window can't say which of them a shell belongs to.
+        let processes: Vec<u32> = self
+            .workspaces
+            .all_windows()
+            .into_iter()
+            .chain(self.rain.streams.iter().map(|stream| stream.window.clone()))
+            .chain(self.dock.iter().map(|docked| docked.window.clone()))
+            .filter_map(|window| self.window_pid(&window))
+            .collect();
+        let session = |window: &Window| {
+            let pid = self.window_pid(window)?;
+            let alone = processes.iter().filter(|&&other| other == pid).count() == 1;
+            alone.then(|| resume::in_terminal(pid)).flatten()
+        };
         for index in 0..self.workspaces.count() {
             let workspace = self.workspaces.get(index);
             let here = workspace.layout.windows();
@@ -151,6 +173,7 @@ impl Slipstream {
                 let Some(app) = window_app_id(window) else {
                     continue;
                 };
+                let session = session(window);
                 windows.push(session::Win {
                     app,
                     // Counting from 1 in the file; the name goes with the tree below.
@@ -163,6 +186,8 @@ impl Slipstream {
                         .is_on()
                         .then(|| workspace.gravity.rung(window).label().to_string()),
                     pinned: workspace.gravity.is_pinned(window),
+                    resume: session.as_ref().map(|session| session.command.clone()),
+                    directory: session.and_then(|session| session.directory),
                 });
             }
             if let Some(shape) = workspace.layout.shape() {
@@ -179,27 +204,31 @@ impl Slipstream {
         }
         for (slot, stream) in self.rain.streams.iter().enumerate() {
             if let Some(app) = window_app_id(&stream.window) {
+                let session = session(&stream.window);
                 windows.push(session::Win {
                     app,
                     workspace: None,
                     slot,
                     in_rain: true,
+                    resume: session.as_ref().map(|session| session.command.clone()),
+                    directory: session.and_then(|session| session.directory),
                     ..session::Win::default()
                 });
             }
         }
         // A docked window has no place in any workspace's tree: it is kept as one more in the
         // rain, so its app is opened again and is a click from being brought back.
-        if let Some(app) = self
-            .dock
-            .as_ref()
-            .and_then(|docked| window_app_id(&docked.window))
+        if let Some(docked) = &self.dock
+            && let Some(app) = window_app_id(&docked.window)
         {
+            let session = session(&docked.window);
             windows.push(session::Win {
                 app,
                 workspace: None,
                 slot: self.rain.streams.len(),
                 in_rain: true,
+                resume: session.as_ref().map(|session| session.command.clone()),
+                directory: session.and_then(|session| session.directory),
                 ..session::Win::default()
             });
         }
@@ -278,7 +307,12 @@ impl Slipstream {
                 self.explorer
                     .app_for(id)
                     .filter(|app| !app.exec.is_empty())
-                    .map(|app| (app.name, app.exec, app.terminal))
+                    .map(|app| restore::Entry {
+                        name: app.name,
+                        exec: app.exec,
+                        in_terminal: app.terminal,
+                        emulates_terminal: app.emulates_terminal,
+                    })
             },
             count,
             |index| {
@@ -300,9 +334,17 @@ impl Slipstream {
         plan.restart(wall);
         let launching = plan.to_launch();
         tracing::info!(apps = launching.len(), "putting the layout back");
-        for (exec, in_terminal) in launching {
+        for (index, start) in launching.into_iter().enumerate() {
             // A failure is in the log; the card already named anything it can't bring back.
-            let _ = launch::app(&exec, in_terminal);
+            let started = launch::again(
+                &start.exec,
+                start.in_terminal,
+                start.resume.as_deref(),
+                start.directory.as_deref(),
+            );
+            if let Ok(pid) = started {
+                plan.started(index, pid);
+            }
         }
         self.restoring = Some(plan);
     }
@@ -318,7 +360,7 @@ impl Slipstream {
         let Some(mut plan) = self.restoring.take() else {
             return false;
         };
-        let claim = plan.claim(&app, window, wall);
+        let claim = plan.claim(&app, window, self.window_pid(window), wall);
         self.restoring = Some(plan);
         let Some(claim) = claim else {
             return false;

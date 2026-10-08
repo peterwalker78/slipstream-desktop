@@ -57,3 +57,20 @@ The report has sections, each with meters:
 ```
 
 The bar shows a small gauge for each section: its first meter as the thick bar, with the percentage beside it, and its second as the thin bar underneath. The gauge turns amber at 75% and orange at 90%. Quick settings lists every meter, with the time left until each starts over (`resets` is in seconds since the Unix epoch). `detail`, `note`, `stale` and `resets` are optional. A section marked `stale` is dimmed, and so is everything if the command fails, times out after 30 seconds, or prints something unreadable. The last good report stays on show in the meantime.
+
+## Bringing an AI agent's session back
+
+Slipstream has no AI in it. This is for people who run an AI coding agent of their own in a terminal: when your layout is reopened at login (**Settings → Session → Remember the layout**), a terminal that had an agent's session in it can come back in the same place, in the same folder, with that session open again.
+
+**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent leaves a note saying how to reopen its session: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/resume/`, holding one line, the command to run. Most agents can run a command of yours when a session starts, which is where to write the note from:
+
+```sh
+echo "my-agent --resume $SESSION_ID" > "$XDG_RUNTIME_DIR/slipstream/resume/$AGENT_PID"
+```
+
+At the next login that terminal is started in the folder its shell was in and runs the line with `$SHELL -c`. When the agent exits you are left at a shell, as if you had started it by hand. The line isn't typed at a prompt, so your shell's interactive startup file hasn't run: give the agent's full path if that file is the only thing that puts it on your search path.
+
+- **Only the note is ever run.** Slipstream never works a command out from what happens to be running, and a terminal with no note comes back as it always has: a new shell.
+- **One window, one shell.** A terminal with tabs, or one that keeps all its windows in a single process, can't say which shell belongs to which window, so it comes back as an ordinary terminal.
+- **The conversation, not the work in progress.** What comes back is whatever the agent's own command reopens. Anything it was in the middle of running is not carried on.
+- **Where it is kept.** The command and the folder go in the layout record, `~/.local/state/slipstream/session.toml`, which is deleted when you turn **Remember the layout** off.

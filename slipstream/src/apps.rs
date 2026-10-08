@@ -25,6 +25,8 @@ pub struct App {
     pub terminal: bool,
     /// The X11 class its windows have, when it isn't the ID.
     pub wm_class: Option<String>,
+    /// It is a terminal emulator, by its own entry's categories.
+    pub emulates_terminal: bool,
 }
 
 /// Reads a desktop entry, or `None` if it isn't an app to list on `desktops` (the names in
@@ -86,6 +88,9 @@ pub fn parse(
         icon,
         terminal: yes("Terminal"),
         wm_class: get("StartupWMClass").map(String::from),
+        emulates_terminal: list("Categories")
+            .iter()
+            .any(|category| category == "TerminalEmulator"),
     })
 }
 
@@ -566,7 +571,25 @@ Exec=firefox --new-window
             icon: None,
             terminal: false,
             wm_class: None,
+            emulates_terminal: false,
         }
+    }
+
+    #[test]
+    fn a_terminal_is_known_by_its_category() {
+        let entry = "[Desktop Entry]\nType=Application\nName=Term\nExec=term\n";
+        let plain = parse("term", entry, &kde(), |_| true).unwrap();
+        assert!(!plain.emulates_terminal);
+        let categorised = format!("{entry}Categories=System;TerminalEmulator;\n");
+        let terminal = parse("term", &categorised, &kde(), |_| true).unwrap();
+        assert!(terminal.emulates_terminal);
+        // Running in a terminal is not being one.
+        let inside = format!("{entry}Terminal=true\n");
+        assert!(
+            !parse("term", &inside, &kde(), |_| true)
+                .unwrap()
+                .emulates_terminal
+        );
     }
 
     #[test]

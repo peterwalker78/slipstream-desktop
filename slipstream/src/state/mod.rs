@@ -94,7 +94,7 @@ use crate::{
     osd,
     rain::Rain,
     render::Chrome,
-    restore,
+    restore, resume,
     saver::Saver,
     screen::Screens,
     session,
@@ -135,6 +135,9 @@ const CATALOGUE_WAIT: f64 = 10.0;
 /// How still the desktop has to be before the layout is written down again. Opening a window
 /// retiles several times over as the client catches up, and none of those are worth a file.
 const RECORD_SETTLE: f64 = 2.0;
+
+/// How long a desktop that hasn't moved goes before the record is checked against it anyway.
+const RECORD_REFRESH: f64 = 60.0;
 
 /// How long a window takes to pour into its stream in the code rain, on its own and when a whole
 /// workspace goes at once. A screenful moving together needs to be quicker: at the single
@@ -317,6 +320,8 @@ pub struct Slipstream {
     /// When the layout is next written down: `RECORD_SETTLE` after the last thing that moved, on
     /// wall time. `None` while nothing has changed since the last write.
     record_due: Option<f64>,
+    /// When a desktop that hasn't moved is next checked against the record.
+    record_again: f64,
     /// What the file on disk holds, so a desktop that hasn't moved isn't written over and over.
     saved_record: Option<session::Record>,
     /// Toplevels a client has created but not yet shown. They take no tile and no focus until
@@ -697,6 +702,7 @@ impl Slipstream {
             exit_record: None,
             hidden: None,
             record_due: None,
+            record_again: 0.0,
             saved_record: None,
             unmapped: Vec::new(),
             fullscreen_on_map: Vec::new(),

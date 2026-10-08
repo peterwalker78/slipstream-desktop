@@ -77,6 +77,7 @@ mod quick;
 mod rain;
 mod render;
 mod restore;
+mod resume;
 mod saver;
 mod screen;
 mod screencopy;
@@ -239,6 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut state = Slipstream::new(&mut event_loop, display);
     state.owns_state = owner.is_some();
+    resume::make_notes_dir();
     // The explorer follows apps being installed and removed, as KDE's menus do.
     watch::watch_apps(&event_loop.handle());
     watch::watch_recent_files(&event_loop.handle());

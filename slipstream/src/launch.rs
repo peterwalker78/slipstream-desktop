@@ -221,14 +221,48 @@ fn settings_app() -> Option<Vec<String>> {
 
 /// Starts an app's command from its desktop entry. Terminal apps open inside a terminal.
 pub fn app(exec: &[String], in_terminal: bool) -> Result<(), Failure> {
-    if !in_terminal {
-        return spawn(exec).map_err(Failure::Spawn);
+    again(exec, in_terminal, None, None).map(drop)
+}
+
+/// Starts an app the layout record names, and says which process it became. A terminal with an
+/// AI agent's session to reopen (`resume.rs`) runs `resume` in `directory`, and is left at a
+/// shell when the agent exits, as it would have been had the agent been started by hand.
+pub fn again(
+    exec: &[String],
+    in_terminal: bool,
+    resume: Option<&str>,
+    directory: Option<&str>,
+) -> Result<u32, Failure> {
+    if in_terminal {
+        let Some(command) = in_a_terminal(exec, terminal()) else {
+            tracing::warn!(?exec, "no terminal installed to run it in");
+            return Err(Failure::NothingInstalled);
+        };
+        return start(&command, None).map_err(Failure::Spawn);
     }
-    let Some(command) = in_a_terminal(exec, terminal()) else {
-        tracing::warn!(?exec, "no terminal installed to run it in");
-        return Err(Failure::NothingInstalled);
+    let Some(resume) = resume else {
+        return start(exec, None).map_err(Failure::Spawn);
     };
-    spawn(&command).map_err(Failure::Spawn)
+    let command = in_a_terminal(&resuming(resume, &shell()), Some(exec.to_vec()))
+        .ok_or(Failure::NothingInstalled)?;
+    // A folder that has gone since is no reason not to reopen the session.
+    let directory = directory.map(Path::new).filter(|dir| dir.is_dir());
+    start(&command, directory).map_err(Failure::Spawn)
+}
+
+/// The person's shell, from `$SHELL`, else the one every system has.
+fn shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|shell| shell.starts_with('/') && !shell.contains('\'') && installed(shell))
+        .unwrap_or_else(|| "/bin/sh".to_string())
+}
+
+/// `resume` run by `shell`, which then takes its place. Not an interactive shell: a startup file
+/// that hands over to another shell would do so before the command was ever looked at. The
+/// agent is found on the session's own search path, so a note gives a full path if it needs one.
+fn resuming(resume: &str, shell: &str) -> Vec<String> {
+    strings(&[shell, "-c", &format!("{resume}; exec '{shell}'")])
 }
 
 /// `exec` run inside `terminal`, told the way that terminal expects.
@@ -241,6 +275,8 @@ fn in_a_terminal(exec: &[String], terminal: Option<Vec<String>>) -> Option<Vec<S
         .unwrap_or_default();
     let flag: &[&str] = match program.as_str() {
         "ptyxis" | "gnome-terminal" => &["--"],
+        // Its own desktop entry already says `start`.
+        "wezterm" if command.iter().any(|part| part == "start") => &["--"],
         "wezterm" => &["start", "--"],
         "foot" | "kitty" | XDG_TERMINAL_EXEC => &[],
         _ => &["-e"],
@@ -507,6 +543,11 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 /// Starts `command` with its output kept out of Slipstream's log, and reaps it when it exits.
 /// An error means it never started: most often, no program by that name.
 pub fn spawn(command: &[String]) -> io::Result<()> {
+    start(command, None).map(drop)
+}
+
+/// `spawn`, in `directory` if one is given, saying which process the command became.
+fn start(command: &[String], directory: Option<&Path>) -> io::Result<u32> {
     let Some((program, args)) = command.split_first() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -522,13 +563,17 @@ pub fn spawn(command: &[String]) -> io::Result<()> {
     if let Some(display) = X_DISPLAY.lock().unwrap().as_deref() {
         process.env("DISPLAY", display);
     }
+    if let Some(directory) = directory {
+        process.current_dir(directory);
+    }
     match process.spawn() {
         Ok(mut child) => {
             tracing::debug!(?command, "started");
+            let pid = child.id();
             std::thread::spawn(move || {
                 let _ = child.wait();
             });
-            Ok(())
+            Ok(pid)
         }
         Err(err) => {
             tracing::warn!(?command, "couldn't launch: {err}");
@@ -540,6 +585,43 @@ pub fn spawn(command: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_is_reopened_by_the_shell_which_then_stays() {
+        assert_eq!(
+            resuming("agent --resume 7", "/usr/bin/zsh"),
+            [
+                "/usr/bin/zsh",
+                "-c",
+                "agent --resume 7; exec '/usr/bin/zsh'"
+            ]
+        );
+    }
+
+    #[test]
+    fn each_terminal_is_told_to_run_a_command_its_own_way() {
+        let run = strings(&["sh", "-c", "true"]);
+        let inside = |terminal: &[&str]| in_a_terminal(&run, Some(strings(terminal))).unwrap();
+        assert_eq!(inside(&["konsole"]), ["konsole", "-e", "sh", "-c", "true"]);
+        assert_eq!(
+            inside(&["/usr/bin/foot"]),
+            ["/usr/bin/foot", "sh", "-c", "true"]
+        );
+        assert_eq!(
+            inside(&["gnome-terminal"]),
+            ["gnome-terminal", "--", "sh", "-c", "true"]
+        );
+        assert_eq!(
+            inside(&["wezterm"]),
+            ["wezterm", "start", "--", "sh", "-c", "true"]
+        );
+        // An entry that already says `start` isn't told twice.
+        assert_eq!(
+            inside(&["wezterm", "start", "--cwd", "."]),
+            ["wezterm", "start", "--cwd", ".", "--", "sh", "-c", "true"]
+        );
+        assert_eq!(in_a_terminal(&run, None), None);
+    }
 
     #[test]
     fn the_browser_comes_from_the_desktops_own_choice() {

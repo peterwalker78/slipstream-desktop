@@ -7,7 +7,8 @@
 //! for. Once a workspace's places are claimed, its recorded tree is rebuilt around them.
 //!
 //! **It reopens apps, not documents.** A `.desktop` entry's `Exec` line is the whole of what is
-//! run. See the same section of the design for what that does and doesn't bring back.
+//! run, with one exception: a terminal in which an AI agent left word of how to reopen its
+//! session (`resume.rs`) runs that inside it.
 //!
 //! Places expire, because an app opened by hand half an hour later is a new window, not a
 //! returning one. Pure logic, generic over the window type, so all of it is unit-tested.
@@ -41,6 +42,27 @@ pub fn workspace_now(
     }
 }
 
+/// An app as its desktop entry gives it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    pub name: String,
+    pub exec: Vec<String>,
+    /// It runs inside a terminal.
+    pub in_terminal: bool,
+    /// It is a terminal.
+    pub emulates_terminal: bool,
+}
+
+/// One recorded app to start again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Start {
+    pub exec: Vec<String>,
+    pub in_terminal: bool,
+    /// An agent's session to reopen inside it, and the folder to do that from.
+    pub resume: Option<String>,
+    pub directory: Option<String>,
+}
+
 /// One recorded window, waiting for its app to open it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
@@ -51,6 +73,10 @@ pub struct Place {
     /// What to run. Never the app id, which any client can set to anything.
     pub exec: Vec<String>,
     pub in_terminal: bool,
+    /// An agent's session to reopen in it, kept only for an app that is a terminal: anything
+    /// else given a command to run would make nonsense of it.
+    pub resume: Option<String>,
+    pub directory: Option<String>,
     /// 0-based. `None` for a window that was in the code rain, which belongs to no workspace.
     pub workspace: Option<usize>,
     /// Its place among that workspace's windows: what the recorded tree's leaves refer to.
@@ -76,6 +102,8 @@ pub struct Plan<W> {
     places: Vec<Place>,
     /// The window that claimed each place, by the same index.
     taken: Vec<Option<W>>,
+    /// The process each place's app was started as, by the same index.
+    started: Vec<Option<u32>>,
     /// Each workspace's recorded tree, its leaves being slot numbers within that workspace.
     trees: Vec<Option<Shape<usize>>>,
     /// The workspace that was in front, 0-based.
@@ -87,9 +115,8 @@ pub struct Plan<W> {
 }
 
 impl<W: Clone + PartialEq> Plan<W> {
-    /// A plan from a record. `entry` looks an app id up in the desktop entries and gives back its
-    /// name and how to run it; an app it doesn't know is counted as lost rather than guessed at,
-    /// and **never** run as a command.
+    /// A plan from a record. `entry` looks an app id up in the desktop entries; an app it doesn't
+    /// know is counted as lost rather than guessed at, and **never** run as a command.
     ///
     /// `count` is how many workspaces there are now, and `place` says which of them a recorded
     /// workspace (its number counting from 1) has become — by name, or by number, or the first
@@ -98,7 +125,7 @@ impl<W: Clone + PartialEq> Plan<W> {
     pub fn new(
         record: &session::Record,
         now: f64,
-        entry: impl Fn(&str) -> Option<(String, Vec<String>, bool)>,
+        entry: impl Fn(&str) -> Option<Entry>,
         count: usize,
         place: impl Fn(usize) -> usize,
     ) -> Self {
@@ -117,7 +144,7 @@ impl<W: Clone + PartialEq> Plan<W> {
         let mut places = Vec::new();
         let mut lost = Vec::new();
         for win in &record.windows {
-            let Some((name, exec, in_terminal)) = entry(&win.app) else {
+            let Some(entry) = entry(&win.app) else {
                 if !lost.contains(&win.app) {
                     lost.push(win.app.clone());
                 }
@@ -145,9 +172,11 @@ impl<W: Clone + PartialEq> Plan<W> {
             };
             places.push(Place {
                 app: win.app.to_lowercase(),
-                name,
-                exec,
-                in_terminal,
+                name: entry.name,
+                exec: entry.exec,
+                in_terminal: entry.in_terminal,
+                resume: win.resume.clone().filter(|_| entry.emulates_terminal),
+                directory: win.directory.clone().filter(|_| entry.emulates_terminal),
                 workspace,
                 slot,
                 focused: win.focused,
@@ -156,9 +185,11 @@ impl<W: Clone + PartialEq> Plan<W> {
             });
         }
         let taken = vec![None; places.len()];
+        let started = vec![None; places.len()];
         Self {
             places,
             taken,
+            started,
             trees,
             active: place(record.active_workspace.max(1)),
             lost,
@@ -181,11 +212,23 @@ impl<W: Clone + PartialEq> Plan<W> {
     }
 
     /// What to launch, in the order the record named them.
-    pub fn to_launch(&self) -> Vec<(Vec<String>, bool)> {
+    pub fn to_launch(&self) -> Vec<Start> {
         self.places
             .iter()
-            .map(|place| (place.exec.clone(), place.in_terminal))
+            .map(|place| Start {
+                exec: place.exec.clone(),
+                in_terminal: place.in_terminal,
+                resume: place.resume.clone(),
+                directory: place.directory.clone(),
+            })
             .collect()
+    }
+
+    /// The process the `index`th of `to_launch` was started as.
+    pub fn started(&mut self, index: usize, pid: u32) {
+        if let Some(started) = self.started.get_mut(index) {
+            *started = Some(pid);
+        }
     }
 
     /// The apps the offer card names, each once, in the order they were recorded.
@@ -205,15 +248,23 @@ impl<W: Clone + PartialEq> Plan<W> {
         &self.lost
     }
 
-    /// A window has mapped. If a place of its app is still waiting, it takes the first one and
-    /// this says where it belongs; otherwise it is an ordinary new window.
-    pub fn claim(&mut self, app: &str, window: &W, now: f64) -> Option<Claim> {
+    /// A window has mapped. If a place of its app is still waiting, it takes one and this says
+    /// where it belongs; otherwise it is an ordinary new window.
+    ///
+    /// The place started as the window's own process, `pid`, comes first: two terminals started
+    /// together open in either order, and each has to land where its own session was. Failing
+    /// that, an app that hands its window to another process, say, it takes the first waiting.
+    pub fn claim(&mut self, app: &str, window: &W, pid: Option<u32>, now: f64) -> Option<Claim> {
         if now > self.until {
             return None;
         }
-        let index = self.places.iter().enumerate().position(|(i, place)| {
-            self.taken[i].is_none() && place.app.eq_ignore_ascii_case(app)
-        })?;
+        let waiting =
+            |i: usize| self.taken[i].is_none() && self.places[i].app.eq_ignore_ascii_case(app);
+        let places = 0..self.places.len();
+        let index = places
+            .clone()
+            .find(|&i| waiting(i) && pid.is_some() && self.started[i] == pid)
+            .or_else(|| places.clone().find(|&i| waiting(i)))?;
         self.taken[index] = Some(window.clone());
         Some(Claim {
             workspace: self.places[index].workspace,
@@ -334,13 +385,19 @@ mod tests {
     use super::*;
     use crate::session::{Record, Tiling, Win};
 
-    fn entry(app: &str) -> Option<(String, Vec<String>, bool)> {
-        match app {
-            "org.kde.konsole" => Some(("Konsole".into(), vec!["konsole".into()], false)),
-            "org.kde.dolphin" => Some(("Dolphin".into(), vec!["dolphin".into()], false)),
-            "firefox" => Some(("Firefox".into(), vec!["firefox".into()], false)),
-            _ => None,
-        }
+    fn entry(app: &str) -> Option<Entry> {
+        let (name, exec) = match app {
+            "org.kde.konsole" => ("Konsole", "konsole"),
+            "org.kde.dolphin" => ("Dolphin", "dolphin"),
+            "firefox" => ("Firefox", "firefox"),
+            _ => return None,
+        };
+        Some(Entry {
+            name: name.into(),
+            exec: vec![exec.into()],
+            in_terminal: false,
+            emulates_terminal: exec == "konsole",
+        })
     }
 
     fn win(app: &str, workspace: usize, slot: usize) -> Win {
@@ -372,7 +429,7 @@ mod tests {
         );
         let mut plan = plan(&record);
         assert_eq!(
-            plan.claim("org.kde.konsole", &"a", 1.0),
+            plan.claim("org.kde.konsole", &"a", None, 1.0),
             Some(Claim {
                 workspace: Some(0),
                 focused: false
@@ -380,14 +437,14 @@ mod tests {
         );
         // The second Konsole window takes the second Konsole place, not the first again.
         assert_eq!(
-            plan.claim("org.kde.konsole", &"b", 1.1),
+            plan.claim("org.kde.konsole", &"b", None, 1.1),
             Some(Claim {
                 workspace: Some(1),
                 focused: false
             })
         );
         // A third is just a new window.
-        assert_eq!(plan.claim("org.kde.konsole", &"c", 1.2), None);
+        assert_eq!(plan.claim("org.kde.konsole", &"c", None, 1.2), None);
         assert_eq!(plan.claimed(), 2);
     }
 
@@ -409,7 +466,7 @@ mod tests {
     fn a_place_stops_waiting_after_half_a_minute() {
         let record = record(vec![win("firefox", 1, 0)], vec![]);
         let mut plan = plan(&record);
-        assert_eq!(plan.claim("firefox", &"a", EXPIRY + 0.1), None);
+        assert_eq!(plan.claim("firefox", &"a", None, EXPIRY + 0.1), None);
         assert!(plan.settled(EXPIRY + 0.1));
     }
 
@@ -422,7 +479,15 @@ mod tests {
         let plan = plan(&record);
         assert_eq!(plan.len(), 1);
         assert_eq!(plan.lost(), ["some-run-box-command"]);
-        assert_eq!(plan.to_launch(), [(vec!["firefox".to_string()], false)]);
+        assert_eq!(
+            plan.to_launch(),
+            [Start {
+                exec: vec!["firefox".to_string()],
+                in_terminal: false,
+                resume: None,
+                directory: None,
+            }]
+        );
     }
 
     #[test]
@@ -440,9 +505,9 @@ mod tests {
             }],
         );
         let mut plan = plan(&record);
-        plan.claim("org.kde.konsole", &"konsole", 1.0);
-        plan.claim("org.kde.dolphin", &"dolphin", 1.1);
-        plan.claim("firefox", &"firefox", 1.2);
+        plan.claim("org.kde.konsole", &"konsole", None, 1.0);
+        plan.claim("org.kde.dolphin", &"dolphin", None, 1.1);
+        plan.claim("firefox", &"firefox", None, 1.2);
         let tree = plan.tree(0).unwrap();
         assert_eq!(
             tree,
@@ -476,9 +541,9 @@ mod tests {
             }],
         );
         let mut plan = plan(&record);
-        plan.claim("org.kde.konsole", &"konsole", 1.0);
+        plan.claim("org.kde.konsole", &"konsole", None, 1.0);
         // Dolphin never starts; the split above it collapses into Firefox.
-        plan.claim("firefox", &"firefox", 1.2);
+        plan.claim("firefox", &"firefox", None, 1.2);
         assert_eq!(
             plan.tree(0).unwrap(),
             Shape::Split {
@@ -501,7 +566,7 @@ mod tests {
             }],
         );
         let mut plan = plan(&record);
-        plan.claim("firefox", &"a", 1.0);
+        plan.claim("firefox", &"a", None, 1.0);
         plan.release(&"a");
         assert_eq!(plan.tree(0), None);
         assert_eq!(plan.claimed(), 0);
@@ -528,9 +593,9 @@ mod tests {
             vec![],
         );
         let mut plan = plan(&record);
-        plan.claim("org.kde.konsole", &"konsole", 1.0);
-        plan.claim("org.kde.dolphin", &"dolphin", 1.1);
-        plan.claim("firefox", &"firefox", 1.2);
+        plan.claim("org.kde.konsole", &"konsole", None, 1.0);
+        plan.claim("org.kde.dolphin", &"dolphin", None, 1.1);
+        plan.claim("firefox", &"firefox", None, 1.2);
         let gravity = plan.gravity(1);
         assert_eq!(gravity.centre(), Some(&"konsole"));
         assert_eq!(gravity.rung(&"dolphin"), Rung::Distant);
@@ -556,7 +621,7 @@ mod tests {
             vec![],
         );
         let mut plan = plan(&record);
-        plan.claim("firefox", &"firefox", 1.0);
+        plan.claim("firefox", &"firefox", None, 1.0);
         assert!(!plan.gravity(0).is_on());
     }
 
@@ -581,13 +646,13 @@ mod tests {
         );
         let mut plan = plan(&record);
         assert_eq!(
-            plan.claim("firefox", &"firefox", 1.0),
+            plan.claim("firefox", &"firefox", None, 1.0),
             Some(Claim {
                 workspace: None,
                 focused: false
             })
         );
-        plan.claim("org.kde.konsole", &"konsole", 1.1);
+        plan.claim("org.kde.konsole", &"konsole", None, 1.1);
         assert_eq!(plan.to_minimise(), ["konsole", "firefox"]);
         assert!(plan.touched().is_empty());
     }
@@ -608,10 +673,10 @@ mod tests {
         let mut plan = Plan::new(&record, 0.0, entry, 5, |index| index - 1);
         assert_eq!(plan.active(), 2);
         assert_eq!(plan.focus(), None);
-        plan.claim("firefox", &"firefox", 1.0);
+        plan.claim("firefox", &"firefox", None, 1.0);
         assert_eq!(plan.focus(), Some("firefox"));
         assert!(!plan.settled(1.0));
-        plan.claim("org.kde.konsole", &"konsole", 1.1);
+        plan.claim("org.kde.konsole", &"konsole", None, 1.1);
         assert!(plan.settled(1.1));
     }
 
@@ -651,8 +716,8 @@ mod tests {
         );
         // Three workspaces became one.
         let mut plan: Plan<&str> = Plan::new(&record, 0.0, entry, 1, |_| 0);
-        plan.claim("org.kde.konsole", &"k", 0.0);
-        plan.claim("org.kde.dolphin", &"f", 0.0);
+        plan.claim("org.kde.konsole", &"k", None, 0.0);
+        plan.claim("org.kde.dolphin", &"f", None, 0.0);
         assert_eq!(
             plan.tree(0).map(|shape| shape.leaves()),
             Some(vec!["k"]),
@@ -671,5 +736,56 @@ mod tests {
             vec![],
         );
         assert_eq!(plan(&record).app_names(), ["Konsole", "Firefox"]);
+    }
+
+    /// Two terminals, each with an agent's session, on workspaces one and two.
+    fn two_sessions() -> Record {
+        let mut first = win("org.kde.konsole", 1, 0);
+        first.resume = Some("agent --resume 7".into());
+        first.directory = Some("/work/site".into());
+        let mut second = win("org.kde.konsole", 2, 0);
+        second.resume = Some("agent --resume 8".into());
+        record(vec![first, second], vec![])
+    }
+
+    #[test]
+    fn each_agent_session_comes_back_in_the_window_it_was_in() {
+        let record = two_sessions();
+        let mut plan = plan(&record);
+        let starts = plan.to_launch();
+        assert_eq!(starts[0].resume.as_deref(), Some("agent --resume 7"));
+        assert_eq!(starts[0].directory.as_deref(), Some("/work/site"));
+        assert_eq!(starts[1].resume.as_deref(), Some("agent --resume 8"));
+        plan.started(0, 700);
+        plan.started(1, 800);
+        // The second terminal's window opens first, and still lands on the second workspace.
+        let late = plan.claim("org.kde.konsole", &"eight", Some(800), 1.0);
+        assert_eq!(late.and_then(|claim| claim.workspace), Some(1));
+        let early = plan.claim("org.kde.konsole", &"seven", Some(700), 1.1);
+        assert_eq!(early.and_then(|claim| claim.workspace), Some(0));
+    }
+
+    #[test]
+    fn a_window_from_a_process_nobody_started_takes_the_first_place_waiting() {
+        let record = two_sessions();
+        let mut plan = plan(&record);
+        plan.started(0, 700);
+        plan.started(1, 800);
+        let claim = plan.claim("org.kde.konsole", &"a", Some(4242), 1.0);
+        assert_eq!(claim.and_then(|claim| claim.workspace), Some(0));
+        let claim = plan.claim("org.kde.konsole", &"b", None, 1.1);
+        assert_eq!(claim.and_then(|claim| claim.workspace), Some(1));
+    }
+
+    #[test]
+    fn only_a_terminal_is_ever_given_a_session_to_reopen() {
+        // A record edited by hand, or an app that only looked like a terminal when it was read.
+        let mut browser = win("firefox", 1, 0);
+        browser.resume = Some("agent --resume 7".into());
+        browser.directory = Some("/work/site".into());
+        let record = record(vec![browser], vec![]);
+        let start = &plan(&record).to_launch()[0];
+        assert_eq!(start.resume, None);
+        assert_eq!(start.directory, None);
     }
 }

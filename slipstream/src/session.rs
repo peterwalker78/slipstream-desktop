@@ -3,7 +3,9 @@
 //! of what was open sitting in the state directory.
 //!
 //! Apps and places only. **No window titles**, because a title is often a document name, a URL or
-//! a correspondent, and this file goes to disk without being asked about each time.
+//! a correspondent, and this file goes to disk without being asked about each time. A terminal
+//! in which an AI agent has left word of how to reopen its session (`resume.rs`) also has that
+//! command and the folder to run it from. Nothing else about a terminal is kept.
 //!
 //! ```toml
 //! version = 1
@@ -15,6 +17,8 @@
 //! workspace = 1
 //! slot = 0
 //! focused = true
+//! resume = "agent --resume 7"
+//! directory = "/home/sam/site"
 //!
 //! [[workspace]]
 //! index = 1
@@ -51,7 +55,8 @@ const MAX_WINDOWS: usize = 60;
 const HEADER: &str = "\
 # What Slipstream had open when the session ended, so the layout can be put back. Written only
 # while `remember` is on under [session] in settings.toml; turning it off deletes this file.
-# Apps and places, never window titles.
+# Apps and places, never window titles. A terminal where an AI agent left a note saying how to
+# reopen its session also has that command and the folder to run it from.
 
 ";
 
@@ -92,6 +97,13 @@ pub struct Win {
     pub gravity: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub pinned: bool,
+    /// The command an AI agent in this terminal left for reopening its session. Run only inside
+    /// an app whose desktop entry says it is a terminal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume: Option<String>,
+    /// The folder to run `resume` from: the one the terminal's shell was in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
 }
 
 /// One workspace's tiling tree, as the string grammar below.
@@ -360,6 +372,8 @@ mod tests {
                     workspace: Some(1),
                     slot: 0,
                     focused: true,
+                    resume: Some("agent --resume 7".into()),
+                    directory: Some("/home/sam/site".into()),
                     ..Win::default()
                 },
                 Win {

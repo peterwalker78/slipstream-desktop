@@ -1406,6 +1406,7 @@ mod tests {
                 icon: None,
                 terminal: false,
                 wm_class: None,
+                emulates_terminal: false,
             })
             .collect();
         explorer
