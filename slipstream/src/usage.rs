@@ -44,6 +44,10 @@ const APP_MEMORY_FULL_MB: f32 = 512.0;
 /// download on a good line is flat out, and what lies between spans three orders of magnitude.
 const APP_NETWORK_QUIET_KB: f32 = 1.0;
 const APP_NETWORK_FULL_KB: f32 = 4096.0;
+/// The most traffic alone can read: level with one busy core. Moving bytes is the machine being
+/// used, not the machine being worked, so a download at full tilt shows without passing for a
+/// build.
+const APP_NETWORK_MOST: f32 = 0.3;
 /// How long a reading takes to fall half way to a lower one.
 const HALF_LIFE_SECS: f32 = 3.0;
 /// How often every watched app is read.
@@ -167,7 +171,8 @@ impl Probe {
             let reading = &mut self.reading;
             reading.cpu = cpu_share(cores, processors());
             reading.memory = log_share(moved_mb, APP_MEMORY_STILL_MB, APP_MEMORY_FULL_MB);
-            reading.network = log_share(carried_kb, APP_NETWORK_QUIET_KB, APP_NETWORK_FULL_KB);
+            reading.network =
+                APP_NETWORK_MOST * log_share(carried_kb, APP_NETWORK_QUIET_KB, APP_NETWORK_FULL_KB);
             let busiest = reading.cpu.max(reading.memory).max(reading.network);
             reading.load = settle(reading.load, busiest, seconds);
         }
@@ -498,12 +503,27 @@ mod tests {
     }
 
     #[test]
+    fn traffic_alone_never_reads_as_flat_out() {
+        let start = Instant::now();
+        let mut probe = probe_holding(500 * MB, start);
+        // A gigabyte in a second, and not a tick of processor time.
+        probe.score(start + SECOND, 0, 500 * MB, 1 << 30);
+        assert_eq!(probe.reading.load, APP_NETWORK_MOST);
+        assert_eq!(
+            probe.reading.load,
+            cpu_share(1.0, 12.0),
+            "level with one busy core"
+        );
+    }
+
+    #[test]
     fn the_busiest_of_the_three_decides() {
         let start = Instant::now();
         let mut probe = probe_holding(500 * MB, start);
-        // An idle processor and still memory, but 64 KB a second coming down the line.
+        // An idle processor and still memory, but 64 KB a second coming down the line: half way
+        // up what traffic can read.
         probe.score(start + SECOND, 0, 500 * MB, 64 * 1024);
-        assert!((probe.reading.load - 0.5).abs() < 0.01);
+        assert!((probe.reading.load - 0.5 * APP_NETWORK_MOST).abs() < 0.01);
         assert_eq!(probe.reading.cpu, 0.0);
 
         let mut probe = probe_holding(500 * MB, start);
