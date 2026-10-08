@@ -25,8 +25,8 @@ impl Slipstream {
     }
 
     /// Keeps the picture of a window that is going, where it was drawn, to fade out there. Only
-    /// a window on screen leaves one: not one minimised, on a workspace out of sight, under the
-    /// lock or in bullet time's overview.
+    /// a window on screen leaves one, among the tiles or docked to the bar: not one minimised,
+    /// on a workspace out of sight, under the lock or in bullet time's overview.
     pub(super) fn leave_a_ghost(&mut self, window: &Window) {
         let picture = self
             .pictures
@@ -36,10 +36,12 @@ impl Slipstream {
         let Some(picture) = picture else {
             return;
         };
-        let on_screen = self
-            .workspaces
-            .find(window)
-            .is_some_and(|index| self.screens.showing(index).is_some());
+        // The docked pane is on no workspace, and on screen whichever is shown.
+        let on_screen = self.docked_on_show().as_ref() == Some(window)
+            || self
+                .workspaces
+                .find(window)
+                .is_some_and(|index| self.screens.showing(index).is_some());
         if !on_screen || self.lock.is_some() || self.bullet.is_some() || self.idle.is_faded() {
             return;
         }
