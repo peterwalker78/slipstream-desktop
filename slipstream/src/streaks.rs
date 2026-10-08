@@ -91,6 +91,8 @@ pub struct Streaks {
     name_rgb: [f32; 3],
     /// How bright the name is with no light on it.
     name_rest: f32,
+    /// The name's face, its size in logical pixels and its letter spacing.
+    name_style: (Face, f32, f32),
     still: bool,
 }
 
@@ -112,6 +114,7 @@ impl Streaks {
             rng: seed | 1,
             name_rgb: QUIET,
             name_rest: NAME_REST,
+            name_style: (Face::BodyBold, NAME_PX, NAME_TRACKING),
             still: false,
         };
         streaks.resize(width, height, scale);
@@ -132,7 +135,7 @@ impl Streaks {
         self.width = width;
         self.height = height;
         self.scale = scale;
-        self.spine = spine(&self.name, width, height, scale);
+        self.spine = spine(&self.name, self.name_style, width, height, scale);
     }
 
     /// Eases towards `load` from here on.
@@ -145,6 +148,21 @@ impl Streaks {
         let changed = self.name_rgb != rgb;
         self.name_rgb = rgb;
         changed
+    }
+
+    /// Sets the name in `face` at `px` logical pixels with `tracking` between its letters, in
+    /// place of the streams' own type: where a stream lies among other text, it takes theirs.
+    pub fn set_name_style(&mut self, face: Face, px: f32, tracking: f32) {
+        if self.name_style != (face, px, tracking) {
+            self.name_style = (face, px, tracking);
+            self.spine = spine(
+                &self.name,
+                self.name_style,
+                self.width,
+                self.height,
+                self.scale,
+            );
+        }
     }
 
     /// Keeps the name this bright with no light on it, where the name is all that says whose
@@ -443,17 +461,23 @@ fn light_spine(spine: &mut Spine, x: f32, reach: f32, from: f32, to: f32, bright
     }
 }
 
-/// `name` in the body face, bold, turned a quarter clockwise to read down a card `width`×`height`
+/// `name` in its face, turned a quarter clockwise to read down a card `width`×`height`
 /// screen pixels at `scale`, centred across it and starting `NAME_TOP` below its top. Cut off at
 /// the card's foot if it's too long. None if nothing of it can be drawn.
-fn spine(name: &str, width: usize, height: usize, scale: f64) -> Option<Spine> {
+fn spine(
+    name: &str,
+    (face, px, tracking): (Face, f32, f32),
+    width: usize,
+    height: usize,
+    scale: f64,
+) -> Option<Spine> {
     let name = name.trim();
     if name.is_empty() || width == 0 || height == 0 {
         return None;
     }
-    let mut style = Style::new(Face::BodyBold, NAME_PX * scale as f32, 0xffffffff);
-    style.tracking = NAME_TRACKING;
-    let (ascent, descent) = text::line_metrics(Face::BodyBold, style.px);
+    let mut style = Style::new(face, px * scale as f32, 0xffffffff);
+    style.tracking = tracking;
+    let (ascent, descent) = text::line_metrics(face, style.px);
     // Laid out along a line first, then turned.
     let along = (text::width(name, &style).ceil() as usize + 2).max(1);
     let across = ((ascent - descent).ceil() as usize + 2).max(1);

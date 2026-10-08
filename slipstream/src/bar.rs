@@ -506,15 +506,13 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         target(Target::Sharing, right, w);
     }
 
-    // Leftmost of them all: room for the docked window's slot, over its pane's left edge where
-    // it fits. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
-    // painted here.
-    if let Some((left, _)) = span {
-        // Clear of the clock on one side and of everything to its right on the other; a bar
-        // too narrow for that goes without.
-        let (lowest, highest) = (centre_x + centre_w + 8.0, right - 8.0 - DOCK_SLOT);
-        if lowest <= highest {
-            target(Target::Dock, left.clamp(lowest, highest), DOCK_SLOT);
+    // Leftmost of them all: room for the docked window's slot, in the same place whatever size
+    // its pane is. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
+    // painted here. A bar too narrow to keep it clear of the clock goes without.
+    if span.is_some() {
+        let x = right - 8.0 - DOCK_SLOT;
+        if x >= centre_x + centre_w + 8.0 {
+            target(Target::Dock, x, DOCK_SLOT);
         }
     }
 
@@ -522,7 +520,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
 }
 
 /// How wide the docked window's slot is, in the bar's units.
-const DOCK_SLOT: f32 = 180.0;
+const DOCK_SLOT: f32 = 132.0;
 
 /// A meter gauge's width in the bar's units.
 const GAUGE_W: f32 = 18.0;
@@ -682,18 +680,18 @@ mod tests {
                 .map(|(_, area)| *area)
                 .unwrap()
         };
-        // The slot stands at the frame's left edge.
+        // The slot stands just left of the tray, and stays there whatever size the pane is.
         let (pixmap, targets) = paint(&docked((1000, 1536)), 1536, 1.25).unwrap();
-        let tab = area(&targets, Target::Dock);
-        assert!((tab.loc.x - 1000.0).abs() < 1.0, "{tab:?}");
-        // A pane reaching under the clock: the slot stays to the clock's right.
-        let (_, targets) = paint(&docked((760, 1536)), 1536, 1.25).unwrap();
-        let (tab, clock) = (area(&targets, Target::Dock), area(&targets, Target::Clock));
-        assert!(clock.loc.x + clock.size.w <= tab.loc.x, "{tab:?} {clock:?}");
-        // A pane narrower than the tray and the bell: the slot stays clear of them.
-        let (_, targets) = paint(&docked((1500, 1536)), 1536, 1.25).unwrap();
-        let (tab, tray) = (area(&targets, Target::Dock), area(&targets, Target::Tray));
-        assert!(tab.loc.x + tab.size.w <= tray.loc.x, "{tab:?} {tray:?}");
+        let (slot, tray) = (area(&targets, Target::Dock), area(&targets, Target::Tray));
+        assert!(slot.loc.x + slot.size.w <= tray.loc.x, "{slot:?} {tray:?}");
+        assert!(
+            tray.loc.x - (slot.loc.x + slot.size.w) < 12.0,
+            "{slot:?} {tray:?}"
+        );
+        for span in [(760, 1536), (1300, 1536), (1500, 1536)] {
+            let (_, targets) = paint(&docked(span), 1536, 1.25).unwrap();
+            assert_eq!(area(&targets, Target::Dock), slot, "{span:?}");
+        }
         // The line along the bar's foot stops where the frame takes over.
         let foot = |pixmap: &Pixmap, x: u32| pixmap.pixel(x, pixmap.height() - 1).unwrap();
         assert_ne!(foot(&pixmap, 400), foot(&pixmap, 1400));

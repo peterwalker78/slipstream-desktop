@@ -505,6 +505,7 @@ pub fn output_elements(
                 state.clock.reduced_motion,
                 state.rain.demand(),
             );
+            let light = state.rain.light();
             if let Some(slot) = state.dock_slot.as_mut() {
                 elements.extend(
                     slot.element(
@@ -518,6 +519,7 @@ pub fn output_elements(
                         ring,
                         still,
                         demand,
+                        light,
                     )
                     .map(OutputElement::Memory),
                 );
@@ -771,6 +773,8 @@ pub fn output_elements(
             chrome.overview.solid(inside, DOCK_BAY, scale, ui_alpha),
         ));
     }
+    // The docked pane's own elements while the overview is open: upright, just behind the bar.
+    let mut pane_layer: Vec<OutputElement> = Vec::new();
     for (window, dx) in windows {
         if in_deck.contains(&window)
             || passing
@@ -784,6 +788,10 @@ pub fn output_elements(
         // is not this screen's when it belongs to the one next door.
         let home_index = state.workspaces.find(&window);
         let is_docked = docked.as_ref() == Some(&window);
+        // The docked pane hangs from the bar, which stays upright in bullet time: it is drawn
+        // on the screen itself, at the screen's own density, not in the overview's world.
+        let mark = world.len();
+        let world_scale = if is_docked { scale } else { world_scale };
         let area_global = if is_docked {
             state.screen_area(0)
         } else {
@@ -864,15 +872,9 @@ pub fn output_elements(
             (w * s, h * s).into(),
         );
         let alpha = frame.alpha as f32 * ui_alpha;
-        // The docked pane is not part of any workspace's picture: it fades as the overview opens.
-        let alpha = if is_docked {
-            alpha * (1.0 - zoomed_out.min(1.0)) as f32
-        } else {
-            alpha
-        };
         // In bullet time windows are drawn smaller around the screen's centre, each also shrunk a
         // little about its own centre so the gaps between them open up inside their frame.
-        let shown = if zoomed_out > 0.0 {
+        let shown = if zoomed_out > 0.0 && !is_docked {
             let k = 0.06 * zoomed_out;
             to_overview(Rectangle::new(
                 (
@@ -1007,16 +1009,49 @@ pub fn output_elements(
                     .map(OutputElement::Solid),
             );
         }
+        // In bullet time the docked pane has its letter and, when chosen, the ring, as any
+        // window does.
+        if is_docked && zoomed_out > 0.0 && state.bullet.is_some() {
+            let fade = alpha * zoomed_out.min(1.0) as f32;
+            if let Some((_, label)) = labels.iter().find(|(target, _)| *target.window() == window) {
+                let name = state.window_name(&window);
+                let middle = Point::from((
+                    shown.loc.x + shown.size.w / 2.0,
+                    shown.loc.y + shown.size.h / 2.0,
+                ));
+                world.extend(
+                    chrome
+                        .overview
+                        .hint(renderer, label, Some(&name), middle, scale.x, fade)
+                        .map(OutputElement::Memory),
+                );
+            }
+            if matches!(&selected, Some(Target::Window(chosen)) if *chosen == window) {
+                let ring = overview::ring(state.bullet_rgb);
+                world.extend(
+                    chrome
+                        .overview
+                        .outline(shown, 0.0, 3, ring, world_scale, fade)
+                        .into_iter()
+                        .map(OutputElement::Solid),
+                );
+            }
+        }
         // The docked pane's glass has a fine light edge, whoever has the keyboard, and for a
-        // moment after it lands the seam where it meets the bar is lit.
-        if is_docked && zoomed_out <= 0.0 {
+        // moment after it lands the seam where its frame meets the bar is lit.
+        if is_docked {
             let seated = state.dock.as_ref().and_then(|docked| docked.seated);
             let seam = crate::dock::seam(seated, now);
             if seam > 0.0 {
                 // White along the bar's edge, and round the glass as it locks in.
+                let edge = crate::dock::FRAME;
                 let line = Rectangle::<i32, Logical>::new(
-                    (shown.loc.x.round() as i32, shown.loc.y.round() as i32 - 1).into(),
-                    (shown.size.w.round() as i32, 3).into(),
+                    (
+                        shown.loc.x.round() as i32 - edge,
+                        shown.loc.y.round() as i32 - edge,
+                    )
+                        .into(),
+                    (shown.size.w.round() as i32 + 2 * edge, 2).into(),
                 );
                 world.push(OutputElement::Solid(chrome.overview.solid(
                     line,
@@ -1100,13 +1135,17 @@ pub fn output_elements(
         }
         // And round it, the bar's material carried on down its sides and under its foot, with
         // the shadow the whole piece casts on the desktop.
-        if is_docked && zoomed_out <= 0.0 {
+        if is_docked {
             let size = (shown.size.w.round() as i32, shown.size.h.round() as i32);
             world.extend(
                 chrome
                     .dock_frame(renderer, size, scale.x, shown.loc, alpha)
                     .map(OutputElement::Memory),
             );
+            // With the overview open, everything of the pane's goes in front of it.
+            if zoomed_out > 0.0 {
+                pane_layer.extend(world.drain(mark..));
+            }
         }
     }
 
@@ -1292,6 +1331,7 @@ pub fn output_elements(
         }
     }
     elements.splice(behind_bar..behind_bar, deck_elements);
+    elements.splice(behind_bar..behind_bar, pane_layer);
 
     // Bullet time: every workspace in view gets its frame, number and caption, behind its windows.
     if let (true, true, Some(area)) = (first_output && ui > 0.0, zoomed_out > 0.0, area_local) {
@@ -1693,7 +1733,7 @@ fn bar_content(
         // The pane hangs from the bar of the screen the streams are on.
         dock: state
             .docked_on_show()
-            .filter(|_| screen_index == Some(0) && state.bullet.is_none())
+            .filter(|_| screen_index == Some(0))
             .and_then(|_| {
                 let frame = crate::dock::frame(state.docked_rect()?);
                 let left = frame.x - state.screen_rect(0)?.x;

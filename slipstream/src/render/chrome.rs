@@ -368,9 +368,9 @@ pub(super) const DOCK_MARGIN: i32 = 64;
 const DOCK_RADIUS: f32 = 7.0;
 
 /// The frame of a docked pane `size` logical pixels big, with `DOCK_MARGIN` of room all round:
-/// the bar's own material down the pane's sides and under its foot, edged with the bar's line,
-/// and the shadow the piece casts. Nothing is painted where the window goes, nor above the
-/// pane's top, which is the bar's lower edge.
+/// the bar's own material round the pane, edged with the bar's line down its sides and under
+/// its foot, and the shadow the piece casts. Nothing is painted where the window goes, nor above
+/// the frame's top, which is the bar's lower edge.
 pub(super) fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
     let logical = Size::<i32, Logical>::from((size.0 + 2 * DOCK_MARGIN, size.1 + 2 * DOCK_MARGIN));
     let device = (
@@ -387,7 +387,7 @@ pub(super) fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Pa
     p.shadow(x, y, wide, tall, DOCK_RADIUS, 8.0, 26.0, 0x00000058);
     p.fill(x, y, wide, tall, DOCK_RADIUS, panel::CHIP | 0xe6);
     p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, panel::DIVIDER);
-    p.clear(0.0, 0.0, logical.w as f32, m);
+    p.clear(0.0, 0.0, logical.w as f32, m - edge);
     p.clear(m, m, w, h);
     Some(paint::Painted {
         buffer: paint::buffer(&p.pixmap),

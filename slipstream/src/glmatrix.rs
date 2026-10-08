@@ -500,6 +500,75 @@ impl Band {
     }
 }
 
+impl Band {
+    /// The width and height to make a band whose one column, laid on its side, fills a strip
+    /// `length` pixels long with glyphs `glyph_h` pixels tall.
+    pub fn size_along(length: f32, glyph_h: f32) -> (f32, f32) {
+        let cell_w = (glyph_h / CELL_ASPECT).max(1.0);
+        (cell_w * COLUMNS as f32, length * CELL_ASPECT)
+    }
+
+    /// Adds one of the band's columns to premultiplied RGBA `pixels`, `w`×`h`, laid on its side
+    /// along the strip: the top of the column at the left, each glyph upright and the app's
+    /// name reading left to right. The band was made with `size_along`.
+    pub fn draw_along(&self, pixels: &mut [u8], w: usize, h: usize, glyphs: &mut Glyphs) {
+        let (step_x, step_y) = cell_size(self.width);
+        let size = (step_x.round() as usize, step_y.round() as usize);
+        if size.0 < 2 {
+            return;
+        }
+        let Some(s) = self.strips.first().filter(|s| s.rest == 0) else {
+            return;
+        };
+        // Where a cell `y` rows below the column's middle would be down the column, along it.
+        let along = |y: f32| w as f32 / 2.0 - y * step_x;
+        let top = (h as f32 - step_y) / 2.0;
+        let light = self.still.unwrap_or(1.0);
+        let mut target = Target {
+            pixels,
+            w,
+            h,
+            clip: (0, w as i32),
+            colour: self.colour,
+            name_colour: self.name_colour,
+        };
+        for cell in 0..self.rows {
+            let glyph = s.glyphs[cell];
+            let reached = s.spinner_y >= cell as f32;
+            let shown = if s.erasing { !reached } else { reached };
+            if glyph == 0 || !shown {
+                continue;
+            }
+            let j = WAVE_SIZE - ((cell + WAVE_SIZE - s.wave_pos) % WAVE_SIZE);
+            if j >= WAVE_SIZE {
+                continue;
+            }
+            target.glyph(
+                glyphs,
+                glyph,
+                s.highlight[cell],
+                along(s.y - cell as f32 + 1.0),
+                top,
+                size,
+                ramp(j) * light,
+                1.0,
+            );
+        }
+        if !s.erasing {
+            target.glyph(
+                glyphs,
+                s.spinner,
+                false,
+                along(s.y - s.spinner_y + 1.0),
+                top,
+                size,
+                light,
+                1.0,
+            );
+        }
+    }
+}
+
 struct Target<'a> {
     pixels: &'a mut [u8],
     w: usize,

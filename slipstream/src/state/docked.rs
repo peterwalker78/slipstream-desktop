@@ -153,6 +153,17 @@ impl Slipstream {
         Some((window, pane))
     }
 
+    /// The docked window, if `pos` is on its pane or the frame round it.
+    pub fn docked_at(&self, pos: Point<f64, Logical>) -> Option<Window> {
+        let window = self.docked_on_show()?;
+        let frame = dock::frame(self.docked_rect()?);
+        let inside = pos.x >= frame.x as f64
+            && pos.x < (frame.x + frame.w) as f64
+            && pos.y >= frame.y as f64
+            && pos.y < (frame.y + frame.h) as f64;
+        inside.then_some(window)
+    }
+
     /// A click on the pane's slot in the bar: the keyboard goes into the pane, or from it back to
     /// the windows.
     pub fn dock_clicked(&mut self) {

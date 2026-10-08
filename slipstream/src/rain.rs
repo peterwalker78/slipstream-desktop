@@ -294,6 +294,12 @@ impl Rain {
         self.pinned
     }
 
+    /// Which light the streams are drawn in, and the code rain's glyphs when it is that: for
+    /// anything else that is drawn as a stream.
+    pub fn light(&mut self) -> (Effects, Option<&mut Glyphs>) {
+        (self.effects, self.glyphs.as_mut())
+    }
+
     pub fn len(&self) -> usize {
         self.streams.len()
     }

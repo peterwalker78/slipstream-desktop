@@ -39,7 +39,11 @@ impl Slipstream {
             .iter()
             .map(|stream| stream.window.clone())
             .collect();
-        bullet::targets(self.windows_by_recency(home), streams, others)
+        // The docked pane is in view from every workspace, so it is lettered with the home
+        // workspace's windows, after them.
+        let mut here = self.windows_by_recency(home);
+        here.extend(self.docked_on_show());
+        bullet::targets(here, streams, others)
     }
 
     pub fn enter_bullet_time(&mut self) {
@@ -182,6 +186,19 @@ impl Slipstream {
         let Some(mode) = self.bullet.clone() else {
             return;
         };
+        // From the docked pane, which hangs above the windows at the right, down or left is
+        // back among them.
+        if let Some(Target::Window(window)) = &mode.selected
+            && self.is_docked(window)
+        {
+            if matches!(direction, Direction::Down | Direction::Left) {
+                let most_recent = self.windows_by_recency(mode.view).into_iter().next();
+                if most_recent.is_some() {
+                    self.bullet_select(most_recent.map(Target::Window));
+                }
+            }
+            return;
+        }
         let mut rects = self.workspace_rects(mode.view);
         // Most recently used first: with two windows equally ahead, the arrow picks the last used.
         rects.sort_by_key(|(window, _)| recency(&self.focus_history, window));
@@ -199,6 +216,11 @@ impl Slipstream {
         };
         match bullet::nearest(&rects, &current, direction) {
             Some(window) => self.bullet_select(Some(Target::Window(window))),
+            // Up from the top of the windows is the pane hanging from the bar.
+            None if direction == Direction::Up && self.docked_on_show().is_some() => {
+                let docked = self.docked_on_show();
+                self.bullet_select(docked.map(Target::Window));
+            }
             None => self.bullet_cross(mode.view, direction),
         }
     }
@@ -232,6 +254,10 @@ impl Slipstream {
         else {
             return;
         };
+        // A docked window comes down from the bar to go to a workspace.
+        if self.is_docked(&window) {
+            self.come_down(None);
+        }
         self.move_window_to_workspace(&window, index, false);
         self.bullet_pan(index.min(self.workspaces.count().saturating_sub(1)), false);
     }
@@ -312,6 +338,9 @@ impl Slipstream {
             }
             bullet::Command::Minimise => {
                 if let Some(window) = chosen {
+                    if self.is_docked(&window) {
+                        self.come_down(None);
+                    }
                     self.minimise(&window);
                     self.bullet_select(Some(Target::Stream(window)));
                 }
@@ -353,6 +382,12 @@ impl Slipstream {
     /// A click on the bar while bullet time is open. A workspace's number looks at it, as its
     /// number key does; a panel's button goes back out with nothing changed and opens the panel.
     pub(super) fn bullet_bar_clicked(&mut self, target: bar::Target) {
+        // The docked window's slot goes to its pane, as a click on the pane does.
+        if target == bar::Target::Dock
+            && let Some(docked) = self.docked_on_show()
+        {
+            return self.bullet_go(Some(Target::Window(docked)));
+        }
         match bullet::bar_click(target) {
             bullet::BarClick::Look(index) => self.bullet_pan(index, true),
             bullet::BarClick::Leave => {
@@ -478,6 +513,21 @@ impl Slipstream {
             }
             return;
         }
+        // Then the docked pane, upright in front of the overview: the same three buttons as on
+        // any window.
+        if let Some(window) = self.docked_at(pos) {
+            match button {
+                LEFT => self.bullet_go(Some(Target::Window(window))),
+                MIDDLE => self.bullet_close(&window),
+                RIGHT => {
+                    self.come_down(None);
+                    self.minimise(&window);
+                    self.bullet_select(Some(Target::Stream(window)));
+                }
+                _ => {}
+            }
+            return;
+        }
         let hit = self
             .overview_point(pos)
             .and_then(|at| Some((at, self.overview_window_at(at)?)));
@@ -541,6 +591,9 @@ impl Slipstream {
         }
         if let Some(window) = self.rain_window_at(pos) {
             return self.bullet_go(Some(Target::Stream(window)));
+        }
+        if let Some(window) = self.docked_at(pos) {
+            return self.bullet_go(Some(Target::Window(window)));
         }
         let Some(screen) = self.output_rect() else {
             return;

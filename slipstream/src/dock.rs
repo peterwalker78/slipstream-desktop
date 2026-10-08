@@ -1,8 +1,8 @@
 //! One window kept in view on every workspace: docked to the bar, hanging from it as a pane of
 //! glass in front of the desktop.
 //!
-//! The pane hangs from the bar's lower edge at its right-hand end, with the bar's own material
-//! round its other three sides, so the two are one piece. It has three sizes. Docking lifts the
+//! The pane hangs from the bar's lower edge at its right-hand end, framed all round in the
+//! bar's own material, so the two are one piece. It has three sizes. Docking lifts the
 //! window out of its tile and up to the bar, further away as it goes and leaning back a little; undocking brings it forward
 //! again into a tile. The glass is rigid throughout (`pane.rs`).
 //!
@@ -15,7 +15,8 @@ use crate::{
     pane::{Axis, Camera, Pose},
 };
 
-/// How much of the bar's material shows round the pane's sides and foot, in logical pixels.
+/// How much of the bar's material shows round the pane, in logical pixels: down its sides,
+/// under its foot, and between it and the bar, so the focus ring has room all the way round.
 pub const FRAME: i32 = 4;
 /// How long a window takes from its tile up to the bar, in animation seconds.
 const UP: f64 = 0.38;
@@ -74,28 +75,27 @@ pub struct Docked<W> {
     pub seated: Option<f64>,
 }
 
-/// Where the docked window rests in tiling area `area`: against the bar at the right-hand end,
-/// with room for the frame beside it.
+/// Where the docked window rests in tiling area `area`: under the bar at the right-hand end,
+/// with room for the frame round it.
 pub fn rect(area: Rect, size: Size) -> Rect {
     let (across, down) = size.share();
     let w = ((area.w as f64 * across).round() as i32).max(1);
     let h = ((area.h as f64 * down).round() as i32).max(1);
     Rect {
         x: area.x + area.w - FRAME - w,
-        y: area.y,
+        y: area.y + FRAME,
         w,
         h,
     }
 }
 
-/// The bar's material round a pane resting at `rect`: its sides and foot, and nothing above it,
-/// where the bar itself is.
+/// The bar's material round a pane resting at `rect`, its top on the bar's lower edge.
 pub fn frame(rect: Rect) -> Rect {
     Rect {
         x: rect.x - FRAME,
-        y: rect.y,
+        y: rect.y - FRAME,
         w: rect.w + 2 * FRAME,
-        h: rect.h + FRAME,
+        h: rect.h + 2 * FRAME,
     }
 }
 
@@ -309,15 +309,18 @@ mod tests {
     }
 
     #[test]
-    fn the_pane_hangs_from_the_bar_with_no_gap_at_every_size() {
+    fn the_frame_hangs_from_the_bar_with_no_gap_and_the_pane_sits_clear_inside_it() {
         for size in [Size::Small, Size::Medium, Size::Large] {
             let pane = rect(AREA, size);
-            // Its top is the bar's lower edge, and its frame ends at the tiling area's.
-            assert_eq!(pane.y, AREA.y);
+            // The frame's top is the bar's lower edge, and it ends at the tiling area's.
             let frame = frame(pane);
             assert_eq!(frame.y, AREA.y);
             assert_eq!(frame.x + frame.w, AREA.x + AREA.w);
-            assert_eq!(frame.h, pane.h + FRAME);
+            // The pane is the frame's width in from every side, the bar's included, which is
+            // room for the whole of the focus ring.
+            assert_eq!(pane.y, AREA.y + FRAME);
+            assert_eq!(frame.h, pane.h + 2 * FRAME);
+            assert_eq!(frame.w, pane.w + 2 * FRAME);
         }
     }
 

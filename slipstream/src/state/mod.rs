@@ -929,7 +929,15 @@ impl Slipstream {
     /// (its surface's, unscaled). A window scaled into its tile is hit where it is drawn, not
     /// across the neighbour its real size would overlap.
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(Window, Point<f64, Logical>)> {
-        self.space.elements().rev().find_map(|window| {
+        // The docked pane is drawn in front of every window whichever was raised last, so it is
+        // asked first: a tile under it that has the keyboard must not take its clicks.
+        let docked = self.docked_on_show();
+        let rest = self
+            .space
+            .elements()
+            .rev()
+            .filter(|window| docked.as_ref() != Some(*window));
+        docked.iter().chain(rest).find_map(|window| {
             if let Some((_, drawn)) = self.fitted.iter().find(|(w, _)| w == window) {
                 let own = window.geometry();
                 if !drawn.contains(pos) || own.size.w <= 0 {
