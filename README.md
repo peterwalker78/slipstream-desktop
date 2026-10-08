@@ -111,7 +111,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 
-**Status: beta (0.8).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. Expect changes between versions; the [changelog](CHANGELOG.md) says what's new in each.
+**Status: beta (0.9).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. Expect changes between versions; the [changelog](CHANGELOG.md) says what's new in each.
 
 [**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 
@@ -151,7 +151,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 **Does it phone home?** No. There's no telemetry, and it never checks for updates by itself.
 
-**What if I do use an AI agent?** Slipstream will never put AI in front of you. But bring an agent of your own and you'll find it a great desktop to run one on: your agent's sessions can come back with your layout, right where you left them; a meter on the bar can show your plan's limits at a glance; and a notification takes you straight to the terminal that sent it. The desktops built around agents are whole operating systems. Slipstream installs on the distribution you already have. [**Bringing an agent's session back →**](guide/help.md#bringing-an-ai-agents-session-back)
+**What if I do use an AI agent?** Slipstream will never put AI in front of you. But bring an agent of your own and you'll find it a great desktop to run one on: your agent's sessions can come back with your layout, right where you left them; a meter on the bar can show your plan's limits at a glance; and a notification takes you straight to the terminal that sent it. You don't need a new operating system for it: Slipstream installs on the distribution you already have. [**Bringing an agent's session back →**](guide/help.md#bringing-an-ai-agents-session-back)
 
 **What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
 
