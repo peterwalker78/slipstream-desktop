@@ -42,6 +42,8 @@ impl Slipstream {
                     }),
             );
         }
+        // The pinned pane's window belongs to no workspace and stays mapped all the same.
+        let pinned = self.pinned_on_show();
         let offscreen: Vec<Window> = self
             .space
             .elements()
@@ -50,6 +52,7 @@ impl Slipstream {
                 !is_override_redirect(w)
                     && !rects.iter().any(|(on, _)| on == *w)
                     && !floats.iter().any(|(on, ..)| on == *w)
+                    && pinned.as_ref() != Some(*w)
             })
             .cloned()
             .collect();
@@ -135,6 +138,8 @@ impl Slipstream {
             }
             self.restack_floating(*workspace);
         }
+        // The pinned pane is in front of them all, and a fullscreen window in front of that.
+        self.place_pinned(now);
         for (window, _) in &fullscreens {
             self.space.raise_element(window, false);
         }
@@ -601,6 +606,7 @@ impl Slipstream {
             self.pass = None;
         }
         let was_on = self.take_off_workspace(window);
+        self.forget_pinned(window);
         self.rain.remove(window);
         self.tags.retain(|(tagged, ..)| tagged != window);
         if let Some(mode) = self.bullet.as_mut() {
@@ -790,6 +796,11 @@ impl Slipstream {
         let (Some(area), Some(current)) = (self.output_area(), self.focused_window()) else {
             return;
         };
+        // The pinned pane is on no workspace: from it, a focus key goes back to the windows.
+        if self.is_pinned(&current) {
+            self.restore_focus();
+            return;
+        }
         // From a floating window, the keys go between floating windows.
         if self.workspaces.is_floating(&current) {
             self.focus_floating_direction(&current, direction);

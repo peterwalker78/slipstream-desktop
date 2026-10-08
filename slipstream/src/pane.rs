@@ -169,6 +169,9 @@ pub struct Look {
     pub band: Option<(Axis, f64, f64, f32)>,
     /// One of the pane's own edges lit, and how strongly: the edge leading a pane through another.
     pub edge: Option<(Axis, bool, f32)>,
+    /// How far the lit edge's glow reaches into the pane, in the pane's own pixels, or 0 for the
+    /// usual few. A pane drawn far away needs more of its own pixels to show any.
+    pub reach: f32,
 }
 
 /// Along which screen direction something runs.
@@ -219,6 +222,7 @@ impl Panes {
             UniformName::new("shade", UniformType::_1f),
             UniformName::new("band", UniformType::_4f),
             UniformName::new("edge", UniformType::_3f),
+            UniformName::new("reach", UniformType::_1f),
         ];
         match renderer.compile_custom_texture_shader(SHADER, &uniforms) {
             Ok(program) => self.program = Some(program),
@@ -387,6 +391,7 @@ impl Panes {
             Uniform::new("shade", look.shade),
             Uniform::new("band", (band[0], band[1], band[2], band[3])),
             Uniform::new("edge", (edge[0], edge[1], edge[2])),
+            Uniform::new("reach", if look.reach > 0.0 { look.reach } else { 5.0 }),
         ];
         Some(TextureShaderElement::new(
             inner,
@@ -522,6 +527,7 @@ uniform vec4 ring;
 uniform float shade;
 uniform vec4 band;
 uniform vec3 edge;
+uniform float reach;
 
 const float RING_GAP = 0.5;
 const float RING_WIDTH = 2.5;
@@ -554,7 +560,7 @@ vec4 seen_at(vec2 screen) {
         float u = edge.x < 0.5 ? own.x : own.y;
         float span = edge.x < 0.5 ? pane.x : pane.y;
         float from = edge.y > 0.5 ? span - u : u;
-        float k = exp(-from / 5.0);
+        float k = exp(-from / reach);
         colour += vec4(0.84, 0.98, 1.0, 1.0) * edge.z * k * (1.0 - colour.a * 0.3);
     }
     return colour;

@@ -68,6 +68,8 @@ const FOCUS: Color32F = Color32F::new(0.259, 0.827, 1.0, 1.0);
 /// The ring is drawn a fifth more transparent than the colour itself, so it marks the window
 /// without ringing it in solid paint.
 const RING_ALPHA: f32 = 0.8;
+/// How strong the fine light edge round the pinned pane's glass is.
+const PIN_RIM: f32 = 0.16;
 /// Focus ring width in logical pixels. It sits in the gap, outside the window.
 const RING: i32 = 2;
 /// Over distant windows: dims them to 70% brightness.
@@ -557,6 +559,34 @@ pub fn output_elements(
         );
     }
 
+    let pinned: Option<Window> = state.pin.as_ref().map(|pinned| pinned.window.clone());
+    // The stream whose window is pinned is marked under its button, in the ring's colour.
+    if rain_output
+        && ui > 0.0
+        && !state.fullscreen_on(active)
+        && let Some(index) = pinned
+            .as_ref()
+            .and_then(|window| state.rain.index_of(window))
+    {
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            w: output_geo.size.w,
+            h: output_geo.size.h,
+        };
+        let button = Rain::button(index, screen, bar::HEIGHT);
+        let mark = Rectangle::new(
+            (button.x + 6, button.y + button.h - 3).into(),
+            ((button.w - 12).max(1), 2).into(),
+        );
+        elements.push(OutputElement::Solid(chrome.overview.solid(
+            mark,
+            overview::ring(state.ring_rgb),
+            scale,
+            ui_alpha,
+        )));
+    }
+
     // The code rain, down the right-hand side.
     if rain_output && ui > 0.0 && !state.rain.is_empty() && !state.fullscreen_on(active) {
         elements.extend(
@@ -586,11 +616,25 @@ pub fn output_elements(
             .map_or(output_geo.loc.x, |rect| rect.x);
         shift_for_workspace(index, camera, step, output_geo.loc.x, origin)
     };
+    // The pane pinned to the screen is no workspace's: it is drawn on the screen the streams are
+    // on wherever the workspaces slide to, in front of every window. While it flies out of its
+    // stream, between sizes or back, it is one rigid pane, drawn after the rest (`pin.rs`).
+    let pin_flying = rain_output
+        && zoomed_out <= 0.0
+        && state
+            .pin
+            .as_ref()
+            .and_then(|pinned| pinned.flight)
+            .is_some_and(|flight| !flight.done(now))
+        && chrome.panes.ready(renderer);
     let mut windows: Vec<(Window, Option<usize>)> = state
         .space
         .elements()
         .rev()
         .filter_map(|window| {
+            if pinned.as_ref() == Some(window) {
+                return None;
+            }
             let index = state.workspaces.find(window).unwrap_or(active);
             // Outside bullet time another screen's windows are that screen's alone: a wider
             // screen's workspace is wider than the gap between this screen's workspaces, so its
@@ -630,13 +674,22 @@ pub fn output_elements(
         windows.clear();
     }
     // How far along its workspace each window is drawn.
-    let windows: Vec<(Window, f64)> = windows
+    let mut windows: Vec<(Window, f64)> = windows
         .into_iter()
         .map(|(window, index)| {
             let dx = index.map_or(active_dx, offset);
             (window, dx)
         })
         .collect();
+    if rain_output
+        && ui > 0.0
+        && !pin_flying
+        && let Some(window) = pinned
+            .as_ref()
+            .filter(|window| state.space.element_geometry(window).is_some())
+    {
+        windows.insert(0, (window.clone(), 0.0));
+    }
     state
         .tags
         .retain(|(window, _, at)| now - at < TAG_SHOWN && window.alive());
@@ -685,10 +738,15 @@ pub fn output_elements(
         // A window is kept inside the tiling area of the screen its own workspace is on, which
         // is not this screen's when it belongs to the one next door.
         let home_index = state.workspaces.find(&window);
-        let area_global = home_index
-            .and_then(|index| state.area_for_workspace(index))
-            .or_else(|| state.output_area())
-            .map(|area| [area.x as f64, area.y as f64, area.w as f64, area.h as f64]);
+        let is_pinned = pinned.as_ref() == Some(&window);
+        let area_global = if is_pinned {
+            state.screen_area(0)
+        } else {
+            home_index
+                .and_then(|index| state.area_for_workspace(index))
+                .or_else(|| state.output_area())
+        }
+        .map(|area| [area.x as f64, area.y as f64, area.w as f64, area.h as f64]);
         let frame = match state.motion.frame(&window, now) {
             Some(frame) => frame,
             // X11 menus and tooltips place themselves and don't animate.
@@ -761,6 +819,12 @@ pub fn output_elements(
             (w * s, h * s).into(),
         );
         let alpha = frame.alpha as f32 * ui_alpha;
+        // The pinned pane is not part of any workspace's picture: it fades as the overview opens.
+        let alpha = if is_pinned {
+            alpha * (1.0 - zoomed_out.min(1.0)) as f32
+        } else {
+            alpha
+        };
         // In bullet time windows are drawn smaller around the screen's centre, each also shrunk a
         // little about its own centre so the gaps between them open up inside their frame.
         let shown = if zoomed_out > 0.0 {
@@ -776,7 +840,7 @@ pub fn output_elements(
         } else {
             shown
         };
-        if zoomed_out > 0.0 && first_output {
+        if zoomed_out > 0.0 && first_output && !is_pinned {
             if state.bullet.is_some() {
                 if let Some((_, label)) =
                     labels.iter().find(|(target, _)| *target.window() == window)
@@ -898,6 +962,16 @@ pub fn output_elements(
                     .map(OutputElement::Solid),
             );
         }
+        // The pinned pane's glass has a fine light edge, whoever has the keyboard.
+        if is_pinned && zoomed_out <= 0.0 {
+            world.extend(
+                chrome
+                    .overview
+                    .outline(shown, 0.0, 1, WHITE, world_scale, alpha * PIN_RIM)
+                    .into_iter()
+                    .map(OutputElement::Solid),
+            );
+        }
         // In bullet time the selection ring takes over from the focus ring.
         if focused.as_ref() == Some(&window) {
             let alpha = alpha * (1.0 - zoomed_out.min(1.0) as f32);
@@ -955,6 +1029,26 @@ pub fn output_elements(
             }));
         } else {
             world.extend(surfaces.into_iter().map(OutputElement::Surface));
+        }
+        // And behind it, the shadow it casts on the desktop.
+        if is_pinned && zoomed_out <= 0.0 {
+            let size = (shown.size.w.round() as i32, shown.size.h.round() as i32);
+            if chrome
+                .pin_shadow
+                .as_ref()
+                .is_none_or(|(painted, shadow)| *painted != size || shadow.scale != scale.x)
+            {
+                chrome.pin_shadow = paint_pin_shadow(size, scale.x).map(|shadow| (size, shadow));
+            }
+            if let Some((_, shadow)) = chrome.pin_shadow.as_ref() {
+                let margin = PIN_SHADOW_MARGIN as f64;
+                let at = Point::from((shown.loc.x - margin, shown.loc.y - margin));
+                world.extend(
+                    shadow
+                        .element(renderer, at, alpha)
+                        .map(OutputElement::Memory),
+                );
+            }
         }
     }
 
@@ -1016,6 +1110,92 @@ pub fn output_elements(
     }
     if state.pass.as_ref().is_some_and(|pass| pass.done(now)) {
         state.pass = None;
+    }
+
+    // The pinned pane in flight, and one just unpinned on its way home, in front of every window.
+    if rain_output && ui > 0.0 && zoomed_out <= 0.0 && chrome.panes.ready(renderer) {
+        let arriving = state
+            .pin
+            .as_ref()
+            .and_then(|pinned| Some((pinned.window.clone(), pinned.flight?)));
+        let flights: Vec<(Window, crate::pin::Flight)> = state
+            .pin_leaving
+            .clone()
+            .into_iter()
+            .chain(arriving)
+            .filter(|(_, flight)| !flight.done(now))
+            .collect();
+        if let Some(full) = state.pin_rect(crate::pin::Size::Quarter) {
+            let origin = (output_geo.loc.x as f64, output_geo.loc.y as f64);
+            let local =
+                crate::pane::Camera::for_screen(output_geo.size.w as f64, output_geo.size.h as f64);
+            // The stops are in the space's coordinates, so the eye is too, and the pane is brought
+            // on to this screen afterwards.
+            let eye = crate::pane::Camera {
+                x: local.x + origin.0,
+                y: local.y + origin.1,
+                ..local
+            };
+            let mut pieces = Vec::new();
+            for (window, flight) in flights {
+                // A pane heading home is in no workspace and off the space, and still drawn.
+                if state.space.element_geometry(&window).is_none()
+                    && !state.drawn_off_space.contains(&window)
+                {
+                    state.drawn_off_space.push(window.clone());
+                }
+                let (mut pose, lit) = flight.at(now, (full.w as f64, full.h as f64), &eye);
+                pose.x -= origin.0;
+                pose.y -= origin.1;
+                // The focus ring if the keyboard is in it, and the glass's own light edge if not.
+                let ring = if focused.as_ref() == Some(&window) {
+                    (state.ring_rgb, RING_ALPHA)
+                } else {
+                    ([1.0; 3], PIN_RIM)
+                };
+                let (band_at, band_half, band_light) = lit.band;
+                let look = crate::pane::Look {
+                    alpha: ui_alpha * lit.alpha,
+                    ring: Some(ring),
+                    shade: lit.shade,
+                    edge: Some(lit.edge),
+                    reach: lit.reach,
+                    band: Some((
+                        crate::pane::Axis::Across,
+                        band_at - origin.0,
+                        band_half,
+                        band_light,
+                    )),
+                };
+                pieces.extend(
+                    chrome
+                        .panes
+                        .element(
+                            renderer,
+                            &window,
+                            &pose,
+                            &local,
+                            output_geo.size,
+                            scale.x,
+                            &look,
+                        )
+                        .map(OutputElement::Shaded),
+                );
+            }
+            world.splice(0..0, pieces);
+        }
+    }
+    if let Some(pinned) = state.pin.as_mut()
+        && pinned.flight.is_some_and(|flight| flight.done(now))
+    {
+        pinned.flight = None;
+    }
+    if state
+        .pin_leaving
+        .as_ref()
+        .is_some_and(|(_, flight)| flight.done(now))
+    {
+        state.pin_leaving = None;
     }
 
     // Alt+Tab's deck, just behind the bar.

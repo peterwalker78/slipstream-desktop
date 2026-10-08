@@ -109,6 +109,7 @@ use crate::{
 mod bullet_time;
 mod debug_steps;
 mod lifecycle;
+mod pinned;
 mod screens;
 mod streams;
 mod ui;
@@ -427,6 +428,10 @@ pub struct Slipstream {
     pub deck: Option<crate::deck::Deck<Window>>,
     /// Two tiles passing through each other as they trade places (`pane.rs`).
     pub pass: Option<crate::pane::Pass<Window>>,
+    /// The minimised window pinned to the screen as a pane of glass, if one is (`pin.rs`).
+    pub pin: Option<crate::pin::Pinned<Window>>,
+    /// A pane just unpinned, on its way back into its stream.
+    pub pin_leaving: Option<(Window, crate::pin::Flight)>,
     /// Where password checks answer, with their numbers.
     pub lock_answers: channel::Sender<(u64, crate::auth::Verdict)>,
     /// The session's line to logind, for locking, unlocking and sleep (`logind.rs`).
@@ -735,6 +740,8 @@ impl Slipstream {
             unlocking: None,
             deck: None,
             pass: None,
+            pin: None,
+            pin_leaving: None,
             lock_answers,
             logind: Default::default(),
             sleep_delay: Default::default(),

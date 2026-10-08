@@ -71,6 +71,24 @@ enum KeyUse {
 
 impl Slipstream {
     fn run_action(&mut self, action: Action) {
+        // The pinned pane is on no workspace, so the keys that move or reshape the focused
+        // window within one have nothing to act on while the keyboard is in it.
+        if matches!(
+            action,
+            Action::MoveTile(_)
+                | Action::Resize(_)
+                | Action::MoveToWorkspace(_)
+                | Action::MoveToWorkspaceBy(_)
+                | Action::MoveToNextScreen
+                | Action::Weigh { .. }
+                | Action::Maximise
+                | Action::ToggleFloating
+        ) && self
+            .focused_window()
+            .is_some_and(|window| self.is_pinned(&window))
+        {
+            return;
+        }
         match action {
             Action::WayOut => self.open_way_out(),
             Action::Focus(direction) => self.focus_direction(direction),
@@ -112,6 +130,8 @@ impl Slipstream {
             Action::Minimise => self.minimise_focused(),
             Action::Restore => self.restore_latest(),
             Action::HideAll => self.hide_all(),
+            Action::Pin => self.pin_keyboard(),
+            Action::PinSize => self.pin_next_size(),
             Action::BulletTime => self.toggle_bullet_time(),
             Action::QuickSettings => self.toggle_quick_settings(),
             Action::NotificationCentre => self.toggle_notification_centre(),
@@ -945,11 +965,17 @@ impl Slipstream {
             }
         }
 
-        // A click on a stream of code rain brings its window back.
+        // A click on a stream brings its window back. On the button at its head, it pins the
+        // window to the screen instead, or puts the pinned pane away.
         if !pointer.is_grabbed() {
-            if let Some(window) = self.rain_window_at(pointer.current_location()) {
+            let at = pointer.current_location();
+            if let Some(window) = self.rain_window_at(at) {
                 if button_state == ButtonState::Pressed {
-                    self.restore(&window);
+                    if self.rain_button_at(at) {
+                        self.pin_clicked(&window);
+                    } else {
+                        self.restore(&window);
+                    }
                 }
                 return;
             }

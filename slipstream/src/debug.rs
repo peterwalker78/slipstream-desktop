@@ -126,6 +126,10 @@ pub enum Step {
     Restore,
     /// Super+H: every window on this workspace into the code rain, and back.
     HideAll,
+    /// Super+W: the keyboard into the pinned pane and back, pinning the last minimised first.
+    Pin,
+    /// Super+Shift+W: the pinned pane's next size.
+    PinSize,
     Idle,
     Wake,
     /// Alt held, Tab pressed this many times, and Alt let go.
@@ -353,6 +357,8 @@ impl Script {
                     ("gravity", None) => Step::Gravity,
                     ("minimise", None) => Step::Minimise,
                     ("hideall", None) => Step::HideAll,
+                    ("pin", None) => Step::Pin,
+                    ("pinsize", None) => Step::PinSize,
                     ("restore", None) => Step::Restore,
                     ("idle", None) => Step::Idle,
                     ("wake", None) => Step::Wake,

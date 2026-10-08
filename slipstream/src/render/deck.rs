@@ -39,6 +39,18 @@ pub(super) fn deck_elements_for(
         .windows
         .iter()
         .map(|window| {
+            // The pinned pane is in view where it rests, not in its stream.
+            if rain_output
+                && let Some(pinned) = state.pin.as_ref().filter(|pinned| pinned.window == *window)
+                && let Some(rect) = state.pin_rect(pinned.size)
+            {
+                return Pose::flat([
+                    (rect.x - output_geo.loc.x) as f64,
+                    (rect.y - output_geo.loc.y) as f64,
+                    rect.w as f64,
+                    rect.h as f64,
+                ]);
+            }
             if rain_output && let Some(stream) = state.rain.index_of(window) {
                 let screen_rect = Rect {
                     x: 0,

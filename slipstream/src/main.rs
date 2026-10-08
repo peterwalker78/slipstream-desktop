@@ -71,6 +71,7 @@ mod overview;
 mod paint;
 mod pane;
 mod panel;
+mod pin;
 mod power;
 mod quick;
 mod rain;

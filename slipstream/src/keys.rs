@@ -59,6 +59,11 @@ pub enum Action {
     /// Put every window on this workspace into the code rain; again, bring those same windows
     /// back. Windows' own "minimise all", which Super+M only does one window at a time.
     HideAll,
+    /// Move the keyboard into the pane pinned to the screen, and back, pinning the window
+    /// minimised last if nothing is.
+    Pin,
+    /// The pinned pane's next size: small, a quarter of the screen, then back into its stream.
+    PinSize,
     /// Open bullet time, the overview of every workspace, or go back out of it.
     BulletTime,
     /// Open or close quick settings.
@@ -152,6 +157,8 @@ impl Action {
             Action::Minimise => "minimise to a stream",
             Action::Restore => "bring back the last minimised",
             Action::HideAll => "hide every window, and back",
+            Action::Pin => "keyboard into the pinned pane, and back",
+            Action::PinSize => "pin the newest stream: small, a quarter, away",
             Action::BulletTime => "bullet time",
             Action::QuickSettings => "quick settings",
             Action::NotificationCentre => "notifications",
@@ -184,6 +191,8 @@ impl Action {
             | Action::Minimise
             | Action::Restore
             | Action::HideAll
+            | Action::Pin
+            | Action::PinSize
             | Action::Maximise
             | Action::ToggleFloating
             | Action::SwitchFloatingFocus => Group::AppsAndWindows,
@@ -461,6 +470,10 @@ pub fn defaults() -> Vec<Binding> {
         // Windows' own minimise-all key is Super+M, which is one window here, as its restore
         // key Super+Shift+M is. Super+H is free, and next to them on the keyboard.
         bind(mod_, Keysym::h, Action::HideAll),
+        // A minimised window pinned to the screen as a pane of glass. W is free, beside the
+        // other window keys, and nothing a game or an input method relies on.
+        bind(mod_, Keysym::w, Action::Pin),
+        bind(mod_shift, Keysym::w, Action::PinSize),
         // Media keys (the Fn row on laptops) need no modifier, as on Windows.
         bind(
             Mods::default(),
@@ -805,6 +818,20 @@ mod tests {
         assert_eq!(
             action_for(&bindings, SUPER, Keysym::d),
             Some(Action::ShowDesktop)
+        );
+    }
+
+    #[test]
+    fn the_pinned_pane_has_one_key_for_the_keyboard_and_one_for_its_size() {
+        let bindings = defaults();
+        let super_shift = Mods {
+            shift: true,
+            ..SUPER
+        };
+        assert_eq!(action_for(&bindings, SUPER, Keysym::w), Some(Action::Pin));
+        assert_eq!(
+            action_for(&bindings, super_shift, Keysym::w),
+            Some(Action::PinSize)
         );
     }
 

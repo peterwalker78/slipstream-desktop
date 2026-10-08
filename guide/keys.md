@@ -17,6 +17,8 @@ Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter 
 | Super+R, Super+Shift+R | Turn the whole layout a quarter, clockwise or back |
 | Super+F | Fill the tiling area, and back, in tiling or gravity |
 | Super+M, Super+Shift+M | Minimise to a stream at the edge, bring back |
+| Super+Shift+W | Pin the stream put away last to the screen as a pane of glass: small, then a quarter of the screen, then back into its stream |
+| Super+W | Move the keyboard into the pinned pane, and back to where you were |
 | Super+H | Hide every window on the workspace; again, bring them back |
 | Super+Shift+V, Super+Ctrl+V | Float the window or tile it; switch between floating and tiled windows |
 | Super+D | Show the desktop, and back |

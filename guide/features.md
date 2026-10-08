@@ -45,6 +45,8 @@ Press **Super+M** and the window pours into a stream at the edge of the screen, 
 
 The stream is a live readout of that app, from its own CPU and memory use. **Streaks of light fall at different depths, near ones wider, brighter and faster; an idle app sends a few slow grey ones, and a busy one pours bright green,** so a build finishing or a tab running away shows up out of the corner of your eye. The app's name runs down the card on its side like a book's spine, barely there while it's idle and glowing as the light passes. A click on a stream, or **Super+Shift+M**, brings the window back.
 
+**Pin one to the screen.** **Super+Shift+W** brings the window you put away last forward out of its stream as a pane of glass at the top right, in front of your windows and on every workspace: small at first, a quarter of the screen on the next press, and back into its stream on the third. A click on the button at the head of any stream pins that one instead. **Super+W** moves the keyboard into the pane, and back to where you were. Its stream carries on beside it, still saying how hard the app is working, and the pane stays out of the way of Super+arrows and the tiling. Small, it is the same picture further away, so the app never has to lay itself out again.
+
 **Settings → Appearance → Effects** offers the code rain instead: falling green code rebuilt from xscreensaver's GLMatrix, the classic recreation of the film's effect, rather than random characters in a font. The same readout holds, and each stream spells out its app's name as it falls.
 
 <br clear="right">

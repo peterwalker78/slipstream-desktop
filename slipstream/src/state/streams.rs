@@ -135,6 +135,11 @@ impl Slipstream {
 
     pub fn minimise_focused(&mut self) {
         if let Some(window) = self.focused_window() {
+            // The pinned pane is minimised already: putting it away sends it back into its stream.
+            if self.is_pinned(&window) {
+                self.unpin();
+                return;
+            }
             self.minimise(&window);
         }
     }
@@ -227,9 +232,21 @@ impl Slipstream {
         let active = self.active_workspace();
         let beside = self.focused_window();
         for (window, column) in &from {
+            // A pinned window is in view already: it goes to its tile from where its pane is.
+            let pane = self
+                .pin
+                .as_ref()
+                .filter(|pinned| pinned.window == *window)
+                .and_then(|pinned| self.pin_rect(pinned.size));
+            self.forget_pinned(window);
             self.rain.remove(window);
-            self.motion.jump(window, *column);
-            self.motion.fade_in_leaving(window, now, 0.26);
+            match pane {
+                Some(rect) => self.motion.jump(window, rect),
+                None => {
+                    self.motion.jump(window, *column);
+                    self.motion.fade_in_leaving(window, now, 0.26);
+                }
+            }
             if crate::floating::opens_floating(window) {
                 let size = crate::floating::own_size(window);
                 self.workspaces
@@ -261,7 +278,19 @@ impl Slipstream {
         Some(self.rain.streams[index].window.clone())
     }
 
-    /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
+    /// Whether `pos`, which is over a stream, is on the button at its head.
+    pub fn rain_button_at(&self, pos: Point<f64, Logical>) -> bool {
+        let Some(screen) = self.screen_rect(0) else {
+            return false;
+        };
+        self.rain
+            .stream_hit(pos.x, pos.y, screen, bar::HEIGHT)
+            .is_some_and(|index| {
+                let button = Rain::button(index, screen, bar::HEIGHT);
+                pos.y < (button.y + button.h) as f64
+            })
+    }
+
     /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
     /// Its app's meter is read from there (`usage::Meter`).
     pub fn window_pid(&self, window: &Window) -> Option<u32> {

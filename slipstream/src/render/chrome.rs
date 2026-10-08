@@ -35,6 +35,8 @@ pub struct Chrome {
     pub(super) unlock_broken: bool,
     /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
     pub(super) panes: crate::pane::Panes,
+    /// The shadow the pinned pane casts on the desktop, and the pane size it was painted for.
+    pub(super) pin_shadow: Option<((i32, i32), paint::Painted)>,
     /// A closed window falling away as code.
     pub(super) fx: crate::fx::Fx,
     /// The dark behind Alt+Tab's deck.
@@ -57,6 +59,7 @@ impl Default for Chrome {
             glass: crate::glass::Glass::default(),
             blackout: SolidColorBuffer::new((0, 0), BLACK),
             panes: crate::pane::Panes::default(),
+            pin_shadow: None,
             fx: crate::fx::Fx::default(),
             deck_dim: SolidColorBuffer::new((0, 0), BLACK),
             deck_label: None,
@@ -359,6 +362,40 @@ pub(super) const TIPS_RING_STEP: f32 = 1.6;
 pub(super) const TIPS_GLOW: u32 = panel::MINT;
 
 /// Bullet time's key legend, a pill of its keys laid out in design pixels, painted at `scale`.
+/// Room around the pinned pane for its shadow, in logical pixels.
+pub(super) const PIN_SHADOW_MARGIN: i32 = 64;
+
+/// The shadow of a pane `size` logical pixels big, with `PIN_SHADOW_MARGIN` of room all round:
+/// what says the pane is in front of the windows and not one of them.
+pub(super) fn paint_pin_shadow(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
+    let logical = Size::<i32, Logical>::from((
+        size.0 + 2 * PIN_SHADOW_MARGIN,
+        size.1 + 2 * PIN_SHADOW_MARGIN,
+    ));
+    let device = (
+        (logical.w as f64 * scale).round().max(1.0) as i32,
+        (logical.h as f64 * scale).round().max(1.0) as i32,
+    );
+    let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32)?;
+    let m = PIN_SHADOW_MARGIN as f32;
+    p.shadow(
+        m,
+        m,
+        size.0 as f32,
+        size.1 as f32,
+        0.0,
+        18.0,
+        46.0,
+        0x000000b8,
+    );
+    Some(paint::Painted {
+        buffer: paint::buffer(&p.pixmap),
+        logical,
+        device,
+        scale,
+    })
+}
+
 pub(super) fn paint_legend(scale: f64) -> Option<paint::Painted> {
     let style = Style::new(Face::Mono, 13.0, panel::HINT);
     let legend = bullet::legend();
