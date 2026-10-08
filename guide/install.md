@@ -62,7 +62,7 @@ Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the cap
 - **It checks first, and writes all or nothing.** Its system files are staged and moved into place together, so a failure part way changes nothing. A refusal writes nothing at all.
 - **It leaves other files alone**, and never replaces or removes a file it didn't write.
 - **Packages are your call.** It names what's missing and offers to install it with your own package manager; on atomic systems, where that rewrites the system image, it prints the command instead of running it. Without a terminal it asks nothing and installs nothing.
-- **It asks before adding the apps that come with it,** Glimmerwood and Westering, one at a time, from the next release on. A no is remembered.
+- **It asks before adding the apps that come with it,** Glimmerwood and Westering, one at a time. A no is remembered.
 - **`--uninstall`** removes exactly what it wrote, keeping your settings unless you add `--purge`.
 
 ## Building it yourself

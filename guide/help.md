@@ -24,7 +24,7 @@ Screen *sharing*, for a call through the portal, is a separate thing, with its o
 
 ## Adding apps that come with your desktop
 
-Apps that go with your desktop but are projects of their own are installed as Flatpaks by `scripts/install-extras`. The installer runs it at the end and, from the next release on, asks about each one first; a no is remembered, and `--yes` answers yes. Running the install command again brings them up to date, and `update-session` does the same on every rebuild. Slipstream ships two, the Glimmerwood browser and the Westering stargazing game, described in `extras/glimmerwood.conf` and `extras/westering.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
+Apps that go with your desktop but are projects of their own are installed as Flatpaks by `scripts/install-extras`. The installer runs it at the end and asks about each one first; a no is remembered, and `--yes` answers yes. Running the install command again brings them up to date, and `update-session` does the same on every rebuild. Slipstream ships two, the Glimmerwood browser and the Westering stargazing game, described in `extras/glimmerwood.conf` and `extras/westering.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
 
 ```sh
 app_id=org.example.Browser
