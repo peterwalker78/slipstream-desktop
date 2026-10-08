@@ -44,10 +44,10 @@ const APP_MEMORY_FULL_MB: f32 = 512.0;
 /// download on a good line is flat out, and what lies between spans three orders of magnitude.
 const APP_NETWORK_QUIET_KB: f32 = 1.0;
 const APP_NETWORK_FULL_KB: f32 = 4096.0;
-/// The most traffic alone can read: level with one busy core. Moving bytes is the machine being
-/// used, not the machine being worked, so a download at full tilt shows without passing for a
-/// build.
-const APP_NETWORK_MOST: f32 = 0.3;
+/// The most traffic alone can read. Moving bytes is the machine being used, not the machine
+/// being worked, so a download at full tilt reads as clearly busy without passing for a build
+/// on every core.
+const APP_NETWORK_MOST: f32 = 0.6;
 /// How long a reading takes to fall half way to a lower one.
 const HALF_LIFE_SECS: f32 = 3.0;
 /// How often every watched app is read.
@@ -509,11 +509,7 @@ mod tests {
         // A gigabyte in a second, and not a tick of processor time.
         probe.score(start + SECOND, 0, 500 * MB, 1 << 30);
         assert_eq!(probe.reading.load, APP_NETWORK_MOST);
-        assert_eq!(
-            probe.reading.load,
-            cpu_share(1.0, 12.0),
-            "level with one busy core"
-        );
+        assert!(APP_NETWORK_MOST < 1.0);
     }
 
     #[test]
