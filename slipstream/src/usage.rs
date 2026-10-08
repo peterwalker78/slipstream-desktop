@@ -29,9 +29,12 @@ use std::{
 
 use crate::tcp;
 
-/// The curve an app's share of the machine's processors is read on. A straight line would leave
-/// one busy thread on a twelve-thread machine reading a twelfth, which is nothing to the eye;
-/// a cube root puts it near the middle and still leaves every further core a step up.
+/// How much of an app's meter its first busy core takes. Most apps work in one thread, so one
+/// core flat out has to read as real work on any machine; the rest of the meter is shared evenly
+/// between the machine's other processors, so each further core is the same step up.
+const APP_CPU_FIRST_CORE: f32 = 0.3;
+/// The curve work within that first core is read on, so that light work shows: a tenth of a
+/// core is nearly half way to a whole one.
 const APP_CPU_CURVE: f32 = 1.0 / 3.0;
 /// Memory taken or given back each second, on a log scale between these. Every running app's
 /// memory wanders by a megabyte or two, which is not work.
@@ -172,13 +175,22 @@ impl Probe {
     }
 }
 
-/// An app's CPU as a share of every processor the machine has, on a curve that lets light work
-/// show and still tells one busy core from nine: of twelve, a twelfth of a core reads about a
-/// fifth, one core a little under half, nine about nine tenths.
+/// An app's CPU as a share of what the machine has: the first core's worth takes the first
+/// `APP_CPU_FIRST_CORE` of the meter, on a curve, and every core after it an equal step of what
+/// is left. Of twelve, one core reads 0.30, four about a half, nine about four fifths.
 fn cpu_share(cores: f32, processors: f32) -> f32 {
-    (cores / processors.max(1.0))
-        .clamp(0.0, 1.0)
-        .powf(APP_CPU_CURVE)
+    let processors = processors.max(1.0);
+    let cores = cores.clamp(0.0, processors);
+    // With one processor there are no further cores to leave room for.
+    let first = if processors > 1.0 {
+        APP_CPU_FIRST_CORE
+    } else {
+        1.0
+    };
+    if cores <= 1.0 {
+        return first * cores.powf(APP_CPU_CURVE);
+    }
+    first + (1.0 - first) * (cores - 1.0) / (processors - 1.0)
 }
 
 /// How many processors there are to be busy on.
@@ -436,30 +448,27 @@ mod tests {
     #[test]
     fn light_work_shows() {
         assert_eq!(cpu_share(0.0, 12.0), 0.0);
-        let light = cpu_share(1.0 / 12.0, 12.0);
-        assert!(
-            (0.15..0.25).contains(&light),
-            "a twelfth of a core: {light}"
-        );
+        let light = cpu_share(0.1, 12.0);
+        assert!((0.12..0.16).contains(&light), "a tenth of a core: {light}");
+        assert_eq!(cpu_share(1.0, 12.0), APP_CPU_FIRST_CORE);
         assert_eq!(cpu_share(12.0, 12.0), 1.0);
         assert_eq!(cpu_share(40.0, 12.0), 1.0, "clamped, not past the end");
-        // A machine with one processor is flat out on it.
+        // One busy core reads the same whatever the machine, unless it is all the machine has.
+        assert_eq!(cpu_share(1.0, 4.0), cpu_share(1.0, 64.0));
         assert_eq!(cpu_share(1.0, 1.0), 1.0);
     }
 
     #[test]
-    fn every_further_core_reads_as_busier() {
-        let mut last = 0.0;
-        for cores in 1..=12 {
-            let share = cpu_share(cores as f32, 12.0);
+    fn every_core_past_the_first_is_the_same_step() {
+        let step = cpu_share(2.0, 12.0) - cpu_share(1.0, 12.0);
+        assert!(step > 0.06, "a step too small to see: {step}");
+        for cores in 2..=12 {
+            let rise = cpu_share(cores as f32, 12.0) - cpu_share(cores as f32 - 1.0, 12.0);
             assert!(
-                share - last >= 0.025,
-                "{cores} cores read {share}, too close to {last}"
+                (rise - step).abs() < 1e-4,
+                "core {cores} adds {rise}, not {step}"
             );
-            last = share;
         }
-        let one = cpu_share(1.0, 12.0);
-        assert!((0.4..0.5).contains(&one), "one core of twelve: {one}");
     }
 
     #[test]
