@@ -2,6 +2,14 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## 0.10.0 - 2026-10-09
+
+- **Dock a window to the bar.** Super+W sends the window you're in up to the bar, where it hangs at the top right as a pane of glass, in front of your windows and on every workspace. Press it again for the next of three sizes, the largest a quarter of the screen; Super+Shift+W brings it back down as a standard window. It keeps the keyboard as it goes up, Super+arrows take the keyboard back to your tiles, and docking a second window swaps the two. Its stream runs along a short strip in the bar beside the tray, and in bullet time the pane has a letter of its own. It keeps a window's gap from the streams of minimised windows, and falls away like any other window when it closes.
+- **A stream reads what its app is doing.** How hard it is working its processor, how fast its memory is changing and how much it is sending and receiving, whichever is busiest. Every processor busy fills the readout, and each one past the first is the same step. Traffic by itself reads a little over half way at most, and an app that holds a lot of memory and does nothing reads as idle.
+- **A window closing into streaks goes through the failing CRT too.** The scanlines, flicker, colour fringes and torn bands that the code rain's closing had are one filter for both effects now, tearing worst where the shower bites.
+- **An AI agent's session comes back with your layout.** Slipstream has no AI in it, and on its own this does nothing: it is for people who run an AI coding agent of their own in a terminal. If the agent leaves a note saying how to reopen its session, then when your layout is reopened at login (Settings → Session → Remember the layout) that terminal comes back in the same place and folder with the session open again, in the shell it was typed into and with the search path it had. Only the note is ever run. [How to set it up](guide/help.md#bringing-an-ai-agents-session-back).
+- **A trace on the faded wallpaper for each agent at work.** On the same terms: nothing happens unless an agent of yours says it is working. Once the desktop has faded to the wallpaper, each agent at work has a small oscilloscope trace at the top right, under whatever the agent says to call it. A moving cyan wave is an agent still working; a flat amber line is one that has stopped, and it clears when you touch a key. Nothing is drawn over your windows, an agent that was already idle has no trace, and reduced motion keeps the picture without the movement. [How to set it up](guide/help.md#seeing-an-ai-agent-at-work-from-across-the-room).
+
 ## 0.9.0 - 2026-09-29
 
 - **Slipstream's own effects are the default.** Minimised apps become streaks of light and closed windows drop away through a shower of them, unless you choose the code rain in Settings → Appearance → Effects, which now lists Slipstream first. A settings file that already names either keeps it.
