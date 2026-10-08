@@ -388,7 +388,9 @@ impl Slipstream {
                         self.workspaces
                             .find(window)
                             .map(|index| self.workspaces.label(index))
-                            .unwrap_or_default()
+                            .unwrap_or_else(|| {
+                                if self.is_docked(window) { "bar" } else { "" }.to_string()
+                            })
                     }),
                 })
                 .collect();

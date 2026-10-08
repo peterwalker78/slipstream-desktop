@@ -175,8 +175,8 @@ impl Slipstream {
                 debug::Step::Minimise => self.minimise_focused(),
                 debug::Step::Restore => self.restore_latest(),
                 debug::Step::HideAll => self.hide_all(),
-                debug::Step::Pin => self.pin_keyboard(),
-                debug::Step::PinSize => self.pin_next_size(),
+                debug::Step::Dock => self.dock_focused(),
+                debug::Step::Undock => self.undock(),
                 debug::Step::Idle => {
                     let now = self.clock.tick();
                     self.idle.fade(now);

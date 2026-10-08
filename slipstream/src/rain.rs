@@ -323,16 +323,6 @@ impl Rain {
         }
     }
 
-    /// Stream `index`'s button, at the head of its column: the app's icon and its load.
-    pub fn button(index: usize, screen: Rect, top: i32) -> Rect {
-        let column = Self::column(index, screen, top);
-        Rect {
-            y: column.y + STREAM_EDGE,
-            h: (BUTTON_H * DESIGN_PX * HEADER).round() as i32,
-            ..column
-        }
-    }
-
     /// The stream under (`x`, `y`) in the space's coordinates, where `screen` is the screen the
     /// rain is drawn on. A point on any other screen is no stream, even one lined up with a column.
     pub fn stream_hit(&self, x: f64, y: f64, screen: Rect, top: i32) -> Option<usize> {

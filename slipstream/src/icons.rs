@@ -44,6 +44,10 @@ pub const KEYBOARD: &str = r#"<rect x="2.5" y="6" width="19" height="12" rx="2"/
 /// Two overlapping frames: bullet time's overview, on the bar.
 pub const OVERVIEW: &str = r#"<rect x="3" y="7" width="13" height="10" rx="1.5"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h10A1.5 1.5 0 0 1 21 5.5V13a1.5 1.5 0 0 1-1.5 1.5H16"/>"#;
 
+/// A pane hanging from the bar: the docked window's tab.
+pub const DOCK: &str =
+    r#"<path d="M3 5.5h18"/><rect x="8.5" y="5.5" width="10" height="11.5" rx="1.5"/>"#;
+
 /// Media: playing, and paused.
 pub const PLAY: &str = r#"<path d="M8 5.5v13l10.5-6.5z"/>"#;
 pub const PAUSE: &str = r#"<path d="M8.5 5.5v13M15.5 5.5v13"/>"#;

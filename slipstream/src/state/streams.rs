@@ -5,11 +5,13 @@ use super::*;
 
 impl Slipstream {
     /// The app IDs and X11 classes of every open window, for the explorer's running dots.
-    /// Every window there is: tiled on any workspace, or minimised into the code rain.
+    /// Every window there is: on any workspace, docked to the bar, or minimised into the code
+    /// rain.
     pub fn all_open_windows(&self) -> Vec<Window> {
         self.workspaces
             .all_windows()
             .into_iter()
+            .chain(self.dock.iter().map(|docked| docked.window.clone()))
             .chain(self.rain.streams.iter().map(|stream| stream.window.clone()))
             .collect()
     }
@@ -135,10 +137,9 @@ impl Slipstream {
 
     pub fn minimise_focused(&mut self) {
         if let Some(window) = self.focused_window() {
-            // The pinned pane is minimised already: putting it away sends it back into its stream.
-            if self.is_pinned(&window) {
-                self.unpin();
-                return;
+            // The docked window leaves the bar for a stream of its own, from where its pane is.
+            if self.is_docked(&window) {
+                self.come_down(None);
             }
             self.minimise(&window);
         }
@@ -232,21 +233,9 @@ impl Slipstream {
         let active = self.active_workspace();
         let beside = self.focused_window();
         for (window, column) in &from {
-            // A pinned window is in view already: it goes to its tile from where its pane is.
-            let pane = self
-                .pin
-                .as_ref()
-                .filter(|pinned| pinned.window == *window)
-                .and_then(|pinned| self.pin_rect(pinned.size));
-            self.forget_pinned(window);
             self.rain.remove(window);
-            match pane {
-                Some(rect) => self.motion.jump(window, rect),
-                None => {
-                    self.motion.jump(window, *column);
-                    self.motion.fade_in_leaving(window, now, 0.26);
-                }
-            }
+            self.motion.jump(window, *column);
+            self.motion.fade_in_leaving(window, now, 0.26);
             if crate::floating::opens_floating(window) {
                 let size = crate::floating::own_size(window);
                 self.workspaces
@@ -276,19 +265,6 @@ impl Slipstream {
             .rain
             .stream_hit(pos.x, pos.y, self.screen_rect(0)?, bar::HEIGHT)?;
         Some(self.rain.streams[index].window.clone())
-    }
-
-    /// Whether `pos`, which is over a stream, is on the button at its head.
-    pub fn rain_button_at(&self, pos: Point<f64, Logical>) -> bool {
-        let Some(screen) = self.screen_rect(0) else {
-            return false;
-        };
-        self.rain
-            .stream_hit(pos.x, pos.y, screen, bar::HEIGHT)
-            .is_some_and(|index| {
-                let button = Rain::button(index, screen, bar::HEIGHT);
-                pos.y < (button.y + button.h) as f64
-            })
     }
 
     /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.

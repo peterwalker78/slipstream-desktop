@@ -329,6 +329,7 @@ pub fn bar_click(target: bar::Target) -> BarClick {
         | bar::Target::Clock
         | bar::Target::Tray
         | bar::Target::Meter
+        | bar::Target::Dock
         | bar::Target::Bell => BarClick::Leave,
     }
 }

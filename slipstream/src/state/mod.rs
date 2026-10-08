@@ -108,8 +108,8 @@ use crate::{
 
 mod bullet_time;
 mod debug_steps;
+mod docked;
 mod lifecycle;
-mod pinned;
 mod screens;
 mod streams;
 mod ui;
@@ -428,10 +428,12 @@ pub struct Slipstream {
     pub deck: Option<crate::deck::Deck<Window>>,
     /// Two tiles passing through each other as they trade places (`pane.rs`).
     pub pass: Option<crate::pane::Pass<Window>>,
-    /// The minimised window pinned to the screen as a pane of glass, if one is (`pin.rs`).
-    pub pin: Option<crate::pin::Pinned<Window>>,
-    /// A pane just unpinned, on its way back into its stream.
-    pub pin_leaving: Option<(Window, crate::pin::Flight)>,
+    /// The window docked to the bar as a pane of glass, if one is (`dock.rs`).
+    pub dock: Option<crate::dock::Docked<Window>>,
+    /// A window just undocked, whose pane is still on its way down to its place.
+    pub dock_leaving: Option<(Window, crate::dock::Flight)>,
+    /// The size the pane was last given, which the next window docked takes.
+    pub dock_size: crate::dock::Size,
     /// Where password checks answer, with their numbers.
     pub lock_answers: channel::Sender<(u64, crate::auth::Verdict)>,
     /// The session's line to logind, for locking, unlocking and sleep (`logind.rs`).
@@ -740,8 +742,9 @@ impl Slipstream {
             unlocking: None,
             deck: None,
             pass: None,
-            pin: None,
-            pin_leaving: None,
+            dock: None,
+            dock_leaving: None,
+            dock_size: Default::default(),
             lock_answers,
             logind: Default::default(),
             sleep_delay: Default::default(),
@@ -1127,6 +1130,7 @@ impl Slipstream {
             bar::Target::Tray | bar::Target::Meter => self.toggle_quick_settings(),
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
+            bar::Target::Dock => self.dock_clicked(),
             bar::Target::Awake => self.set_awake(false),
             bar::Target::Sharing => {
                 self.stop_sharing();

@@ -35,8 +35,9 @@ pub struct Chrome {
     pub(super) unlock_broken: bool,
     /// Windows drawn as panes of glass: Alt+Tab's deck and tiles passing through each other.
     pub(super) panes: crate::pane::Panes,
-    /// The shadow the pinned pane casts on the desktop, and the pane size it was painted for.
-    pub(super) pin_shadow: Option<((i32, i32), paint::Painted)>,
+    /// The bar's material round the docked pane with the shadow the piece casts, for each pane
+    /// size painted lately: the one at rest, and the one a pane changing size is heading for.
+    pub(super) dock_frames: Vec<((i32, i32), paint::Painted)>,
     /// A closed window falling away as code.
     pub(super) fx: crate::fx::Fx,
     /// The dark behind Alt+Tab's deck.
@@ -59,7 +60,7 @@ impl Default for Chrome {
             glass: crate::glass::Glass::default(),
             blackout: SolidColorBuffer::new((0, 0), BLACK),
             panes: crate::pane::Panes::default(),
-            pin_shadow: None,
+            dock_frames: Vec::new(),
             fx: crate::fx::Fx::default(),
             deck_dim: SolidColorBuffer::new((0, 0), BLACK),
             deck_label: None,
@@ -361,33 +362,33 @@ pub(super) const TIPS_RING_STEP: f32 = 1.6;
 
 pub(super) const TIPS_GLOW: u32 = panel::MINT;
 
-/// Bullet time's key legend, a pill of its keys laid out in design pixels, painted at `scale`.
-/// Room around the pinned pane for its shadow, in logical pixels.
-pub(super) const PIN_SHADOW_MARGIN: i32 = 64;
+/// Room around the docked pane for its frame and the shadow, in logical pixels.
+pub(super) const DOCK_MARGIN: i32 = 64;
+/// How round the frame's two lower corners are.
+const DOCK_RADIUS: f32 = 7.0;
 
-/// The shadow of a pane `size` logical pixels big, with `PIN_SHADOW_MARGIN` of room all round:
-/// what says the pane is in front of the windows and not one of them.
-pub(super) fn paint_pin_shadow(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
-    let logical = Size::<i32, Logical>::from((
-        size.0 + 2 * PIN_SHADOW_MARGIN,
-        size.1 + 2 * PIN_SHADOW_MARGIN,
-    ));
+/// The frame of a docked pane `size` logical pixels big, with `DOCK_MARGIN` of room all round:
+/// the bar's own material down the pane's sides and under its foot, edged with the bar's line,
+/// and the shadow the piece casts. Nothing is painted where the window goes, nor above the
+/// pane's top, which is the bar's lower edge.
+pub(super) fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
+    let logical = Size::<i32, Logical>::from((size.0 + 2 * DOCK_MARGIN, size.1 + 2 * DOCK_MARGIN));
     let device = (
         (logical.w as f64 * scale).round().max(1.0) as i32,
         (logical.h as f64 * scale).round().max(1.0) as i32,
     );
     let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32)?;
-    let m = PIN_SHADOW_MARGIN as f32;
-    p.shadow(
-        m,
-        m,
-        size.0 as f32,
-        size.1 as f32,
-        0.0,
-        18.0,
-        46.0,
-        0x000000b8,
-    );
+    let m = DOCK_MARGIN as f32;
+    let edge = crate::dock::FRAME as f32;
+    let (w, h) = (size.0 as f32, size.1 as f32);
+    // Drawn from well above the pane, so the corners rounded off are the lower two.
+    let (x, y) = (m - edge, m - 2.0 * DOCK_RADIUS);
+    let (wide, tall) = (w + 2.0 * edge, h + edge + 2.0 * DOCK_RADIUS);
+    p.shadow(x, y, wide, tall, DOCK_RADIUS, 18.0, 46.0, 0x000000b8);
+    p.fill(x, y, wide, tall, DOCK_RADIUS, panel::CHIP | 0xe6);
+    p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, panel::DIVIDER);
+    p.clear(0.0, 0.0, logical.w as f32, m);
+    p.clear(m, m, w, h);
     Some(paint::Painted {
         buffer: paint::buffer(&p.pixmap),
         logical,
@@ -396,6 +397,47 @@ pub(super) fn paint_pin_shadow(size: (i32, i32), scale: f64) -> Option<paint::Pa
     })
 }
 
+impl Chrome {
+    /// The frame for a docked pane `size` big whose top left corner is at `at`, painted once for
+    /// each size and kept.
+    pub(super) fn dock_frame<R>(
+        &mut self,
+        renderer: &mut R,
+        size: (i32, i32),
+        scale: f64,
+        at: Point<f64, Logical>,
+        alpha: f32,
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let kept = self
+            .dock_frames
+            .iter()
+            .position(|(painted, frame)| *painted == size && frame.scale == scale);
+        let index = match kept {
+            Some(index) => index,
+            None => {
+                // Two are ever wanted at once: where a pane is and where it is going.
+                if self.dock_frames.len() >= 2 {
+                    self.dock_frames.remove(0);
+                }
+                self.dock_frames
+                    .push((size, paint_dock_frame(size, scale)?));
+                self.dock_frames.len() - 1
+            }
+        };
+        let margin = DOCK_MARGIN as f64;
+        self.dock_frames[index].1.element(
+            renderer,
+            Point::from((at.x - margin, at.y - margin)),
+            alpha,
+        )
+    }
+}
+
+/// Bullet time's key legend, a pill of its keys laid out in design pixels, painted at `scale`.
 pub(super) fn paint_legend(scale: f64) -> Option<paint::Painted> {
     let style = Style::new(Face::Mono, 13.0, panel::HINT);
     let legend = bullet::legend();

@@ -71,7 +71,7 @@ enum KeyUse {
 
 impl Slipstream {
     fn run_action(&mut self, action: Action) {
-        // The pinned pane is on no workspace, so the keys that move or reshape the focused
+        // The docked pane is on no workspace, so the keys that move or reshape the focused
         // window within one have nothing to act on while the keyboard is in it.
         if matches!(
             action,
@@ -85,7 +85,7 @@ impl Slipstream {
                 | Action::ToggleFloating
         ) && self
             .focused_window()
-            .is_some_and(|window| self.is_pinned(&window))
+            .is_some_and(|window| self.is_docked(&window))
         {
             return;
         }
@@ -130,8 +130,8 @@ impl Slipstream {
             Action::Minimise => self.minimise_focused(),
             Action::Restore => self.restore_latest(),
             Action::HideAll => self.hide_all(),
-            Action::Pin => self.pin_keyboard(),
-            Action::PinSize => self.pin_next_size(),
+            Action::Dock => self.dock_focused(),
+            Action::Undock => self.undock(),
             Action::BulletTime => self.toggle_bullet_time(),
             Action::QuickSettings => self.toggle_quick_settings(),
             Action::NotificationCentre => self.toggle_notification_centre(),
@@ -965,17 +965,11 @@ impl Slipstream {
             }
         }
 
-        // A click on a stream brings its window back. On the button at its head, it pins the
-        // window to the screen instead, or puts the pinned pane away.
+        // A click on a stream of code rain brings its window back.
         if !pointer.is_grabbed() {
-            let at = pointer.current_location();
-            if let Some(window) = self.rain_window_at(at) {
+            if let Some(window) = self.rain_window_at(pointer.current_location()) {
                 if button_state == ButtonState::Pressed {
-                    if self.rain_button_at(at) {
-                        self.pin_clicked(&window);
-                    } else {
-                        self.restore(&window);
-                    }
+                    self.restore(&window);
                 }
                 return;
             }

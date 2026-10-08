@@ -1,0 +1,420 @@
+//! One window kept in view on every workspace: docked to the bar, hanging from it as a pane of
+//! glass in front of the desktop.
+//!
+//! The pane hangs from the bar's lower edge at its right-hand end, with the bar's own material
+//! round its other three sides, so the two are one piece. It has three sizes. Docking lifts the
+//! window out of its tile and up to the bar, further away as it goes; undocking brings it forward
+//! again into a tile. The glass is rigid throughout (`pane.rs`).
+//!
+//! This is only where the pane rests and how it is drawn on the way there. Which window is
+//! docked, and what the keys do, is the compositor's, and changes on the keypress as ever.
+
+use crate::{
+    anim::Easing,
+    layout::Rect,
+    pane::{Axis, Camera, Pose},
+};
+
+/// How much of the bar's material shows round the pane's sides and foot, in logical pixels.
+pub const FRAME: i32 = 4;
+/// How long a window takes from its tile up to the bar, in animation seconds.
+const UP: f64 = 0.38;
+/// From one size to the next.
+const BETWEEN: f64 = 0.3;
+/// From the bar down into a tile.
+const DOWN: f64 = 0.36;
+/// How far the pane turns on its way between the bar and a tile, in radians.
+const SWING: f64 = 0.32;
+/// How far it turns between sizes, as tiles passing through each other do.
+const TURN: f64 = 0.1;
+/// How far the light on the pane's leading edge reaches, in logical pixels on the screen.
+const EDGE_REACH: f64 = 7.0;
+/// Half the height of the band of light that crosses the pane in flight, as a share of the pane's.
+const BAND: f64 = 0.28;
+/// How long the seam between the bar and a pane that has just landed stays lit.
+const SEAT: f64 = 0.42;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Size {
+    #[default]
+    Small,
+    Medium,
+    Large,
+}
+
+impl Size {
+    /// The size after this one, round and round.
+    pub fn next(self) -> Size {
+        match self {
+            Size::Small => Size::Medium,
+            Size::Medium => Size::Large,
+            Size::Large => Size::Small,
+        }
+    }
+
+    /// The share of the tiling area the pane takes, across and down.
+    fn share(self) -> (f64, f64) {
+        match self {
+            Size::Small => (0.26, 0.3),
+            Size::Medium => (0.36, 0.42),
+            Size::Large => (0.5, 0.5),
+        }
+    }
+}
+
+/// The window docked to the bar, and the flight that is still bringing its pane to rest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Docked<W> {
+    pub window: W,
+    pub size: Size,
+    pub flight: Option<Flight>,
+    /// When the pane last came to rest against the bar, in animation seconds, if it flew there:
+    /// the seam is lit for a moment afterwards.
+    pub seated: Option<f64>,
+}
+
+/// Where the docked window rests in tiling area `area`: against the bar at the right-hand end,
+/// with room for the frame beside it.
+pub fn rect(area: Rect, size: Size) -> Rect {
+    let (across, down) = size.share();
+    let w = ((area.w as f64 * across).round() as i32).max(1);
+    let h = ((area.h as f64 * down).round() as i32).max(1);
+    Rect {
+        x: area.x + area.w - FRAME - w,
+        y: area.y,
+        w,
+        h,
+    }
+}
+
+/// The bar's material round a pane resting at `rect`: its sides and foot, and nothing above it,
+/// where the bar itself is.
+pub fn frame(rect: Rect) -> Rect {
+    Rect {
+        x: rect.x - FRAME,
+        y: rect.y,
+        w: rect.w + 2 * FRAME,
+        h: rect.h + FRAME,
+    }
+}
+
+/// How strongly the seam between the bar and the pane is lit at `now`, for a pane that came to
+/// rest at `seated`: full as it lands, and gone soon after.
+pub fn seam(seated: Option<f64>, now: f64) -> f32 {
+    let Some(seated) = seated else {
+        return 0.0;
+    };
+    let t = (now - seated) / SEAT;
+    if !(0.0..1.0).contains(&t) {
+        return 0.0;
+    }
+    ((1.0 - t) * (1.0 - t)) as f32
+}
+
+/// Somewhere the pane can be: the rect it fills on the screen, and whether it hangs from the bar
+/// there or lies among the windows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stop {
+    pub rect: [f64; 4],
+    pub bar: bool,
+}
+
+impl Stop {
+    /// Hanging from the bar at `rect`.
+    pub fn at_bar(rect: Rect) -> Self {
+        Self {
+            rect: [rect.x as f64, rect.y as f64, rect.w as f64, rect.h as f64],
+            bar: true,
+        }
+    }
+
+    /// Among the windows, where a tile or a floating window is drawn.
+    pub fn among(rect: [f64; 4]) -> Self {
+        Self { rect, bar: false }
+    }
+}
+
+/// How the pane is lit in flight, for `pane::Look`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lit {
+    /// The edge leading the pane, lit: which, and how strongly.
+    pub edge: (Axis, bool, f32),
+    /// How far that light reaches into the pane, in the pane's own pixels: the same few pixels
+    /// on the screen however far away the pane is.
+    pub reach: f32,
+    /// A band of light crossing the pane as it changes depth, as where two panes of glass meet:
+    /// the y it is at in the space, half its height and its strength.
+    pub band: (f64, f64, f32),
+}
+
+/// The pane on its way from one stop to another.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Flight {
+    from: Stop,
+    to: Stop,
+    start: f64,
+    over: f64,
+}
+
+impl Flight {
+    pub fn new(from: Stop, to: Stop, start: f64) -> Self {
+        let over = match (from.bar, to.bar) {
+            (false, true) => UP,
+            (true, false) => DOWN,
+            _ => BETWEEN,
+        };
+        Self {
+            from,
+            to,
+            start,
+            over,
+        }
+    }
+
+    pub fn done(&self, now: f64) -> bool {
+        now >= self.end()
+    }
+
+    /// When the pane comes to rest.
+    pub fn end(&self) -> f64 {
+        self.start + self.over
+    }
+
+    fn progress(&self, now: f64) -> f64 {
+        // Exactly 1 once it is over, whatever the division makes of the last instant.
+        if self.done(now) {
+            return 1.0;
+        }
+        ((now - self.start) / self.over).clamp(0.0, 1.0)
+    }
+
+    /// Whether the pane is heading away from the eye: to somewhere it is drawn smaller.
+    fn receding(&self) -> bool {
+        self.to.rect[2] < self.from.rect[2]
+    }
+
+    /// The pane's width at the screen's own depth: the wider of its two stops, so the narrower
+    /// one is the same pane further away.
+    fn full(&self) -> f64 {
+        self.from.rect[2].max(self.to.rect[2]).max(1.0)
+    }
+
+    /// The bay in the bar's material that the pane leaves or is heading for, and how much of it
+    /// is there at `now`. One opens ahead of a pane coming to the bar, quickly, so the pane lands
+    /// in it; the one a pane has left closes behind it.
+    pub fn bay(&self, now: f64) -> Option<([f64; 4], f32)> {
+        let t = self.progress(now);
+        if self.to.bar {
+            Some((self.to.rect, (t * 2.5).min(1.0) as f32))
+        } else if self.from.bar {
+            Some((self.from.rect, (1.0 - t * 4.0).max(0.0) as f32))
+        } else {
+            None
+        }
+    }
+
+    /// The pane at `now` for the eye at `camera`: its pose, and how it is lit.
+    ///
+    /// The stops are rects as they appear. A narrower one is the same pane further off, so the
+    /// depth is whatever makes the pane look that wide, and its middle is carried out along the
+    /// line from the eye so that it appears where the rect is.
+    pub fn at(&self, now: f64, camera: &Camera) -> (Pose, Lit) {
+        let t = self.progress(now);
+        let receding = self.receding();
+        // Coming towards the eye a pane is quick off the mark and then accelerates into place;
+        // going away it speeds off.
+        // Exactly at either end, so a pane that has landed lies exactly where its window is.
+        let (p, deep) = if t >= 1.0 {
+            (1.0, 0.0)
+        } else if t <= 0.0 {
+            (0.0, 0.0)
+        } else if receding {
+            (t.powf(2.2), (std::f64::consts::PI * t).sin())
+        } else {
+            (Easing::Arrive.at(t), (std::f64::consts::PI * t).sin())
+        };
+        let mix = |a: f64, b: f64| a + (b - a) * p;
+        let rect: [f64; 4] = std::array::from_fn(|i| mix(self.from.rect[i], self.to.rect[i]));
+        // Between the bar and a tile it swings well round; between sizes it only stirs.
+        let swing = if self.from.bar && self.to.bar {
+            TURN
+        } else {
+            SWING
+        };
+        // The side nearer where it is going leads, and so is the further away.
+        let heading =
+            self.to.rect[0] + self.to.rect[2] / 2.0 - (self.from.rect[0] + self.from.rect[2] / 2.0);
+        let side = if heading < 0.0 { -1.0 } else { 1.0 };
+        let sign = if receding { side } else { -side };
+        let full = self.full();
+        let k = (rect[2] / full).max(1e-3);
+        let pose = Pose {
+            x: camera.x + (rect[0] + rect[2] / 2.0 - camera.x) / k,
+            y: camera.y + (rect[1] + rect[3] / 2.0 - camera.y) / k,
+            z: camera.distance * (1.0 / k - 1.0),
+            yaw: swing * deep * sign,
+            pitch: 0.0,
+            w: full,
+            h: rect[3] / k,
+        };
+        // Heading up to the bar its top edge leads; coming down from it, or growing, its foot.
+        let rising = self.to.rect[1] + self.to.rect[3] < self.from.rect[1] + self.from.rect[3];
+        let lit = Lit {
+            edge: (Axis::Down, !rising, 0.95 * deep as f32),
+            reach: (EDGE_REACH / k) as f32,
+            // It crosses from the leading edge to the trailing one over the flight.
+            band: (
+                if rising {
+                    rect[1] + rect[3] * (1.6 * t - 0.3)
+                } else {
+                    rect[1] + rect[3] * (1.3 - 1.6 * t)
+                },
+                (rect[3] * BAND).max(1.0),
+                0.34 * deep as f32,
+            ),
+        };
+        (pose, lit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pane::project;
+
+    const AREA: Rect = Rect {
+        x: 0,
+        y: 32,
+        w: 1490,
+        h: 832,
+    };
+    const CAMERA: Camera = Camera {
+        x: 768.0,
+        y: 432.0,
+        distance: 1689.6,
+    };
+    const TILE: [f64; 4] = [8.0, 40.0, 733.0, 816.0];
+
+    fn corners(pose: &Pose) -> ((f64, f64), (f64, f64)) {
+        (
+            project(pose, &CAMERA, (0.0, 0.0)).unwrap(),
+            project(pose, &CAMERA, (1.0, 1.0)).unwrap(),
+        )
+    }
+
+    fn lies_over(pose: &Pose, rect: [f64; 4]) -> bool {
+        let ((x0, y0), (x1, y1)) = corners(pose);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        near(x0, rect[0])
+            && near(y0, rect[1])
+            && near(x1, rect[0] + rect[2])
+            && near(y1, rect[1] + rect[3])
+    }
+
+    #[test]
+    fn the_pane_hangs_from_the_bar_with_no_gap_at_every_size() {
+        for size in [Size::Small, Size::Medium, Size::Large] {
+            let pane = rect(AREA, size);
+            // Its top is the bar's lower edge, and its frame ends at the tiling area's.
+            assert_eq!(pane.y, AREA.y);
+            let frame = frame(pane);
+            assert_eq!(frame.y, AREA.y);
+            assert_eq!(frame.x + frame.w, AREA.x + AREA.w);
+            assert_eq!(frame.h, pane.h + FRAME);
+        }
+    }
+
+    #[test]
+    fn the_sizes_go_round_and_each_is_bigger_than_the_last() {
+        assert_eq!(Size::Small.next(), Size::Medium);
+        assert_eq!(Size::Medium.next(), Size::Large);
+        assert_eq!(Size::Large.next(), Size::Small);
+        let [small, medium, large] =
+            [Size::Small, Size::Medium, Size::Large].map(|s| rect(AREA, s));
+        assert!(small.w < medium.w && medium.w < large.w);
+        assert!(small.h < medium.h && medium.h < large.h);
+        // The largest is half the tiling area each way, and no more.
+        assert_eq!((large.w, large.h), (AREA.w / 2, AREA.h / 2));
+    }
+
+    #[test]
+    fn a_flight_starts_and_ends_flat_exactly_over_its_stops() {
+        let small = rect(AREA, Size::Small);
+        let large = rect(AREA, Size::Large);
+        let flights = [
+            Flight::new(Stop::among(TILE), Stop::at_bar(small), 10.0),
+            Flight::new(Stop::at_bar(small), Stop::at_bar(large), 10.0),
+            Flight::new(Stop::at_bar(large), Stop::among(TILE), 10.0),
+        ];
+        for flight in flights {
+            let (first, lit) = flight.at(10.0, &CAMERA);
+            assert!(lies_over(&first, flight.from.rect));
+            assert_eq!(first.yaw, 0.0);
+            assert_eq!(lit.edge.2, 0.0);
+            let (last, lit) = flight.at(flight.end(), &CAMERA);
+            assert!(lies_over(&last, flight.to.rect));
+            assert_eq!(last.yaw, 0.0);
+            assert_eq!(lit.band.2, 0.0);
+            assert!(flight.done(flight.end()));
+            assert!(!flight.done(flight.end() - 0.01));
+        }
+    }
+
+    #[test]
+    fn going_up_to_the_bar_the_pane_recedes_turns_and_its_top_edge_leads() {
+        let small = rect(AREA, Size::Small);
+        let flight = Flight::new(Stop::among(TILE), Stop::at_bar(small), 0.0);
+        let (start, _) = flight.at(0.0, &CAMERA);
+        let (half, lit) = flight.at(UP * 0.5, &CAMERA);
+        let (end, _) = flight.at(UP, &CAMERA);
+        assert_eq!(start.z, 0.0);
+        assert!(half.z > 0.0 && end.z > half.z);
+        // The same pane all the way: only its depth, place and turn change.
+        assert_eq!(start.w, end.w);
+        assert!(half.yaw.abs() > 0.25);
+        assert_eq!(lit.edge.0, Axis::Down);
+        assert!(!lit.edge.1);
+        assert!(lit.edge.2 > 0.9);
+        // Slow to leave: after half the time it has gone under a third of the way.
+        let ((x0, _), _) = corners(&half);
+        assert!(x0 < TILE[0] + 0.4 * (small.x as f64 - TILE[0]));
+    }
+
+    #[test]
+    fn coming_down_the_pane_approaches_and_its_foot_leads() {
+        let small = rect(AREA, Size::Small);
+        let flight = Flight::new(Stop::at_bar(small), Stop::among(TILE), 0.0);
+        let (start, _) = flight.at(0.0, &CAMERA);
+        let (half, lit) = flight.at(DOWN * 0.5, &CAMERA);
+        assert!(start.z > half.z && half.z > 0.0);
+        assert!(lit.edge.1);
+        assert!(half.yaw.abs() > 0.2);
+    }
+
+    #[test]
+    fn a_bay_opens_ahead_of_a_pane_coming_to_the_bar_and_closes_behind_one_leaving() {
+        let (small, large) = (rect(AREA, Size::Small), rect(AREA, Size::Large));
+        let up = Flight::new(Stop::among(TILE), Stop::at_bar(small), 0.0);
+        let (at, shown) = up.bay(0.0).unwrap();
+        assert_eq!(at, Stop::at_bar(small).rect);
+        assert_eq!(shown, 0.0);
+        // Open well before the pane is there.
+        assert_eq!(up.bay(UP * 0.4).unwrap().1, 1.0);
+        let grow = Flight::new(Stop::at_bar(small), Stop::at_bar(large), 0.0);
+        assert_eq!(grow.bay(0.0).unwrap().0, Stop::at_bar(large).rect);
+        let down = Flight::new(Stop::at_bar(large), Stop::among(TILE), 0.0);
+        let (at, shown) = down.bay(0.0).unwrap();
+        assert_eq!(at, Stop::at_bar(large).rect);
+        assert_eq!(shown, 1.0);
+        assert_eq!(down.bay(DOWN * 0.25).unwrap().1, 0.0);
+    }
+
+    #[test]
+    fn the_seam_is_lit_as_the_pane_lands_and_not_for_long() {
+        assert_eq!(seam(None, 5.0), 0.0);
+        assert_eq!(seam(Some(5.0), 4.9), 0.0);
+        assert_eq!(seam(Some(5.0), 5.0), 1.0);
+        assert!(seam(Some(5.0), 5.0 + SEAT * 0.5) < 0.3);
+        assert_eq!(seam(Some(5.0), 5.0 + SEAT + 0.001), 0.0);
+    }
+}

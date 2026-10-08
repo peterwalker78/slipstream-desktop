@@ -194,6 +194,9 @@ pub struct Notices {
     button_hits: Vec<(u32, usize, Rectangle<f64, Logical>)>,
     /// Pop-ups fade in where they rest instead of sliding (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
+    /// How much lower than usual the pop-ups start, in logical pixels: under a pane hanging
+    /// from the bar in their corner.
+    pub popup_drop: f64,
 }
 
 impl Notices {
@@ -463,7 +466,7 @@ impl Notices {
         self.cross_hits.clear();
         self.button_hits.clear();
         let left = width as f32 / DESIGN_PX - POPUP_RIGHT - POPUP_W;
-        let mut top = POPUP_TOP;
+        let mut top = POPUP_TOP + self.popup_drop as f32 / DESIGN_PX;
         let mut elements = Vec::new();
         let Self {
             list,

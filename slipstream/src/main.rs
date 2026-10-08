@@ -49,6 +49,7 @@ mod idle;
 mod ime;
 mod inhibit;
 
+mod dock;
 mod input;
 mod keys;
 mod known;
@@ -71,7 +72,6 @@ mod overview;
 mod paint;
 mod pane;
 mod panel;
-mod pin;
 mod power;
 mod quick;
 mod rain;

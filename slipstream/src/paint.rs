@@ -172,6 +172,19 @@ impl Painter {
         }
     }
 
+    /// Wipes a box back to nothing, whatever was painted there.
+    pub fn clear(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        if let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w, h) {
+            let paint = tiny_skia::Paint {
+                blend_mode: tiny_skia::BlendMode::Clear,
+                anti_alias: false,
+                ..tiny_skia::Paint::default()
+            };
+            let transform = self.transform();
+            self.pixmap.fill_rect(rect, &paint, transform, None);
+        }
+    }
+
     /// A border `width` thick inside the box, as CSS draws one.
     #[allow(clippy::too_many_arguments)]
     pub fn border(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, width: f32, rgba: u32) {

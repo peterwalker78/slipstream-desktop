@@ -42,8 +42,8 @@ impl Slipstream {
                     }),
             );
         }
-        // The pinned pane's window belongs to no workspace and stays mapped all the same.
-        let pinned = self.pinned_on_show();
+        // The docked window belongs to no workspace and stays mapped all the same.
+        let docked = self.docked_on_show();
         let offscreen: Vec<Window> = self
             .space
             .elements()
@@ -52,7 +52,7 @@ impl Slipstream {
                 !is_override_redirect(w)
                     && !rects.iter().any(|(on, _)| on == *w)
                     && !floats.iter().any(|(on, ..)| on == *w)
-                    && pinned.as_ref() != Some(*w)
+                    && docked.as_ref() != Some(*w)
             })
             .cloned()
             .collect();
@@ -138,8 +138,8 @@ impl Slipstream {
             }
             self.restack_floating(*workspace);
         }
-        // The pinned pane is in front of them all, and a fullscreen window in front of that.
-        self.place_pinned(now);
+        // The docked pane is in front of them all, and a fullscreen window in front of that.
+        self.place_docked(now);
         for (window, _) in &fullscreens {
             self.space.raise_element(window, false);
         }
@@ -606,7 +606,7 @@ impl Slipstream {
             self.pass = None;
         }
         let was_on = self.take_off_workspace(window);
-        self.forget_pinned(window);
+        self.forget_docked(window);
         self.rain.remove(window);
         self.tags.retain(|(tagged, ..)| tagged != window);
         if let Some(mode) = self.bullet.as_mut() {
@@ -796,8 +796,8 @@ impl Slipstream {
         let (Some(area), Some(current)) = (self.output_area(), self.focused_window()) else {
             return;
         };
-        // The pinned pane is on no workspace: from it, a focus key goes back to the windows.
-        if self.is_pinned(&current) {
+        // The docked pane is on no workspace: from it, a focus key goes back to the windows.
+        if self.is_docked(&current) {
             self.restore_focus();
             return;
         }
@@ -814,6 +814,14 @@ impl Slipstream {
             .tiles_within(area, &min_size);
         if let Some(next) = layout::neighbour(&rects, &current, direction) {
             self.focus_window(&next);
+            return;
+        }
+        // Up from the top of the tiles is the pane hanging from the bar, on the screen it is on.
+        if direction == Direction::Up
+            && self.screens.focused_index() == 0
+            && let Some(docked) = self.docked_on_show()
+        {
+            self.focus_window(&docked);
             return;
         }
         let from = rects
@@ -1116,6 +1124,12 @@ impl Slipstream {
     /// An app asked to fill the screen, or to stop.
     pub fn set_fullscreen(&mut self, window: &Window, fullscreen: bool) {
         if fullscreen {
+            // A docked window comes down from the bar to fill the screen: only a window on a
+            // workspace can.
+            if self.is_docked(window) {
+                let beside = self.focused_window();
+                self.come_down(beside.as_ref());
+            }
             // A floating window fills the screen from the tiling, and floats again after.
             if let Some(index) = self.workspaces.find(window)
                 && let Some(float) = self.workspaces.get_mut(index).floating.remove(window)

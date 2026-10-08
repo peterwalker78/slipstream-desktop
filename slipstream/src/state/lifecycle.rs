@@ -4,14 +4,19 @@
 use super::*;
 
 impl Slipstream {
-    /// Every window a person would call open: tiled on any workspace, or minimised into the code
-    /// rain. Not popups, not override-redirect X11 surfaces, not Slipstream's own overlays. The
+    /// Every window a person would call open: on any workspace, docked to the bar, or minimised
+    /// into the code rain. Not popups, not override-redirect X11 surfaces, not Slipstream's own overlays. The
     /// one definition of what's open, used by the way out to list, to ask, and to wait.
     pub fn mapped_windows(&self) -> Vec<exit::Open<Window>> {
         self.workspaces
             .all_windows()
             .into_iter()
             .map(|window| (window, false))
+            .chain(
+                self.dock
+                    .iter()
+                    .map(|docked| (docked.window.clone(), false)),
+            )
             .chain(
                 self.rain
                     .streams
@@ -182,6 +187,21 @@ impl Slipstream {
                     ..session::Win::default()
                 });
             }
+        }
+        // A docked window has no place in any workspace's tree: it is kept as one more in the
+        // rain, so its app is opened again and is a click from being brought back.
+        if let Some(app) = self
+            .dock
+            .as_ref()
+            .and_then(|docked| window_app_id(&docked.window))
+        {
+            windows.push(session::Win {
+                app,
+                workspace: None,
+                slot: self.rain.streams.len(),
+                in_rain: true,
+                ..session::Win::default()
+            });
         }
         session::Record::new(self.active_workspace() + 1, windows, workspaces)
     }

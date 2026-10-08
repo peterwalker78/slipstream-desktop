@@ -39,10 +39,10 @@ pub(super) fn deck_elements_for(
         .windows
         .iter()
         .map(|window| {
-            // The pinned pane is in view where it rests, not in its stream.
+            // The docked pane lifts from where it hangs.
             if rain_output
-                && let Some(pinned) = state.pin.as_ref().filter(|pinned| pinned.window == *window)
-                && let Some(rect) = state.pin_rect(pinned.size)
+                && state.is_docked(window)
+                && let Some(rect) = state.docked_rect()
             {
                 return Pose::flat([
                     (rect.x - output_geo.loc.x) as f64,
@@ -146,6 +146,8 @@ pub(super) fn deck_elements_for(
         let window = &deck.windows[deck.front()];
         let place = if state.rain.contains(window) {
             "in the rain".to_string()
+        } else if state.is_docked(window) {
+            "on the bar".to_string()
         } else {
             state
                 .workspaces

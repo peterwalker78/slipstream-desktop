@@ -62,7 +62,7 @@ Put a window away and it pours down the side of the screen as a stream of fallin
 
 **Pop-ups you never asked for are sent there too.** An app that opens a window by itself, or throws one in front of you while you're typing, pours straight into the rain instead of taking the screen, with a quiet toast to say what happened. Windows you opened yourself, dialogs belonging to the app you're in, and anything that appears just after a click still come to you as normal.
 
-Click a stream to bring the window back, or the button at its head to pin it to the screen as a pane of glass.
+Click a stream to bring the window back.
 
 **Or the film's code rain.** Settings → Appearance → Effects swaps the light for falling green code, each stream spelling out its app's name as it falls. It reads the same way.
 
