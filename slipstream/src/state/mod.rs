@@ -436,6 +436,8 @@ pub struct Slipstream {
     pub dock_size: crate::dock::Size,
     /// The docked window's slot in the bar: its stream, laid on its side (`slot.rs`).
     pub dock_slot: Option<crate::slot::Slot>,
+    /// The slot of a window on its way down from the bar, until it lands.
+    pub dock_slot_leaving: Option<crate::slot::Slot>,
     /// Where password checks answer, with their numbers.
     pub lock_answers: channel::Sender<(u64, crate::auth::Verdict)>,
     /// The session's line to logind, for locking, unlocking and sleep (`logind.rs`).
@@ -748,6 +750,7 @@ impl Slipstream {
             dock_leaving: None,
             dock_size: Default::default(),
             dock_slot: None,
+            dock_slot_leaving: None,
             lock_answers,
             logind: Default::default(),
             sleep_delay: Default::default(),

@@ -311,6 +311,11 @@ pub fn output_elements(
         && chrome.glass.ready(renderer);
     let ui_alpha = if glass { 1.0 } else { ui };
     let pane_start = elements.len();
+    // The bar is nearer the eye than the windows once a pane hangs from it in front of them, so
+    // while the two fade it and its pane are drawn into a glass of their own, which trails the
+    // windows' on the way out and leads it back.
+    let bar_apart = glass && rain_output && zoomed_out <= 0.0 && state.docked_on_show().is_some();
+    let mut bar_pane: Vec<OutputElement> = Vec::new();
     // Other programs' launchers, pickers and panels in front of everything of the desktop's, and
     // their docks and wallpapers behind the windows, all inside the pane that fades. Not in
     // bullet time, which is the desktop's own.
@@ -494,38 +499,82 @@ pub fn output_elements(
         let bar = chrome
             .bar
             .element(renderer, content, output_geo.size.w, scale.x, ui_alpha);
-        // The docked window's slot, alive on top of the bar where the bar kept room for it.
+        let (ring, still, demand) = (
+            state.ring_rgb,
+            state.clock.reduced_motion,
+            state.rain.demand(),
+        );
+        // The docked window's slot, alive on top of the bar where the bar kept room for it. It
+        // opens, lights and flashes in step with its pane's flight (`dock::SlotLook`).
         if docked
             && let Some((x, width)) = chrome.bar.dock_slot()
             && let Some(window) = state.docked_on_show()
         {
+            chrome.slot_at = Some((x, width));
             let keyboard = state.focused_window().as_ref() == Some(&window);
-            let (ring, still, demand) = (
-                state.ring_rgb,
-                state.clock.reduced_motion,
-                state.rain.demand(),
-            );
+            let look = state
+                .dock
+                .as_ref()
+                .map_or(crate::dock::SlotLook::AT_REST, |docked| {
+                    crate::dock::SlotLook::docked(
+                        docked.flight.as_ref(),
+                        docked.lit_from,
+                        docked.seated,
+                        now,
+                    )
+                });
             let light = state.rain.light();
             if let Some(slot) = state.dock_slot.as_mut() {
-                elements.extend(
+                bar_pane.extend(
                     slot.element(
                         renderer,
                         Point::from((x, crate::slot::TOP as f64)),
                         width.round() as i32,
                         scale.x,
                         now,
-                        ui_alpha,
+                        ui_alpha * look.card,
                         keyboard,
                         ring,
                         still,
                         demand,
                         light,
+                        (look.lit, look.flash),
+                    )
+                    .map(OutputElement::Memory),
+                );
+            }
+        } else if rain_output
+            && let Some((x, width)) = chrome.slot_at
+            && let Some((_, flight)) = state.dock_leaving.as_ref()
+        {
+            // The slot of a pane on its way down: its light runs out and it closes behind it.
+            let look = crate::dock::SlotLook::left(flight, now);
+            let light = state.rain.light();
+            if let Some(slot) = state.dock_slot_leaving.as_mut() {
+                bar_pane.extend(
+                    slot.element(
+                        renderer,
+                        Point::from((x, crate::slot::TOP as f64)),
+                        width.round() as i32,
+                        scale.x,
+                        now,
+                        ui_alpha * look.card,
+                        false,
+                        ring,
+                        still,
+                        demand,
+                        light,
+                        (look.lit, look.flash),
                     )
                     .map(OutputElement::Memory),
                 );
             }
         }
-        elements.extend(bar.map(OutputElement::Memory));
+        bar_pane.extend(bar.map(OutputElement::Memory));
+        // Fading with a window docked, the bar and what hangs from it are a pane of their own.
+        if !bar_apart {
+            elements.append(&mut bar_pane);
+        }
     }
     // The deck goes just behind the bar, in front of everything else of the desktop's.
     let behind_bar = elements.len();
@@ -1142,9 +1191,12 @@ pub fn output_elements(
                     .dock_frame(renderer, size, scale.x, shown.loc, alpha)
                     .map(OutputElement::Memory),
             );
-            // With the overview open, everything of the pane's goes in front of it.
+            // With the overview open, everything of the pane's goes in front of it; fading,
+            // it goes with the bar it hangs from.
             if zoomed_out > 0.0 {
                 pane_layer.extend(world.drain(mark..));
+            } else if bar_apart {
+                bar_pane.extend(world.drain(mark..));
             }
         }
     }
@@ -1304,6 +1356,7 @@ pub fn output_elements(
         .is_some_and(|(_, flight)| flight.done(now))
     {
         state.dock_leaving = None;
+        state.dock_slot_leaving = None;
     }
 
     // Alt+Tab's deck, just behind the bar.
@@ -1528,6 +1581,9 @@ pub fn output_elements(
 
     // Where the turning page sits in the list, for the wallpaper to lie over it behind the glass.
     let mut fallen_at = None;
+    // And where the bar's own pane sits, when it has one, with how far gone it is.
+    let mut bar_fallen_at = None;
+    let bar_gone = crate::glass::nearer(1.0 - ui);
     if glass {
         let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
         match chrome.glass.element(
@@ -1537,13 +1593,35 @@ pub fn output_elements(
             physical,
             scale.x,
             1.0 - ui,
+            0.0,
         ) {
             Some(element) => {
+                // The bar's pane first: it is in front.
+                if !bar_pane.is_empty() {
+                    match chrome.glass_bar.element(
+                        renderer,
+                        &bar_pane,
+                        output_geo.size,
+                        physical,
+                        scale.x,
+                        bar_gone,
+                        crate::glass::NEARER,
+                    ) {
+                        Some(bar) => {
+                            bar_fallen_at = Some(elements.len());
+                            elements.push(OutputElement::Shaded(bar));
+                        }
+                        None => elements.append(&mut bar_pane),
+                    }
+                }
                 fallen_at = Some(elements.len());
                 elements.push(OutputElement::Shaded(element));
             }
             // Drawn plainly this once; a glass that's broken stays off from now on.
-            None => elements.extend(pane),
+            None => {
+                elements.append(&mut bar_pane);
+                elements.extend(pane);
+            }
         }
     }
 
@@ -1618,12 +1696,38 @@ pub fn output_elements(
                         output_geo.size,
                         physical,
                         scale.x,
-                        1.0 - ui,
+                        (1.0 - ui, 0.0),
+                        None,
                         BACKGROUND,
                     )
                 });
             if let Some(through) = through {
                 elements.insert(at, OutputElement::Shaded(through));
+            }
+            // The bar's pane goes behind the wallpaper after the windows' has, so where it is
+            // behind, the order is the wallpaper, the bar's pane, then the windows'.
+            if let Some(bar_at) = bar_fallen_at {
+                let windows =
+                    chrome
+                        .glass
+                        .shown(renderer, output_geo.size, physical, 1.0 - ui, 0.0);
+                let through = saver
+                    .again(renderer, output_geo.size, glow)
+                    .and_then(|wallpaper| {
+                        chrome.glass_bar.through(
+                            renderer,
+                            wallpaper,
+                            output_geo.size,
+                            physical,
+                            scale.x,
+                            (bar_gone, crate::glass::NEARER),
+                            windows,
+                            BACKGROUND,
+                        )
+                    });
+                if let Some(through) = through {
+                    elements.insert(bar_at, OutputElement::Shaded(through));
+                }
             }
         }
     }

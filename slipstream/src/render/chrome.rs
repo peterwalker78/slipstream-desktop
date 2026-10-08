@@ -24,6 +24,11 @@ pub struct Chrome {
     pub(super) stage: tilt::Stage,
     /// The UI's glass fade to the wallpaper and back.
     pub(super) glass: crate::glass::Glass,
+    /// The same for the bar and the pane docked to it, which fade as a nearer pane of their own.
+    pub(super) glass_bar: crate::glass::Glass,
+    /// Where the docked window's slot was last drawn in the bar, for the slot of a window on its
+    /// way down: its left edge and width in logical pixels.
+    pub(super) slot_at: Option<(f64, f64)>,
     /// The fade to black on the way out.
     pub(super) blackout: SolidColorBuffer,
     /// The white flash when a screenshot is taken.
@@ -58,6 +63,8 @@ impl Default for Chrome {
             overview: Overview::default(),
             stage: tilt::Stage::default(),
             glass: crate::glass::Glass::default(),
+            glass_bar: crate::glass::Glass::default(),
+            slot_at: None,
             blackout: SolidColorBuffer::new((0, 0), BLACK),
             panes: crate::pane::Panes::default(),
             dock_frames: Vec::new(),

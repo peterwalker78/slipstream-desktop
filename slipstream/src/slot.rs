@@ -42,6 +42,15 @@ const GAIN_STREAKS: u32 = 230;
 const GLYPH: f32 = 0.8;
 /// The load is shown in this many steps, so a reading that holds still repaints nothing.
 const STEPS: f32 = 40.0;
+/// How far behind the front of light running into the strip its glow reaches, and how far the
+/// dark that follows the light out takes to fall, in logical pixels.
+const FRONT: f32 = 14.0;
+/// How bright that front is, of 255, and how far ahead of itself it glows, as a share of the
+/// reach behind it.
+const FRONT_GLOW: f32 = 120.0;
+const AHEAD: f32 = 0.3;
+/// The edge's colour when the landing's flash is on it.
+const EDGE_FLASH: u32 = 0xffffffe6;
 
 /// What the painted strip shows, beyond the light itself.
 #[derive(Clone, Copy, PartialEq)]
@@ -51,6 +60,10 @@ struct Shown {
     keyboard: bool,
     ring: [f32; 3],
     effects: Effects,
+    /// The stretch the light is in, in the strip's own pixels, and the flash on the edge in
+    /// sixteenths.
+    lit: (u16, u16),
+    flash: u8,
 }
 
 /// The light in the strip: the streams' streaks, or the code rain when that is what the streams
@@ -88,6 +101,8 @@ impl Slot {
     /// The strip `width` logical pixels wide with its corner at `at`, lit for the app's load now
     /// (or `demand`, when a load is being shown for every app), in the light the streams are
     /// drawn in. Its edge is in `ring`'s colour while the `keyboard` is in the docked pane.
+    /// The light is shown between `lit`'s two shares of the strip's length, and the edge is
+    /// lit by `flash` of the landing's white.
     #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
@@ -102,6 +117,7 @@ impl Slot {
         reduced_motion: bool,
         demand: Option<f32>,
         (effects, glyphs): (Effects, Option<&mut Glyphs>),
+        (lit, flash): ((f32, f32), f32),
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -120,12 +136,15 @@ impl Slot {
             (device.0 as usize).saturating_sub(2 * inset).max(1),
             (device.1 as usize).saturating_sub(2 * inset).max(1),
         );
+        let along = |share: f32| (share.clamp(0.0, 1.0) * iw as f32).round() as u16;
         let shown = Shown {
             device,
             scale,
             keyboard,
             ring,
             effects,
+            lit: (along(lit.0), along(lit.1)),
+            flash: (flash.clamp(0.0, 1.0) * 16.0).round() as u8,
         };
         let stale = self
             .painted
@@ -215,7 +234,10 @@ impl Slot {
                     GAIN_RAIN
                 }
             };
-            let pixmap = paint_strip(&lit, gain, device, inset, (iw, ih), scale, keyboard, ring)?;
+            let reach = (FRONT * scale as f32).max(1.0);
+            keep_between(&mut lit, iw, shown.lit, reach);
+            let edge = edge_colour(keyboard, ring, shown.flash as f32 / 16.0);
+            let pixmap = paint_strip(&lit, gain, device, inset, (iw, ih), scale, edge)?;
             self.painted = Some((
                 shown,
                 paint::Painted {
@@ -230,9 +252,71 @@ impl Slot {
     }
 }
 
+/// Leaves the strip's light, `w` pixels long, only between `from` and `to` along it. Where the
+/// light is still running in, its front glows for `reach` pixels behind it; where it is running
+/// out, the dark follows it over the same distance.
+fn keep_between(light: &mut [u8], w: usize, (from, to): (u16, u16), reach: f32) {
+    let (from, to) = (from as f32, to as f32);
+    let whole = from <= 0.0 && to >= w as f32;
+    if whole || w == 0 {
+        return;
+    }
+    for row in light.chunks_exact_mut(w * 4) {
+        for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+            let at = x as f32 + 0.5;
+            if to <= from {
+                pixel.fill(0);
+                continue;
+            }
+            if at > to {
+                // Just ahead of the front its glow falls off, so it has no hard edge.
+                let ahead = (1.0 - (at - to) / (reach * AHEAD)).clamp(0.0, 1.0);
+                let glow = if to < w as f32 {
+                    ahead * ahead * FRONT_GLOW
+                } else {
+                    0.0
+                };
+                pixel.fill(glow as u8);
+                continue;
+            }
+            let kept = if from > 0.0 {
+                ((at - from) / reach).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let glow = if to < w as f32 {
+                let behind = (to - at) / reach;
+                (1.0 - behind).clamp(0.0, 1.0).powi(2) * FRONT_GLOW
+            } else {
+                0.0
+            };
+            for channel in &mut pixel[..3] {
+                *channel = (*channel as f32 * kept + glow).min(255.0) as u8;
+            }
+            pixel[3] = (pixel[3] as f32 * kept).max(glow) as u8;
+        }
+    }
+}
+
+/// The edge's colour: the ring's while the `keyboard` is in the pane, a faint white otherwise,
+/// and either way `flash` of the way to the white of a pane landing.
+fn edge_colour(keyboard: bool, ring: [f32; 3], flash: f32) -> u32 {
+    let rest = if keyboard {
+        let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+        (channel(ring[0]) << 24) | (channel(ring[1]) << 16) | (channel(ring[2]) << 8) | EDGE_HELD
+    } else {
+        EDGE
+    };
+    let flash = flash.clamp(0.0, 1.0);
+    let mix = |shift: u32| {
+        let (a, b) = ((rest >> shift) & 0xff, (EDGE_FLASH >> shift) & 0xff);
+        ((a as f32 + (b as f32 - a as f32) * flash).round() as u32) << shift
+    };
+    mix(24) | mix(16) | mix(8) | mix(0)
+}
+
 /// The strip's card `device` screen pixels big with `light`, `inner.0`×`inner.1`, added inside
-/// its edge at `gain` of 255, softened along the corners.
-#[allow(clippy::too_many_arguments)]
+/// its edge at `gain` of 255, softened along the corners, with its edge in `edge`.
 fn paint_strip(
     light: &[u8],
     gain: u32,
@@ -240,8 +324,7 @@ fn paint_strip(
     inset: usize,
     inner: (usize, usize),
     scale: f64,
-    keyboard: bool,
-    ring: [f32; 3],
+    edge: u32,
 ) -> Option<resvg::tiny_skia::Pixmap> {
     let (w, h) = (device.0.max(1) as u32, device.1.max(1) as u32);
     let radius = RADIUS * scale as f32;
@@ -271,12 +354,6 @@ fn paint_strip(
             *channel = added.min(255) as u8;
         }
     }
-    let edge = if keyboard {
-        let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
-        (channel(ring[0]) << 24) | (channel(ring[1]) << 16) | (channel(ring[2]) << 8) | EDGE_HELD
-    } else {
-        EDGE
-    };
     let line = (scale.round() as f32).max(1.0);
     p.border(0.0, 0.0, w as f32, h as f32, radius, line, edge);
     Some(p.pixmap)
@@ -293,19 +370,8 @@ mod tests {
         for pixel in light.chunks_exact_mut(4) {
             pixel[0] = 255;
         }
-        let strip =
-            paint_strip(&light, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, false, [0.0; 3]).unwrap();
-        let dark = paint_strip(
-            &[0u8; 96],
-            GAIN_RAIN,
-            (8, 6),
-            1,
-            (6, 4),
-            1.0,
-            false,
-            [0.0; 3],
-        )
-        .unwrap();
+        let strip = paint_strip(&light, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, EDGE).unwrap();
+        let dark = paint_strip(&[0u8; 96], GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, EDGE).unwrap();
         let red = |p: &resvg::tiny_skia::Pixmap, x, y| p.pixel(x, y).unwrap().red();
         let middle = red(&strip, 4, 3);
         assert!(middle > red(&dark, 4, 3) + 100 && middle < 200, "{middle}");
@@ -317,12 +383,73 @@ mod tests {
     fn the_edge_is_in_the_rings_colour_only_while_the_keyboard_is_in_the_pane() {
         let dark = [0u8; 4 * 6 * 4];
         let ring = [0.2, 0.8, 1.0];
-        let quiet = paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, false, ring).unwrap();
-        let held = paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, true, ring).unwrap();
+        let paint = |keyboard: bool| {
+            let edge = edge_colour(keyboard, ring, 0.0);
+            paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, edge).unwrap()
+        };
+        let (quiet, held) = (paint(false), paint(true));
         let edge = |p: &resvg::tiny_skia::Pixmap| p.pixel(4, 0).unwrap();
         assert_ne!(edge(&quiet), edge(&held));
         assert!(edge(&held).blue() > edge(&held).red());
         // Inside the edge nothing differs.
         assert_eq!(quiet.pixel(4, 3), held.pixel(4, 3));
+    }
+
+    /// A strip `w` long and two rows high, every pixel lit green.
+    fn lit_strip(w: usize) -> Vec<u8> {
+        let mut light = vec![0u8; w * 2 * 4];
+        for pixel in light.chunks_exact_mut(4) {
+            pixel[1] = 200;
+            pixel[3] = 200;
+        }
+        light
+    }
+
+    #[test]
+    fn light_running_in_stops_at_its_front_and_glows_there() {
+        let mut light = lit_strip(40);
+        keep_between(&mut light, 40, (0, 20), 6.0);
+        let green = |x: usize| light[x * 4 + 1];
+        let red = |x: usize| light[x * 4];
+        // Untouched well behind the front, white-hot at it, and nothing past it.
+        assert_eq!((red(2), green(2)), (0, 200));
+        assert!(red(19) > 80 && green(19) > 200, "{} {}", red(19), green(19));
+        // A little of the glow just ahead of it too, so it has no hard edge.
+        assert!(red(20) > 0 && red(20) < red(19));
+        assert_eq!(&light[25 * 4..26 * 4], &[0, 0, 0, 0]);
+        // The second row is the same.
+        assert_eq!(light[(40 + 19) * 4], red(19));
+    }
+
+    #[test]
+    fn light_running_out_leaves_the_dark_behind_it() {
+        let mut light = lit_strip(40);
+        keep_between(&mut light, 40, (20, 40), 6.0);
+        let green = |x: usize| light[x * 4 + 1];
+        assert_eq!(green(5), 0);
+        assert!(green(22) > 0 && green(22) < 200, "{}", green(22));
+        assert_eq!(green(35), 200);
+        // No front glows on light that is leaving.
+        assert_eq!(light[35 * 4], 0);
+    }
+
+    #[test]
+    fn a_whole_strip_and_an_empty_one() {
+        let mut whole = lit_strip(40);
+        keep_between(&mut whole, 40, (0, 40), 6.0);
+        assert_eq!(whole, lit_strip(40));
+        let mut none = lit_strip(40);
+        keep_between(&mut none, 40, (0, 0), 6.0);
+        assert!(none.iter().all(|&value| value == 0));
+    }
+
+    #[test]
+    fn the_landing_flash_whitens_the_edge_and_leaves_it_as_it_was() {
+        let ring = [0.2, 0.8, 1.0];
+        assert_eq!(edge_colour(false, ring, 0.0), EDGE);
+        assert_eq!(edge_colour(false, ring, 1.0), EDGE_FLASH);
+        assert_eq!(edge_colour(true, ring, 1.0), EDGE_FLASH);
+        let part = edge_colour(false, ring, 0.5);
+        assert!((part & 0xff) > (EDGE & 0xff) && (part & 0xff) < (EDGE_FLASH & 0xff));
     }
 }

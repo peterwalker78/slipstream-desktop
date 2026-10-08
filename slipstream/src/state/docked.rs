@@ -71,12 +71,18 @@ impl Slipstream {
             .filter(|_| !self.clock.reduced_motion)
             .map(|from| Flight::new(from, Stop::at_bar(rect), now));
         tracing::info!(window = logged_app(window), ?size, "docked to the bar");
+        // A pane changing size keeps the light its slot has; one flying up has it from landing.
+        let lit_from = match self.dock.as_ref() {
+            Some(docked) if docked.window == *window => docked.lit_from,
+            _ => flight.map(|flight| flight.end()),
+        };
         if !self.is_docked(window) {
             self.dock_slot = Some(crate::slot::Slot::new(
                 self.stream_name(window),
                 self.window_pid(window),
                 now,
             ));
+            self.dock_slot_leaving = None;
         }
         self.dock_size = size;
         self.dock = Some(Docked {
@@ -84,6 +90,7 @@ impl Slipstream {
             size,
             flight,
             seated: flight.map(|flight| flight.end()),
+            lit_from,
         });
         // It is where it is going at once; the flight only paints the way there.
         self.motion.place(window, rect, now);
@@ -99,6 +106,8 @@ impl Slipstream {
             return;
         }
         let beside = self.focused_window();
+        // Its slot in the bar outlives it for as long as its pane takes to come down.
+        let slot = self.dock_slot.take();
         let Some((window, pane)) = self.come_down(beside.as_ref()) else {
             return;
         };
@@ -113,6 +122,7 @@ impl Slipstream {
                 window.clone(),
                 Flight::new(Stop::at_bar(pane), Stop::among(to), now),
             ));
+            self.dock_slot_leaving = slot;
             self.motion.jump(
                 &window,
                 Rect {
@@ -189,6 +199,7 @@ impl Slipstream {
             .is_some_and(|(leaving, _)| leaving == window)
         {
             self.dock_leaving = None;
+            self.dock_slot_leaving = None;
         }
     }
 

@@ -38,6 +38,18 @@ const EDGE: f32 = 0.08;
 const FADE: (f32, f32) = (0.25, 0.45);
 /// The last stretch of the fade, over which whatever is left of the UI goes out.
 const LAST: f32 = 0.8;
+/// How much nearer the eye the bar's pane is than the windows', in the eye's distances, when a
+/// window docked to the bar has brought it forward.
+pub const NEARER: f32 = 0.05;
+/// The most the bar's pane trails the windows' by, as a share of the fade, half way through.
+const TRAIL: f32 = 0.14;
+
+/// How far gone the bar's pane is when the windows' is `progress` of the way: the same at both
+/// ends and behind in between, so it follows the windows out and is back before them.
+pub fn nearer(progress: f32) -> f32 {
+    let p = progress.clamp(0.0, 1.0);
+    (p - TRAIL * (std::f32::consts::PI * p).sin()).clamp(0.0, 1.0)
+}
 
 /// How far the UI's pane has tipped back and how deep its corner is, in logical pixels,
 /// `progress` of the way through the fade. Tipping and sinking go together, as one movement.
@@ -60,7 +72,10 @@ fn meeting(progress: f32, width: f32, height: f32) -> Option<f32> {
     (tilt > 0.0).then(|| (GLASS * DISTANCE * width - push) / tilt.sin() / width.hypot(height))
 }
 
-fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>> {
+/// The shaders' numbers for a pane `progress` of the way gone that started `nearer` the eye
+/// than the windows' pane does: the wallpaper's pane, and the depths it fades out between, are
+/// that much further from it.
+fn uniforms(logical: Size<i32, Logical>, progress: f32, nearer: f32) -> Vec<Uniform<'static>> {
     let (w, h) = (logical.w as f32, logical.h as f32);
     let (tilt, push) = pose(progress, w);
     let distance = DISTANCE * w;
@@ -69,8 +84,11 @@ fn uniforms(logical: Size<i32, Logical>, progress: f32) -> Vec<Uniform<'static>>
         Uniform::new("tilt", (tilt.sin(), tilt.cos())),
         Uniform::new("push", push),
         Uniform::new("distance", distance),
-        Uniform::new("glass", (GLASS * distance, EDGE * distance)),
-        Uniform::new("fade", (FADE.0 * distance, FADE.1 * distance)),
+        Uniform::new("glass", ((GLASS + nearer) * distance, EDGE * distance)),
+        Uniform::new(
+            "fade",
+            ((FADE.0 + nearer) * distance, (FADE.1 + nearer) * distance),
+        ),
         Uniform::new("remaining", remaining(progress)),
     ]
 }
@@ -295,6 +313,8 @@ impl Glass {
     }
 
     /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.
+    /// `nearer` is how much nearer the eye this pane starts than the windows' does.
+    #[allow(clippy::too_many_arguments)]
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -303,6 +323,7 @@ impl Glass {
         physical: Size<i32, Physical>,
         scale: f64,
         progress: f32,
+        nearer: f32,
     ) -> Option<TextureShaderElement> {
         if !self.ready(renderer) {
             return None;
@@ -317,18 +338,35 @@ impl Glass {
             scale,
             "the glass fade",
         )?;
+        self.shown(renderer, logical, physical, progress, nearer)
+    }
+
+    /// The pane last drawn by `element`, again, as it is `progress` of the way gone.
+    pub fn shown(
+        &self,
+        renderer: &GlesRenderer,
+        logical: Size<i32, Logical>,
+        physical: Size<i32, Physical>,
+        progress: f32,
+        nearer: f32,
+    ) -> Option<TextureShaderElement> {
+        if self.broken {
+            return None;
+        }
         let texture = &self.texture.as_ref()?.texture;
         Some(TextureShaderElement::new(
             whole_screen(renderer, texture, logical, physical),
             self.program.clone()?,
-            uniforms(logical, progress),
+            uniforms(logical, progress, nearer),
         ))
     }
 
     /// The whole screen again with the wallpaper lying over the UI instead of behind it, kept only
     /// where the UI has gone behind the wallpaper's pane, to be shown over the pane drawn by
     /// `element`. Both are drawn onto `background`, so where there's no UI the two agree.
-    /// `None` if it can't be drawn.
+    /// The pane is `progress` of the way gone and started `nearer` the eye. `beneath` is a pane
+    /// further gone than this one, which lies under it wherever this one is behind the
+    /// wallpaper. `None` if it can't be drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn through(
         &mut self,
@@ -337,24 +375,16 @@ impl Glass {
         logical: Size<i32, Logical>,
         physical: Size<i32, Physical>,
         scale: f64,
-        progress: f32,
+        (progress, nearer): (f32, f32),
+        beneath: Option<TextureShaderElement>,
         background: Color32F,
     ) -> Option<TextureShaderElement> {
-        if self.broken {
-            return None;
-        }
-        let pane = {
-            let texture = &self.texture.as_ref()?.texture;
-            TextureShaderElement::new(
-                whole_screen(renderer, texture, logical, physical),
-                self.program.clone()?,
-                uniforms(logical, progress),
-            )
-        };
-        let elements = [
+        let pane = self.shown(renderer, logical, physical, progress, nearer)?;
+        let mut elements = vec![
             OutputElement::Memory(wallpaper),
             OutputElement::Shaded(pane),
         ];
+        elements.extend(beneath.map(OutputElement::Shaded));
         let mut broken = false;
         let drawn = tilt::draw_offscreen_over(
             renderer,
@@ -374,7 +404,7 @@ impl Glass {
         Some(TextureShaderElement::new(
             drawn?,
             self.through_program.clone()?,
-            uniforms(logical, progress),
+            uniforms(logical, progress, nearer),
         ))
     }
 }
@@ -435,6 +465,24 @@ mod tests {
     fn the_whole_pane_has_faded_by_the_end() {
         assert_eq!(remaining(0.5), 1.0);
         assert_eq!(remaining(1.0), 0.0);
+    }
+
+    #[test]
+    fn the_bars_pane_trails_the_windows_and_ends_with_them() {
+        assert_eq!(nearer(0.0), 0.0);
+        assert!((nearer(1.0) - 1.0).abs() < 1e-6);
+        let mut last = 0.0;
+        for step in 1..100 {
+            let p = step as f32 / 100.0;
+            let bar = nearer(p);
+            // Behind the windows all the way, never going backwards, so going out it follows
+            // them and coming back it is home first.
+            assert!(bar < p, "{bar} at {p}");
+            assert!(bar >= last, "{bar} after {last}");
+            last = bar;
+        }
+        // Furthest behind half way through.
+        assert!((0.5 - nearer(0.5) - TRAIL).abs() < 1e-6);
     }
 
     #[test]

@@ -35,6 +35,12 @@ const EDGE_REACH: f64 = 7.0;
 const BAND: f64 = 0.28;
 /// How long the seam between the bar and a pane that has just landed stays lit.
 const SEAT: f64 = 0.42;
+/// How long the light takes to run the length of the pane's slot in the bar, once the pane has
+/// landed.
+const FILL: f64 = 0.3;
+/// How much of the way down from the bar the slot's light takes to run out; its card closes over
+/// the rest.
+const DRAIN: f64 = 0.55;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Size {
@@ -73,6 +79,69 @@ pub struct Docked<W> {
     /// When the pane last came to rest against the bar, in animation seconds, if it flew there:
     /// the seam is lit for a moment afterwards.
     pub seated: Option<f64>,
+    /// When the light in its slot in the bar starts to run, for a pane that flew up from among
+    /// the windows: as it lands.
+    pub lit_from: Option<f64>,
+}
+
+/// What the pane's slot in the bar shows at a moment, so that the slot, the bay and the seam are
+/// one movement: the slot opens dark while its pane is in the air, the flash of the landing
+/// crosses its edge, and the light runs into it from there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlotLook {
+    /// How much of the slot's card is there, 0 to 1.
+    pub card: f32,
+    /// The stretch of the strip its light is in, as shares of its length the way the light
+    /// runs: it fills from the start, and runs out from the start too.
+    pub lit: (f32, f32),
+    /// How strongly its edge is lit, 0 to 1.
+    pub flash: f32,
+}
+
+impl SlotLook {
+    /// A pane hanging from the bar, long since landed.
+    pub const AT_REST: SlotLook = SlotLook {
+        card: 1.0,
+        lit: (0.0, 1.0),
+        flash: 0.0,
+    };
+
+    /// The slot of a pane that is docked: on `flight` if it is still flying, its slot's light
+    /// starting at `lit_from`, last come to rest at `seated`.
+    pub fn docked(
+        flight: Option<&Flight>,
+        lit_from: Option<f64>,
+        seated: Option<f64>,
+        now: f64,
+    ) -> SlotLook {
+        // Still on its way up from a tile: the slot opens with the bay, and waits.
+        if let Some(flight) = flight.filter(|flight| flight.arriving() && !flight.done(now)) {
+            let open = flight.bay(now).map_or(1.0, |(_, open)| open);
+            return SlotLook {
+                card: open,
+                lit: (0.0, 0.0),
+                flash: 0.0,
+            };
+        }
+        let run = lit_from.map_or(1.0, |from| ((now - from) / FILL).clamp(0.0, 1.0));
+        SlotLook {
+            card: 1.0,
+            lit: (0.0, Easing::OutCubic.at(run) as f32),
+            flash: seam(seated, now),
+        }
+    }
+
+    /// The slot of a pane on `flight` down from the bar: its light runs out, and then the card
+    /// closes behind it.
+    pub fn left(flight: &Flight, now: f64) -> SlotLook {
+        let t = flight.progress(now);
+        let closing = ((t - DRAIN) / (1.0 - DRAIN)).clamp(0.0, 1.0);
+        SlotLook {
+            card: (1.0 - closing) as f32,
+            lit: ((t / DRAIN).clamp(0.0, 1.0) as f32, 1.0),
+            flash: 0.0,
+        }
+    }
 }
 
 /// Where the docked window rests in tiling area `area`: under the bar at the right-hand end,
@@ -187,6 +256,11 @@ impl Flight {
             return 1.0;
         }
         ((now - self.start) / self.over).clamp(0.0, 1.0)
+    }
+
+    /// Whether the pane is on its way up to the bar from among the windows.
+    fn arriving(&self) -> bool {
+        self.to.bar && !self.from.bar
     }
 
     /// Whether the pane is heading away from the eye: to somewhere it is drawn smaller.
@@ -415,6 +489,65 @@ mod tests {
         assert_eq!(at, Stop::at_bar(large).rect);
         assert_eq!(shown, 1.0);
         assert_eq!(down.bay(DOWN * 0.25).unwrap().1, 0.0);
+    }
+
+    #[test]
+    fn the_slot_opens_dark_while_its_pane_is_in_the_air_and_fills_from_the_landing() {
+        let bar = Stop::at_bar(rect(AREA, Size::Small));
+        let flight = Flight::new(Stop::among(TILE), bar, 10.0);
+        let landed = flight.end();
+        let look = |now: f64| {
+            let flying = (!flight.done(now)).then_some(&flight);
+            SlotLook::docked(flying, Some(landed), Some(landed), now)
+        };
+        // Nothing of it before the pane leaves its tile; open, and still dark, before it lands.
+        assert_eq!(look(10.0).card, 0.0);
+        let nearly = look(landed - 0.01);
+        assert_eq!(nearly.card, 1.0);
+        assert_eq!(nearly.lit, (0.0, 0.0));
+        assert_eq!(nearly.flash, 0.0);
+        // The landing lights its edge with the seam, and the light sets off along the strip.
+        let landing = look(landed);
+        assert_eq!(landing.flash, seam(Some(landed), landed));
+        assert_eq!(landing.lit, (0.0, 0.0));
+        let part = look(landed + FILL / 2.0);
+        assert!(part.lit.1 > 0.3 && part.lit.1 < 1.0, "{part:?}");
+        assert_eq!(look(landed + FILL).lit, (0.0, 1.0));
+        assert_eq!(look(landed + 5.0), SlotLook::AT_REST);
+    }
+
+    #[test]
+    fn a_pane_changing_size_keeps_its_slot_lit() {
+        let from = Stop::at_bar(rect(AREA, Size::Small));
+        let to = Stop::at_bar(rect(AREA, Size::Medium));
+        let flight = Flight::new(from, to, 10.0);
+        // It flew up long ago, so its light has long been running.
+        let look = SlotLook::docked(Some(&flight), Some(2.0), Some(flight.end()), 10.1);
+        assert_eq!(look.card, 1.0);
+        assert_eq!(look.lit, (0.0, 1.0));
+    }
+
+    #[test]
+    fn a_pane_docked_without_a_flight_has_its_slot_whole_at_once() {
+        assert_eq!(SlotLook::docked(None, None, None, 3.0), SlotLook::AT_REST);
+    }
+
+    #[test]
+    fn the_slot_of_a_pane_coming_down_drains_and_then_closes() {
+        let bar = Stop::at_bar(rect(AREA, Size::Small));
+        let flight = Flight::new(bar, Stop::among(TILE), 10.0);
+        let at = |share: f64| SlotLook::left(&flight, 10.0 + DOWN * share);
+        assert_eq!(at(0.0), SlotLook::AT_REST);
+        // Half way through the drain the card is whole and the light has left its first half.
+        let draining = at(DRAIN / 2.0);
+        assert_eq!(draining.card, 1.0);
+        assert!((draining.lit.0 - 0.5).abs() < 1e-3 && draining.lit.1 == 1.0);
+        // Dark before it starts to close, and gone as the pane lands.
+        let dark = at(DRAIN);
+        assert_eq!(dark.card, 1.0);
+        assert_eq!(dark.lit.0, 1.0);
+        assert!(at((1.0 + DRAIN) / 2.0).card < 0.6);
+        assert_eq!(at(1.0).card, 0.0);
     }
 
     #[test]
