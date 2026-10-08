@@ -3,7 +3,7 @@
 //!
 //! The pane hangs from the bar's lower edge at its right-hand end, with the bar's own material
 //! round its other three sides, so the two are one piece. It has three sizes. Docking lifts the
-//! window out of its tile and up to the bar, further away as it goes; undocking brings it forward
+//! window out of its tile and up to the bar, further away as it goes and leaning back a little; undocking brings it forward
 //! again into a tile. The glass is rigid throughout (`pane.rs`).
 //!
 //! This is only where the pane rests and how it is drawn on the way there. Which window is
@@ -23,10 +23,11 @@ const UP: f64 = 0.38;
 const BETWEEN: f64 = 0.3;
 /// From the bar down into a tile.
 const DOWN: f64 = 0.36;
-/// How far the pane turns on its way between the bar and a tile, in radians.
-const SWING: f64 = 0.32;
-/// How far it turns between sizes, as tiles passing through each other do.
-const TURN: f64 = 0.1;
+/// How far the pane leans back on its way between the bar and a tile, in radians: its top,
+/// the edge towards the bar, the further away.
+const LEAN: f64 = 0.13;
+/// How far it leans between sizes.
+const STIR: f64 = 0.05;
 /// How far the light on the pane's leading edge reaches, in logical pixels on the screen.
 const EDGE_REACH: f64 = 7.0;
 /// Half the height of the band of light that crosses the pane in flight, as a share of the pane's.
@@ -235,25 +236,21 @@ impl Flight {
         };
         let mix = |a: f64, b: f64| a + (b - a) * p;
         let rect: [f64; 4] = std::array::from_fn(|i| mix(self.from.rect[i], self.to.rect[i]));
-        // Between the bar and a tile it swings well round; between sizes it only stirs.
-        let swing = if self.from.bar && self.to.bar {
-            TURN
+        // It leans back towards the bar, going up or coming down, so one is the other played
+        // backwards; between sizes it only stirs.
+        let lean = if self.from.bar && self.to.bar {
+            STIR
         } else {
-            SWING
+            LEAN
         };
-        // The side nearer where it is going leads, and so is the further away.
-        let heading =
-            self.to.rect[0] + self.to.rect[2] / 2.0 - (self.from.rect[0] + self.from.rect[2] / 2.0);
-        let side = if heading < 0.0 { -1.0 } else { 1.0 };
-        let sign = if receding { side } else { -side };
         let full = self.full();
         let k = (rect[2] / full).max(1e-3);
         let pose = Pose {
             x: camera.x + (rect[0] + rect[2] / 2.0 - camera.x) / k,
             y: camera.y + (rect[1] + rect[3] / 2.0 - camera.y) / k,
             z: camera.distance * (1.0 / k - 1.0),
-            yaw: swing * deep * sign,
-            pitch: 0.0,
+            yaw: 0.0,
+            pitch: -lean * deep,
             w: full,
             h: rect[3] / k,
         };
@@ -349,11 +346,11 @@ mod tests {
         for flight in flights {
             let (first, lit) = flight.at(10.0, &CAMERA);
             assert!(lies_over(&first, flight.from.rect));
-            assert_eq!(first.yaw, 0.0);
+            assert_eq!(first.pitch, 0.0);
             assert_eq!(lit.edge.2, 0.0);
             let (last, lit) = flight.at(flight.end(), &CAMERA);
             assert!(lies_over(&last, flight.to.rect));
-            assert_eq!(last.yaw, 0.0);
+            assert_eq!(last.pitch, 0.0);
             assert_eq!(lit.band.2, 0.0);
             assert!(flight.done(flight.end()));
             assert!(!flight.done(flight.end() - 0.01));
@@ -361,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn going_up_to_the_bar_the_pane_recedes_turns_and_its_top_edge_leads() {
+    fn going_up_to_the_bar_the_pane_recedes_leans_back_and_its_top_edge_leads() {
         let small = rect(AREA, Size::Small);
         let flight = Flight::new(Stop::among(TILE), Stop::at_bar(small), 0.0);
         let (start, _) = flight.at(0.0, &CAMERA);
@@ -369,9 +366,14 @@ mod tests {
         let (end, _) = flight.at(UP, &CAMERA);
         assert_eq!(start.z, 0.0);
         assert!(half.z > 0.0 && end.z > half.z);
-        // The same pane all the way: only its depth, place and turn change.
+        // The same pane all the way: only its depth, place and lean change.
         assert_eq!(start.w, end.w);
-        assert!(half.yaw.abs() > 0.25);
+        // A lean and no more, never a turn to one side, and its top is the further away.
+        assert_eq!(half.yaw, 0.0);
+        assert!(half.pitch < -0.1 && half.pitch > -0.2);
+        let m = crate::pane::matrix(&half, &CAMERA);
+        let depth = |y: f64| m[6] * half.w / 2.0 + m[7] * y + m[8];
+        assert!(depth(0.0) > depth(half.h));
         assert_eq!(lit.edge.0, Axis::Down);
         assert!(!lit.edge.1);
         assert!(lit.edge.2 > 0.9);
@@ -388,7 +390,10 @@ mod tests {
         let (half, lit) = flight.at(DOWN * 0.5, &CAMERA);
         assert!(start.z > half.z && half.z > 0.0);
         assert!(lit.edge.1);
-        assert!(half.yaw.abs() > 0.2);
+        // Coming down is going up played backwards: the same lean.
+        let up = Flight::new(Stop::among(TILE), Stop::at_bar(small), 0.0);
+        let (rising, _) = up.at(UP * 0.5, &CAMERA);
+        assert_eq!(half.pitch, rising.pitch);
     }
 
     #[test]

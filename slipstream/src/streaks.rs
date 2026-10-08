@@ -89,6 +89,8 @@ pub struct Streaks {
     pending: f64,
     rng: u64,
     name_rgb: [f32; 3],
+    /// How bright the name is with no light on it.
+    name_rest: f32,
     still: bool,
 }
 
@@ -109,6 +111,7 @@ impl Streaks {
             pending: 0.0,
             rng: seed | 1,
             name_rgb: QUIET,
+            name_rest: NAME_REST,
             still: false,
         };
         streaks.resize(width, height, scale);
@@ -142,6 +145,12 @@ impl Streaks {
         let changed = self.name_rgb != rgb;
         self.name_rgb = rgb;
         changed
+    }
+
+    /// Keeps the name this bright with no light on it, where the name is all that says whose
+    /// stream it is.
+    pub fn set_name_rest(&mut self, rest: f32) {
+        self.name_rest = rest.clamp(0.0, NAME_LIT);
     }
 
     /// Holds the light still at `load`, for reduced motion: nothing falls, and the name glows
@@ -291,7 +300,7 @@ impl Streaks {
                 }
                 let glow = spine.glow[at].max(steady).min(1.0);
                 let rgb = [0, 1, 2].map(|c| self.name_rgb[c] + (lit[c] - self.name_rgb[c]) * glow);
-                let amount = (NAME_REST + (NAME_LIT - NAME_REST) * glow) * cover;
+                let amount = (self.name_rest + (NAME_LIT - self.name_rest) * glow) * cover;
                 let (x, y) = (spine.x + ix, spine.y + iy);
                 if x < w && y < h {
                     add(sum, w, x, y, rgb, amount);

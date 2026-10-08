@@ -85,6 +85,7 @@ mod session;
 mod settings;
 mod share;
 mod sheet;
+mod slot;
 mod snip;
 mod sound;
 mod state;

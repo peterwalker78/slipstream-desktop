@@ -490,12 +490,40 @@ pub fn output_elements(
     // ringed, and the title names what's chosen.
     if tiling_output && ui > 0.0 && !state.fullscreen_on(active) {
         let content = bar_content(state, active, screen_index, first_output, &used);
-        elements.extend(
-            chrome
-                .bar
-                .element(renderer, content, output_geo.size.w, scale.x, ui_alpha)
-                .map(OutputElement::Memory),
-        );
+        let docked = content.dock.is_some();
+        let bar = chrome
+            .bar
+            .element(renderer, content, output_geo.size.w, scale.x, ui_alpha);
+        // The docked window's slot, alive on top of the bar where the bar kept room for it.
+        if docked
+            && let Some((x, width)) = chrome.bar.dock_slot()
+            && let Some(window) = state.docked_on_show()
+        {
+            let keyboard = state.focused_window().as_ref() == Some(&window);
+            let (ring, still, demand) = (
+                state.ring_rgb,
+                state.clock.reduced_motion,
+                state.rain.demand(),
+            );
+            if let Some(slot) = state.dock_slot.as_mut() {
+                elements.extend(
+                    slot.element(
+                        renderer,
+                        Point::from((x, crate::slot::TOP as f64)),
+                        width.round() as i32,
+                        scale.x,
+                        now,
+                        ui_alpha,
+                        keyboard,
+                        ring,
+                        still,
+                        demand,
+                    )
+                    .map(OutputElement::Memory),
+                );
+            }
+        }
+        elements.extend(bar.map(OutputElement::Memory));
     }
     // The deck goes just behind the bar, in front of everything else of the desktop's.
     let behind_bar = elements.len();
@@ -715,6 +743,33 @@ pub fn output_elements(
         {
             state.drawn_off_space.push(window.clone());
         }
+    }
+    // While the docked pane is out in the deck its bay stays under the bar, for the pane to
+    // leave and come home to.
+    if rain_output
+        && ui > 0.0
+        && zoomed_out <= 0.0
+        && let Some(pane) = docked
+            .as_ref()
+            .filter(|window| in_deck.contains(window))
+            .and_then(|_| state.docked_rect())
+    {
+        let at = Point::from((
+            (pane.x - output_geo.loc.x) as f64,
+            (pane.y - output_geo.loc.y) as f64,
+        ));
+        world.extend(
+            chrome
+                .dock_frame(renderer, (pane.w, pane.h), scale.x, at, ui_alpha)
+                .map(OutputElement::Memory),
+        );
+        let inside = Rectangle::<i32, Logical>::new(
+            (at.x as i32, at.y as i32).into(),
+            (pane.w, pane.h).into(),
+        );
+        world.push(OutputElement::Solid(
+            chrome.overview.solid(inside, DOCK_BAY, scale, ui_alpha),
+        ));
     }
     for (window, dx) in windows {
         if in_deck.contains(&window)
@@ -1639,14 +1694,10 @@ fn bar_content(
         dock: state
             .docked_on_show()
             .filter(|_| screen_index == Some(0) && state.bullet.is_none())
-            .and_then(|window| {
+            .and_then(|_| {
                 let frame = crate::dock::frame(state.docked_rect()?);
                 let left = frame.x - state.screen_rect(0)?.x;
-                Some(bar::Docked {
-                    name: state.stream_name(&window),
-                    span: (left, left + frame.w),
-                    keyboard: state.focused_window().as_ref() == Some(&window),
-                })
+                Some((left, left + frame.w))
             }),
     }
 }

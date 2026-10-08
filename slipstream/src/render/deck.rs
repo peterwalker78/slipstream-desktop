@@ -108,8 +108,19 @@ pub(super) fn deck_elements_for(
             deck.last[*i] = Some(*pose);
         }
     }
-    // Nearest first, as elements go front to back.
-    panes.sort_by(|a, b| a.1.z.total_cmp(&b.1.z));
+    // Nearest first, as elements go front to back. The docked pane hangs in front of the
+    // windows: level with them it is drawn over them, as it is at rest, and flying home it is
+    // in front all the way, since the others land beneath it.
+    let docked = deck
+        .windows
+        .iter()
+        .position(|window| state.is_docked(window));
+    let depth = |(i, pose, ..): &(usize, Pose, f32, f32)| match docked {
+        Some(docked) if docked == *i && releasing => f64::MIN,
+        Some(docked) if docked == *i => pose.z - 1.0,
+        _ => pose.z,
+    };
+    panes.sort_by(|a, b| depth(a).total_cmp(&depth(b)));
     let mut elements = Vec::new();
     let mut hits = Vec::new();
     for (i, pose, alpha, shade) in &panes {

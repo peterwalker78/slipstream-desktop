@@ -289,6 +289,11 @@ impl Rain {
         }
     }
 
+    /// The load being shown instead of every app's own, when one is.
+    pub fn demand(&self) -> Option<f32> {
+        self.pinned
+    }
+
     pub fn len(&self) -> usize {
         self.streams.len()
     }

@@ -71,6 +71,13 @@ impl Slipstream {
             .filter(|_| !self.clock.reduced_motion)
             .map(|from| Flight::new(from, Stop::at_bar(rect), now));
         tracing::info!(window = logged_app(window), ?size, "docked to the bar");
+        if !self.is_docked(window) {
+            self.dock_slot = Some(crate::slot::Slot::new(
+                self.stream_name(window),
+                self.window_pid(window),
+                now,
+            ));
+        }
         self.dock_size = size;
         self.dock = Some(Docked {
             window: window.clone(),
@@ -125,6 +132,7 @@ impl Slipstream {
     pub(super) fn come_down(&mut self, beside: Option<&Window>) -> Option<(Window, Rect)> {
         let pane = self.docked_rect();
         let docked = self.dock.take()?;
+        self.dock_slot = None;
         let window = docked.window;
         let screen = self.screen_rect(0)?;
         let area = self.output_area().unwrap_or(screen);
@@ -145,7 +153,7 @@ impl Slipstream {
         Some((window, pane))
     }
 
-    /// A click on the pane's tab in the bar: the keyboard goes into the pane, or from it back to
+    /// A click on the pane's slot in the bar: the keyboard goes into the pane, or from it back to
     /// the windows.
     pub fn dock_clicked(&mut self) {
         let Some(window) = self.docked_on_show() else {
@@ -162,6 +170,7 @@ impl Slipstream {
     pub(super) fn forget_docked(&mut self, window: &Window) {
         if self.is_docked(window) {
             self.dock = None;
+            self.dock_slot = None;
         }
         if self
             .dock_leaving

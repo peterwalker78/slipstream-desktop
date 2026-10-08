@@ -1,6 +1,6 @@
 //! The system bar along the top: the apps button, the workspaces, a mode's label and the focused
 //! window's title on the left; the time and date in the middle; the tray and the notifications bell
-//! on the right, and before them the tab of a window docked to the bar.
+//! on the right, and before them the slot of a window docked to the bar.
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
 //! stays sharp at fractional scales, and repainted only when what it shows changes.
@@ -65,20 +65,10 @@ pub struct Content {
     pub awake: bool,
     /// What the meter's command last reported, when there is a meter.
     pub meter: Option<meter::Reading>,
-    /// The window hanging from this bar, when one is.
-    pub dock: Option<Docked>,
-}
-
-/// The window docked to the bar: what its tab says, and where its pane's frame meets the bar.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Docked {
-    /// The app's name.
-    pub name: String,
-    /// The frame's left and right edges, in logical pixels from the screen's left. The bar has
-    /// no lower edge between them: there it runs on down into the frame.
-    pub span: (i32, i32),
-    /// The keyboard is in the pane.
-    pub keyboard: bool,
+    /// Where the frame of a pane hanging from this bar meets it, when one does: the frame's
+    /// left and right edges, in logical pixels from the screen's left. The bar has no lower edge
+    /// between them, where it runs on down into the frame, and keeps room for the pane's slot.
+    pub dock: Option<(i32, i32)>,
 }
 
 /// The part of the status reading the bar draws. The bar is repainted when its content changes,
@@ -125,7 +115,7 @@ pub enum Target {
     Overview,
     /// The meter beside the tray, whose details are in quick settings.
     Meter,
-    /// The docked window's tab.
+    /// The docked window's slot.
     Dock,
 }
 
@@ -192,6 +182,15 @@ impl Bar {
         .ok()
     }
 
+    /// Where the docked window's slot goes, in logical pixels from the screen's left: its left
+    /// edge and its width. None when nothing is docked or the bar has no room.
+    pub fn dock_slot(&self) -> Option<(f64, f64)> {
+        self.targets
+            .iter()
+            .find(|(target, _)| *target == Target::Dock)
+            .map(|(_, area)| (area.loc.x, area.size.w))
+    }
+
     /// What's at a point, in logical pixels from the screen's top-left corner.
     pub fn target_at(&self, x: f64, y: f64) -> Option<Target> {
         self.targets
@@ -235,10 +234,9 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
 
     p.fill(0.0, 0.0, wide, TALL, 0.0, panel::CHIP | 0xe6);
     // The line along the foot, broken where a docked pane's frame carries the bar on downwards.
-    let span = content.dock.as_ref().map(|dock| {
-        let (left, right) = dock.span;
-        ((left as f64 / unit) as f32, (right as f64 / unit) as f32)
-    });
+    let span = content
+        .dock
+        .map(|(left, right)| ((left as f64 / unit) as f32, (right as f64 / unit) as f32));
     match span {
         Some((left, right)) => {
             p.fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, panel::DIVIDER);
@@ -508,41 +506,23 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         target(Target::Sharing, right, w);
     }
 
-    // Leftmost of them all: the docked window's tab, over its pane's left edge where there is
-    // room, and reaching down to the bar's foot, so the tab, the bar and the frame are one shape.
-    if let (Some(dock), Some((left, _))) = (&content.dock, span) {
-        let ink = if dock.keyboard {
-            panel::BRIGHT
-        } else {
-            panel::TERTIARY
-        };
-        let style = Style::new(Face::Body, 14.0, ink);
-        let name = text::ellipsize(&dock.name, &style, DOCK_NAME);
-        let w = 10.0 + 16.0 + 7.0 + text::width(&name, &style) + 12.0;
+    // Leftmost of them all: room for the docked window's slot, over its pane's left edge where
+    // it fits. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
+    // painted here.
+    if let Some((left, _)) = span {
         // Clear of the clock on one side and of everything to its right on the other; a bar
         // too narrow for that goes without.
-        let (lowest, highest) = (centre_x + centre_w + 8.0, right - 8.0 - w);
+        let (lowest, highest) = (centre_x + centre_w + 8.0, right - 8.0 - DOCK_SLOT);
         if lowest <= highest {
-            let x = left.clamp(lowest, highest);
-            let (fill, edge) = if dock.keyboard {
-                (0x33ccff26, 0x33ccffff)
-            } else {
-                (0xffffff12, (panel::HINT & 0xffffff00) | 0xb0)
-            };
-            // Taller than the bar, so only its upper corners are round.
-            p.fill(x, 7.0, w, TALL, 6.0, fill);
-            p.fill(x + 6.0, 7.0, w - 12.0, 2.0, 1.0, edge);
-            p.icon(icons::DOCK, x + 10.0, 13.0, 16.0, Some(ink));
-            p.text(&name, x + 10.0 + 16.0 + 7.0, 21.0, &style);
-            target(Target::Dock, x, w);
+            target(Target::Dock, left.clamp(lowest, highest), DOCK_SLOT);
         }
     }
 
     Some((p.pixmap, targets))
 }
 
-/// The most room the docked window's name takes in its tab, in the bar's units.
-const DOCK_NAME: f32 = 150.0;
+/// How wide the docked window's slot is, in the bar's units.
+const DOCK_SLOT: f32 = 180.0;
 
 /// A meter gauge's width in the bar's units.
 const GAUGE_W: f32 = 18.0;
@@ -688,15 +668,11 @@ mod tests {
     }
 
     #[test]
-    fn a_docked_window_has_a_tab_over_its_pane_and_the_bar_runs_on_into_the_frame() {
+    fn a_docked_window_has_a_slot_over_its_pane_and_the_bar_runs_on_into_the_frame() {
         let (plain, quiet) = paint(&content(), 1536, 1.25).unwrap();
         assert!(!quiet.iter().any(|(target, _)| *target == Target::Dock));
         let docked = |span| Content {
-            dock: Some(Docked {
-                name: "Films".into(),
-                span,
-                keyboard: false,
-            }),
+            dock: Some(span),
             ..content()
         };
         let area = |targets: &Targets, wanted: Target| {
@@ -706,15 +682,15 @@ mod tests {
                 .map(|(_, area)| *area)
                 .unwrap()
         };
-        // The tab stands at the frame's left edge.
+        // The slot stands at the frame's left edge.
         let (pixmap, targets) = paint(&docked((1000, 1536)), 1536, 1.25).unwrap();
         let tab = area(&targets, Target::Dock);
         assert!((tab.loc.x - 1000.0).abs() < 1.0, "{tab:?}");
-        // A pane reaching under the clock: the tab stays to the clock's right.
+        // A pane reaching under the clock: the slot stays to the clock's right.
         let (_, targets) = paint(&docked((760, 1536)), 1536, 1.25).unwrap();
         let (tab, clock) = (area(&targets, Target::Dock), area(&targets, Target::Clock));
         assert!(clock.loc.x + clock.size.w <= tab.loc.x, "{tab:?} {clock:?}");
-        // A pane narrower than the tray and the bell: the tab stays clear of them.
+        // A pane narrower than the tray and the bell: the slot stays clear of them.
         let (_, targets) = paint(&docked((1500, 1536)), 1536, 1.25).unwrap();
         let (tab, tray) = (area(&targets, Target::Dock), area(&targets, Target::Tray));
         assert!(tab.loc.x + tab.size.w <= tray.loc.x, "{tab:?} {tray:?}");
