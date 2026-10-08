@@ -5,6 +5,9 @@
 //! with a soft glow at the head, far ones fine, dim and slow, and each leaves a faint trail. The
 //! light is softened by a little bloom. The app's name runs down the card on its side, like a book's
 //! spine, dim until light passes over it, when it glows and holds the glow for a moment.
+//!
+//! The same light can run along a short strip instead, the card laid on its side. There the
+//! streaks are drawn as fine threads with bright heads, and pass behind the name.
 
 use resvg::tiny_skia::Pixmap;
 
@@ -52,6 +55,28 @@ const NAME_TRACKING: f32 = 0.09;
 const NAME_TOP: f32 = 11.0;
 const NAME_REST: f32 = 0.2;
 const NAME_LIT: f32 = 1.0;
+/// How far towards white the name goes when lit.
+const NAME_WHITE: f32 = 0.25;
+/// Along a strip the name is all that says whose stream it is, and it lies among a bar's small
+/// capitals: it takes their face, size and letter spacing, rests brighter and lights whiter.
+const NAME_ALONG: (Face, f32, f32) = (Face::MonoBold, 9.6, 0.06);
+const NAME_REST_ALONG: f32 = 0.5;
+const NAME_WHITE_ALONG: f32 = 0.7;
+/// A strip is far shorter than a card, so each streak is gone sooner: this many times as many
+/// are begun.
+const RATE_ALONG: f32 = 2.0;
+/// Along a strip a streak is a thread one pixel row fine. Its light dies away behind the head
+/// over this share of the streak's length. The head burns this far towards white, cooling over
+/// this many logical pixels, and over the same distance lights the rows either side of its own
+/// this much at the nearest, so a thread is a dart: thick at the head, a hairline behind.
+const THREAD_TAIL: f32 = 0.35;
+const THREAD_HOT: f32 = 0.85;
+const THREAD_HEAT: f32 = 2.4;
+const THREAD_SIDE: f32 = 0.6;
+/// How much of the light shows where it passes behind the name, and over how many logical
+/// pixels round the name that sets in.
+const BEHIND_NAME: f32 = 0.22;
+const BEHIND_EDGE: f32 = 3.0;
 
 struct Streak {
     x: f32,
@@ -89,10 +114,8 @@ pub struct Streaks {
     pending: f64,
     rng: u64,
     name_rgb: [f32; 3],
-    /// How bright the name is with no light on it.
-    name_rest: f32,
-    /// The name's face, its size in logical pixels and its letter spacing.
-    name_style: (Face, f32, f32),
+    /// Laid on its side along a strip, rather than falling down a card.
+    along: bool,
     still: bool,
 }
 
@@ -100,6 +123,31 @@ impl Streaks {
     /// A card `width`×`height` screen pixels at `scale` for an app called `name`, working at
     /// `load`, 0 to 1.
     pub fn new(name: &str, load: f32, width: usize, height: usize, scale: f64, seed: u64) -> Self {
+        Self::begin(name, load, width, height, scale, seed, false)
+    }
+
+    /// A card laid on its side along a strip `length`×`height` screen pixels: as wide as the
+    /// strip is high and as tall as it is long, and drawn with `draw_along`.
+    pub fn along(
+        name: &str,
+        load: f32,
+        length: usize,
+        height: usize,
+        scale: f64,
+        seed: u64,
+    ) -> Self {
+        Self::begin(name, load, height, length, scale, seed, true)
+    }
+
+    fn begin(
+        name: &str,
+        load: f32,
+        width: usize,
+        height: usize,
+        scale: f64,
+        seed: u64,
+        along: bool,
+    ) -> Self {
         let mut streaks = Self {
             name: name.to_uppercase(),
             width: 0,
@@ -113,8 +161,7 @@ impl Streaks {
             pending: 0.0,
             rng: seed | 1,
             name_rgb: QUIET,
-            name_rest: NAME_REST,
-            name_style: (Face::BodyBold, NAME_PX, NAME_TRACKING),
+            along,
             still: false,
         };
         streaks.resize(width, height, scale);
@@ -135,7 +182,12 @@ impl Streaks {
         self.width = width;
         self.height = height;
         self.scale = scale;
-        self.spine = spine(&self.name, self.name_style, width, height, scale);
+        let style = if self.along {
+            NAME_ALONG
+        } else {
+            (Face::BodyBold, NAME_PX, NAME_TRACKING)
+        };
+        self.spine = spine(&self.name, style, width, height, scale);
     }
 
     /// Eases towards `load` from here on.
@@ -148,27 +200,6 @@ impl Streaks {
         let changed = self.name_rgb != rgb;
         self.name_rgb = rgb;
         changed
-    }
-
-    /// Sets the name in `face` at `px` logical pixels with `tracking` between its letters, in
-    /// place of the streams' own type: where a stream lies among other text, it takes theirs.
-    pub fn set_name_style(&mut self, face: Face, px: f32, tracking: f32) {
-        if self.name_style != (face, px, tracking) {
-            self.name_style = (face, px, tracking);
-            self.spine = spine(
-                &self.name,
-                self.name_style,
-                self.width,
-                self.height,
-                self.scale,
-            );
-        }
-    }
-
-    /// Keeps the name this bright with no light on it, where the name is all that says whose
-    /// stream it is.
-    pub fn set_name_rest(&mut self, rest: f32) {
-        self.name_rest = rest.clamp(0.0, NAME_LIT);
     }
 
     /// Holds the light still at `load`, for reduced motion: nothing falls, and the name glows
@@ -205,7 +236,8 @@ impl Streaks {
         self.load += (self.target - self.load) * (1.0 - (-TICK / EASE).exp()) as f32;
         let load = self.load.clamp(0.0, 1.0);
         let scale = self.scale as f32;
-        self.spawn += (RATE_REST + RATE_BUSY * load) * dt;
+        let rate = if self.along { RATE_ALONG } else { 1.0 };
+        self.spawn += (RATE_REST + RATE_BUSY * load) * rate * dt;
         while self.spawn >= 1.0 {
             self.spawn -= 1.0;
             // Most streaks are far away, a few near.
@@ -290,12 +322,104 @@ impl Streaks {
         }
         bloom(&mut sum, w, h, (BLOOM * scale).round().max(1.0) as usize);
         self.draw_spine(&mut sum, w, h);
-        for (pixel, value) in light.chunks_exact_mut(4).zip(sum.chunks_exact(3)) {
-            for (channel, v) in pixel[..3].iter_mut().zip(value) {
-                // A half and a saturating cast round to nearest without calling `roundf`.
-                *channel = (*channel as f32 + v * 255.0 + 0.5) as u8;
+        add_to(light, &sum);
+    }
+
+    /// Adds the light to `light`, `w`×`h` pixels of RGBA, for a card laid on its side along a
+    /// strip `w` long: the card's top is the strip's left end and its right-hand side the
+    /// strip's top, so what falls runs left to right and the name reads along it.
+    ///
+    /// A strip is only a few rows high, where a card's wide streaks and bloom run together into
+    /// a haze. So each streak is a thread a single row fine, white-hot at the head and dying
+    /// away behind it, and the name is cut out of the light rather than lit through it, so it
+    /// stays sharp whatever passes.
+    pub fn draw_along(&self, light: &mut [u8], w: usize, h: usize) {
+        let colour = colour_for(self.load);
+        let scale = self.scale as f32;
+        let heat = THREAD_HEAT * scale;
+        let mut sum = vec![0f32; w * h * 3];
+        for streak in &self.streaks {
+            let row = h as i32 - 1 - streak.x as i32;
+            if row < 0 || row >= h as i32 || streak.y <= 0.0 {
+                continue;
+            }
+            let b = bright(streak.near);
+            let fade = streak.len * THREAD_TAIL;
+            let side = THREAD_SIDE * (0.4 + 0.6 * streak.near);
+            let first = (streak.y - fade * 5.0).max(0.0) as usize;
+            for x in first..(streak.y.ceil() as usize).min(w) {
+                // The pixel the head is in is lit by as much of it as the head has reached.
+                let behind = streak.y - x as f32;
+                let d = (behind - 0.5).max(0.0);
+                let amount = (-d / fade).exp() * behind.min(1.0) * b;
+                let head = (-d / heat).exp();
+                let rgb = colour.map(|c| c + (1.0 - c) * head * THREAD_HOT);
+                add(&mut sum, w, x, row as usize, rgb, amount);
+                for beside in [row - 1, row + 1] {
+                    if beside >= 0 && beside < h as i32 {
+                        add(&mut sum, w, x, beside as usize, rgb, amount * side * head);
+                    }
+                }
             }
         }
+        if let Some(spine) = &self.spine {
+            // The name's place along the strip and across it.
+            let (left, right) = (spine.y as f32, (spine.y + spine.h) as f32);
+            let (top, bottom) = (
+                h as f32 - (spine.x + spine.w) as f32,
+                h as f32 - spine.x as f32,
+            );
+            // Light passes behind the name dimly, so a thread through it is no strike-through.
+            let edge = BEHIND_EDGE * scale;
+            let inside = |at: f32, from: f32, to: f32| {
+                ((at - from + edge).min(to + edge - at) / edge).clamp(0.0, 1.0)
+            };
+            for y in 0..h {
+                let down = inside(y as f32 + 0.5, top, bottom);
+                for x in (left - edge).max(0.0) as usize..((right + edge).ceil() as usize).min(w) {
+                    let shade = down * inside(x as f32 + 0.5, left, right);
+                    for channel in &mut sum[(y * w + x) * 3..][..3] {
+                        *channel *= 1.0 - (1.0 - BEHIND_NAME) * shade;
+                    }
+                }
+            }
+            for iy in 0..spine.h {
+                for ix in 0..spine.w {
+                    let at = iy * spine.w + ix;
+                    let cover = spine.cover[at] as f32 / 255.0;
+                    let (x, across) = (spine.y + iy, spine.x + ix);
+                    if cover == 0.0 || x >= w || across >= h {
+                        continue;
+                    }
+                    let y = h - 1 - across;
+                    // The letters themselves are cut out of it, and lit in their own right.
+                    for channel in &mut sum[(y * w + x) * 3..][..3] {
+                        *channel *= 1.0 - cover;
+                    }
+                    let (rgb, amount) = self.name_light(spine.glow[at]);
+                    add(&mut sum, w, x, y, rgb, amount * cover);
+                }
+            }
+        }
+        add_to(light, &sum);
+    }
+
+    /// The name's colour and brightness where it holds `glow` of the light that passed: dim in
+    /// its own colour, and part of the way to white when fully lit.
+    fn name_light(&self, glow: f32) -> ([f32; 3], f32) {
+        let (rest, white) = if self.along {
+            (NAME_REST_ALONG, NAME_WHITE_ALONG)
+        } else {
+            (NAME_REST, NAME_WHITE)
+        };
+        let steady = if self.still {
+            0.25 + 0.5 * self.load
+        } else {
+            0.0
+        };
+        let glow = glow.max(steady).min(1.0);
+        let rgb = self.name_rgb.map(|c| c + (1.0 - c) * white * glow);
+        (rgb, rest + (NAME_LIT - rest) * glow)
     }
 
     /// The name: dim in the ring's colour, and lit towards white where light has passed.
@@ -303,12 +427,6 @@ impl Streaks {
         let Some(spine) = &self.spine else {
             return;
         };
-        let steady = if self.still {
-            0.25 + 0.5 * self.load
-        } else {
-            0.0
-        };
-        let lit = self.name_rgb.map(|c| c + (1.0 - c) * 0.25);
         for iy in 0..spine.h {
             for ix in 0..spine.w {
                 let at = iy * spine.w + ix;
@@ -316,14 +434,23 @@ impl Streaks {
                 if cover == 0.0 {
                     continue;
                 }
-                let glow = spine.glow[at].max(steady).min(1.0);
-                let rgb = [0, 1, 2].map(|c| self.name_rgb[c] + (lit[c] - self.name_rgb[c]) * glow);
-                let amount = (self.name_rest + (NAME_LIT - self.name_rest) * glow) * cover;
+                let (rgb, amount) = self.name_light(spine.glow[at]);
                 let (x, y) = (spine.x + ix, spine.y + iy);
                 if x < w && y < h {
-                    add(sum, w, x, y, rgb, amount);
+                    add(sum, w, x, y, rgb, amount * cover);
                 }
             }
+        }
+    }
+}
+
+/// Adds the float light `sum`, three channels a pixel, to RGBA `light`; only the colour channels
+/// are written.
+fn add_to(light: &mut [u8], sum: &[f32]) {
+    for (pixel, value) in light.chunks_exact_mut(4).zip(sum.chunks_exact(3)) {
+        for (channel, v) in pixel[..3].iter_mut().zip(value) {
+            // A half and a saturating cast round to nearest without calling `roundf`.
+            *channel = (*channel as f32 + v * 255.0 + 0.5) as u8;
         }
     }
 }
@@ -631,6 +758,86 @@ mod tests {
         let before = lit(&streaks);
         assert!(streaks.is_still());
         assert_eq!(before, lit(&streaks));
+        let mut strip = Streaks::along("Foot", 0.5, 160, 20, 1.0, 5);
+        strip.hold(0.5);
+        assert_eq!(along(&strip), along(&strip));
+    }
+
+    /// A strip 160 long and 20 high with nothing in it but one streak at depth `near`, its
+    /// head `head` pixels along and `across` pixels in from the strip's foot.
+    fn strip_with(name: &str, near: f32, head: f32, across: f32) -> Streaks {
+        let mut streaks = Streaks::along(name, 0.0, 160, 20, 1.0, 5);
+        streaks.streaks = vec![Streak {
+            x: across,
+            y: head,
+            near,
+            speed: 0.0,
+            len: 30.0,
+        }];
+        streaks
+    }
+
+    /// The light at (`x`, `y`) of a strip 160 long.
+    fn at(light: &[u8], x: usize, y: usize) -> u32 {
+        light[(y * 160 + x) * 4..][..3]
+            .iter()
+            .map(|&c| c as u32)
+            .sum()
+    }
+
+    fn along(streaks: &Streaks) -> Vec<u8> {
+        let mut light = vec![0u8; 160 * 20 * 4];
+        streaks.draw_along(&mut light, 160, 20);
+        light
+    }
+
+    #[test]
+    fn along_a_strip_a_streak_is_a_thread_brightest_at_its_head_and_nothing_ahead_of_it() {
+        // No name, so nothing but the thread is drawn. Half a pixel in from the foot is the
+        // strip's bottom row but four.
+        let light = along(&strip_with("", 1.0, 100.0, 4.5));
+        let row = 15;
+        assert!(at(&light, 99, row) > at(&light, 80, row));
+        assert!(at(&light, 80, row) > at(&light, 40, row));
+        assert_eq!(at(&light, 101, row), 0, "nothing ahead of the head");
+        // The head is thick, the tail a single row.
+        assert!(at(&light, 99, row - 1) > 0 && at(&light, 99, row + 1) > 0);
+        assert_eq!(at(&light, 60, row - 1) + at(&light, 60, row + 1), 0);
+        assert_eq!(at(&light, 99, row - 2) + at(&light, 99, row + 2), 0);
+    }
+
+    #[test]
+    fn along_a_strip_light_passes_behind_the_name_and_leaves_its_letters_sharp() {
+        let mut named = strip_with("Konsole", 1.0, 0.0, 10.5);
+        let spine = named.spine.as_ref().expect("the name is drawn");
+        // The name reads along the strip: the card's top is the strip's left end.
+        let (left, right) = (spine.y, spine.y + spine.h);
+        assert!(spine.h > 2 * spine.w && right < 100);
+        let blank = |along: usize| (0..spine.w).all(|ix| spine.cover[along * spine.w + ix] == 0);
+        let gap = left
+            + (spine.h / 2..spine.h)
+                .find(|&along| blank(along))
+                .expect("a gap between letters");
+        // A thread whose head has just come out from behind the name.
+        let head = right as f32 + 12.0;
+        named.streaks[0].y = head;
+        let (bare, named) = (along(&strip_with("", 1.0, head, 10.5)), along(&named));
+        let row = 9;
+        // Between two letters the thread is still there, but dimmer than with no name.
+        assert!(at(&named, gap, row) > 0);
+        assert!(2 * at(&named, gap, row) < at(&bare, gap, row));
+        // Past the name it is as bright as ever.
+        assert!(at(&bare, right + 9, row) > 0);
+        assert_eq!(at(&named, right + 9, row), at(&bare, right + 9, row));
+        // The name has ink of its own, off the thread's row.
+        assert!((left..right).any(|x| at(&named, x, row - 3) > 0));
+    }
+
+    #[test]
+    fn a_strip_begins_more_streaks_than_a_card_at_the_same_load() {
+        let card = Streaks::new("Foot", 0.5, 20, 160, 1.0, 7);
+        let strip = Streaks::along("Foot", 0.5, 160, 20, 1.0, 7);
+        assert!(strip.streaks.len() > card.streaks.len());
     }
 
     #[test]
@@ -641,6 +848,12 @@ mod tests {
             streaks.step(3.0);
             let mut light = vec![0u8; w * 300 * 4];
             streaks.draw(&mut light, w, 300);
+            // And along a strip, short enough for the name to run off its end.
+            let h = (16.0 * scale) as usize;
+            let mut streaks = Streaks::along("A Long Name", 1.0, 40, h, scale, 9);
+            streaks.step(3.0);
+            let mut light = vec![0u8; 40 * h * 4];
+            streaks.draw_along(&mut light, 40, h);
         }
     }
 }

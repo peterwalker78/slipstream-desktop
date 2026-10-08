@@ -3,8 +3,8 @@
 //! A minimised window's stream falls down the edge of the screen and says how hard its app is
 //! working. A docked window has no stream there, so the bar carries one for it: the same light,
 //! running along a short strip instead of down a card, with the app's name in it. Streaks
-//! (`streaks.rs`) or code rain (`glmatrix.rs`), whichever the streams are drawn in: more of it,
-//! faster and greener, the busier the app.
+//! (`streaks.rs`) or code rain (`glmatrix.rs`), whichever the streams are drawn in, each redrawn
+//! to suit a strip a few rows high: more of it, faster and greener, the busier the app.
 
 use slipstream_config::Effects;
 use smithay::{
@@ -16,7 +16,6 @@ use crate::{
     glmatrix::{Band, Glyphs, Look},
     paint::{self, Painter},
     streaks::Streaks,
-    text::Face,
     usage::Meter,
 };
 
@@ -34,15 +33,11 @@ const EDGE: u32 = 0xffffff1c;
 const EDGE_HELD: u32 = 0xa6;
 /// How far inside the edge the light stops, in logical pixels.
 const INSET: f64 = 1.0;
-/// How much of a stream's light the slot shows. It sits among the bar's small text, where a
-/// stream's full brightness would shout.
-const GAIN: u32 = 150;
-/// The name in the bar's own small capitals, as its pills are lettered: the face, its size in
-/// logical pixels and its letter spacing.
-const NAME: (Face, f32, f32) = (Face::MonoBold, 9.6, 0.06);
-/// How bright the name is with no light passing over it: brighter than down a stream, which has
-/// its app's icon above it to say whose it is.
-const NAME_REST: f32 = 0.5;
+/// How much of each light the slot shows, of 255. It sits among the bar's small text, where a
+/// row of glyphs at full brightness would shout; threads a pixel fine carry far less light, and
+/// are shown nearly whole.
+const GAIN_RAIN: u32 = 150;
+const GAIN_STREAKS: u32 = 230;
 /// How much of the strip's height a glyph of code rain takes.
 const GLYPH: f32 = 0.8;
 /// The load is shown in this many steps, so a reading that holds still repaints nothing.
@@ -153,9 +148,7 @@ impl Slot {
         self.stepped_to = now;
         let (name, seed, look_load) = (&self.name, self.seed, &mut self.look_load);
         let light = self.light.get_or_insert_with(|| match effects {
-            // Streaks fall down a card as tall as the strip is long and as wide as it is high,
-            // which is then laid on its side.
-            Effects::Slipstream => Light::Streaks(Streaks::new(name, load, ih, iw, scale, seed)),
+            Effects::Slipstream => Light::Streaks(Streaks::along(name, load, iw, ih, scale, seed)),
             Effects::Matrix => {
                 let (wide, tall) = Band::size_along(iw as f32, ih as f32 * GLYPH);
                 Light::Rain(Band::new(
@@ -170,9 +163,8 @@ impl Slot {
         let moved = *look_load != Some(step);
         let changed = match light {
             Light::Streaks(streaks) => {
+                // A card on its side: as wide as the strip is high.
                 streaks.resize(ih, iw, scale);
-                streaks.set_name_style(NAME.0, NAME.1, NAME.2);
-                streaks.set_name_rest(NAME_REST);
                 let recoloured = streaks.set_name_colour(ring);
                 let changed = if reduced_motion {
                     let changed = moved || !streaks.is_still();
@@ -211,19 +203,19 @@ impl Slot {
         if changed || stale {
             // The strip's light, upright: `iw` across and `ih` down.
             let mut lit = vec![0u8; iw * ih * 4];
-            match light {
+            let gain = match light {
                 Light::Streaks(streaks) => {
-                    let mut fallen = vec![0u8; ih * iw * 4];
-                    streaks.draw(&mut fallen, ih, iw);
-                    lay_on_its_side(&fallen, &mut lit, iw, ih);
+                    streaks.draw_along(&mut lit, iw, ih);
+                    GAIN_STREAKS
                 }
                 Light::Rain(band) => {
                     if let Some(glyphs) = glyphs {
                         band.draw_along(&mut lit, iw, ih, glyphs);
                     }
+                    GAIN_RAIN
                 }
-            }
-            let pixmap = paint_strip(&lit, device, inset, (iw, ih), scale, keyboard, ring)?;
+            };
+            let pixmap = paint_strip(&lit, gain, device, inset, (iw, ih), scale, keyboard, ring)?;
             self.painted = Some((
                 shown,
                 paint::Painted {
@@ -238,24 +230,12 @@ impl Slot {
     }
 }
 
-/// Turns a falling card's light a quarter anticlockwise into a strip `iw`×`ih`: the card, `ih`
-/// wide and `iw` tall, has its top at the strip's left end and its right-hand side along the
-/// strip's top. What fell now runs left to right, and the name down the card's spine reads along
-/// the strip.
-fn lay_on_its_side(fallen: &[u8], strip: &mut [u8], iw: usize, ih: usize) {
-    for sy in 0..ih {
-        for sx in 0..iw {
-            let from = (sx * ih + (ih - 1 - sy)) * 4;
-            let to = (sy * iw + sx) * 4;
-            strip[to..to + 4].copy_from_slice(&fallen[from..from + 4]);
-        }
-    }
-}
-
 /// The strip's card `device` screen pixels big with `light`, `inner.0`×`inner.1`, added inside
-/// its edge at `GAIN`, softened along the corners.
+/// its edge at `gain` of 255, softened along the corners.
+#[allow(clippy::too_many_arguments)]
 fn paint_strip(
     light: &[u8],
+    gain: u32,
     device: (i32, i32),
     inset: usize,
     inner: (usize, usize),
@@ -281,7 +261,7 @@ fn paint_strip(
     let cover = shape.pixmap.data();
     let data = p.pixmap.data_mut();
     for (i, light) in light.chunks_exact(4).enumerate() {
-        let cover = cover[i * 4 + 3] as u32 * GAIN / 255;
+        let cover = cover[i * 4 + 3] as u32 * gain / 255;
         if cover == 0 || light[..3] == [0, 0, 0] {
             continue;
         }
@@ -306,37 +286,6 @@ fn paint_strip(
 mod tests {
     use super::*;
 
-    /// A falling card 4 wide and 6 tall with one lit pixel, as RGBA.
-    fn card_with(x: usize, y: usize) -> Vec<u8> {
-        let mut light = vec![0u8; 4 * 6 * 4];
-        light[(y * 4 + x) * 4] = 200;
-        light
-    }
-
-    /// Where the strip, 6 long and 4 high, is lit.
-    fn lit(strip: &[u8]) -> Vec<(usize, usize)> {
-        strip
-            .chunks_exact(4)
-            .enumerate()
-            .filter(|(_, pixel)| pixel[0] > 0)
-            .map(|(i, _)| (i % 6, i / 6))
-            .collect()
-    }
-
-    #[test]
-    fn what_falls_down_the_card_runs_left_to_right_along_the_strip() {
-        let strip = |x, y| {
-            let mut strip = vec![0u8; 6 * 4 * 4];
-            lay_on_its_side(&card_with(x, y), &mut strip, 6, 4);
-            lit(&strip)
-        };
-        // Further down the card is further along the strip, in the same row.
-        assert_eq!(strip(1, 1), vec![(1, 2)]);
-        assert_eq!(strip(1, 4), vec![(4, 2)]);
-        // The card's right-hand side is the strip's top.
-        assert_eq!(strip(2, 1), vec![(1, 1)]);
-    }
-
     #[test]
     fn the_light_is_shown_quieter_than_a_streams_and_only_inside_the_edge() {
         let mut light = vec![0u8; 6 * 4 * 4];
@@ -344,8 +293,19 @@ mod tests {
         for pixel in light.chunks_exact_mut(4) {
             pixel[0] = 255;
         }
-        let strip = paint_strip(&light, (8, 6), 1, (6, 4), 1.0, false, [0.0; 3]).unwrap();
-        let dark = paint_strip(&[0u8; 96], (8, 6), 1, (6, 4), 1.0, false, [0.0; 3]).unwrap();
+        let strip =
+            paint_strip(&light, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, false, [0.0; 3]).unwrap();
+        let dark = paint_strip(
+            &[0u8; 96],
+            GAIN_RAIN,
+            (8, 6),
+            1,
+            (6, 4),
+            1.0,
+            false,
+            [0.0; 3],
+        )
+        .unwrap();
         let red = |p: &resvg::tiny_skia::Pixmap, x, y| p.pixel(x, y).unwrap().red();
         let middle = red(&strip, 4, 3);
         assert!(middle > red(&dark, 4, 3) + 100 && middle < 200, "{middle}");
@@ -357,8 +317,8 @@ mod tests {
     fn the_edge_is_in_the_rings_colour_only_while_the_keyboard_is_in_the_pane() {
         let dark = [0u8; 4 * 6 * 4];
         let ring = [0.2, 0.8, 1.0];
-        let quiet = paint_strip(&dark, (8, 6), 1, (6, 4), 1.0, false, ring).unwrap();
-        let held = paint_strip(&dark, (8, 6), 1, (6, 4), 1.0, true, ring).unwrap();
+        let quiet = paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, false, ring).unwrap();
+        let held = paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, true, ring).unwrap();
         let edge = |p: &resvg::tiny_skia::Pixmap| p.pixel(4, 0).unwrap();
         assert_ne!(edge(&quiet), edge(&held));
         assert!(edge(&held).blue() > edge(&held).red());
