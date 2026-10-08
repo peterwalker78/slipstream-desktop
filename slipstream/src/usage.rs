@@ -29,10 +29,10 @@ use std::{
 
 use crate::tcp;
 
-/// One core's worth of CPU fills an app's meter: desktop apps work in one thread most of the
-/// time, so a whole core is "flat out" to a reader, and a build on twelve of them is no more
-/// readable for being twelve times past the end of the bar.
-const APP_CPU_FULL: f32 = 1.0;
+/// The curve an app's share of the machine's processors is read on. A straight line would leave
+/// one busy thread on a twelve-thread machine reading a twelfth, which is nothing to the eye;
+/// a cube root puts it near the middle and still leaves every further core a step up.
+const APP_CPU_CURVE: f32 = 1.0 / 3.0;
 /// Memory taken or given back each second, on a log scale between these. Every running app's
 /// memory wanders by a megabyte or two, which is not work.
 const APP_MEMORY_STILL_MB: f32 = 4.0;
@@ -162,7 +162,7 @@ impl Probe {
             let moved_mb = memory.abs_diff(last_memory) as f32 / (1024.0 * 1024.0) / seconds;
             let carried_kb = carried as f32 / 1024.0 / seconds;
             let reading = &mut self.reading;
-            reading.cpu = cpu_share(cores);
+            reading.cpu = cpu_share(cores, processors());
             reading.memory = log_share(moved_mb, APP_MEMORY_STILL_MB, APP_MEMORY_FULL_MB);
             reading.network = log_share(carried_kb, APP_NETWORK_QUIET_KB, APP_NETWORK_FULL_KB);
             let busiest = reading.cpu.max(reading.memory).max(reading.network);
@@ -172,10 +172,19 @@ impl Probe {
     }
 }
 
-/// An app's CPU as a share of one core, on a curve that lets light work show: a twentieth of a
-/// core is a fifth of the way up, a quarter of one is half way.
-fn cpu_share(cores: f32) -> f32 {
-    (cores / APP_CPU_FULL).clamp(0.0, 1.0).sqrt()
+/// An app's CPU as a share of every processor the machine has, on a curve that lets light work
+/// show and still tells one busy core from nine: of twelve, a twelfth of a core reads about a
+/// fifth, one core a little under half, nine about nine tenths.
+fn cpu_share(cores: f32, processors: f32) -> f32 {
+    (cores / processors.max(1.0))
+        .clamp(0.0, 1.0)
+        .powf(APP_CPU_CURVE)
+}
+
+/// How many processors there are to be busy on.
+fn processors() -> f32 {
+    static PROCESSORS: OnceLock<f32> = OnceLock::new();
+    *PROCESSORS.get_or_init(|| thread::available_parallelism().map_or(1.0, |n| n.get() as f32))
 }
 
 /// A rate as a share, on a log scale from `quiet` to `full`.
@@ -402,6 +411,11 @@ mod tests {
     const MB: u64 = 1024 * 1024;
     const SECOND: Duration = Duration::from_secs(1);
 
+    /// The processor time, in microseconds, of every processor busy for `seconds`.
+    fn flat_out(seconds: u64) -> u64 {
+        (processors() * 1e6) as u64 * seconds
+    }
+
     /// A probe that has had its first look, with `memory` held and nothing done yet.
     fn probe_holding(memory: u64, at: Instant) -> Probe {
         let mut probe = Probe::new(std::process::id());
@@ -421,15 +435,31 @@ mod tests {
 
     #[test]
     fn light_work_shows() {
-        assert_eq!(cpu_share(0.0), 0.0);
-        assert!((cpu_share(0.04) - 0.2).abs() < 1e-4);
-        assert!((cpu_share(0.25) - 0.5).abs() < 1e-4);
-        assert_eq!(cpu_share(1.0), 1.0);
-        assert_eq!(
-            cpu_share(12.0),
-            1.0,
-            "a build on every core is still only flat out"
+        assert_eq!(cpu_share(0.0, 12.0), 0.0);
+        let light = cpu_share(1.0 / 12.0, 12.0);
+        assert!(
+            (0.15..0.25).contains(&light),
+            "a twelfth of a core: {light}"
         );
+        assert_eq!(cpu_share(12.0, 12.0), 1.0);
+        assert_eq!(cpu_share(40.0, 12.0), 1.0, "clamped, not past the end");
+        // A machine with one processor is flat out on it.
+        assert_eq!(cpu_share(1.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn every_further_core_reads_as_busier() {
+        let mut last = 0.0;
+        for cores in 1..=12 {
+            let share = cpu_share(cores as f32, 12.0);
+            assert!(
+                share - last >= 0.025,
+                "{cores} cores read {share}, too close to {last}"
+            );
+            last = share;
+        }
+        let one = cpu_share(1.0, 12.0);
+        assert!((0.4..0.5).contains(&one), "one core of twelve: {one}");
     }
 
     #[test]
@@ -468,8 +498,8 @@ mod tests {
         assert_eq!(probe.reading.cpu, 0.0);
 
         let mut probe = probe_holding(500 * MB, start);
-        // A whole core outweighs a trickle on the network.
-        probe.score(start + SECOND, 1_000_000, 500 * MB, 4 * 1024);
+        // Every processor flat out outweighs a trickle on the network.
+        probe.score(start + SECOND, flat_out(1), 500 * MB, 4 * 1024);
         assert_eq!(probe.reading.load, 1.0);
     }
 
@@ -477,22 +507,22 @@ mod tests {
     fn a_reading_rises_at_once_and_falls_slowly() {
         let start = Instant::now();
         let mut probe = probe_holding(500 * MB, start);
-        probe.score(start + SECOND, 1_000_000, 500 * MB, 0);
+        probe.score(start + SECOND, flat_out(1), 500 * MB, 0);
         assert_eq!(probe.reading.load, 1.0, "flat out within the second");
         // The work stops. Half the reading is left a half-life later, a quarter after two.
         let mut at = start + SECOND;
         for _ in 0..3 {
             at += SECOND;
-            probe.score(at, 1_000_000, 500 * MB, 0);
+            probe.score(at, flat_out(1), 500 * MB, 0);
         }
         assert!((probe.reading.load - 0.5).abs() < 0.01);
         for _ in 0..3 {
             at += SECOND;
-            probe.score(at, 1_000_000, 500 * MB, 0);
+            probe.score(at, flat_out(1), 500 * MB, 0);
         }
         assert!((probe.reading.load - 0.25).abs() < 0.01);
         // And it comes straight back up when the work does.
-        probe.score(at + SECOND, 2_000_000, 500 * MB, 0);
+        probe.score(at + SECOND, flat_out(2), 500 * MB, 0);
         assert_eq!(probe.reading.load, 1.0);
     }
 
