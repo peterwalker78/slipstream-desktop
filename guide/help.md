@@ -77,12 +77,12 @@ At the next login that terminal is started in the folder its shell was in and ru
 
 ## Seeing an AI agent at work from across the room
 
-Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, each agent at work has a small oscilloscope trace at the top right, with the name of the folder it is working in. A moving cyan wave is an agent still working. A flat amber line is one that has stopped. There is one trace for each agent, however many are running.
+Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, each agent at work has a small oscilloscope trace at the top right, under whatever the agent says to call it. A moving cyan wave is an agent still working. A flat amber line is one that has stopped. There is one trace for each agent, however many are running.
 
-**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent says when it is working with a note: an empty file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`, made when it starts work and removed when it stops. Most agents can run a command of yours at both moments:
+**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent says when it is working with a note: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`, made when it starts work and removed when it stops. Its one line is what the trace is called. Most agents can run a command of yours at both moments:
 
 ```sh
-touch "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # a task starts
+echo "my-agent: $TASK" > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # a task starts
 rm -f "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # it ends, or the agent is waiting for you
 ```
 
@@ -90,4 +90,5 @@ rm -f "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # it ends, or the agen
 - **Only agents that have been working.** An agent that was already idle when you stepped away has no trace. One that stops while you're away keeps its flat line until you touch a key or the mouse.
 - **The agent itself, not its helpers.** A note is named for one process, so the helpers an agent starts for a task don't each get a trace unless they leave notes of their own.
 - **Reduced motion** keeps the picture and drops the movement: a standing wave for an agent at work, a flat line for one that has stopped.
-- **Nothing is read from the note,** and a note left behind by an agent that has gone counts as stopped.
+- **The name is the agent's to give.** Write the note again to change it. An empty note is called by the folder the agent is working in.
+- **A note left behind** by an agent that has gone counts as stopped.

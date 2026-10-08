@@ -3,8 +3,8 @@
 //!
 //! A trace is a wave in cyan while its agent works, and settles into a flat amber line when the
 //! agent stops. The difference is one of kind, moving against still, so it reads from across a
-//! room without comparing anything. Each agent's wave has a shape of its own and its folder's
-//! name over it.
+//! room without comparing anything. Each agent's wave has a shape of its own, under what the
+//! agent says to call it.
 //!
 //! They are only on screen once the desktop has faded to the wallpaper, and only for agents that
 //! have worked since the desk was last touched: one that was already idle has no trace, and a
@@ -39,14 +39,14 @@ use crate::{
 
 // Sizes in logical pixels.
 /// A readout's width as a share of the screen's, and the limits it is held to.
-const WIDTH_OF_SCREEN: f32 = 0.16;
+const WIDTH_OF_SCREEN: f32 = 0.19;
 const NARROWEST: i32 = 120;
-const WIDEST: i32 = 220;
+const WIDEST: i32 = 300;
 /// The gap to the screen's top and right edges.
 const MARGIN: i32 = 18;
 /// The space between a readout's dark backing and what is drawn on it.
 const PAD: i32 = 9;
-/// The line the folder's name is written on.
+/// The line the agent's name is written on.
 const LABEL: i32 = 15;
 /// A trace's height, and the least it is squeezed to before readouts are left off instead.
 const TRACE: i32 = 44;
@@ -185,9 +185,12 @@ impl Scope {
     /// stopped, and its trace stays to say so.
     pub fn follow(&mut self, at_work: &[Agent]) {
         for trace in &mut self.traces {
-            trace.working = at_work.iter().any(|agent| agent.pid == trace.pid);
-            if trace.working {
+            let agent = at_work.iter().find(|agent| agent.pid == trace.pid);
+            trace.working = agent.is_some();
+            // What it is called can change as its work does. A stopped one keeps its last name.
+            if let Some(agent) = agent {
                 trace.seen = false;
+                trace.name.clone_from(&agent.name);
             }
         }
         for agent in at_work {
@@ -573,6 +576,17 @@ mod tests {
         scope.follow(&[agent(300, "kiln")]);
         assert_eq!(scope.traces.len(), 1);
         assert!(scope.traces[0].working);
+    }
+
+    #[test]
+    fn a_trace_takes_its_agent_s_new_name() {
+        let mut scope = Scope::new(false);
+        scope.follow(&[agent(300, "robin: reading the brief")]);
+        scope.follow(&[agent(300, "robin: mending the kiln door")]);
+        assert_eq!(scope.traces.len(), 1);
+        assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
+        scope.follow(&[]);
+        assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
     }
 
     #[test]

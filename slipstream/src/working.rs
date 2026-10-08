@@ -7,9 +7,11 @@
 //!
 //! The agent says so with a note: a file named for its process id in
 //! `$XDG_RUNTIME_DIR/slipstream/working/`, there while it is working and gone when it stops.
-//! Nothing is read from the note; that it exists is the whole message. Most agents can run a
-//! command when a task starts and when it ends, which is where the note is made and removed.
-//! Only the agent itself leaves one, so the helpers it starts for a task don't each get a trace.
+//! Its one line is what to call the agent on screen, which is for the agent to say: its own name
+//! and what it is working on, say. An empty note is called by the folder the agent is working in.
+//! Most agents can run a command when a task starts and when it ends, which is where the note is
+//! made and removed. Only the agent itself leaves one, so the helpers it starts for a task don't
+//! each get a trace.
 
 use std::{
     fs,
@@ -23,11 +25,15 @@ use crate::resume;
 /// More notes than this are more than the screen has room to show.
 const MOST_NOTES: usize = 64;
 
+/// A note longer than this isn't a name, and a name is cut to this many characters.
+const LONGEST_NOTE: u64 = 1024;
+const LONGEST_NAME: usize = 80;
+
 /// An agent that says it is working.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub pid: u32,
-    /// The folder it is working in, which is what tells one agent from another.
+    /// What to call it: what its note says, or the folder it is working in.
     pub name: String,
 }
 
@@ -65,14 +71,24 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             if written.as_secs() + 2 < resume::started(proc, pid, ticks)? {
                 return None;
             }
-            Some(Agent {
-                pid,
-                name: folder(proc, pid),
-            })
+            let name = named(&entry.path(), meta.len()).unwrap_or_else(|| folder(proc, pid));
+            Some(Agent { pid, name })
         })
         .collect();
     agents.sort_by_key(|agent| agent.pid);
     agents
+}
+
+/// What the note at `path`, `len` bytes long, says to call its agent: its first line, if that is
+/// plain text.
+fn named(path: &Path, len: u64) -> Option<String> {
+    if len == 0 || len > LONGEST_NOTE {
+        return None;
+    }
+    let text = fs::read_to_string(path).ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty() && !line.chars().any(char::is_control))
+        .then(|| line.chars().take(LONGEST_NAME).collect())
 }
 
 /// The name of the folder `pid` is working in, or nothing where it can't be read.
@@ -122,10 +138,15 @@ mod tests {
             symlink(cwd, dir.join("cwd")).unwrap();
         }
 
-        /// `pid` leaves its note, `after` seconds after boot.
+        /// `pid` leaves an empty note, `after` seconds after boot.
         fn note(&self, pid: u32, after: u64) {
+            self.note_saying(pid, "", after);
+        }
+
+        /// `pid` leaves a note saying `text`, `after` seconds after boot.
+        fn note_saying(&self, pid: u32, text: &str, after: u64) {
             let path = self.root.join(format!("notes/{pid}"));
-            fs::write(&path, "").unwrap();
+            fs::write(&path, text).unwrap();
             let when = UNIX_EPOCH + std::time::Duration::from_secs(BOOT + after);
             fs::File::options()
                 .write(true)
@@ -166,6 +187,23 @@ mod tests {
         fs::remove_file(machine.root.join("notes/300")).unwrap();
         let names: Vec<String> = machine.read().into_iter().map(|a| a.name).collect();
         assert_eq!(names, ["ledger"]);
+    }
+
+    #[test]
+    fn an_agent_is_called_what_its_note_says() {
+        let machine = Machine::new("working-named");
+        machine.process(300, "/home/sam");
+        machine.process(301, "/home/sam/projects/ledger");
+        machine.process(302, "/home/sam/projects/orchard");
+        machine.note_saying(300, "robin: mending the kiln door\nand more\n", 150);
+        machine.note_saying(301, "bell\u{7}s", 150);
+        machine.note_saying(302, &"x".repeat(2000), 150);
+        let names: Vec<String> = machine.read().into_iter().map(|a| a.name).collect();
+        assert_eq!(
+            names,
+            ["robin: mending the kiln door", "ledger", "orchard"],
+            "one plain line, or the folder"
+        );
     }
 
     #[test]
