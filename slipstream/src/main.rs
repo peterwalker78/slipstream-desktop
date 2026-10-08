@@ -93,6 +93,7 @@ mod status;
 mod streaks;
 mod switcher;
 mod takeback;
+mod tcp;
 mod text;
 mod tilt;
 mod toast;
