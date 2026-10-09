@@ -199,7 +199,10 @@ impl Scope {
             if let Some(agent) = agent {
                 trace.seen = false;
                 trace.waiting = agent.waiting;
-                trace.name.clone_from(&agent.name);
+                // Keep the name from before the wait; only refresh it while actively working.
+                if !agent.waiting {
+                    trace.name.clone_from(&agent.name);
+                }
             }
         }
         for agent in at_work {
@@ -482,6 +485,14 @@ mod tests {
         }
     }
 
+    fn waiting_agent(pid: u32, name: &str) -> Agent {
+        Agent {
+            pid,
+            name: name.to_string(),
+            waiting: true,
+        }
+    }
+
     /// One trace plotted on its own at `colour`/`amp`, and the rows of the picture that have a dot.
     fn rows(colour: f32, amp: f32, t: Option<f64>) -> (Vec<u8>, Vec<usize>) {
         let fit = Fit::new(SCREEN.into(), 1).unwrap();
@@ -642,6 +653,19 @@ mod tests {
         assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
         scope.follow(&[]);
         assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
+    }
+
+    #[test]
+    fn a_waiting_trace_keeps_its_name_from_before_the_wait() {
+        let mut scope = Scope::new(false);
+        scope.follow(&[agent(300, "robin: mending the kiln door")]);
+        scope.follow(&[waiting_agent(300, "robin: dispatched a helper")]);
+        assert_eq!(
+            scope.traces[0].name, "robin: mending the kiln door",
+            "name stays frozen while waiting"
+        );
+        scope.follow(&[agent(300, "robin: back to work")]);
+        assert_eq!(scope.traces[0].name, "robin: back to work", "name resumes updating once not waiting");
     }
 
     #[test]
