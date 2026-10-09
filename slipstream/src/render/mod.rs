@@ -822,6 +822,9 @@ pub fn output_elements(
             chrome.overview.solid(inside, DOCK_BAY, scale, ui_alpha),
         ));
     }
+    // How much of the front of `world` is the docked pane's, bay and flight included: whatever
+    // else is put in front of the windows goes in behind that.
+    let mut pane_front = world.len();
     // The docked pane's own elements while the overview is open: upright, just behind the bar.
     let mut pane_layer: Vec<OutputElement> = Vec::new();
     for (window, dx) in windows {
@@ -1198,6 +1201,8 @@ pub fn output_elements(
             } else if bar_apart {
                 bar_pane.extend(world.drain(mark..));
             }
+            // The docked window is drawn first, so all of `world` so far is its pane.
+            pane_front = world.len();
         }
     }
 
@@ -1255,7 +1260,7 @@ pub fn output_elements(
         .flatten()
         .map(OutputElement::Shaded)
         .collect();
-        world.splice(0..0, pieces);
+        world.splice(pane_front..pane_front, pieces);
     }
     if state.pass.as_ref().is_some_and(|pass| pass.done(now)) {
         state.pass = None;
@@ -1343,6 +1348,7 @@ pub fn output_elements(
                 ));
             }
         }
+        pane_front += pieces.len();
         world.splice(0..0, pieces);
     }
     if let Some(docked) = state.dock.as_mut()
@@ -1457,8 +1463,9 @@ pub fn output_elements(
         }
     }
 
-    // Closed windows fade in front of the windows retiling into their space. Not in bullet
-    // time's overview, which draws windows where no ghost was captured.
+    // Closed windows fade in front of the windows retiling into their space, and behind the
+    // docked pane as they were. Not in bullet time's overview, which draws windows where no ghost
+    // was captured.
     if zoomed_out <= 0.0 {
         let context = renderer.context_id();
         let screen = output_geo.to_f64();
@@ -1502,7 +1509,7 @@ pub fn output_elements(
                     .map(OutputElement::Texture),
             );
         }
-        world.splice(0..0, pieces);
+        world.splice(pane_front..pane_front, pieces);
     }
     state.ghosts.retain(|ghost| !ghost.done(now));
     state.pictures.retain(|(window, _)| window.alive());

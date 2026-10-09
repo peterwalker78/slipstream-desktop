@@ -2,6 +2,10 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## Unreleased
+
+- **A window closing behind the docked pane stays behind it.** Its streaks or falling code poured over the front of the pane, and so did two tiles swapping places; both now pass behind the glass.
+
 ## 0.10.0 - 2026-10-09
 
 - **Dock a window to the bar.** Super+W sends the window you're in up to the bar, where it hangs at the top right as a pane of glass, in front of your windows and on every workspace. Press it again for the next of three sizes, the largest a quarter of the screen; Super+Shift+W brings it back down as a standard window. It keeps the keyboard as it goes up, Super+arrows take the keyboard back to your tiles, and docking a second window swaps the two. Its stream runs along a short strip in the bar beside the tray, and in bullet time the pane has a letter of its own. It keeps a window's gap from the streams of minimised windows, and falls away like any other window when it closes.
