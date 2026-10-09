@@ -13,7 +13,7 @@ use crate::{
     paint::Painter,
     panel,
     text::{self, Face, Style},
-    tour::{Deck, Kind, Rect, Scene, Stream, Typed},
+    tour::{self, Choosing, Deck, Kind, Rect, Scene, Stream, Typed},
 };
 
 /// The miniature's own grid, which the caller scales to whatever size it's shown at: a screen of
@@ -264,6 +264,9 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
     bar(p, scene, w, look);
     if let Some(deck) = &scene.deck {
         deal(p, deck, scene, &frame, look);
+    }
+    if let Some(choosing) = scene.choosing {
+        arrangements(p, choosing, w, h, look);
     }
     if let Some(typed) = scene.explorer {
         explorer(p, typed, w, look);
@@ -1383,7 +1386,7 @@ fn sheet(p: &mut Painter, typed: Typed, w: f32, h: f32) {
         ("Super+Shift+1–9", "send window to a workspace"),
         ("Super+Ctrl+← →", "previous, next workspace"),
         ("Super+Tab", "bullet time"),
-        ("Super+M", "minimise to the rain"),
+        ("Super+M", "minimise to a stream"),
         ("Super+H", "hide every window"),
         ("Super+N", "notifications"),
         ("Super+L", "lock the screen"),
@@ -1502,6 +1505,89 @@ fn digest(p: &mut Painter, alpha: f32, w: f32, h: f32) {
             ry,
             x + cw - 6.0,
             &style(Face::Body, 6.0, panel::SECONDARY, alpha),
+        );
+    }
+}
+
+/// Super+T's strip while Super is held: tiling on its own, then a divider and gravity's four
+/// arrangements, each a picture of the lesson's windows with the one they're arranged round in
+/// the ring's colour, and the arrangement in force lit.
+fn arrangements(p: &mut Painter, choosing: Choosing, w: f32, h: f32, look: &Look) {
+    const NAMES: [&str; 5] = ["Tiling", "Grid", "Centre", "Wide", "Spotlight"];
+    const TILE_W: f32 = 54.0;
+    const TILE_H: f32 = 45.0;
+    const TILE_GAP: f32 = 3.5;
+    const GROUP_GAP: f32 = 14.0;
+    const PADDING: f32 = 8.0;
+    const HEAD_H: f32 = 15.0;
+    const INSET: f32 = 4.5;
+    let a = choosing.alpha;
+    if a <= 0.01 {
+        return;
+    }
+    let cw = 2.0 * PADDING + 5.0 * TILE_W + 3.0 * TILE_GAP + GROUP_GAP;
+    let ch = 2.0 * PADDING + HEAD_H + TILE_H;
+    // Above the key going down, as the real one sits above the foot of the screen.
+    let (x, y) = ((w - cw) / 2.0, h - 42.0 - ch + (1.0 - a) * 4.0);
+    p.shadow(x, y, cw, ch, 6.0, 8.0, 18.0, fade(0x000000aa, a));
+    p.fill(x, y, cw, ch, 6.0, fade(panel::GLASS, a));
+    p.border(x, y, cw, ch, 6.0, 0.8, fade(panel::GLASS_EDGE, a));
+    let tile_x = |index: usize| {
+        let gap = if index > 0 { GROUP_GAP - TILE_GAP } else { 0.0 };
+        x + PADDING + index as f32 * (TILE_W + TILE_GAP) + gap
+    };
+    let heading = style(Face::BodyBold, 4.4, panel::SECONDARY, a);
+    let note = style(Face::Body, 4.2, panel::HINT, a);
+    let top = y + PADDING + 2.0;
+    for (index, title, says) in [
+        (0, "TILING", "you place the windows"),
+        (1, "GRAVITY", "the windows place themselves"),
+    ] {
+        p.text(title, tile_x(index), top, &heading);
+        p.text(says, tile_x(index), top + 6.0, &note);
+    }
+    p.fill(
+        tile_x(1) - GROUP_GAP / 2.0,
+        y + PADDING,
+        0.5,
+        HEAD_H + TILE_H,
+        0.0,
+        fade(panel::DIVIDER, a),
+    );
+    let label = style(Face::Body, 4.8, panel::INK, a);
+    let (pw, ph) = (TILE_W - 2.0 * INSET, (TILE_W - 2.0 * INSET) * 0.6);
+    for (index, places) in tour::arrangements().iter().enumerate() {
+        let (tx, ty) = (tile_x(index), y + PADDING + HEAD_H);
+        if index == choosing.selected {
+            let fill = panel::selection_fill(look.ring);
+            p.fill(tx, ty, TILE_W, TILE_H, 3.0, fade(fill, a));
+            p.border(tx, ty, TILE_W, TILE_H, 3.0, 0.8, fade(look.ring | 0xff, a));
+        } else {
+            p.fill(tx, ty, TILE_W, TILE_H, 3.0, fade(panel::TILE, a));
+        }
+        for (n, at) in places.iter().enumerate() {
+            // The editor, the third of the four, is the one gravity arranges the rest round.
+            let fill = if n == 2 {
+                (look.ring & 0xffff_ff00) | 0x99
+            } else {
+                panel::QUIET_LIT
+            };
+            p.fill(
+                tx + INSET + at.x * pw + 0.3,
+                ty + INSET + at.y * ph + 0.3,
+                (at.w * pw - 0.6).max(1.0),
+                (at.h * ph - 0.6).max(1.0),
+                1.0,
+                fade(fill, a),
+            );
+        }
+        let name = NAMES[index];
+        let nw = text::width(name, &label);
+        p.text(
+            name,
+            tx + (TILE_W - nw) / 2.0,
+            ty + INSET + ph + (TILE_H - INSET - ph) / 2.0,
+            &label,
         );
     }
 }

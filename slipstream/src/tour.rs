@@ -35,7 +35,7 @@ pub struct Lesson {
     pub why: &'static str,
     /// What it's like for hands that know Windows, where that helps.
     pub habit: Option<&'static str>,
-    /// The keys it teaches, drawn as keycaps.
+    /// The keys it teaches, drawn as keycaps. None where there is nothing to press.
     pub keys: &'static [&'static str],
     /// How many moves the miniature makes before it starts again.
     pub beats: usize,
@@ -119,14 +119,14 @@ pub const LESSONS: [Lesson; 16] = [
     Lesson {
         chapter: 1,
         title: "Or let them place themselves",
-        why: "Tiling puts windows where you put them. Gravity arranges them around the one that \
-              matters: in the centre, wide, in a spotlight or in a grid. Move a window into the \
-              centre and it becomes the centre. Keep Super held after Super+T to choose the \
-              arrangement.",
+        why: "Tiling puts windows where you put them. Gravity arranges them round the one you're \
+              in: in the centre, wide, in a spotlight or in a grid. Super+T switches between the \
+              two. Keep Super held and each further T takes the next arrangement; let go on the \
+              one you want.",
         habit: None,
         keys: &["Super+T"],
-        beats: 3,
-        still: 0.33,
+        beats: 4,
+        still: 0.5,
     },
     Lesson {
         chapter: 2,
@@ -182,7 +182,6 @@ pub const LESSONS: [Lesson; 16] = [
         title: "Lift a window off the tiles",
         why: "A calculator, a video or a chat you only glance at doesn't want a tile. \
               Super+Shift+V lifts a window off to float above the rest, and again puts it back. \
-              While it floats, Super+Alt+arrows nudge it and Super+[ and ] resize it. \
               Super+Ctrl+V takes the keyboard down to the tiles, and back up.",
         habit: Some(
             "The kind of window Windows has. Hold Super and drag to move it with the \
@@ -208,10 +207,8 @@ pub const LESSONS: [Lesson; 16] = [
         chapter: 3,
         title: "Keep one window in view",
         why: "A build, a call or a video is for watching, not working in. Super+W hangs the \
-              window from the bar as a pane of glass, in front of every workspace; again gives \
-              the next of three sizes. Its strip in the bar shows how busy it is, as a stream \
-              does. Super+Up from the top row puts the keyboard in it, and Super+Shift+W brings \
-              it down.",
+              window from the bar as a pane of glass, in front of every workspace. Super+Up from \
+              the top row puts the keyboard in it; Super and any arrow brings it back out.",
         habit: Some("Always on top, for one window, on every desktop at once."),
         keys: &["Super+W", "Super+Shift+W"],
         beats: 4,
@@ -225,7 +222,8 @@ pub const LESSONS: [Lesson; 16] = [
               a window you didn't ask for goes to the edge instead of taking your keyboard. \
               Critical alerts still come straight through.",
         habit: None,
-        keys: &["Super+N"],
+        // Nothing to press: the point is what happens when you do nothing.
+        keys: &[],
         beats: 4,
         still: 0.9,
     },
@@ -342,6 +340,14 @@ pub struct Deck {
     pub alpha: f32,
 }
 
+/// Super+T's strip of arrangements while Super is held: which one is in force, counted along
+/// `arrangements()`, and how visible the strip is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Choosing {
+    pub selected: usize,
+    pub alpha: f32,
+}
+
 /// What the miniature shows at one moment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
@@ -361,6 +367,7 @@ pub struct Scene {
     pub caption: Option<&'static str>,
     pub explorer: Option<Typed>,
     pub deck: Option<Deck>,
+    pub choosing: Option<Choosing>,
     /// The bell's count on the bar.
     pub bell: u8,
     /// The card of notifications held while typing, 0 to 1.
@@ -385,6 +392,7 @@ impl Scene {
             caption: None,
             explorer: None,
             deck: None,
+            choosing: None,
             bell: 0,
             digest: 0.0,
             typing: None,
@@ -538,6 +546,56 @@ fn press(keys: &'static str, beat: &Beat) -> Option<Press> {
         keys,
         glow: beat.glow,
     })
+}
+
+/// `r` with the tiles' gap taken off each side that meets a neighbour rather than the edge of the
+/// area.
+fn gapped(r: Rect) -> Rect {
+    let (left, top) = (r.x > 0.001, r.y > 0.001);
+    let (right, bottom) = (r.x + r.w < 0.999, r.y + r.h < 0.999);
+    let half = |on: bool, gap: f32| if on { gap / 2.0 } else { 0.0 };
+    Rect {
+        x: r.x + half(left, GAP_X),
+        y: r.y + half(top, GAP_Y),
+        w: r.w - half(left, GAP_X) - half(right, GAP_X),
+        h: r.h - half(top, GAP_Y) - half(bottom, GAP_Y),
+    }
+}
+
+/// Where the gravity lesson's four windows sit in each arrangement on Super+T's strip, in the
+/// strip's order: tiling, grid, centre, wide, spotlight. The windows are a terminal, a browser,
+/// an editor and files; the editor has the keyboard, so gravity arranges the rest round it.
+pub fn arrangements() -> [[Rect; 4]; 5] {
+    let at = |x: f32, y: f32, w: f32, h: f32| gapped(Rect { x, y, w, h });
+    let tiled = dwindle(4);
+    let third = 1.0 / 3.0;
+    [
+        [tiled[0], tiled[1], tiled[2], tiled[3]],
+        [
+            at(0.0, 0.0, 0.5, 0.5),
+            at(0.5, 0.0, 0.5, 0.5),
+            at(0.0, 0.5, 0.5, 0.5),
+            at(0.5, 0.5, 0.5, 0.5),
+        ],
+        [
+            at(0.0, 0.0, 0.205, 1.0),
+            at(0.795, 0.0, 0.205, 0.655),
+            at(0.205, 0.0, 0.59, 1.0),
+            at(0.795, 0.655, 0.205, 0.345),
+        ],
+        [
+            at(0.7, third, 0.3, third),
+            at(0.7, 0.0, 0.3, third),
+            at(0.0, 0.0, 0.7, 1.0),
+            at(0.7, 2.0 * third, 0.3, third),
+        ],
+        [
+            at(third, 0.75, third, 0.25),
+            at(0.0, 0.75, third, 0.25),
+            at(0.0, 0.0, 1.0, 0.75),
+            at(2.0 * third, 0.75, third, 0.25),
+        ],
+    ]
 }
 
 /// The three windows most lessons start from: a terminal down the left, a browser and an editor
@@ -707,45 +765,37 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene.key = press(keys, &b);
             scene
         }
-        // Tiling to gravity's centre, the browser moved into the centre, and back to tiling.
+        // Super+T turns gravity on round the editor and, with Super still down, shows the
+        // arrangements; each further T takes the next one; letting go of Super keeps it.
         6 => {
-            let tiled = dwindle(4);
-            let (side_top, side_bottom) = split_y(
-                Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: 0.2,
-                    h: 1.0,
-                },
-                0.5,
-            );
-            let centre = Rect {
-                x: 0.2 + GAP_X,
-                y: 0.0,
-                w: 0.6 - 2.0 * GAP_X,
-                h: 1.0,
-            };
-            let far = Rect {
-                x: 0.8,
-                y: 0.0,
-                w: 0.2,
-                h: 1.0,
-            };
-            // Terminal, browser, editor, files: the editor has the keyboard and takes the centre.
-            let gravity = [side_top, side_bottom, centre, far];
-            let swapped = [side_top, centre, side_bottom, far];
-            let swapped_tiled = [tiled[0], tiled[2], tiled[1], tiled[3]];
-            let (from, to, keys) = match b.index {
-                0 => (tiled.clone(), gravity.to_vec(), "Super+T"),
-                1 => (gravity.to_vec(), swapped.to_vec(), "Super+Alt+↓"),
-                _ => (swapped.to_vec(), swapped_tiled.to_vec(), "Super+T"),
+            let all = arrangements();
+            let (from, to) = match b.index {
+                0 => (0, 2),
+                1 => (2, 3),
+                2 => (3, 4),
+                _ => (4, 4),
             };
             let kinds = [Kind::Terminal, Kind::Browser, Kind::Editor, Kind::Files];
             let windows = (0..4)
-                .map(|n| win(kinds[n], tween(from[n], to[n], b.moved)))
+                .map(|n| win(kinds[n], tween(all[from][n], all[to][n], b.moved)))
                 .collect();
             let mut scene = Scene::desk(windows, Some(2));
-            scene.key = press(keys, &b);
+            // The strip comes up a moment after the first press, and goes as Super is let go.
+            let alpha = match (b.index, b.pressed) {
+                (0, false) => 0.0,
+                (0, true) => (b.moved * 2.0).min(1.0),
+                (3, true) => 1.0 - b.moved,
+                _ => 1.0,
+            };
+            scene.choosing = Some(Choosing {
+                selected: if b.pressed { to } else { from },
+                alpha,
+            });
+            match b.index {
+                0 => scene.key = press("Super+T", &b),
+                1 | 2 => scene.key = press("T", &b),
+                _ => scene.caption = Some("let go of Super"),
+            }
             scene
         }
         // Workspace 1 to 2 to 3 and home again, the screens sliding past.
@@ -1034,10 +1084,22 @@ pub fn scene(step: usize, t: f32) -> Scene {
     }
 }
 
-/// Where a key pressed during lesson `step` takes its loop, if it's one the lesson teaches: to
-/// the moment the miniature makes that move, so trying the key plays it at once. Anything else
-/// isn't the tour's to answer.
-pub fn practise(step: usize, action: &Action) -> Option<f32> {
+/// The beat a key that steps through a lesson plays next, pressed `t` of the way through its
+/// loop: the one after the beat it has just played, as far as `last`, or the first again.
+fn next_beat(step: usize, t: f32, last: usize) -> usize {
+    let beats = LESSONS.get(step).map_or(1, |lesson| lesson.beats);
+    let now = beat(t, beats);
+    if now.pressed && now.index < last {
+        now.index + 1
+    } else {
+        0
+    }
+}
+
+/// Where a key pressed during lesson `step`, `t` of the way through its loop, takes that loop,
+/// if it's one the lesson teaches: to the moment the miniature makes that move, so trying the
+/// key plays it at once. Anything else isn't the tour's to answer.
+pub fn practise(step: usize, action: &Action, t: f32) -> Option<f32> {
     let index = match (step, action) {
         (0, Action::Launch(App::Terminal)) => 1,
         (1, Action::Explorer) => 0,
@@ -1046,7 +1108,8 @@ pub fn practise(step: usize, action: &Action) -> Option<f32> {
         (4, Action::Resize(_)) => 0,
         (5, Action::Rotate { clockwise: true }) => 0,
         (5, Action::Rotate { clockwise: false }) => 1,
-        (6, Action::ToggleGravity) => 0,
+        // Each T with Super still held is the next arrangement along.
+        (6, Action::ToggleGravity) => next_beat(6, t, 2),
         (7, Action::Workspace(_) | Action::MoveToWorkspace(_)) => 0,
         (8, Action::BulletTime) => 0,
         (9, Action::CycleWindows { .. }) => 0,
@@ -1057,10 +1120,9 @@ pub fn practise(step: usize, action: &Action) -> Option<f32> {
         (11, Action::SwitchFloatingFocus) => 3,
         (12, Action::Minimise | Action::HideAll) => 0,
         (12, Action::Restore) => 2,
-        (13, Action::Dock) => 0,
+        // On the docked window, the key again is its next size.
+        (13, Action::Dock) => next_beat(13, t, 1),
         (13, Action::Undock) => 3,
-        // The card of everything that waited is what the centre's key has to show here.
-        (14, Action::NotificationCentre) => 3,
         _ => return None,
     };
     Some(press_at(step, index))
@@ -1119,11 +1181,6 @@ mod tests {
             assert!(
                 lesson.why.len() <= 330,
                 "{}: too long to read",
-                lesson.title
-            );
-            assert!(
-                !lesson.keys.is_empty(),
-                "{}: nothing to press",
                 lesson.title
             );
             // The card's prose face has no arrows: they belong on keycaps.
@@ -1220,17 +1277,17 @@ mod tests {
 
     #[test]
     fn trying_a_key_jumps_to_its_move() {
-        let t = practise(2, &Action::Focus(Direction::Right)).unwrap();
+        let t = practise(2, &Action::Focus(Direction::Right), 0.0).unwrap();
         assert!(scene(2, t).key.is_some_and(|key| key.glow > 0.99), "lit");
         assert_eq!(
-            practise(2, &Action::Minimise),
+            practise(2, &Action::Minimise, 0.0),
             None,
             "not this lesson's key"
         );
-        assert_eq!(practise(12, &Action::Restore), Some(press_at(12, 2)));
+        assert_eq!(practise(12, &Action::Restore, 0.0), Some(press_at(12, 2)));
         for step in 0..LESSONS.len() {
             for action in [Action::Explorer, Action::Maximise, Action::BulletTime] {
-                if let Some(t) = practise(step, &action) {
+                if let Some(t) = practise(step, &action, 0.0) {
                     assert!((0.0..1.0).contains(&t));
                 }
             }
@@ -1243,6 +1300,47 @@ mod tests {
         assert_eq!(scene(10, LESSONS[10].still).windows[2].at, FULL, "filled");
         assert!(scene(11, LESSONS[11].still).windows[1].floating, "floating");
         assert_eq!(scene(13, LESSONS[13].still).windows[4].dock, 1.0, "docked");
+        let gravity = scene(6, LESSONS[6].still);
+        assert!(
+            gravity.choosing.is_some_and(|strip| strip.alpha == 1.0),
+            "the arrangements on show"
+        );
+    }
+
+    #[test]
+    fn holding_super_and_tapping_t_goes_along_the_arrangements() {
+        let on = |t: f32| scene(6, t).choosing.unwrap();
+        assert_eq!(on(0.0).alpha, 0.0, "nothing shows before the key");
+        let mut t = practise(6, &Action::ToggleGravity, 0.0).unwrap();
+        let mut seen = vec![on(t).selected];
+        for _ in 0..2 {
+            t = practise(6, &Action::ToggleGravity, t).unwrap();
+            seen.push(on(t).selected);
+        }
+        assert_eq!(seen, [2, 3, 4], "centre, wide, spotlight");
+        let kept = scene(6, 1.0);
+        assert_eq!(
+            kept.choosing.unwrap().alpha,
+            0.0,
+            "the strip goes with Super"
+        );
+        assert_eq!(
+            kept.windows[2].at,
+            arrangements()[4][2],
+            "and the arrangement stays"
+        );
+        // Every arrangement gives the four windows the whole area between them.
+        for places in arrangements() {
+            let area: f32 = places.iter().map(|r| r.w * r.h).sum();
+            assert!(area > 0.93 && area <= 1.0, "{area}");
+        }
+    }
+
+    #[test]
+    fn the_dock_key_again_is_the_next_size() {
+        let first = practise(13, &Action::Dock, 0.0).unwrap();
+        assert_eq!(first, press_at(13, 0));
+        assert_eq!(practise(13, &Action::Dock, first), Some(press_at(13, 1)));
     }
 
     #[test]
@@ -1309,7 +1407,7 @@ mod tests {
                     }
                 };
                 assert!(
-                    practise(step, &action).is_some(),
+                    practise(step, &action, 0.0).is_some(),
                     "{}: {cap} would leave the tour and act on the real desktop",
                     lesson.title
                 );

@@ -353,7 +353,11 @@ impl Sheet {
         let Some(touring) = self.tour.as_mut() else {
             return false;
         };
-        let Some(t) = tour::practise(touring.step, action) else {
+        let length = tour::loop_secs(touring.step);
+        let at = touring
+            .held
+            .unwrap_or_else(|| ((now - touring.since).rem_euclid(length) / length) as f32);
+        let Some(t) = tour::practise(touring.step, action, at) else {
             return false;
         };
         touring.since = now - t as f64 * tour::loop_secs(touring.step);
@@ -623,7 +627,9 @@ fn paint_tour(look: &Look, step: usize, tried: bool) -> Option<Painted> {
 
     // Its keys, along the miniature's foot: to try now, on the miniature.
     let keys_y = sy + sh - paint::KEYCAP_H / 2.0 - 2.0;
-    p.text("TRY IT", cx, keys_y - 26.0, &panel::section_style());
+    if !lesson.keys.is_empty() {
+        p.text("TRY IT", cx, keys_y - 26.0, &panel::section_style());
+    }
     let mut key_x = cx;
     for key in lesson.keys {
         key_x += p.keycap(key, key_x, keys_y) + KEY_GAP;
