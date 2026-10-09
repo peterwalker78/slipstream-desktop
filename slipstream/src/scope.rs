@@ -78,6 +78,9 @@ const SWEEP: f64 = 0.6;
 const FLAT: f32 = 0.85;
 const DIMMEST: f32 = 0.25;
 const WAITING: f32 = 0.22;
+/// How much the waiting line brightens at the peak of its pulse, and how many pulses a second.
+const PULSE_SWING: f32 = 0.12;
+const PULSE_RATE: f64 = 0.5;
 
 /// One agent's readout.
 #[derive(Debug, Clone, PartialEq)]
@@ -326,7 +329,7 @@ impl Scope {
             .iter()
             .map(|t| ((t.colour.to_bits() as u64) << 32) | t.amp.to_bits() as u64)
             .collect();
-        let moving = !self.reduced_motion && traces.iter().any(|trace| trace.amp > 0.0);
+        let moving = !self.reduced_motion && traces.iter().any(|trace| trace.amp > 0.0 || trace.colour > 0.01);
         if levels != canvas.painted || (moving && now - canvas.painted_at >= STEP) {
             let Canvas { buffer, base, .. } = canvas;
             let size = (device.0 as usize, device.1 as usize);
@@ -399,6 +402,17 @@ fn plot(
         let rgb: [f32; 3] = std::array::from_fn(|c| AMBER[c] + (CYAN[c] - AMBER[c]) * trace.colour);
         let time = t.unwrap_or(0.0);
         let spot = (time * SWEEP + trace.pid as f64 * 0.37).fract() as f32;
+        // Pulse: a slow brightness breath on the waiting flat line. Fades in as the wave
+        // settles (amp drops) and out again as the trace goes amber (colour drops). Each
+        // agent has its own phase so multiple waiting traces don't breathe in lock-step.
+        let pulse_strength = (trace.colour - trace.amp).max(0.0);
+        let pulse = if pulse_strength > 0.0 && t.is_some() {
+            let phase = (trace.pid as f64 * 0.53) % std::f64::consts::TAU;
+            let beat = (time * std::f64::consts::TAU * PULSE_RATE + phase).sin() as f32 * 0.5 + 0.5;
+            PULSE_SWING * beat * pulse_strength
+        } else {
+            0.0
+        };
         let mut before = None;
         let mut x = left;
         while x <= right {
@@ -413,10 +427,10 @@ fn plot(
                 }
                 None => 0.85,
             };
-            // Waiting: dim cyan flat (WAITING alpha). Stopped: amber flat (FLAT alpha).
-            // Working: normal cyan wave with sweep. Transitions blend continuously.
+            // Waiting: dim cyan flat (WAITING alpha) with a slow pulse. Stopped: amber flat
+            // (FLAT alpha). Working: normal cyan wave with sweep. Blends continuously.
             let base_flat = FLAT + (WAITING - FLAT) * trace.colour;
-            let alpha = base_flat + (lit - base_flat) * trace.amp;
+            let alpha = base_flat + (lit - base_flat) * trace.amp + pulse;
             // Dots fill the climb from the last column, so a steep wave stays one line.
             let from = before.unwrap_or(y);
             let mut at = from.min(y);
@@ -511,8 +525,8 @@ mod tests {
         let (wait_px, wait_rows) = rows(1.0, 0.0, Some(0.0));
         let (wait_px2, _) = rows(1.0, 0.0, Some(0.5));
         assert_eq!(wait_rows.len(), DOT as usize, "waiting is a flat line");
-        assert_eq!(wait_px, wait_px2, "and still");
-        // Dimmer than the stopped amber line.
+        assert_ne!(wait_px, wait_px2, "waiting line pulses");
+        // Dimmer than the stopped amber line even at the pulse's peak.
         let stop_alpha = rows(0.0, 0.0, Some(0.0)).0.chunks_exact(4)
             .find(|p| p[3] > 0).unwrap()[3];
         let wait_alpha = wait_px.chunks_exact(4)
