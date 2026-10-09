@@ -1,5 +1,5 @@
 //! The tour (Super+/, then Enter): what tiling is, why this desktop works the way it does, and
-//! what it does that others don't, in sixteen short lessons, each one drawn happening.
+//! the places a window can be besides a tile, in sixteen short lessons, each one drawn happening.
 //!
 //! Someone coming from overlapping windows doesn't get stuck because there are too many keys.
 //! They get stuck because the desktop does something they didn't ask for — a second window opens
@@ -17,7 +17,13 @@
 use crate::keys::{Action, App};
 
 /// The parts the lessons are grouped into, named across the top of the card.
-pub const CHAPTERS: [&str; 4] = ["Basics", "Arranging", "Getting around", "Why Slipstream"];
+pub const CHAPTERS: [&str; 5] = [
+    "Basics",
+    "Arranging",
+    "Getting around",
+    "Beyond the tiles",
+    "Good to know",
+];
 
 /// One lesson.
 pub struct Lesson {
@@ -77,17 +83,6 @@ pub const LESSONS: [Lesson; 16] = [
         still: 0.34,
     },
     Lesson {
-        chapter: 0,
-        title: "Your Windows keys still work",
-        why: "Alt+Tab deals your windows as a deck of glass, each Tab sending the front one to the \
-              back. Alt+F4 closes a window, and the rest close up the gap it leaves. Super+L \
-              locks, Super+E opens your files and Print takes a screenshot.",
-        habit: None,
-        keys: &["Alt+Tab", "Alt+F4"],
-        beats: 4,
-        still: 0.3,
-    },
-    Lesson {
         chapter: 1,
         title: "Move a window, not the mouse",
         why: "Hold Alt as well and the window comes with you, swapping places with its neighbour. \
@@ -120,28 +115,6 @@ pub const LESSONS: [Lesson; 16] = [
         keys: &["Super+R", "Super+Shift+R"],
         beats: 2,
         still: 0.5,
-    },
-    Lesson {
-        chapter: 1,
-        title: "One thing at a time",
-        why: "Super+F lets a window fill the whole area while you concentrate on it. Press it \
-              again and everything is back exactly where it was, because nothing else was closed \
-              or moved.",
-        habit: Some("Maximise, without losing the layout underneath."),
-        keys: &["Super+F"],
-        beats: 2,
-        still: 0.5,
-    },
-    Lesson {
-        chapter: 1,
-        title: "Dialogs float",
-        why: "Save dialogs, splash screens and picture-in-picture float above the tiles, centred \
-              over the window they belong to, because squeezing a dialog into a tile helps \
-              nobody. Super+Shift+V floats any window, or tiles it again.",
-        habit: None,
-        keys: &["Super+Shift+V"],
-        beats: 4,
-        still: 0.75,
     },
     Lesson {
         chapter: 1,
@@ -180,6 +153,47 @@ pub const LESSONS: [Lesson; 16] = [
     },
     Lesson {
         chapter: 2,
+        title: "Back to the one before",
+        why: "Alt+Tab deals every open window as a deck of glass, the latest in front, whichever \
+              workspace it's on. One quick tap flips between the two you're working in. Hold Alt \
+              and keep tapping Tab to go further back, and let go when the one you want is at \
+              the front.",
+        habit: Some(
+            "Alt+Tab as you know it. Alt+F4, Super+L, Super+E and Print are where you left \
+                     them too.",
+        ),
+        keys: &["Alt+Tab"],
+        beats: 3,
+        still: 0.3,
+    },
+    Lesson {
+        chapter: 3,
+        title: "One thing at a time",
+        why: "Super+F lets a window fill the whole area while you concentrate on it. Press it \
+              again and everything is back exactly where it was, because nothing else was closed \
+              or moved.",
+        habit: Some("Maximise, without losing the layout underneath."),
+        keys: &["Super+F"],
+        beats: 2,
+        still: 0.5,
+    },
+    Lesson {
+        chapter: 3,
+        title: "Lift a window off the tiles",
+        why: "A calculator, a video or a chat you only glance at doesn't want a tile. \
+              Super+Shift+V lifts a window off to float above the rest, and again puts it back. \
+              While it floats, Super+Alt+arrows nudge it and Super+[ and ] resize it. \
+              Super+Ctrl+V takes the keyboard down to the tiles, and back up.",
+        habit: Some(
+            "The kind of window Windows has. Hold Super and drag to move it with the \
+                     mouse.",
+        ),
+        keys: &["Super+Shift+V", "Super+Ctrl+V"],
+        beats: 4,
+        still: 0.5,
+    },
+    Lesson {
+        chapter: 3,
         title: "Out of sight, still running",
         why: "Super+M pours a window into a stream at the edge of the screen instead of a taskbar. \
               The stream is a live readout of its app: slow and grey while it's idle, fast and \
@@ -192,6 +206,19 @@ pub const LESSONS: [Lesson; 16] = [
     },
     Lesson {
         chapter: 3,
+        title: "Keep one window in view",
+        why: "A build, a call or a video is for watching, not working in. Super+W hangs the \
+              window from the bar as a pane of glass, in front of every workspace; again gives \
+              the next of three sizes. Its strip in the bar shows how busy it is, as a stream \
+              does. Super+Up from the top row puts the keyboard in it, and Super+Shift+W brings \
+              it down.",
+        habit: Some("Always on top, for one window, on every desktop at once."),
+        keys: &["Super+W", "Super+Shift+W"],
+        beats: 4,
+        still: 0.5,
+    },
+    Lesson {
+        chapter: 4,
         title: "Nothing breaks your concentration",
         why: "Most desktops let any app interrupt you mid-sentence. Here, notifications that \
               arrive while you're typing wait for a natural pause and then come as one card, and \
@@ -203,18 +230,7 @@ pub const LESSONS: [Lesson; 16] = [
         still: 0.9,
     },
     Lesson {
-        chapter: 3,
-        title: "Yours, on any Linux",
-        why: "No accounts and no telemetry. Settings take effect the moment you change them, and \
-              are kept in one plain text file you can read, copy or keep with your dotfiles. The \
-              same desktop runs on any distribution, with the apps and tools you already use.",
-        habit: None,
-        keys: &["Super+I"],
-        beats: 2,
-        still: 0.5,
-    },
-    Lesson {
-        chapter: 3,
+        chapter: 4,
         title: "Every key, one press away",
         why: "You don't need to remember any of this. Super+/ lists every key, and typing narrows \
               the list to what you're after. Enter there brings this tour back, and an empty \
@@ -250,11 +266,6 @@ pub enum Kind {
     Files,
     Music,
     Chat,
-    Settings,
-    /// A terminal showing the settings file.
-    Config,
-    /// A save dialog.
-    Dialog,
 }
 
 impl Kind {
@@ -267,9 +278,6 @@ impl Kind {
             Kind::Files => "Documents",
             Kind::Music => "Night Drive — Music",
             Kind::Chat => "Messages",
-            Kind::Settings => "Settings",
-            Kind::Config => "Terminal — ~/.config/slipstream",
-            Kind::Dialog => "Save as",
         }
     }
 }
@@ -294,6 +302,9 @@ pub struct Win {
     pub workspace: u8,
     /// Floating above the tiles, with a shadow.
     pub floating: bool,
+    /// How far up to the bar it is: 0 among the windows, 1 hanging from the bar in front of
+    /// every workspace.
+    pub dock: f32,
     /// Its letter in bullet time.
     pub label: Option<char>,
 }
@@ -356,9 +367,9 @@ pub struct Scene {
     pub digest: f32,
     /// How much of the terminal's command has been typed, if it's being typed.
     pub typing: Option<f32>,
-    /// The switch being flipped in Settings, 0 off to 1 on.
-    pub switch: f32,
     pub sheet: Option<Typed>,
+    /// The docked window's strip in the bar: its app, how busy it is and how far it has opened.
+    pub slot: Option<Stream>,
 }
 
 impl Scene {
@@ -377,8 +388,8 @@ impl Scene {
             bell: 0,
             digest: 0.0,
             typing: None,
-            switch: 0.0,
             sheet: None,
+            slot: None,
         }
     }
 }
@@ -506,7 +517,19 @@ fn win(kind: Kind, at: Rect) -> Win {
         alpha: 1.0,
         workspace: 0,
         floating: false,
+        dock: 0.0,
         label: None,
+    }
+}
+
+/// Where a docked window hangs at `w` by `h` of the tiling area: under the bar, at the right-hand
+/// end.
+fn hung(w: f32, h: f32) -> Rect {
+    Rect {
+        x: 1.0 - w,
+        y: 0.0,
+        w,
+        h,
     }
 }
 
@@ -633,54 +656,8 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene.key = press(keys, &b);
             scene
         }
-        // Alt+Tab deals the deck twice, Alt lets go on the terminal, then Alt+F4 closes it.
-        3 => {
-            let mut windows = three();
-            let mut scene;
-            match b.index {
-                0 => {
-                    scene = Scene::desk(windows, Some(2));
-                    if b.pressed {
-                        scene.deck = Some(Deck {
-                            order: vec![2, 1, 0],
-                            turn: b.moved,
-                            alpha: (b.moved * 3.0).clamp(0.2, 1.0),
-                        });
-                    }
-                    scene.key = press("Alt+Tab", &b);
-                }
-                1 => {
-                    scene = Scene::desk(windows, Some(2));
-                    scene.deck = Some(Deck {
-                        order: vec![1, 0, 2],
-                        turn: if b.pressed { b.moved } else { 0.0 },
-                        alpha: 1.0,
-                    });
-                    scene.key = press("Tab", &b);
-                }
-                2 => {
-                    scene = Scene::desk(windows, Some(if b.pressed { 0 } else { 2 }));
-                    scene.deck = Some(Deck {
-                        order: vec![0, 2, 1],
-                        turn: 0.0,
-                        alpha: if b.pressed { 1.0 - b.moved } else { 1.0 },
-                    });
-                    scene.caption = Some("let go of Alt");
-                }
-                _ => {
-                    let (top, bottom) = split_y(FULL, 0.5);
-                    windows[0].alpha = if b.pressed { 1.0 - b.moved } else { 1.0 };
-                    windows[0].at = shrunk(windows[0].at, 0.08 * b.moved);
-                    windows[1].at = tween(windows[1].at, top, b.moved);
-                    windows[2].at = tween(windows[2].at, bottom, b.moved);
-                    scene = Scene::desk(windows, Some(if b.pressed { 1 } else { 0 }));
-                    scene.key = press("Alt+F4", &b);
-                }
-            }
-            scene
-        }
         // The terminal swaps its way right, down, then back left.
-        4 => {
+        3 => {
             let p = dwindle(3);
             let places = [
                 [p[0], p[1], p[2]],
@@ -698,7 +675,7 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene
         }
         // Three presses widen the terminal, the last one catching on two thirds.
-        5 => {
+        4 => {
             let ratios = [0.5, 0.55, 0.6, 2.0 / 3.0];
             let i = b.index.min(2);
             let ratio = between(ratios[i], ratios[i + 1], b.moved);
@@ -711,7 +688,7 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene
         }
         // A wide window across the top turns to run down the right, and back.
-        6 => {
+        5 => {
             let (top, bottom) = split_y(FULL, 0.5);
             let (bottom_left, bottom_right) = split_x(bottom, 0.5);
             let (left, right) = split_x(FULL, 0.5);
@@ -730,71 +707,8 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene.key = press(keys, &b);
             scene
         }
-        // The editor fills the area over the others, and goes back.
-        7 => {
-            let mut windows = three();
-            let (from, to) = match b.index {
-                0 => (windows[2].at, FULL),
-                _ => (FULL, windows[2].at),
-            };
-            windows[2].at = tween(from, to, b.moved);
-            let mut scene = Scene::desk(windows, Some(2));
-            scene.key = press("Super+F", &b);
-            scene
-        }
-        // A save dialog floats over its window and goes; then the browser floats, and tiles again.
-        8 => {
-            let (left, right) = split_x(FULL, 0.5);
-            let floated = Rect {
-                x: 0.24,
-                y: 0.12,
-                w: 0.52,
-                h: 0.76,
-            };
-            let dialog = Rect {
-                x: right.x + right.w * 0.16,
-                y: 0.3,
-                w: right.w * 0.68,
-                h: 0.36,
-            };
-            let mut windows = vec![win(Kind::Terminal, left), win(Kind::Browser, right)];
-            let mut scene;
-            match b.index {
-                0 | 1 => {
-                    let alpha = match (b.index, b.pressed) {
-                        (0, true) => b.moved,
-                        (0, false) => 0.0,
-                        (_, true) => 1.0 - b.moved,
-                        (_, false) => 1.0,
-                    };
-                    windows.push(Win {
-                        alpha,
-                        floating: true,
-                        ..win(Kind::Dialog, shrunk(dialog, 0.1 * (1.0 - alpha)))
-                    });
-                    let open = (b.index == 0) == b.pressed;
-                    scene = Scene::desk(windows, Some(if open { 2 } else { 1 }));
-                    scene.key = press(if b.index == 0 { "Ctrl+S" } else { "⏎" }, &b);
-                }
-                2 => {
-                    windows[0].at = tween(left, FULL, b.moved);
-                    windows[1].at = tween(right, floated, b.moved);
-                    windows[1].floating = b.pressed;
-                    scene = Scene::desk(windows, Some(1));
-                    scene.key = press("Super+Shift+V", &b);
-                }
-                _ => {
-                    windows[0].at = tween(FULL, left, b.moved);
-                    windows[1].at = tween(floated, right, b.moved);
-                    windows[1].floating = b.moved < 1.0;
-                    scene = Scene::desk(windows, Some(1));
-                    scene.key = press("Super+Shift+V", &b);
-                }
-            }
-            scene
-        }
         // Tiling to gravity's centre, the browser moved into the centre, and back to tiling.
-        9 => {
+        6 => {
             let tiled = dwindle(4);
             let (side_top, side_bottom) = split_y(
                 Rect {
@@ -835,7 +749,7 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene
         }
         // Workspace 1 to 2 to 3 and home again, the screens sliding past.
-        10 => {
+        7 => {
             let path = [(0u8, 1u8, "Super+2"), (1, 2, "Super+3"), (2, 0, "Super+1")];
             let (from, to, keys) = path[b.index.min(2)];
             let now = if b.pressed { to } else { from };
@@ -846,7 +760,7 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene
         }
         // Bullet time opens, F goes to the browser on 2, and Super+1 comes home.
-        11 => {
+        8 => {
             let mut scene = Scene::desk(workspaces(), Some(focused_on(0)));
             match b.index {
                 0 => {
@@ -869,6 +783,89 @@ pub fn scene(step: usize, t: f32) -> Scene {
                     scene.key = press("Super+1", &b);
                 }
             }
+            scene
+        }
+        // Alt+Tab deals the deck, Tab sends another round, and letting go of Alt lands on the
+        // terminal.
+        9 => {
+            let windows = three();
+            let mut scene;
+            match b.index {
+                0 => {
+                    scene = Scene::desk(windows, Some(2));
+                    if b.pressed {
+                        scene.deck = Some(Deck {
+                            order: vec![2, 1, 0],
+                            turn: b.moved,
+                            alpha: (b.moved * 3.0).clamp(0.2, 1.0),
+                        });
+                    }
+                    scene.key = press("Alt+Tab", &b);
+                }
+                1 => {
+                    scene = Scene::desk(windows, Some(2));
+                    scene.deck = Some(Deck {
+                        order: vec![1, 0, 2],
+                        turn: if b.pressed { b.moved } else { 0.0 },
+                        alpha: 1.0,
+                    });
+                    scene.key = press("Tab", &b);
+                }
+                _ => {
+                    scene = Scene::desk(windows, Some(if b.pressed { 0 } else { 2 }));
+                    scene.deck = Some(Deck {
+                        order: vec![0, 2, 1],
+                        turn: 0.0,
+                        alpha: if b.pressed { 1.0 - b.moved } else { 1.0 },
+                    });
+                    scene.caption = Some("let go of Alt");
+                }
+            }
+            scene
+        }
+        // The editor fills the area over the others, and goes back.
+        10 => {
+            let mut windows = three();
+            let (from, to) = match b.index {
+                0 => (windows[2].at, FULL),
+                _ => (FULL, windows[2].at),
+            };
+            windows[2].at = tween(from, to, b.moved);
+            let mut scene = Scene::desk(windows, Some(2));
+            scene.key = press("Super+F", &b);
+            scene
+        }
+        // The browser lifts off its tile and the editor takes the room; it is nudged across and
+        // made wider; then the keyboard goes down to the tiles under it.
+        11 => {
+            let tiled = dwindle(3);
+            let (_, right) = split_x(FULL, 0.5);
+            let lifted = Rect {
+                x: 0.46,
+                y: 0.12,
+                ..tiled[1]
+            };
+            let nudged = Rect { x: 0.22, ..lifted };
+            let wider = Rect {
+                w: nudged.w + 0.14,
+                ..nudged
+            };
+            let (from, to, keys) = match b.index {
+                0 => (tiled[1], lifted, "Super+Shift+V"),
+                1 => (lifted, nudged, "Super+Alt+←"),
+                2 => (nudged, wider, "Super+]"),
+                _ => (wider, wider, "Super+Ctrl+V"),
+            };
+            let mut windows = three();
+            windows[1].at = tween(from, to, b.moved);
+            windows[1].floating = b.index > 0 || b.pressed;
+            windows[2].at = match b.index {
+                0 => tween(tiled[2], right, b.moved),
+                _ => right,
+            };
+            let below = b.index == 3 && b.pressed;
+            let mut scene = Scene::desk(windows, Some(if below { 2 } else { 1 }));
+            scene.key = press(keys, &b);
             scene
         }
         // The busy terminal pours into the rain, then the idle browser, then the browser comes back.
@@ -927,9 +924,70 @@ pub fn scene(step: usize, t: f32) -> Scene {
             scene.key = press(keys, &b);
             scene
         }
+        // The terminal goes up to the bar and the others take its room; it grows a size; the
+        // workspace changes behind it; and it comes down among the windows it finds there.
+        13 => {
+            let tiled = dwindle(3);
+            let (top, bottom) = split_y(FULL, 0.5);
+            let (chat, music) = split_x(FULL, 0.42);
+            let (music_top, music_bottom) = split_y(music, 0.5);
+            let (small, medium) = (hung(0.26, 0.3), hung(0.36, 0.42));
+            let on_two = |mut w: Win| {
+                w.workspace = 1;
+                w
+            };
+            // The pane is last, in front of everything.
+            let mut windows = vec![
+                win(Kind::Browser, top),
+                win(Kind::Editor, bottom),
+                on_two(win(Kind::Chat, chat)),
+                on_two(win(Kind::Music, music)),
+                win(Kind::Terminal, medium),
+            ];
+            windows[4].dock = 1.0;
+            let mut scene;
+            match b.index {
+                0 => {
+                    windows[0].at = tween(tiled[1], top, b.moved);
+                    windows[1].at = tween(tiled[2], bottom, b.moved);
+                    windows[4].at = tween(tiled[0], small, b.moved);
+                    windows[4].dock = b.moved;
+                    scene = Scene::desk(windows, Some(4));
+                    scene.key = press("Super+W", &b);
+                }
+                1 => {
+                    windows[4].at = tween(small, medium, b.moved);
+                    scene = Scene::desk(windows, Some(4));
+                    scene.key = press("Super+W", &b);
+                }
+                2 => {
+                    scene = Scene::desk(windows, Some(if b.pressed { 3 } else { 4 }));
+                    scene.camera = b.moved;
+                    scene.bar_workspace = b.pressed as u8;
+                    scene.key = press("Super+2", &b);
+                }
+                _ => {
+                    windows[3].at = tween(music, music_top, b.moved);
+                    windows[4].at = tween(medium, music_bottom, b.moved);
+                    windows[4].dock = 1.0 - b.moved;
+                    windows[4].workspace = 1;
+                    scene = Scene::desk(windows, Some(if b.pressed { 4 } else { 3 }));
+                    scene.camera = 1.0;
+                    scene.bar_workspace = 1;
+                    scene.key = press("Super+Shift+W", &b);
+                }
+            }
+            let strip = scene.windows[4].dock;
+            scene.slot = (strip > 0.0).then_some(Stream {
+                kind: Kind::Terminal,
+                busy: 1.0,
+                open: strip,
+            });
+            scene
+        }
         // Typing, while three notifications arrive and only the bell counts them; then a pause, and
         // they come as one card.
-        13 => {
+        14 => {
             let (left, right) = split_x(FULL, 0.55);
             let mut scene = Scene::desk(
                 vec![win(Kind::Terminal, left), win(Kind::Browser, right)],
@@ -946,18 +1004,6 @@ pub fn scene(step: usize, t: f32) -> Scene {
                 scene.caption = Some("a pause");
                 scene.digest = b.moved;
             }
-            scene
-        }
-        // A switch flipped in Settings, and the line in the settings file changing with it.
-        14 => {
-            let (left, right) = split_x(FULL, 0.52);
-            let mut scene = Scene::desk(
-                vec![win(Kind::Settings, left), win(Kind::Config, right)],
-                Some(0),
-            );
-            let on = if b.pressed { b.moved } else { 0.0 };
-            scene.switch = if b.index == 0 { on } else { 1.0 - on };
-            scene.key = press("Space", &b);
             scene
         }
         // The key list opens over the windows, and typing narrows it.
@@ -996,19 +1042,25 @@ pub fn practise(step: usize, action: &Action) -> Option<f32> {
         (0, Action::Launch(App::Terminal)) => 1,
         (1, Action::Explorer) => 0,
         (2, Action::Focus(_)) => 0,
-        (3, Action::CycleWindows { .. }) => 0,
-        (3, Action::Close) => 3,
-        (4, Action::MoveTile(_)) => 0,
-        (5, Action::Resize(_)) => 0,
-        (6, Action::Rotate { clockwise: true }) => 0,
-        (6, Action::Rotate { clockwise: false }) => 1,
-        (7, Action::Maximise) => 0,
-        (8, Action::ToggleFloating) => 2,
-        (9, Action::ToggleGravity) => 0,
-        (10, Action::Workspace(_) | Action::MoveToWorkspace(_)) => 0,
-        (11, Action::BulletTime) => 0,
+        (3, Action::MoveTile(_)) => 0,
+        (4, Action::Resize(_)) => 0,
+        (5, Action::Rotate { clockwise: true }) => 0,
+        (5, Action::Rotate { clockwise: false }) => 1,
+        (6, Action::ToggleGravity) => 0,
+        (7, Action::Workspace(_) | Action::MoveToWorkspace(_)) => 0,
+        (8, Action::BulletTime) => 0,
+        (9, Action::CycleWindows { .. }) => 0,
+        (10, Action::Maximise) => 0,
+        (11, Action::ToggleFloating) => 0,
+        (11, Action::MoveTile(_)) => 1,
+        (11, Action::Resize(_)) => 2,
+        (11, Action::SwitchFloatingFocus) => 3,
         (12, Action::Minimise | Action::HideAll) => 0,
         (12, Action::Restore) => 2,
+        (13, Action::Dock) => 0,
+        (13, Action::Undock) => 3,
+        // The card of everything that waited is what the centre's key has to show here.
+        (14, Action::NotificationCentre) => 3,
         _ => return None,
     };
     Some(press_at(step, index))
@@ -1074,6 +1126,13 @@ mod tests {
                 "{}: nothing to press",
                 lesson.title
             );
+            // The card's prose face has no arrows: they belong on keycaps.
+            let prose = [lesson.title, lesson.why, lesson.habit.unwrap_or_default()].concat();
+            assert!(
+                !prose.contains(['←', '→', '↑', '↓', '⏎']),
+                "{}: a symbol the prose can't draw",
+                lesson.title
+            );
             assert!((0.0..=1.0).contains(&lesson.still));
         }
     }
@@ -1110,12 +1169,12 @@ mod tests {
 
     #[test]
     fn turning_the_layout_turns_it_a_quarter() {
-        let before = scene(6, 0.0);
+        let before = scene(5, 0.0);
         assert!(
             before.windows[0].at.w > before.windows[0].at.h,
             "wide across the top"
         );
-        let after = scene(6, 0.49);
+        let after = scene(5, 0.49);
         assert!(
             after.windows[0].at.h > after.windows[0].at.w,
             "tall down the side"
@@ -1125,7 +1184,7 @@ mod tests {
 
     #[test]
     fn resizing_catches_on_two_thirds() {
-        let end = scene(5, 1.0);
+        let end = scene(4, 1.0);
         let share = end.windows[0].at.w / (end.windows[0].at.w + end.windows[1].at.w);
         assert!((share - 2.0 / 3.0).abs() < 0.01, "{share}");
     }
@@ -1143,20 +1202,20 @@ mod tests {
 
     #[test]
     fn notifications_wait_for_the_pause() {
-        let typing = scene(13, 0.6);
+        let typing = scene(14, 0.6);
         assert!(typing.bell >= 2, "the bell counts them");
         assert_eq!(typing.digest, 0.0, "but nothing pops up");
-        let pause = scene(13, 1.0);
+        let pause = scene(14, 1.0);
         assert_eq!(pause.bell, 3);
         assert_eq!(pause.digest, 1.0);
     }
 
     #[test]
     fn workspaces_slide_and_the_bar_follows_the_press() {
-        let t = press_at(10, 0);
-        assert_eq!(scene(10, t - 0.01).bar_workspace, 0);
-        assert_eq!(scene(10, t + 0.001).bar_workspace, 1);
-        assert_eq!(scene(10, 0.333).camera, 1.0);
+        let t = press_at(7, 0);
+        assert_eq!(scene(7, t - 0.01).bar_workspace, 0);
+        assert_eq!(scene(7, t + 0.001).bar_workspace, 1);
+        assert_eq!(scene(7, 0.333).camera, 1.0);
     }
 
     #[test]
@@ -1180,8 +1239,81 @@ mod tests {
 
     #[test]
     fn reduced_motion_holds_what_the_lesson_is_about() {
-        assert_eq!(scene(7, LESSONS[7].still).windows[2].at, FULL, "filled");
-        assert!(scene(8, LESSONS[8].still).windows[1].floating, "floating");
-        assert!(scene(11, LESSONS[11].still).zoom > 0.99, "in bullet time");
+        assert!(scene(8, LESSONS[8].still).zoom > 0.99, "in bullet time");
+        assert_eq!(scene(10, LESSONS[10].still).windows[2].at, FULL, "filled");
+        assert!(scene(11, LESSONS[11].still).windows[1].floating, "floating");
+        assert_eq!(scene(13, LESSONS[13].still).windows[4].dock, 1.0, "docked");
+    }
+
+    #[test]
+    fn a_floated_window_leaves_its_tile_to_the_others() {
+        let before = scene(11, 0.0);
+        assert!(!before.windows[1].floating);
+        let after = scene(11, 0.24);
+        assert!(after.windows[1].floating);
+        assert!(
+            after.windows[2].at.h > before.windows[2].at.h,
+            "its neighbour takes the room"
+        );
+        let t = press_at(11, 3);
+        assert_eq!(scene(11, t - 0.01).focus, Some(1), "in the floating window");
+        assert_eq!(scene(11, t + 0.001).focus, Some(2), "down in the tiles");
+    }
+
+    #[test]
+    fn a_docked_window_stays_put_while_the_workspace_changes() {
+        let docked = scene(13, 0.5);
+        let away = scene(13, 0.74);
+        assert_eq!(away.camera, 1.0, "on the next workspace");
+        assert_eq!(away.windows[4].at, docked.windows[4].at);
+        assert_eq!(away.windows[4].dock, 1.0);
+        assert!(away.slot.is_some(), "its strip stays in the bar");
+        let small = scene(13, 0.24).windows[4].at;
+        assert!(docked.windows[4].at.w > small.w, "the next size is larger");
+        let down = scene(13, 1.0);
+        assert_eq!(down.windows[4].dock, 0.0);
+        assert_eq!(down.windows[4].workspace, 1, "down where it was looking");
+        assert!(down.slot.is_none());
+    }
+
+    /// The keys a keycap stands for: `Super+← → ↑ ↓` is four, `Super+1–9` nine.
+    fn spelled_out(cap: &str) -> Vec<String> {
+        let (mods, keys) = match cap.rfind('+') {
+            Some(plus) => cap.split_at(plus + 1),
+            None => ("", cap),
+        };
+        let keys = match keys {
+            "1–9" => (1..=9).map(|n| n.to_string()).collect(),
+            "⏎" => vec!["Enter".to_string()],
+            _ => keys.split(' ').map(str::to_string).collect::<Vec<_>>(),
+        };
+        keys.into_iter().map(|key| format!("{mods}{key}")).collect()
+    }
+
+    #[test]
+    fn a_lessons_keys_play_on_the_miniature_never_on_the_real_windows() {
+        let bindings = crate::keys::defaults();
+        for (step, lesson) in LESSONS.iter().enumerate() {
+            for cap in lesson.keys.iter().flat_map(|cap| spelled_out(cap)) {
+                let action = match cap.as_str() {
+                    // A tap, which is no binding.
+                    "Super" => Action::Explorer,
+                    // The key list is where the last lesson says this goes, tour or no tour.
+                    "Super+/" => continue,
+                    _ => {
+                        bindings
+                            .iter()
+                            .find(|b| crate::keys::label(b.mods, b.key) == cap)
+                            .unwrap_or_else(|| panic!("{}: {cap} is no key", lesson.title))
+                            .action
+                    }
+                };
+                assert!(
+                    practise(step, &action).is_some(),
+                    "{}: {cap} would leave the tour and act on the real desktop",
+                    lesson.title
+                );
+            }
+        }
     }
 }

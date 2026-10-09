@@ -4,6 +4,10 @@ Slipstream is in beta: anything can change between versions, including settings 
 
 ## Unreleased
 
+- **The tour teaches docking and floating, and reads in a better order.** Still sixteen lessons, now in five parts. Moving a window follows straight on from moving the keyboard; workspaces, bullet time and Alt+Tab come together; and a new part covers the places a window can be besides a tile: filling the screen, floating, in a stream, and docked to the bar. The floating lesson shows lifting a window, nudging and resizing it, and getting the keyboard back to the tiles. The docking lesson shows the pane staying put while the workspace changes behind it. The lessons on Windows' own keys and on where settings are kept are gone; what they said that wasn't obvious is a line elsewhere.
+- **Every key a lesson shows plays on the miniature.** Super+N on the concentration lesson used to leave the tour and open the real notification centre.
+- **Super+arrows lead out of a floating window.** With no other floating window that way they take the keyboard back to the tiles. Before, from a lone floating window they did nothing.
+- **Super+PgUp and Super+PgDn are no longer bound.** Under gravity Super+] and Super+[ already make a window heavier and lighter, and those are the keys the list shows. PgUp and PgDn still weigh the chosen window in bullet time.
 - **A window closing behind the docked pane stays behind it.** Its streaks or falling code poured over the front of the pane, and so did two tiles swapping places; both now pass behind the glass.
 
 ## 0.10.0 - 2026-10-09

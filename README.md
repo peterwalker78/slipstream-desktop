@@ -92,7 +92,7 @@ Slipstream puts your concentration first.
 
 <img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, the whole layout turning a quarter, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
 
-Press Super+/, then Enter. Sixteen short lessons take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to the ideas Slipstream is built on. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
+Press Super+/, then Enter. Sixteen short lessons take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to the other places a window can be: floating, in a stream at the edge, or docked to the bar. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
 
 ## Get Slipstream
 

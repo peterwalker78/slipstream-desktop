@@ -44,7 +44,6 @@ const WALL: u32 = 0x0b0d12ff;
 const CYAN: u32 = 0x56c7d9ff;
 const GREEN: u32 = 0x7fd962ff;
 const RED: u32 = 0xe8607aff;
-const VIOLET: u32 = 0xc678ddff;
 const ORANGE: u32 = 0xe5a05bff;
 const STRING: u32 = 0x98c379ff;
 const DIM: u32 = 0x6b7383ff;
@@ -76,14 +75,12 @@ fn clipped(p: &mut Painter, s: &str, x: f32, centre: f32, right: f32, style: &St
 /// The colour an app's icon is drawn in, wherever it's shown small.
 fn tint(kind: Kind) -> u32 {
     match kind {
-        Kind::Terminal | Kind::Config => 0x2f3542ff,
+        Kind::Terminal => 0x2f3542ff,
         Kind::Browser => 0x3b82f6ff,
         Kind::Editor => 0x7c5cffff,
         Kind::Files => 0x62a0eaff,
         Kind::Music => 0xe5566cff,
         Kind::Chat => 0x2fb67cff,
-        Kind::Settings => 0x8a93a3ff,
-        Kind::Dialog => 0x5b6270ff,
     }
 }
 
@@ -93,7 +90,7 @@ fn app_icon(p: &mut Painter, kind: Kind, x: f32, y: f32, size: f32, alpha: f32) 
     let ink = fade(0xffffffd8, alpha);
     let u = size / 10.0;
     match kind {
-        Kind::Terminal | Kind::Config => {
+        Kind::Terminal => {
             p.fill(x + 2.0 * u, y + 3.0 * u, 2.5 * u, 1.2 * u, 0.0, ink);
             p.fill(x + 5.0 * u, y + 6.2 * u, 3.0 * u, 1.2 * u, 0.0, ink);
         }
@@ -158,6 +155,18 @@ impl Frame {
         (x, y, at.w * aw * self.scale, at.h * ah * self.scale)
     }
 
+    /// A window on its way up to the bar, `dock` of the way there: it leaves the workspaces'
+    /// sliding behind, and rises the gap the tiles keep under the bar to hang from it.
+    fn hung(&self, at: Rect, dock: f32) -> (f32, f32, f32, f32) {
+        let (ax, ay, aw, ah) = self.area;
+        (
+            ax + at.x * aw,
+            ay + at.y * ah - EDGE * dock,
+            at.w * aw,
+            at.h * ah,
+        )
+    }
+
     /// A whole workspace's screen, on the stage.
     fn screen(&self, workspace: u8) -> (f32, f32, f32, f32) {
         let (x, y) = self.point(0.0, BAR_H, workspace);
@@ -189,31 +198,52 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
             p.border(x, y, sw, sh, 4.0, 1.0, edge);
         }
     }
-    // Tiles first, then whatever floats above them.
-    for floating in [false, true] {
+    // Tiles first, then whatever floats above them, then the pane docked in front of both.
+    for layer in 0..3 {
         for (index, win) in scene.windows.iter().enumerate() {
-            if win.floating != floating || win.alpha <= 0.01 {
+            let docked = win.dock > 0.0;
+            let its_layer = match (docked, win.floating) {
+                (true, _) => 2,
+                (false, true) => 1,
+                (false, false) => 0,
+            };
+            if its_layer != layer || win.alpha <= 0.01 {
                 continue;
             }
-            let (x, y, ww, wh) = frame.place(win.at, win.workspace);
+            let (x, y, ww, wh) = if docked {
+                frame.hung(win.at, win.dock)
+            } else {
+                frame.place(win.at, win.workspace)
+            };
             if x > w || x + ww < 0.0 || ww < 1.0 || wh < 1.0 {
                 continue;
             }
-            if floating {
+            if win.floating {
                 p.shadow(x, y, ww, wh, 4.0, 6.0, 14.0, fade(0x000000aa, win.alpha));
             }
-            window(
-                p,
-                win.kind,
-                x,
-                y,
-                ww,
-                wh,
-                frame.scale,
-                win.alpha,
-                scene,
-                look,
-            );
+            if docked {
+                // The bar's own material comes down round it, with a shadow on what is behind.
+                let rim = 2.0 * win.dock;
+                p.shadow(x, y, ww, wh, 4.0, 5.0, 12.0, fade(0x00000070, win.dock));
+                p.fill(
+                    x - rim,
+                    y,
+                    ww + 2.0 * rim,
+                    wh + rim,
+                    3.0,
+                    fade(WALL, win.dock),
+                );
+                p.border(
+                    x - rim,
+                    y,
+                    ww + 2.0 * rim,
+                    wh + rim,
+                    3.0,
+                    0.6,
+                    fade(0xffffff18, win.dock),
+                );
+            }
+            window(p, win.kind, x, y, ww, wh, frame.scale, win.alpha, scene);
             if scene.focus == Some(index) && scene.deck.is_none() {
                 p.border(
                     x - 1.0,
@@ -297,6 +327,9 @@ fn bar(p: &mut Painter, scene: &Scene, w: f32, look: &Look) {
     let x = x + p.text("09:41", x, centre, &clock) + 4.0;
     p.text("Tue 29 Sep", x, centre, &date);
     let ink = Some(panel::PROSE);
+    if let Some(strip) = &scene.slot {
+        slot(p, strip, scene, w - 106.0, look);
+    }
     p.icon(icons::WIFI, w - 64.0, 3.5, 8.0, ink);
     p.icon(icons::VOLUME, w - 54.0, 3.5, 8.0, ink);
     p.border(w - 43.0, 5.2, 8.0, 4.6, 1.0, 0.7, panel::PROSE);
@@ -315,6 +348,61 @@ fn bar(p: &mut Painter, scene: &Scene, w: f32, look: &Look) {
         let lw = text::width(&label, &count);
         p.text(&label, w - 5.5 - lw / 2.0, 4.8, &count);
     }
+}
+
+/// The docked window's strip in the bar, beside the tray: its stream laid on its side, running
+/// at the pace of its app's load, with the ring's colour round it while the keyboard is in the
+/// pane.
+fn slot(p: &mut Painter, strip: &Stream, scene: &Scene, x: f32, look: &Look) {
+    const W: f32 = 36.0;
+    const H: f32 = 9.0;
+    let open = strip.open.clamp(0.0, 1.0);
+    let (y, w) = ((BAR_H - H) / 2.0, W * open);
+    if w < 2.0 {
+        return;
+    }
+    p.fill(x, y, w, H, 2.0, fade(0x151a23ff, open));
+    let busy = strip.busy > 0.5;
+    let colour = if busy { RAIN_BUSY } else { RAIN_IDLE };
+    for n in 0..4 {
+        let depth = 0.55 + 0.45 * ((n * 7) % 4) as f32 / 3.0;
+        let length = 5.0 + 6.0 * depth;
+        let run = W + length;
+        let head = (look.secs * fall_speed(strip.busy) * depth + n as f32 * 23.0) % run;
+        let (from, to) = ((head - length).max(1.0), head.min(w - 1.0));
+        if to <= from {
+            continue;
+        }
+        let sy = y + 1.6 + 1.9 * n as f32;
+        p.fill(
+            x + from,
+            sy,
+            to - from,
+            0.9,
+            0.4,
+            fade(colour, open * 0.7 * depth),
+        );
+        if head < w - 1.0 {
+            p.fill(
+                x + head - 1.2,
+                sy - 0.2,
+                1.3,
+                1.3,
+                0.6,
+                fade(if busy { RAIN_HEAD } else { colour }, open * depth),
+            );
+        }
+    }
+    let keyboard_in_it = scene
+        .focus
+        .and_then(|index| scene.windows.get(index))
+        .is_some_and(|win| win.dock > 0.0);
+    let edge = if keyboard_in_it {
+        fade(look.ring | 0xff, open)
+    } else {
+        fade(0xffffff24, open)
+    };
+    p.border(x, y, w, H, 2.0, 0.7, edge);
 }
 
 /// Bullet time's letters, one on each window.
@@ -490,18 +578,14 @@ fn window(
     k: f32,
     alpha: f32,
     scene: &Scene,
-    look: &Look,
 ) {
     match kind {
         Kind::Terminal => terminal(p, x, y, w, h, k, alpha, scene.typing),
-        Kind::Config => config(p, x, y, w, h, k, alpha, scene.switch),
         Kind::Browser => browser(p, x, y, w, h, k, alpha),
         Kind::Editor => editor(p, x, y, w, h, k, alpha),
         Kind::Files => files(p, x, y, w, h, k, alpha),
         Kind::Music => music(p, x, y, w, h, k, alpha),
         Kind::Chat => chat(p, x, y, w, h, k, alpha),
-        Kind::Settings => settings(p, x, y, w, h, k, alpha, scene.switch, look.ring),
-        Kind::Dialog => dialog(p, x, y, w, h, k, alpha),
     }
 }
 
@@ -607,55 +691,6 @@ fn terminal(
             fade(0xe7ebf1d0, alpha),
         );
     }
-}
-
-/// A terminal showing the settings file, the line the switch changes lit as it changes.
-#[allow(clippy::too_many_arguments)]
-fn config(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32, switch: f32) {
-    p.fill(x, y, w, h, 0.0, fade(0x1d2026ff, alpha));
-    let on = if switch > 0.5 { "true" } else { "false" };
-    let changing = 1.0 - (switch - 0.5).abs() * 2.0;
-    let lit_y = y + 7.0 * k + 2.0 * 8.6 * k;
-    p.fill(
-        x + 2.0 * k,
-        lit_y - 4.3 * k,
-        w - 4.0 * k,
-        8.6 * k,
-        1.5 * k,
-        fade(0xffffff10, alpha * (0.4 + 0.6 * changing)),
-    );
-    let rows: &[&[Span]] = &[
-        &[
-            ("~/.config/slipstream", CYAN),
-            DOLLAR,
-            ("cat settings.toml", TERMINAL_INK),
-        ],
-        &[("[motion]", VIOLET)],
-        &[("reduced", TERMINAL_INK), (" = ", DIM), (on, ORANGE)],
-        &[
-            ("effects", TERMINAL_INK),
-            (" = ", DIM),
-            ("\"slipstream\"", STRING),
-        ],
-        &[
-            ("close-into-rain", TERMINAL_INK),
-            (" = ", DIM),
-            ("true", ORANGE),
-        ],
-        &[],
-        &[("[notifications]", VIOLET)],
-        &[
-            ("wait-while-typing", TERMINAL_INK),
-            (" = ", DIM),
-            ("true", ORANGE),
-        ],
-        &[
-            ("longest-wait-mins", TERMINAL_INK),
-            (" = ", DIM),
-            ("15", ORANGE),
-        ],
-    ];
-    lines(p, x, y, w, h, k, alpha, rows);
 }
 
 /// Lines of prose as grey bars, `widths` long in shares of `w`, as many as fit above `bottom`.
@@ -1171,195 +1206,6 @@ fn chat(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn settings(
-    p: &mut Painter,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    k: f32,
-    alpha: f32,
-    switch: f32,
-    ring: u32,
-) {
-    const PAGES: [&str; 8] = [
-        "Appearance",
-        "Wallpaper",
-        "Workspaces",
-        "Notifications",
-        "Screens",
-        "Sound",
-        "Power",
-        "Privacy",
-    ];
-    p.fill(x, y, w, h, 0.0, fade(0x1e2127ff, alpha));
-    let side = (w * 0.34).min(70.0 * k);
-    p.fill(x, y, side, h, 0.0, fade(0x17191eff, alpha));
-    let mut sy = y + 10.0 * k;
-    let page = style(Face::Body, 6.2 * k, panel::PROSE, alpha);
-    for (n, name) in PAGES.iter().enumerate() {
-        if sy + 4.0 * k > y + h {
-            break;
-        }
-        if n == 0 {
-            p.fill(
-                x + 3.0 * k,
-                sy - 4.5 * k,
-                side - 6.0 * k,
-                9.0 * k,
-                2.5 * k,
-                fade(0xffffff14, alpha),
-            );
-        }
-        clipped(p, name, x + 7.0 * k, sy, x + side - 3.0 * k, &page);
-        sy += 11.0 * k;
-    }
-    let mx = x + side + 9.0 * k;
-    let right = x + w - 9.0 * k;
-    if right - mx < 40.0 * k {
-        return;
-    }
-    clipped(
-        p,
-        "Appearance",
-        mx,
-        y + 11.0 * k,
-        right,
-        &style(Face::BodyBold, 8.5 * k, panel::BRIGHT, alpha),
-    );
-    clipped(
-        p,
-        "MOTION",
-        mx,
-        y + 25.0 * k,
-        right,
-        &style(Face::MonoBold, 5.0 * k, panel::TERTIARY, alpha),
-    );
-    let row_h = 16.0 * k;
-    let rows: [(&str, Option<f32>); 3] = [
-        ("Reduced motion", Some(switch)),
-        ("Effects", None),
-        ("Close into the rain", Some(1.0)),
-    ];
-    let card_y = y + 31.0 * k;
-    let card_h = row_h * rows.len() as f32;
-    if card_y + card_h > y + h {
-        return;
-    }
-    p.fill(
-        mx,
-        card_y,
-        right - mx,
-        card_h,
-        4.0 * k,
-        fade(0x262a31ff, alpha),
-    );
-    let label = style(Face::Body, 6.2 * k, panel::INK, alpha);
-    for (n, (name, on)) in rows.iter().enumerate() {
-        let cy = card_y + row_h * (n as f32 + 0.5);
-        if n > 0 {
-            p.fill(
-                mx + 6.0 * k,
-                cy - row_h / 2.0,
-                right - mx - 12.0 * k,
-                0.5 * k,
-                0.0,
-                fade(0xffffff12, alpha),
-            );
-        }
-        clipped(p, name, mx + 7.0 * k, cy, right - 30.0 * k, &label);
-        match on {
-            Some(on) => {
-                let (tw, th) = (15.0 * k, 8.0 * k);
-                let tx = right - 7.0 * k - tw;
-                let off = 0x4a505cff;
-                p.fill(tx, cy - th / 2.0, tw, th, th / 2.0, fade(off, alpha));
-                p.fill(
-                    tx,
-                    cy - th / 2.0,
-                    tw,
-                    th,
-                    th / 2.0,
-                    fade(ring | 0xff, alpha * on),
-                );
-                let knob = th - 2.0 * k;
-                let kx = tx + 1.0 * k + (tw - th) * on;
-                p.fill(
-                    kx,
-                    cy - knob / 2.0,
-                    knob,
-                    knob,
-                    knob / 2.0,
-                    fade(0xffffffff, alpha),
-                );
-            }
-            None => {
-                let value = style(Face::Body, 6.0 * k, panel::SECONDARY, alpha);
-                let vw = text::width("Slipstream", &value);
-                p.text("Slipstream", right - 7.0 * k - vw, cy, &value);
-            }
-        }
-    }
-}
-
-fn dialog(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
-    p.fill(x, y, w, h, 4.0 * k, fade(0x272b33ff, alpha));
-    p.border(x, y, w, h, 4.0 * k, 0.8, fade(0xffffff24, alpha));
-    let right = x + w - 7.0 * k;
-    clipped(
-        p,
-        "Save as",
-        x + 7.0 * k,
-        y + 9.0 * k,
-        right,
-        &style(Face::BodyBold, 7.0 * k, panel::BRIGHT, alpha),
-    );
-    let field_y = y + 17.0 * k;
-    p.fill(
-        x + 7.0 * k,
-        field_y,
-        w - 14.0 * k,
-        10.0 * k,
-        2.5 * k,
-        fade(0x1b1e23ff, alpha),
-    );
-    clipped(
-        p,
-        "reading-notes.pdf",
-        x + 10.0 * k,
-        field_y + 5.0 * k,
-        right - 3.0 * k,
-        &style(Face::Mono, 5.5 * k, panel::INK, alpha),
-    );
-    let buttons_y = y + h - 14.0 * k;
-    if buttons_y > field_y + 12.0 * k {
-        let words = style(Face::Body, 5.8 * k, panel::BRIGHT, alpha);
-        let save_w = text::width("Save", &words) + 10.0 * k;
-        let cancel_w = text::width("Cancel", &words) + 10.0 * k;
-        let save_x = right - save_w;
-        let cancel_x = save_x - 4.0 * k - cancel_w;
-        p.fill(
-            cancel_x,
-            buttons_y,
-            cancel_w,
-            9.0 * k,
-            2.5 * k,
-            fade(0x3a3f49ff, alpha),
-        );
-        p.text("Cancel", cancel_x + 5.0 * k, buttons_y + 4.5 * k, &words);
-        p.fill(
-            save_x,
-            buttons_y,
-            save_w,
-            9.0 * k,
-            2.5 * k,
-            fade(0x3584e4ff, alpha),
-        );
-        p.text("Save", save_x + 5.0 * k, buttons_y + 4.5 * k, &words);
-    }
-}
-
 /// Alt+Tab's deck: the windows as panes of glass stacked in depth, the front one going round to
 /// the back as Tab is pressed.
 fn deal(p: &mut Painter, deck: &Deck, scene: &Scene, frame: &Frame, look: &Look) {
@@ -1407,7 +1253,7 @@ fn deal(p: &mut Painter, deck: &Deck, scene: &Scene, frame: &Frame, look: &Look)
         let y = cy - ph / 2.0 - spread * 30.0 + dip;
         // Panes are solid glass: the ones further back are darker, not see-through.
         let alpha = deck.alpha;
-        window_pane(p, win.kind, x, y, pw, ph, k, alpha, scene, look);
+        window_pane(p, win.kind, x, y, pw, ph, k, alpha, scene);
         p.fill(
             x,
             y,
@@ -1436,10 +1282,9 @@ fn window_pane(
     k: f32,
     alpha: f32,
     scene: &Scene,
-    look: &Look,
 ) {
     p.shadow(x, y, w, h, 3.0, 5.0, 12.0, fade(0x000000aa, alpha));
-    window(p, kind, x, y, w, h, k, alpha, scene, look);
+    window(p, kind, x, y, w, h, k, alpha, scene);
 }
 
 /// The app explorer, as tapping Super opens it: a search box, and what it finds.
@@ -1742,7 +1587,7 @@ mod tests {
 
     #[test]
     fn workspaces_sit_side_by_side_and_bullet_time_shrinks_them() {
-        let mut scene = tour::scene(10, 0.0);
+        let mut scene = tour::scene(7, 0.0);
         scene.camera = 0.0;
         let frame = Frame::new(WIDTH, HEIGHT, &scene);
         let (first, ..) = frame.screen(0);
