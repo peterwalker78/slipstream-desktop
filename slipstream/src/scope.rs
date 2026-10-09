@@ -1,10 +1,11 @@
 //! The traces the faded desktop shows for AI agents at work: one small oscilloscope readout for
 //! each, stacked down the right edge of the wallpaper.
 //!
-//! A trace is a wave in cyan while its agent works, and settles into a flat amber line when the
-//! agent stops. The difference is one of kind, moving against still, so it reads from across a
-//! room without comparing anything. Each agent's wave has a shape of its own, under what the
-//! agent says to call it.
+//! A trace is a wave in cyan while its agent works, dims to a flat cyan line while the agent
+//! waits on a subagent to return, and settles into a flat amber line when the agent has stopped.
+//! The wave and the waiting flat share a colour; the amber flat is clearly different, so all
+//! three read without comparing anything. Each agent's wave has a shape of its own, under what
+//! the agent says to call it.
 //!
 //! They are only on screen once the desktop has faded to the wallpaper, and only for agents that
 //! have worked since the desk was last touched: one that was already idle has no trace, and a
@@ -13,7 +14,7 @@
 //! here draws.
 //!
 //! Reduced motion keeps the same picture without the movement: a standing wave for an agent at
-//! work, a flat line for one that has stopped.
+//! work, a flat dim line for one that is waiting, and a flat line for one that has stopped.
 
 use std::collections::HashMap;
 
@@ -60,7 +61,7 @@ const PITCH: f64 = 3.0;
 const BACKING: u32 = 0x0b0e13b8;
 const BACKING_RADIUS: f32 = 7.0;
 const NAME: u32 = 0xaab2c0ff;
-/// At work, and stopped.
+/// At work, waiting, and stopped.
 const CYAN: [f32; 3] = [51.0, 204.0, 255.0];
 const AMBER: [f32; 3] = [255.0, 181.0, 71.0];
 
@@ -73,9 +74,10 @@ const LEAVE: f64 = 0.15;
 const STEP: f64 = 1.0 / 30.0;
 /// How many times a second the bright spot crosses a trace.
 const SWEEP: f64 = 0.6;
-/// How bright a flat line is, and a wave where the spot passed longest ago.
+/// How bright a flat line is, a wave where the spot passed longest ago, and a waiting flat line.
 const FLAT: f32 = 0.85;
 const DIMMEST: f32 = 0.25;
+const WAITING: f32 = 0.22;
 
 /// One agent's readout.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,10 +85,13 @@ struct Trace {
     pid: u32,
     name: String,
     working: bool,
+    waiting: bool,
     /// Stopped, and the desk has been touched since: it goes once it is out of sight.
     seen: bool,
-    /// 1 as a full wave, 0 flat.
-    level: f32,
+    /// Colour level, animating 0 (amber) to 1 (cyan): cyan while working or waiting, amber once stopped.
+    colour: f32,
+    /// Wave amplitude, animating 0 (flat) to 1 (full wave): wave only while working and not waiting.
+    amp: f32,
 }
 
 impl Trace {
@@ -156,8 +161,8 @@ struct Canvas {
     /// The backings and names, which the traces are drawn over afresh each time.
     base: Vec<u8>,
     names: Vec<String>,
-    /// Every trace's level when it was last painted, and when that was.
-    painted: Vec<u32>,
+    /// Every trace's colour and amp packed together when last painted, and when that was.
+    painted: Vec<u64>,
     painted_at: f64,
 }
 
@@ -190,6 +195,7 @@ impl Scope {
             // What it is called can change as its work does. A stopped one keeps its last name.
             if let Some(agent) = agent {
                 trace.seen = false;
+                trace.waiting = agent.waiting;
                 trace.name.clone_from(&agent.name);
             }
         }
@@ -199,8 +205,10 @@ impl Scope {
                     pid: agent.pid,
                     name: agent.name.clone(),
                     working: true,
+                    waiting: agent.waiting,
                     seen: false,
-                    level: 1.0,
+                    colour: 1.0,
+                    amp: if agent.waiting { 0.0 } else { 1.0 },
                 });
             }
         }
@@ -234,13 +242,19 @@ impl Scope {
             self.shown = (self.shown - (dt / LEAVE) as f32).max(0.0);
         }
         for trace in &mut self.traces {
-            let target = if trace.working { 1.0 } else { 0.0 };
+            let colour_target = if trace.working { 1.0 } else { 0.0 };
+            let amp_target = if trace.working && !trace.waiting { 1.0 } else { 0.0 };
             if self.reduced_motion {
-                trace.level = target;
+                trace.colour = colour_target;
+                trace.amp = amp_target;
             } else {
-                trace.level += (target - trace.level) * (dt as f32 * SETTLE).min(1.0);
-                if (target - trace.level).abs() < 0.002 {
-                    trace.level = target;
+                trace.colour += (colour_target - trace.colour) * (dt as f32 * SETTLE).min(1.0);
+                if (colour_target - trace.colour).abs() < 0.002 {
+                    trace.colour = colour_target;
+                }
+                trace.amp += (amp_target - trace.amp) * (dt as f32 * SETTLE).min(1.0);
+                if (amp_target - trace.amp).abs() < 0.002 {
+                    trace.amp = amp_target;
                 }
             }
         }
@@ -308,8 +322,11 @@ impl Scope {
             );
         }
         let canvas = self.canvases.get_mut(output)?;
-        let levels: Vec<u32> = traces.iter().map(|trace| trace.level.to_bits()).collect();
-        let moving = !self.reduced_motion && traces.iter().any(|trace| trace.level > 0.0);
+        let levels: Vec<u64> = traces
+            .iter()
+            .map(|t| ((t.colour.to_bits() as u64) << 32) | t.amp.to_bits() as u64)
+            .collect();
+        let moving = !self.reduced_motion && traces.iter().any(|trace| trace.amp > 0.0);
         if levels != canvas.painted || (moving && now - canvas.painted_at >= STEP) {
             let Canvas { buffer, base, .. } = canvas;
             let size = (device.0 as usize, device.1 as usize);
@@ -379,14 +396,14 @@ fn plot(
         let top = px(i as i32 * fit.pitch() + PAD + LABEL);
         let middle = top + px(fit.trace) / 2;
         let swing = (px(fit.trace) / 2 - pitch).max(0) as f32;
-        let rgb: [f32; 3] = std::array::from_fn(|c| AMBER[c] + (CYAN[c] - AMBER[c]) * trace.level);
+        let rgb: [f32; 3] = std::array::from_fn(|c| AMBER[c] + (CYAN[c] - AMBER[c]) * trace.colour);
         let time = t.unwrap_or(0.0);
         let spot = (time * SWEEP + trace.pid as f64 * 0.37).fract() as f32;
         let mut before = None;
         let mut x = left;
         while x <= right {
             let across = (x - left) as f32 / span;
-            let lift = trace.wave(across, time as f32) * trace.level * swing;
+            let lift = trace.wave(across, time as f32) * trace.amp * swing;
             let y = middle + (lift / pitch as f32).round() as i32 * pitch;
             // Brightest where the spot is, fading back along the way it came.
             let lit = match t {
@@ -396,7 +413,10 @@ fn plot(
                 }
                 None => 0.85,
             };
-            let alpha = FLAT + (lit - FLAT) * trace.level;
+            // Waiting: dim cyan flat (WAITING alpha). Stopped: amber flat (FLAT alpha).
+            // Working: normal cyan wave with sweep. Transitions blend continuously.
+            let base_flat = FLAT + (WAITING - FLAT) * trace.colour;
+            let alpha = base_flat + (lit - base_flat) * trace.amp;
             // Dots fill the climb from the last column, so a steep wave stays one line.
             let from = before.unwrap_or(y);
             let mut at = from.min(y);
@@ -444,20 +464,23 @@ mod tests {
         Agent {
             pid,
             name: name.to_string(),
+            waiting: false,
         }
     }
 
-    /// One trace plotted on its own at `level`, and the rows of the picture that have a dot.
-    fn rows(level: f32, t: Option<f64>) -> (Vec<u8>, Vec<usize>) {
+    /// One trace plotted on its own at `colour`/`amp`, and the rows of the picture that have a dot.
+    fn rows(colour: f32, amp: f32, t: Option<f64>) -> (Vec<u8>, Vec<usize>) {
         let fit = Fit::new(SCREEN.into(), 1).unwrap();
         let size = fit.size();
         let (width, height) = (size.w as usize, size.h as usize);
         let trace = Trace {
             pid: 300,
             name: String::new(),
-            working: level > 0.0,
+            working: colour > 0.0,
+            waiting: colour > 0.0 && amp == 0.0,
             seen: false,
-            level,
+            colour,
+            amp,
         };
         let mut pixels = vec![0u8; width * height * 4];
         plot(&mut pixels, (width, height), &[trace], fit, 1.0, t);
@@ -473,14 +496,31 @@ mod tests {
 
     #[test]
     fn a_working_agent_s_trace_moves_and_a_stopped_one_lies_flat() {
-        let (early, wave) = rows(1.0, Some(0.0));
-        let (later, _) = rows(1.0, Some(0.5));
+        let (early, wave) = rows(1.0, 1.0, Some(0.0));
+        let (later, _) = rows(1.0, 1.0, Some(0.5));
         assert!(wave.len() > 3 * DOT as usize, "a wave covers many rows");
         assert_ne!(early, later, "and moves");
-        let (flat_early, flat) = rows(0.0, Some(0.0));
-        let (flat_later, _) = rows(0.0, Some(0.5));
+        let (flat_early, flat) = rows(0.0, 0.0, Some(0.0));
+        let (flat_later, _) = rows(0.0, 0.0, Some(0.5));
         assert_eq!(flat.len(), DOT as usize, "a flat line is one dot high");
         assert_eq!(flat_early, flat_later, "and still");
+    }
+
+    #[test]
+    fn a_waiting_agent_s_trace_is_a_dim_flat_cyan_line() {
+        let (wait_px, wait_rows) = rows(1.0, 0.0, Some(0.0));
+        let (wait_px2, _) = rows(1.0, 0.0, Some(0.5));
+        assert_eq!(wait_rows.len(), DOT as usize, "waiting is a flat line");
+        assert_eq!(wait_px, wait_px2, "and still");
+        // Dimmer than the stopped amber line.
+        let stop_alpha = rows(0.0, 0.0, Some(0.0)).0.chunks_exact(4)
+            .find(|p| p[3] > 0).unwrap()[3];
+        let wait_alpha = wait_px.chunks_exact(4)
+            .find(|p| p[3] > 0).unwrap()[3];
+        assert!(wait_alpha < stop_alpha, "waiting is dimmer than stopped");
+        // But still cyan in hue (blue channel dominates).
+        let pixel = wait_px.chunks_exact(4).find(|p| p[3] > 0).unwrap();
+        assert!(pixel[2] > pixel[0], "waiting trace is cyan, not amber");
     }
 
     #[test]
@@ -489,21 +529,22 @@ mod tests {
             let pixel = pixels.chunks_exact(4).find(|pixel| pixel[3] > 0).unwrap();
             (pixel[0] > pixel[2], pixel[2] > pixel[0])
         };
-        assert_eq!(colour(&rows(0.0, Some(0.0)).0), (true, false));
-        assert_eq!(colour(&rows(1.0, Some(0.0)).0), (false, true));
+        assert_eq!(colour(&rows(0.0, 0.0, Some(0.0)).0), (true, false));
+        assert_eq!(colour(&rows(1.0, 1.0, Some(0.0)).0), (false, true));
+        assert_eq!(colour(&rows(1.0, 0.0, Some(0.0)).0), (false, true), "waiting is also cyan");
     }
 
     #[test]
     fn reduced_motion_keeps_the_trace_s_shape_without_moving_it() {
-        let (standing, wave) = rows(1.0, None);
+        let (standing, wave) = rows(1.0, 1.0, None);
         assert!(wave.len() > 3 * DOT as usize);
-        assert_eq!(standing, rows(1.0, None).0);
+        assert_eq!(standing, rows(1.0, 1.0, None).0);
         let mut scope = Scope::new(true);
         scope.follow(&[agent(300, "kiln")]);
         scope.follow(&[]);
         scope.advance(0.0, 0.0);
         assert_eq!(
-            scope.traces[0].level, 0.0,
+            scope.traces[0].amp, 0.0,
             "a stop shows at once, with no settling"
         );
         assert_eq!(scope.shown, 1.0);
@@ -605,8 +646,10 @@ mod tests {
             pid,
             name: String::new(),
             working: true,
+            waiting: false,
             seen: false,
-            level: 1.0,
+            colour: 1.0,
+            amp: 1.0,
         };
         assert_ne!(trace(300).shape(), trace(301).shape());
         assert_eq!(trace(300).shape(), trace(300).shape());

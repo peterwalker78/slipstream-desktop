@@ -7,11 +7,12 @@
 //!
 //! The agent says so with a note: a file named for its process id in
 //! `$XDG_RUNTIME_DIR/slipstream/working/`, there while it is working and gone when it stops.
-//! Its one line is what to call the agent on screen, which is for the agent to say: its own name
-//! and what it is working on, say. An empty note is called by the folder the agent is working in.
-//! Most agents can run a command when a task starts and when it ends, which is where the note is
-//! made and removed. Only the agent itself leaves one, so the helpers it starts for a task don't
-//! each get a trace.
+//! The first line is what to call the agent on screen: its own name and what it is working on,
+//! say. An empty first line falls back to the folder the agent is working in. The second line,
+//! if it says `waiting`, tells the desktop the agent is blocked on a subagent and not doing
+//! anything itself. Most agents can run a command when a task starts and when it ends, which is
+//! where the note is made and removed. Only the agent itself leaves one, so the helpers it starts
+//! for a task don't each get a trace.
 
 use std::{
     fs,
@@ -35,6 +36,8 @@ pub struct Agent {
     pub pid: u32,
     /// What to call it: what its note says, or the folder it is working in.
     pub name: String,
+    /// The agent is waiting on a subagent rather than working itself.
+    pub waiting: bool,
 }
 
 /// Where agents leave these notes, if there is a runtime folder to keep them in.
@@ -71,24 +74,32 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             if written.as_secs() + 2 < resume::started(proc, pid, ticks)? {
                 return None;
             }
-            let name = named(&entry.path(), meta.len()).unwrap_or_else(|| folder(proc, pid));
-            Some(Agent { pid, name })
+            let (note_name, waiting) = parse_note(&entry.path(), meta.len());
+            let name = note_name.unwrap_or_else(|| folder(proc, pid));
+            Some(Agent { pid, name, waiting })
         })
         .collect();
     agents.sort_by_key(|agent| agent.pid);
     agents
 }
 
-/// What the note at `path`, `len` bytes long, says to call its agent: its first line, if that is
-/// plain text.
-fn named(path: &Path, len: u64) -> Option<String> {
+/// What the note at `path`, `len` bytes long, says about its agent: what to call it (its first
+/// line, if that is plain text) and whether it is waiting on a subagent (second line `waiting`).
+fn parse_note(path: &Path, len: u64) -> (Option<String>, bool) {
     if len == 0 || len > LONGEST_NOTE {
-        return None;
+        return (None, false);
     }
-    let text = fs::read_to_string(path).ok()?;
-    let line = text.lines().next()?.trim();
-    (!line.is_empty() && !line.chars().any(char::is_control))
-        .then(|| line.chars().take(LONGEST_NAME).collect())
+    let Ok(text) = fs::read_to_string(path) else {
+        return (None, false);
+    };
+    let mut lines = text.lines();
+    let name = lines.next().and_then(|line| {
+        let line = line.trim();
+        (!line.is_empty() && !line.chars().any(char::is_control))
+            .then(|| line.chars().take(LONGEST_NAME).collect())
+    });
+    let waiting = lines.next().is_some_and(|line| line.trim() == "waiting");
+    (name, waiting)
 }
 
 /// The name of the folder `pid` is working in, or nothing where it can't be read.
@@ -190,6 +201,20 @@ mod tests {
     }
 
     #[test]
+    fn a_waiting_second_line_marks_the_agent_as_waiting_on_a_subagent() {
+        let machine = Machine::new("working-waiting");
+        machine.process(300, "/home/sam/projects/kiln");
+        machine.process(301, "/home/sam/projects/ledger");
+        machine.note_saying(300, "claude: fixing the kiln\nwaiting\n", 150);
+        machine.note_saying(301, "claude: counting the ledger\n", 160);
+        let agents = machine.read();
+        assert_eq!(agents[0].name, "claude: fixing the kiln");
+        assert!(agents[0].waiting, "second line 'waiting' → waiting");
+        assert_eq!(agents[1].name, "claude: counting the ledger");
+        assert!(!agents[1].waiting, "no second line → not waiting");
+    }
+
+    #[test]
     fn an_agent_is_called_what_its_note_says() {
         let machine = Machine::new("working-named");
         machine.process(300, "/home/sam");
@@ -204,6 +229,9 @@ mod tests {
             ["robin: mending the kiln door", "ledger", "orchard"],
             "one plain line, or the folder"
         );
+        // "waiting" only counts when it is the second line, not some other text.
+        let waiting: Vec<bool> = machine.read().into_iter().map(|a| a.waiting).collect();
+        assert_eq!(waiting, [false, false, false]);
     }
 
     #[test]
