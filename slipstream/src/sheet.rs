@@ -66,8 +66,8 @@ pub struct Section {
     pub rows: Vec<Row>,
 }
 
-/// Keys that read as one set when they share modifiers: the arrows, the brackets, PgUp and PgDn,
-/// and the digits. Their order within the set.
+/// Keys that read as one set when they share modifiers: the arrows, the brackets and the digits.
+/// Their order within the set.
 fn set_rank(key: Keysym) -> Option<u32> {
     let rank = match key {
         Keysym::Left => 0,
@@ -76,8 +76,6 @@ fn set_rank(key: Keysym) -> Option<u32> {
         Keysym::Down => 3,
         Keysym::bracketleft | Keysym::braceleft => 4,
         Keysym::bracketright | Keysym::braceright => 5,
-        Keysym::Prior => 6,
-        Keysym::Next => 7,
         _ => 10 + keys::DIGITS.iter().position(|digit| *digit == key)? as u32,
     };
     Some(rank)
@@ -146,11 +144,6 @@ pub fn sections(bindings: &[Binding]) -> Vec<Section> {
         // with things nobody came here to look up. Print stays — that it saves a screenshot to
         // Pictures and copies it is not written on the key.
         if keys::is_hardware_key(binding.key) {
-            continue;
-        }
-        // Gravity's weights are also Super+[ and ], which the sheet lists; PgUp and PgDn stay
-        // bound for anyone who learnt them, without a second row to read.
-        if matches!(binding.action, keys::Action::Weigh { .. }) {
             continue;
         }
         let group = binding.action.group();
@@ -910,7 +903,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_binding_appears_once_but_the_laptops_own_keys_and_the_second_weight_keys() {
+    fn every_binding_appears_once_but_the_laptops_own_keys() {
         let bindings = keys::checked(keys::defaults());
         let sections = sections(&bindings);
         for binding in &bindings {
@@ -920,11 +913,8 @@ mod tests {
                 .filter(|row| row.bindings.contains(&(binding.mods, binding.key)))
                 .count();
             // Play, volume, mute and brightness have pictures on them and are the same on every
-            // machine; the sheet is for the keys that aren't written on the keyboard. Gravity's
-            // weights are listed once, as Super+[ and ].
-            let hidden = keys::is_hardware_key(binding.key)
-                || matches!(binding.action, keys::Action::Weigh { .. });
-            let want = usize::from(!hidden);
+            // machine; the sheet is for the keys that aren't written on the keyboard.
+            let want = usize::from(!keys::is_hardware_key(binding.key));
             assert_eq!(rows, want, "{binding:?}");
         }
         // And at least one of each, so this is testing something.

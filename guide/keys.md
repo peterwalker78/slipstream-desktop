@@ -11,9 +11,9 @@ Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter 
 | Super+B | A new window of your default browser |
 | Alt+Tab, Alt+Shift+Tab | Switch windows, dealt as a deck of glass |
 | Alt+F4 | Close the window |
-| Super+arrows | Move focus |
-| Super+Alt+arrows | Move the window: it swaps places with the one that way, the two passing through each other. Under gravity, moving into the centre takes it |
-| Super+[ and ], with Shift for height | Resize; under gravity, lighter and heavier |
+| Super+arrows | Move focus. Up from the top row goes into a docked window; from a floating or docked window they lead back to the tiles |
+| Super+Alt+arrows | Move the window: it swaps places with the one that way, the two passing through each other. Under gravity, moving into the centre takes it. A floating window moves a step |
+| Super+[ and ], with Shift for height | Resize, tiled or floating; under gravity, lighter and heavier |
 | Super+R, Super+Shift+R | Turn the whole layout a quarter, clockwise or back |
 | Super+F | Fill the tiling area, and back, in tiling or gravity |
 | Super+M, Super+Shift+M | Minimise to a stream at the edge, bring back |

@@ -46,9 +46,6 @@ pub enum Action {
     CycleWindows { forward: bool },
     /// Open or close the app explorer.
     Explorer,
-    /// Gravity: make the focused window heavier (towards the centre) or lighter (out to the strip
-    /// along the bottom).
-    Weigh { heavier: bool },
     /// Gravity on, at the arrangement last kept, or back to tiling; held, the arrangements side by
     /// side.
     ToggleGravity,
@@ -72,7 +69,7 @@ pub enum Action {
     NotificationCentre,
     /// Move the keyboard to the next screen along.
     NextScreen,
-    /// Move the focused window to the next screen along, and follow it there.
+    /// Send the focused window to the next screen along; the keyboard stays where it is.
     MoveToNextScreen,
     /// Trade workspaces with the next screen along.
     SwapScreens,
@@ -152,7 +149,6 @@ impl Action {
             Action::Brightness(_) => "brightness up, down",
             Action::CycleWindows { .. } => "switch window",
             Action::Explorer => "apps",
-            Action::Weigh { .. } => "heavier, lighter",
             Action::ToggleGravity => "tiling or gravity; hold to choose",
             Action::Minimise => "minimise to a stream",
             Action::Restore => "bring back the last minimised",
@@ -202,7 +198,6 @@ impl Action {
             | Action::WorkspaceBy(_)
             | Action::MoveToWorkspace(_)
             | Action::MoveToWorkspaceBy(_)
-            | Action::Weigh { .. }
             | Action::ToggleGravity
             | Action::NextScreen
             | Action::MoveToNextScreen
@@ -451,8 +446,6 @@ pub fn defaults() -> Vec<Binding> {
         bind(mod_, Keysym::n, Action::NotificationCentre),
         // Every key, one keystroke away.
         bind(mod_, Keysym::slash, Action::ShortcutSheet),
-        bind(mod_, Keysym::Prior, Action::Weigh { heavier: true }),
-        bind(mod_, Keysym::Next, Action::Weigh { heavier: false }),
         bind(mod_, Keysym::t, Action::ToggleGravity),
         // Turning the layout. Windows has no equivalent, so this is a new key for a new idea;
         // the shortcut sheet (Super+/) lists it.
@@ -975,8 +968,6 @@ mod tests {
             (SUPER, Keysym::Left),
             (super_ctrl, Keysym::Right),
             (super_shift, Keysym::_1),
-            (SUPER, Keysym::Prior),
-            (SUPER, Keysym::Next),
             (SUPER, Keysym::t),
             (SUPER, Keysym::r),
             (SUPER, Keysym::i),

@@ -502,7 +502,8 @@ impl Slipstream {
             .or_else(|| tiled.last().cloned())
     }
 
-    /// Super+arrow on a floating window: the nearest floating window that way.
+    /// Super+arrow on a floating window: the nearest floating window that way, or with none
+    /// there, back down to the tiles, so the keys always lead somewhere.
     pub fn focus_floating_direction(&mut self, window: &Window, direction: Direction) {
         let Some(index) = self.workspaces.find(window) else {
             return;
@@ -514,7 +515,8 @@ impl Slipstream {
             .workspaces
             .get(index)
             .floating
-            .neighbour(window, direction, area, &own_size);
+            .neighbour(window, direction, area, &own_size)
+            .or_else(|| self.most_recent_tiled(index));
         if let Some(next) = next {
             self.focus_window(&next);
         }

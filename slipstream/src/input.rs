@@ -80,7 +80,6 @@ impl Slipstream {
                 | Action::MoveToWorkspace(_)
                 | Action::MoveToWorkspaceBy(_)
                 | Action::MoveToNextScreen
-                | Action::Weigh { .. }
                 | Action::Maximise
                 | Action::ToggleFloating
         ) && self
@@ -125,7 +124,6 @@ impl Slipstream {
             Action::Brightness(percent) => self.change_brightness(percent),
             Action::CycleWindows { forward } => self.cycle_windows(forward),
             Action::Explorer => self.toggle_explorer(),
-            Action::Weigh { heavier } => self.weigh(heavier),
             Action::ToggleGravity => self.toggle_gravity(),
             Action::Minimise => self.minimise_focused(),
             Action::Restore => self.restore_latest(),

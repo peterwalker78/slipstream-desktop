@@ -228,7 +228,7 @@ mod tests {
         let long = paint(
             "Already the centre",
             "Konsole can’t get any heavier, and this sentence goes on long enough to wrap twice \
-             over in a card this narrow. PgDn makes it lighter.",
+             over in a card this narrow. Super+[ makes it lighter.",
             1.25,
         )
         .unwrap();

@@ -177,6 +177,7 @@ impl Slipstream {
                 debug::Step::HideAll => self.hide_all(),
                 debug::Step::Dock => self.dock_focused(),
                 debug::Step::Undock => self.undock(),
+                debug::Step::Float => self.toggle_floating(),
                 debug::Step::Idle => {
                     let now = self.clock.tick();
                     self.idle.fade(now);

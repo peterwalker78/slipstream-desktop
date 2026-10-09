@@ -9,7 +9,7 @@
 //! miniature held T of the way through its loop if given), `power:off` and `power:on` (the
 //! screens off, as after a long idle, and lit again), `type:TEXT` and `key:NAME` (type into the open explorer, or
 //! press a key there by its xkb name, such as `Down`, `Return` or `ctrl+BackSpace`), `heavier`,
-//! `lighter` and `gravity` (Super+PgUp, Super+PgDn and Super+T on the focused window),
+//! `lighter` and `gravity` (a step along gravity's ladder, and Super+T, on the focused window),
 //! `tile:DIRECTION` (Super+Alt+arrow: move the focused tile `left`, `right`, `up` or `down`),
 //! `focus:DIRECTION` (Super+arrow: the keyboard to the neighbouring tile), `full` and `unfull`
 //! (the focused window fills its screen, or stops), `click:X,Y` (a left click on a window, in
@@ -21,7 +21,7 @@
 //! go, for a drag), `drag:X1,Y1 X2,Y2` (a press, a drag and a release, as selecting text in a
 //! terminal does), `cycle` or `cycle:N` (Alt held, Tab pressed N times, then Alt let go), `tab`
 //! (one Tab with Alt held down, and kept held) and `letgo` (Alt let go after `tab`), `minimise`
-//! and `restore` (Super+M and Super+Shift+M), `dock` and `undock` (Super+W and Super+Shift+W), `hideall` (Super+H: every window on the workspace
+//! and `restore` (Super+M and Super+Shift+M), `dock` and `undock` (Super+W and Super+Shift+W), `float` (Super+Shift+V), `hideall` (Super+H: every window on the workspace
 //! into the code rain, and the same ones back), `idle` (fade the UI out now) and `wake` (as any
 //! input would), `fade:F` (hold the fade to the wallpaper at F, 0 to 1), `slow:MS` (count each
 //! drawn frame as MS milliseconds, script times included; `slow:0` is real time again),
@@ -130,6 +130,8 @@ pub enum Step {
     Dock,
     /// Super+Shift+W: the docked window back down among the windows.
     Undock,
+    /// Super+Shift+V: the focused window floats, or goes back into the tiling.
+    Float,
     Idle,
     Wake,
     /// Alt held, Tab pressed this many times, and Alt let go.
@@ -359,6 +361,7 @@ impl Script {
                     ("hideall", None) => Step::HideAll,
                     ("dock", None) => Step::Dock,
                     ("undock", None) => Step::Undock,
+                    ("float", None) => Step::Float,
                     ("restore", None) => Step::Restore,
                     ("idle", None) => Step::Idle,
                     ("wake", None) => Step::Wake,

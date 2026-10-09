@@ -500,7 +500,7 @@ impl Slipstream {
     }
 
     /// Super+Shift+P: the focused window moves to the next screen — that is, on to the workspace
-    /// that screen is showing — and the keyboard follows it, as Win+Shift+arrow does on Windows.
+    /// that screen is showing — as Win+Shift+arrow does on Windows.
     pub fn move_focused_to_next_screen(&mut self) {
         if self.screens.len() < 2 {
             let now = self.clock.tick();

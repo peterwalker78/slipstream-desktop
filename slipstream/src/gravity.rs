@@ -1,5 +1,5 @@
-//! Gravity, the arrangements beside tiling. Super+PgUp and Super+PgDn move the focused window one
-//! rung along a fixed ladder of layouts, lightest first:
+//! Gravity, the arrangements beside tiling. Under it Super+] and Super+[ move the focused window
+//! one rung along a fixed ladder of layouts, lightest first:
 //!
 //! distant · orbit · grid · centre · wide · spotlight
 //!
@@ -10,8 +10,8 @@
 //!
 //! **Tiling is not a rung**, so stepping along the ladder never turns gravity off. Super+T is the
 //! way back to tiling, and on again; held, it shows the arrangements side by side to choose from
-//! (`arrange.rs`). From tiling, Super+PgUp and Super+PgDn turn gravity on at the end they point
-//! at: heavier gives the window the centre, lighter puts every window in the grid.
+//! (`arrange.rs`). A step taken from tiling turns gravity on at the end it points at: heavier
+//! gives the window the centre, lighter puts every window in the grid.
 //!
 //! Windows keep their order from the tiling tree in every layout, so focusing another window never
 //! moves anything. Pure logic, generic over the window type, so it's unit-tested without Wayland.

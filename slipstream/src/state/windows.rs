@@ -1189,7 +1189,7 @@ impl Slipstream {
         }
     }
 
-    /// Super+PgUp and Super+PgDn: the focused window moves one rung heavier or lighter along
+    /// The focused window moves one rung heavier or lighter along
     /// gravity's ladder of layouts.
     pub fn weigh(&mut self, heavier: bool) {
         if let Some(window) = self.focused_window() {
