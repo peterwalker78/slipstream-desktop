@@ -116,6 +116,24 @@ mod ui;
 mod windows;
 mod workspaces;
 
+/// An app with no visible window: it closed its last window but its Wayland client is still
+/// running. Shown in the notification centre so the user knows it's still there.
+pub struct BackgroundApp {
+    pub name: String,
+    pub client_id: ClientId,
+}
+
+/// The last dot-separated segment of a Wayland app ID, with the first letter capitalised:
+/// `com.discord.Discord` → `Discord`, `spotify` → `Spotify`.
+pub(crate) fn pretty_name(app_id: &str) -> String {
+    let last = app_id.rsplit('.').next().unwrap_or(app_id);
+    let mut chars = last.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// Whether `window` is being moved or resized by the pointer, so it follows it without gliding.
 fn space_placed_now(drag: &Option<crate::grabs::Drag>, window: &Window) -> bool {
     matches!(
@@ -331,6 +349,9 @@ pub struct Slipstream {
     /// Toplevels a client has created but not yet shown. They take no tile and no focus until
     /// their first buffer arrives, and plenty never arrive at all.
     pub unmapped: Vec<Window>,
+    /// Apps whose last window closed but whose Wayland client is still running. Shown in the
+    /// notification centre. Entries are pruned when the client disconnects or opens a new window.
+    pub background_apps: Vec<BackgroundApp>,
     /// Windows that asked for fullscreen before they had anything to show — players and games
     /// usually do — and get it the moment they map.
     pub fullscreen_on_map: Vec<Window>,
@@ -711,6 +732,7 @@ impl Slipstream {
             record_again: 0.0,
             saved_record: None,
             unmapped: Vec::new(),
+            background_apps: Vec::new(),
             fullscreen_on_map: Vec::new(),
             restoring: None,
             offer: None,

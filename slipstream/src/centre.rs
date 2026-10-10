@@ -74,6 +74,8 @@ pub struct Facts {
     pub reduced_motion: bool,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
+    /// Apps running with no visible window, shown as a card above "Notifications".
+    pub background_apps: Vec<String>,
 }
 
 /// Everything the painted panel depends on.
@@ -89,6 +91,7 @@ struct Look {
     scroll: usize,
     size: Size<i32, Logical>,
     scale: f64,
+    background_apps: Vec<String>,
 }
 
 pub struct Centre {
@@ -328,6 +331,7 @@ impl Centre {
             scroll: self.scroll,
             size,
             scale,
+            background_apps: facts.background_apps,
         };
         if self.shown.as_ref() != Some(&look) {
             self.repaint(&look, notices)?;
@@ -453,6 +457,18 @@ impl Centre {
                 }
             }
             y += card_h + GAP;
+
+            // Apps running with no visible window.
+            if !look.background_apps.is_empty() {
+                p.fill(x0, y, inner, HEAD_H, panel::TILE_RADIUS, panel::TILE);
+                let hint_style = Style::new(Face::Body, 13.0, panel::HINT);
+                p.text("In background", x0 + PADDING, y + HEAD_H / 2.0, &hint_style);
+                let names = look.background_apps.join(" · ");
+                let names_style = Style::new(Face::Body, 13.0, panel::TERTIARY);
+                let names_w = text::width(&names, &names_style);
+                p.text(&names, x0 + inner - names_w, y + HEAD_H / 2.0, &names_style);
+                y += HEAD_H + GAP;
+            }
 
             // "Notifications", and the Do not disturb switch.
             let heading = Style::new(Face::BodyBold, 16.0, INK);
@@ -616,12 +632,24 @@ impl Slipstream {
         crate::notify::closed(gone, crate::notify::Reason::Expired);
     }
 
-    pub fn centre_facts(&self) -> Facts {
+    pub fn centre_facts(&mut self) -> Facts {
+        self.background_apps.retain(|app| {
+            self.display_handle
+                .backend_handle()
+                .get_client_data(app.client_id.clone())
+                .is_ok()
+        });
+        let background_apps = self
+            .background_apps
+            .iter()
+            .map(|a| a.name.clone())
+            .collect();
         Facts {
             today: self.status.lock().unwrap().today,
             do_not_disturb: self.settings.notifications.do_not_disturb,
             reduced_motion: self.centre.reduced_motion,
             ring: self.panel_ring(),
+            background_apps,
         }
     }
 
@@ -727,6 +755,7 @@ mod tests {
             scroll: centre.scroll,
             size: (1536, 960).into(),
             scale: 1.25,
+            background_apps: Vec::new(),
         }
     }
 

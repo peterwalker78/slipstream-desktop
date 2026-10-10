@@ -575,6 +575,47 @@ impl Slipstream {
         self.focus_window(window);
     }
 
+    /// The client that closed its last window is now running invisibly in the background; record
+    /// it for the notification centre. Called after `remove_window` so the closing window is
+    /// already gone from `all_open_windows`.
+    pub(crate) fn track_closed_app(&mut self, wl_surface: &WlSurface) {
+        let Some(client) = wl_surface.client() else {
+            return;
+        };
+        let client_id = client.id();
+        let app_id = with_states(wl_surface, |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()?
+                .lock()
+                .ok()?
+                .app_id
+                .clone()
+        });
+        let Some(app_id) = app_id else {
+            return;
+        };
+        let still_open = self.all_open_windows().into_iter().any(|w| {
+            w.toplevel()
+                .and_then(|t| t.wl_surface().client())
+                .map(|c| c.id() == client_id)
+                .unwrap_or(false)
+        });
+        if !still_open && !self.background_apps.iter().any(|a| a.client_id == client_id) {
+            let name = pretty_name(&app_id);
+            self.background_apps.push(BackgroundApp { name, client_id });
+        }
+    }
+
+    /// A client that was only running in the background has opened a new window; remove it from
+    /// the background list.
+    pub(crate) fn untrack_background_app(&mut self, wl_surface: &WlSurface) {
+        if let Some(client) = wl_surface.client() {
+            let id = client.id();
+            self.background_apps.retain(|app| app.client_id != id);
+        }
+    }
+
     /// Takes a closed window out of its workspace, re-tiles, and moves focus on.
     pub fn remove_window(&mut self, window: &Window) {
         self.leave_a_ghost(window);

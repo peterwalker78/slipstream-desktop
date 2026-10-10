@@ -33,6 +33,7 @@ impl XdgShellHandler for Slipstream {
         // commit handler. Its initial configure waits for its first commit too
         // (`send_initial_configure`), when its minimum size is known, so it can carry the size of
         // the tile it will get and its first buffer is already the right size.
+        self.untrack_background_app(surface.wl_surface());
         self.unmapped.push(Window::new_wayland_window(surface));
     }
 
@@ -43,7 +44,9 @@ impl XdgShellHandler for Slipstream {
         self.fullscreen_on_map
             .retain(|window| window.toplevel() != Some(&surface));
         if let Some(window) = self.toplevel_window(&surface) {
+            let wl_surface = surface.wl_surface().clone();
             self.remove_window(&window);
+            self.track_closed_app(&wl_surface);
         }
     }
 
