@@ -1904,6 +1904,9 @@ fn card_elements(
                 .element(renderer, size, scale, now, facts, &state.notices, &state.background_apps)
                 .map(OutputElement::Memory),
         );
+        if let Some(app_id) = state.centre.take_launch(now) {
+            state.activate_background_app(&app_id);
+        }
     }
     if state.history.is_open() {
         let ring = state.panel_ring();

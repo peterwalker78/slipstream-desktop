@@ -20,6 +20,9 @@ use crate::{
     text::{self, Face, Style},
 };
 
+/// How long the chip-launch animation runs before the centre closes, in seconds.
+const LAUNCH_DUR: f64 = 0.22;
+
 // Sizes in design pixels.
 const WIDTH: f32 = 500.0;
 /// The panel reaches down to 10 from the bottom of the screen.
@@ -39,6 +42,8 @@ const CARD_LINES: usize = 4;
 /// Where the keyboard can be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
+    /// Index into the centre's background app list.
+    BackgroundApp(usize),
     DoNotDisturb,
     Notice(u32),
     ClearAll,
@@ -98,6 +103,9 @@ struct Look {
     scale: f64,
     background_apps: Vec<String>,
     background_icon_rev: u64,
+    /// 0 = no launch animation; 1–255 = progress through LAUNCH_DUR (changes every frame,
+    /// keeping the Look comparison unequal so repaint fires on every frame of the animation).
+    launch_frac: u8,
 }
 
 pub struct Centre {
@@ -124,6 +132,12 @@ pub struct Centre {
     /// (app_id, display_name, icon) for each background app, set in `element()` so `repaint()`
     /// can draw real icons without a parameter change.
     background_icon_data: Vec<(String, String, Option<resvg::tiny_skia::Pixmap>)>,
+    /// App IDs only, kept in sync with `background_icon_data`, used for keyboard navigation
+    /// without changing `key()`'s signature.
+    bg_app_ids: Vec<String>,
+    /// Which app's chip is mid-launch animation, and when the click happened.
+    launch_app: Option<String>,
+    launch_at: f64,
 }
 
 impl Default for Centre {
@@ -143,13 +157,17 @@ impl Default for Centre {
             targets: Vec::new(),
             reduced_motion: false,
             background_icon_data: Vec::new(),
+            bg_app_ids: Vec::new(),
+            launch_app: None,
+            launch_at: 0.0,
         }
     }
 }
 
 /// The keyboard's stops, in order, for notifications `ids`.
-fn items(ids: &[u32]) -> Vec<Item> {
-    let mut items = vec![Item::DoNotDisturb];
+fn items(bg_app_ids: &[String], ids: &[u32]) -> Vec<Item> {
+    let mut items: Vec<Item> = (0..bg_app_ids.len()).map(Item::BackgroundApp).collect();
+    items.push(Item::DoNotDisturb);
     items.extend(ids.iter().map(|id| Item::Notice(*id)));
     if !ids.is_empty() {
         items.push(Item::ClearAll);
@@ -184,6 +202,25 @@ impl Centre {
         self.shown = None;
         self.painted = None;
         self.targets.clear();
+        self.launch_app = None;
+    }
+
+    /// Starts the chip-launch animation; the centre stays open until `take_launch` fires.
+    pub fn begin_launch(&mut self, app_id: String, now: f64) {
+        self.launch_app = Some(app_id);
+        self.launch_at = now;
+    }
+
+    /// Once LAUNCH_DUR has elapsed, closes and returns the app_id so the caller can activate it.
+    pub fn take_launch(&mut self, now: f64) -> Option<String> {
+        let app_id = self.launch_app.as_ref()?;
+        if now - self.launch_at >= LAUNCH_DUR {
+            let id = app_id.clone();
+            self.close();
+            Some(id)
+        } else {
+            None
+        }
     }
 
     pub fn key(&mut self, sym: Keysym, shift: bool, ids: &[u32]) -> Request {
@@ -196,7 +233,7 @@ impl Centre {
     }
 
     fn key_inner(&mut self, sym: Keysym, shift: bool, ids: &[u32]) -> Request {
-        let items = items(ids);
+        let items = items(&self.bg_app_ids, ids);
         let at = items
             .iter()
             .position(|item| *item == self.selected)
@@ -252,6 +289,11 @@ impl Centre {
                     return Request::Invoke(id, action);
                 }
                 return match self.selected {
+                    Item::BackgroundApp(i) => self
+                        .bg_app_ids
+                        .get(i)
+                        .cloned()
+                        .map_or(Request::Nothing, Request::ActivateBackground),
                     Item::DoNotDisturb => Request::ToggleDoNotDisturb,
                     Item::Notice(id) => Request::Open(id),
                     Item::ClearAll => Request::ClearAll,
@@ -327,6 +369,7 @@ impl Centre {
         let gone = match self.selected {
             Item::Notice(id) => !ids.contains(&id),
             Item::ClearAll => ids.is_empty(),
+            Item::BackgroundApp(i) => i >= background_apps.len(),
             Item::DoNotDisturb => false,
         };
         if gone {
@@ -336,6 +379,13 @@ impl Centre {
             .iter()
             .map(|a| (a.app_id.clone(), a.name.clone(), a.icon.clone()))
             .collect();
+        self.bg_app_ids = background_apps.iter().map(|a| a.app_id.clone()).collect();
+        let launch_frac = if self.launch_app.is_some() {
+            let frac = ((now - self.launch_at) / LAUNCH_DUR).clamp(0.0, 1.0);
+            ((frac * 255.0) as u8).max(1)
+        } else {
+            0
+        };
         let look = Look {
             today: facts.today,
             month: self.month,
@@ -349,6 +399,7 @@ impl Centre {
             scale,
             background_apps: facts.background_apps,
             background_icon_rev: facts.background_icon_rev,
+            launch_frac,
         };
         if self.shown.as_ref() != Some(&look) {
             self.repaint(&look, notices)?;
@@ -475,13 +526,13 @@ impl Centre {
                     );
                 }
             }
-            y += card_h + GAP;
+            y += card_h + GAP * 2.0;
 
             // Apps running with no visible window.
             if !look.background_apps.is_empty() {
                 // Section label — same style as the Notifications heading.
                 let heading = Style::new(Face::BodyBold, 16.0, INK);
-                p.text("In background", x0, y + HEAD_H / 2.0, &heading);
+                p.text("Background Apps", x0, y + HEAD_H / 2.0, &heading);
                 y += HEAD_H + GAP;
 
                 // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
@@ -524,10 +575,41 @@ impl Centre {
                 let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
                 let mut cx = row_x;
                 for i in 0..count {
-                    let (_, name, icon) = &bg_data[i];
+                    let (app_id, name, icon) = &bg_data[i];
                     let cw = chip_ws[i];
-                    p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
-                    p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
+                    // Launch animation: the clicked chip brightens and glows in the focus colour.
+                    let is_launching = look.launch_frac > 0
+                        && self.launch_app.as_deref() == Some(app_id.as_str());
+                    let is_selected = look.selected == Item::BackgroundApp(i);
+                    if is_launching {
+                        let t = look.launch_frac as f32 / 255.0;
+                        let pulse = (t * std::f32::consts::PI).sin();
+                        // Fill brightens toward QUIET_LIT.
+                        let fill_a = 0x12u32 + (pulse * (0x26u32 - 0x12u32) as f32) as u32;
+                        p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, 0xffffff00 | fill_a);
+                        p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
+                        // Outer glow ring in the focus colour (skip for reduced motion).
+                        if !self.reduced_motion {
+                            let ring_a = (pulse * 0xcc as f32) as u32;
+                            let ring = (panel::FOCUS & 0xffffff00) | ring_a;
+                            p.border(
+                                cx - 3.0,
+                                y - 3.0,
+                                cw + 6.0,
+                                CHIP_H + 6.0,
+                                CHIP_RADIUS + 3.0,
+                                2.0,
+                                ring,
+                            );
+                        }
+                    } else {
+                        p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
+                        p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
+                    }
+                    // Keyboard focus ring (drawn after the chip fill so it sits on top).
+                    if is_selected {
+                        panel::focus_ring(p, cx, y, cw, CHIP_H, CHIP_RADIUS, look.ring);
+                    }
                     let icon_x = cx + (cw - ICON_SZ) / 2.0;
                     match icon {
                         Some(px) => p.image(px, icon_x, icon_y),
@@ -552,7 +634,7 @@ impl Centre {
                     tx += cw + CHIP_GAP;
                 }
 
-                y += CHIP_H + GAP;
+                y += CHIP_H + GAP * 2.0;
             }
 
             // "Notifications", and the Do not disturb switch.
@@ -684,7 +766,7 @@ impl Centre {
                 let target = match item {
                     Item::DoNotDisturb => Target::DoNotDisturb,
                     Item::ClearAll => Target::ClearAll,
-                    Item::Notice(_) => continue,
+                    Item::Notice(_) | Item::BackgroundApp(_) => continue,
                 };
                 targets.push((target, on_screen(*x, *y, *w, *h)));
             }
@@ -790,8 +872,7 @@ impl Slipstream {
                 self.invoke_notice_action(id, index);
             }
             Request::ActivateBackground(app_id) => {
-                self.centre.close();
-                self.activate_background_app(&app_id);
+                self.centre.begin_launch(app_id, self.clock.now());
             }
         }
     }
@@ -847,6 +928,7 @@ mod tests {
             scale: 1.25,
             background_apps: Vec::new(),
             background_icon_rev: 0,
+            launch_frac: 0,
         }
     }
 
