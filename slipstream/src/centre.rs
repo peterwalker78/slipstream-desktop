@@ -458,16 +458,39 @@ impl Centre {
             }
             y += card_h + GAP;
 
-            // Apps running with no visible window.
+            // Apps running with no visible window: icon + name chips from the right.
             if !look.background_apps.is_empty() {
-                p.fill(x0, y, inner, HEAD_H, panel::TILE_RADIUS, panel::TILE);
-                let hint_style = Style::new(Face::Body, 13.0, panel::HINT);
-                p.text("In background", x0 + PADDING, y + HEAD_H / 2.0, &hint_style);
-                let names = look.background_apps.join(" · ");
-                let names_style = Style::new(Face::Body, 13.0, panel::TERTIARY);
-                let names_w = text::width(&names, &names_style);
-                p.text(&names, x0 + inner - names_w, y + HEAD_H / 2.0, &names_style);
-                y += HEAD_H + GAP;
+                const CHIP_H: f32 = 38.0;
+                const ICON_SZ: f32 = 20.0;
+                const ICON_R: f32 = 5.0;
+                const CHIP_GAP: f32 = 12.0;
+                const CHIP_PAD: f32 = 14.0;
+                p.fill(x0, y, inner, CHIP_H, panel::TILE_RADIUS, panel::TILE);
+                let mid = y + CHIP_H / 2.0;
+                let icon_top = mid - ICON_SZ / 2.0;
+                let hint = Style::new(Face::Body, 13.0, panel::HINT);
+                p.text("In background", x0 + CHIP_PAD, mid, &hint);
+                let label_end =
+                    x0 + CHIP_PAD + text::width("In background", &hint) + CHIP_GAP;
+                let name_style = Style::new(Face::Body, 13.0, panel::TERTIARY);
+                // Build chips right-to-left, stopping before the label.
+                let mut chips: Vec<(f32, &str)> = Vec::new();
+                let mut rx = x0 + inner - CHIP_PAD;
+                for name in &look.background_apps {
+                    let chip_w = ICON_SZ + 6.0 + text::width(name, &name_style);
+                    let icon_x = rx - chip_w;
+                    if icon_x < label_end {
+                        break;
+                    }
+                    chips.push((icon_x, name.as_str()));
+                    rx = icon_x - CHIP_GAP;
+                }
+                // Draw left-to-right (chips were collected right-to-left, so reverse).
+                for (icon_x, name) in chips.iter().rev() {
+                    panel::app_placeholder(p, name, *icon_x, icon_top, ICON_SZ, ICON_R, 11.0);
+                    p.text(name, icon_x + ICON_SZ + 6.0, mid, &name_style);
+                }
+                y += CHIP_H + GAP;
             }
 
             // "Notifications", and the Do not disturb switch.
