@@ -77,18 +77,34 @@ At the next login that terminal is started in the folder its shell was in and ru
 
 ## Seeing an AI agent at work from across the room
 
-Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, each agent at work has a small oscilloscope trace at the top right, under whatever the agent says to call it. A moving cyan wave is an agent still working. A flat amber line is one that has stopped. There is one trace for each agent, however many are running.
+Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, every open agent session has a small oscilloscope trace at the top right, under whatever the agent says to call it. There is one trace for each open session, however many are running.
 
-**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent says when it is working with a note: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`, made when it starts work and removed when it stops. Its one line is what the trace is called. Most agents can run a command of yours at both moments:
+Three states, each with its own look:
+
+- **Cyan wave:** the agent is actively working.
+- **Dim cyan flat line, pulsing slowly:** the agent has dispatched subagents and is waiting for them.
+- **Flat amber line:** the agent is open but between tasks, or the session has ended.
+
+**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing — `waiting` for subagents dispatched, `idle` between tasks, or nothing for active work. Most agents can run a command of yours at the right moments:
 
 ```sh
-echo "my-agent: $TASK" > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # a task starts
-rm -f "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"    # it ends, or the agent is waiting for you
+# Session opens: leave an idle note (first line empty falls back to the working folder).
+printf '\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
+
+# Task starts:
+echo "my-agent: $TASK" > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
+
+# Subagents dispatched:
+printf 'my-agent: the task\nwaiting\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
+
+# Task ends, or agent is waiting on you: mark idle.
+printf 'my-agent: the task\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
 ```
 
+The note is left in place until the session's process exits; the desktop cleans up notes whose process is gone. Tools that start agents outside the normal process tree, such as multiplexers with their own session management, can set `AGENT_NOTIFY_PID` to the agent's PID when running any hook command, to use that PID directly instead of walking the process ancestry.
+
 - **Only while the desktop is faded.** Nothing is drawn over your windows; the traces come in after the wallpaper has taken the screen and go as the desktop comes back.
-- **Only agents that have been working.** An agent that was already idle when you stepped away has no trace. One that stops while you're away keeps its flat line until you touch a key or the mouse.
+- **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its amber line until you touch a key or the mouse.
 - **The agent itself, not its helpers.** A note is named for one process, so the helpers an agent starts for a task don't each get a trace unless they leave notes of their own.
-- **Reduced motion** keeps the picture and drops the movement: a standing wave for an agent at work, a flat line for one that has stopped.
-- **The name is the agent's to give.** Write the note again to change it. An empty note is called by the folder the agent is working in.
-- **A note left behind** by an agent that has gone counts as stopped.
+- **Reduced motion** keeps the picture and drops the movement: a standing wave for an agent at work, a dim flat line for one waiting on subagents, and a flat line for one that is idle or has stopped.
+- **The name is the agent's to give.** Write the note again to change it. An empty first line falls back to the folder the agent is working in.

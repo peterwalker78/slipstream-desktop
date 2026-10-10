@@ -1,20 +1,18 @@
-//! The traces the faded desktop shows for AI agents at work: one small oscilloscope readout for
-//! each, stacked down the right edge of the wallpaper.
+//! The readouts the faded desktop shows for AI agent sessions: one small oscilloscope for each,
+//! stacked down the right edge of the wallpaper.
 //!
-//! A trace is a wave in cyan while its agent works, dims to a flat cyan line while the agent
-//! waits on a subagent to return, and settles into a flat amber line when the agent has stopped.
-//! The wave and the waiting flat share a colour; the amber flat is clearly different, so all
-//! three read without comparing anything. Each agent's wave has a shape of its own, under what
-//! the agent says to call it.
+//! Three states, each with its own look:
+//! - **Active** (cyan wave): the agent is working, possibly alongside subagents.
+//! - **Subagents** (dim cyan flat, pulsing): the agent has dispatched subagents and is waiting.
+//! - **Idle** (flat amber line): the agent is open but between tasks.
 //!
-//! They are only on screen once the desktop has faded to the wallpaper, and only for agents that
-//! have worked since the desk was last touched: one that was already idle has no trace, and a
-//! flat line is cleared by the key that brings the desktop back, having said what it had to.
-//! Which agents are at work comes from the notes they leave (`working.rs`); with none, nothing
+//! A readout appears for every open session, not only ones that are currently working. When a
+//! session's process exits its readout settles amber and clears at the next key or pointer input.
+//! Which sessions are open comes from the notes they leave (`working.rs`); with none, nothing
 //! here draws.
 //!
-//! Reduced motion keeps the same picture without the movement: a standing wave for an agent at
-//! work, a flat dim line for one that is waiting, and a flat line for one that has stopped.
+//! Reduced motion keeps the same picture without the movement: a standing wave for an active
+//! agent, a dim flat line for one waiting on subagents, and a flat line for idle or stopped.
 
 use std::collections::HashMap;
 
@@ -35,7 +33,7 @@ use smithay::{
 use crate::{
     paint::Painter,
     text::{self, Face, Style},
-    working::Agent,
+    working::{Agent, AgentStatus},
 };
 
 // Sizes in logical pixels.
@@ -87,13 +85,14 @@ const PULSE_RATE: f64 = 0.5;
 struct Trace {
     pid: u32,
     name: String,
-    working: bool,
-    waiting: bool,
-    /// Stopped, and the desk has been touched since: it goes once it is out of sight.
+    /// The agent's session is still open (its note file exists and its process is running).
+    alive: bool,
+    status: AgentStatus,
+    /// Session has ended and the desk has been touched since: clears once out of sight.
     seen: bool,
-    /// Colour level, animating 0 (amber) to 1 (cyan): cyan while working or waiting, amber once stopped.
+    /// Colour level, animating 0 (amber) to 1 (cyan): cyan while active or waiting on subagents.
     colour: f32,
-    /// Wave amplitude, animating 0 (flat) to 1 (full wave): wave only while working and not waiting.
+    /// Wave amplitude, animating 0 (flat) to 1 (full wave): wave only while active.
     amp: f32,
 }
 
@@ -189,18 +188,17 @@ impl Scope {
         }
     }
 
-    /// The agents at work now. One not seen before gets a trace; one no longer among them has
-    /// stopped, and its trace stays to say so.
+    /// Updates which agents have open sessions. One not seen before gets a readout; one no longer
+    /// among them has gone, and its readout stays amber until the desk is touched.
     pub fn follow(&mut self, at_work: &[Agent]) {
         for trace in &mut self.traces {
             let agent = at_work.iter().find(|agent| agent.pid == trace.pid);
-            trace.working = agent.is_some();
-            // What it is called can change as its work does. A stopped one keeps its last name.
+            trace.alive = agent.is_some();
             if let Some(agent) = agent {
                 trace.seen = false;
-                trace.waiting = agent.waiting;
-                // Keep the name from before the wait; only refresh it while actively working.
-                if !agent.waiting {
+                trace.status = agent.status;
+                // Keep the name from before a wait or idle; only refresh while actively working.
+                if agent.status == AgentStatus::Active {
                     trace.name.clone_from(&agent.name);
                 }
             }
@@ -210,20 +208,25 @@ impl Scope {
                 self.traces.push(Trace {
                     pid: agent.pid,
                     name: agent.name.clone(),
-                    working: true,
-                    waiting: agent.waiting,
+                    alive: true,
+                    status: agent.status,
                     seen: false,
-                    colour: 1.0,
-                    amp: if agent.waiting { 0.0 } else { 1.0 },
+                    colour: match agent.status {
+                        AgentStatus::Active | AgentStatus::Subagents => 1.0,
+                        AgentStatus::Idle => 0.0,
+                    },
+                    amp: if agent.status == AgentStatus::Active { 1.0 } else { 0.0 },
                 });
             }
         }
     }
 
-    /// The desk was touched: whoever is there has seen which agents stopped.
+    /// The desk was touched: readouts for sessions that have ended are cleared.
     pub fn touched(&mut self) {
         for trace in &mut self.traces {
-            trace.seen = !trace.working;
+            // Only remove readouts for sessions whose process has gone. Idle sessions (alive but
+            // between tasks) stay: the agent is still running and may start working again.
+            trace.seen = !trace.alive;
         }
         self.clear_seen();
     }
@@ -248,8 +251,16 @@ impl Scope {
             self.shown = (self.shown - (dt / LEAVE) as f32).max(0.0);
         }
         for trace in &mut self.traces {
-            let colour_target = if trace.working { 1.0 } else { 0.0 };
-            let amp_target = if trace.working && !trace.waiting { 1.0 } else { 0.0 };
+            let colour_target = if trace.alive {
+                match trace.status {
+                    AgentStatus::Active | AgentStatus::Subagents => 1.0,
+                    AgentStatus::Idle => 0.0,
+                }
+            } else {
+                0.0
+            };
+            let amp_target =
+                if trace.alive && trace.status == AgentStatus::Active { 1.0 } else { 0.0 };
             if self.reduced_motion {
                 trace.colour = colour_target;
                 trace.amp = amp_target;
@@ -481,15 +492,23 @@ mod tests {
         Agent {
             pid,
             name: name.to_string(),
-            waiting: false,
+            status: AgentStatus::Active,
         }
     }
 
-    fn waiting_agent(pid: u32, name: &str) -> Agent {
+    fn idle_agent(pid: u32, name: &str) -> Agent {
         Agent {
             pid,
             name: name.to_string(),
-            waiting: true,
+            status: AgentStatus::Idle,
+        }
+    }
+
+    fn subagent_agent(pid: u32, name: &str) -> Agent {
+        Agent {
+            pid,
+            name: name.to_string(),
+            status: AgentStatus::Subagents,
         }
     }
 
@@ -501,8 +520,12 @@ mod tests {
         let trace = Trace {
             pid: 300,
             name: String::new(),
-            working: colour > 0.0,
-            waiting: colour > 0.0 && amp == 0.0,
+            alive: colour > 0.0 || amp == 0.0,
+            status: if colour > 0.0 && amp == 0.0 {
+                AgentStatus::Subagents
+            } else {
+                AgentStatus::Active
+            },
             seen: false,
             colour,
             amp,
@@ -566,11 +589,11 @@ mod tests {
         assert_eq!(standing, rows(1.0, 1.0, None).0);
         let mut scope = Scope::new(true);
         scope.follow(&[agent(300, "kiln")]);
-        scope.follow(&[]);
+        scope.follow(&[idle_agent(300, "kiln")]);
         scope.advance(0.0, 0.0);
         assert_eq!(
             scope.traces[0].amp, 0.0,
-            "a stop shows at once, with no settling"
+            "idle shows flat at once, with no settling"
         );
         assert_eq!(scope.shown, 1.0);
     }
@@ -597,22 +620,34 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_that_was_not_working_has_no_trace() {
+    fn no_notes_means_no_traces() {
         let mut scope = Scope::new(false);
         scope.follow(&[]);
         assert!(scope.traces.is_empty());
     }
 
     #[test]
-    fn a_stopped_trace_stays_until_the_desk_is_touched() {
+    fn an_idle_session_shows_a_trace_from_the_start() {
+        let mut scope = Scope::new(false);
+        scope.follow(&[idle_agent(300, "kiln")]);
+        assert_eq!(scope.traces.len(), 1, "idle session gets a trace immediately");
+        assert_eq!(scope.traces[0].status, AgentStatus::Idle);
+        assert_eq!(scope.traces[0].colour, 0.0, "starts amber");
+    }
+
+    #[test]
+    fn a_dead_trace_stays_until_the_desk_is_touched_but_an_idle_one_persists() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "kiln"), agent(301, "ledger")]);
-        scope.follow(&[agent(301, "ledger")]);
+        // Agent 300 goes idle (still alive), agent 301 disappears (process gone).
+        scope.follow(&[idle_agent(300, "kiln")]);
         assert_eq!(scope.traces.len(), 2);
-        assert!(!scope.traces[0].working);
+        assert!(scope.traces[0].alive, "idle agent is still alive");
+        assert!(!scope.traces[1].alive, "gone agent is dead");
         scope.touched();
-        assert_eq!(scope.traces.len(), 1, "the one still working stays");
-        assert_eq!(scope.traces[0].name, "ledger");
+        assert_eq!(scope.traces.len(), 1, "dead trace cleared, idle one kept");
+        assert_eq!(scope.traces[0].name, "kiln");
+        assert_eq!(scope.traces[0].status, AgentStatus::Idle);
     }
 
     #[test]
@@ -635,37 +670,46 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_that_starts_again_gets_its_wave_back() {
+    fn an_idle_agent_that_starts_working_gets_its_wave_back() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "kiln")]);
-        scope.follow(&[]);
+        scope.follow(&[idle_agent(300, "kiln")]);
         scope.follow(&[agent(300, "kiln")]);
         assert_eq!(scope.traces.len(), 1);
-        assert!(scope.traces[0].working);
+        assert!(scope.traces[0].alive);
+        assert_eq!(scope.traces[0].status, AgentStatus::Active);
     }
 
     #[test]
-    fn a_trace_takes_its_agent_s_new_name() {
+    fn a_trace_takes_its_agent_s_new_name_while_active() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "robin: reading the brief")]);
         scope.follow(&[agent(300, "robin: mending the kiln door")]);
         assert_eq!(scope.traces.len(), 1);
         assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
-        scope.follow(&[]);
-        assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
+        scope.follow(&[idle_agent(300, "robin: mending the kiln door")]);
+        assert_eq!(scope.traces[0].name, "robin: mending the kiln door", "idle keeps last name");
     }
 
     #[test]
-    fn a_waiting_trace_keeps_its_name_from_before_the_wait() {
+    fn a_non_active_trace_keeps_its_name() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "robin: mending the kiln door")]);
-        scope.follow(&[waiting_agent(300, "robin: dispatched a helper")]);
+        // Subagents: keeps name from before.
+        scope.follow(&[subagent_agent(300, "robin: dispatched a helper")]);
         assert_eq!(
             scope.traces[0].name, "robin: mending the kiln door",
-            "name stays frozen while waiting"
+            "name stays frozen while waiting on subagents"
         );
+        // Idle: keeps name from before.
+        scope.follow(&[idle_agent(300, "robin: done")]);
+        assert_eq!(
+            scope.traces[0].name, "robin: mending the kiln door",
+            "name stays frozen while idle"
+        );
+        // Active again: name updates.
         scope.follow(&[agent(300, "robin: back to work")]);
-        assert_eq!(scope.traces[0].name, "robin: back to work", "name resumes updating once not waiting");
+        assert_eq!(scope.traces[0].name, "robin: back to work", "name resumes updating");
     }
 
     #[test]
@@ -683,8 +727,8 @@ mod tests {
         let trace = |pid| Trace {
             pid,
             name: String::new(),
-            working: true,
-            waiting: false,
+            alive: true,
+            status: AgentStatus::Active,
             seen: false,
             colour: 1.0,
             amp: 1.0,

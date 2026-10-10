@@ -1,18 +1,17 @@
-//! Which AI agents are at work, for the wallpaper to show once the desktop has faded.
+//! Which AI agents are running, for the wallpaper to show once the desktop has faded.
 //!
 //! Slipstream has no AI in it, and this does nothing on its own. It is here for people who run
-//! an AI coding agent, whichever agent that is, and step away while it works: the agent says
-//! when it is working, and the faded desktop shows a trace for it (`scope.rs`). With no agent
-//! installed, or one that leaves no word, the wallpaper is as it always was.
+//! an AI coding agent, whichever agent that is, and step away: the faded desktop shows a readout
+//! for each open agent session (`scope.rs`). With no agent installed, or one that leaves no word,
+//! the wallpaper is as it always was.
 //!
 //! The agent says so with a note: a file named for its process id in
-//! `$XDG_RUNTIME_DIR/slipstream/working/`, there while it is working and gone when it stops.
-//! The first line is what to call the agent on screen: its own name and what it is working on,
-//! say. An empty first line falls back to the folder the agent is working in. The second line,
-//! if it says `waiting`, tells the desktop the agent is blocked on a subagent and not doing
-//! anything itself. Most agents can run a command when a task starts and when it ends, which is
-//! where the note is made and removed. Only the agent itself leaves one, so the helpers it starts
-//! for a task don't each get a trace.
+//! `$XDG_RUNTIME_DIR/slipstream/working/`, kept there while the session is open. The first line
+//! is what to call the agent on screen: its own name and what it is working on, say. An empty
+//! first line falls back to the folder the agent is working in. The second line says what the
+//! agent is doing: `waiting` means it dispatched a subagent and is blocked waiting for it; `idle`
+//! means it is between tasks. No second line means the agent is actively working. Only the agent
+//! itself leaves a note, so the helpers it starts for a task don't each get a readout.
 
 use std::{
     fs,
@@ -30,14 +29,24 @@ const MOST_NOTES: usize = 64;
 const LONGEST_NOTE: u64 = 1024;
 const LONGEST_NAME: usize = 80;
 
-/// An agent that says it is working.
+/// What a note's second line says the agent is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentStatus {
+    /// Working: note has no second line.
+    Active,
+    /// Dispatched a subagent and is waiting for it: second line `waiting`.
+    Subagents,
+    /// Open between tasks: second line `idle`.
+    Idle,
+}
+
+/// An agent with an open session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub pid: u32,
     /// What to call it: what its note says, or the folder it is working in.
     pub name: String,
-    /// The agent is waiting on a subagent rather than working itself.
-    pub waiting: bool,
+    pub status: AgentStatus,
 }
 
 /// Where agents leave these notes, if there is a runtime folder to keep them in.
@@ -45,14 +54,52 @@ pub fn notes_dir() -> Option<PathBuf> {
     resume::notes_about("working")
 }
 
-/// Every agent at work now.
+/// Removes notes that belong to processes that are no longer running, to keep the folder tidy
+/// across a long session. Called as a side effect of `at_work`.
+fn clean_stale(notes: &Path, uid: u32, ticks: u64) {
+    let Ok(dir) = fs::read_dir(notes) else {
+        return;
+    };
+    for entry in dir.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if !meta.is_file() || meta.uid() != uid {
+            continue;
+        }
+        let written = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        let started = resume::started(Path::new("/proc"), pid, ticks);
+        let alive = started.is_some_and(|s| {
+            written.is_some_and(|w| w + 2 >= s)
+        });
+        if !alive {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Every agent with an open session now.
 pub fn at_work() -> Vec<Agent> {
     let Some(notes) = notes_dir() else {
         return Vec::new();
     };
     // SAFETY: both only read values the kernel holds for this process.
     let (uid, ticks) = unsafe { (libc::getuid(), libc::sysconf(libc::_SC_CLK_TCK)) };
-    read(Path::new("/proc"), &notes, uid, ticks.max(1) as u64)
+    let agents = read(Path::new("/proc"), &notes, uid, ticks.max(1) as u64);
+    // Tidy up notes for processes that have gone, so they don't accumulate across a long session.
+    clean_stale(&notes, uid, ticks.max(1) as u64);
+    agents
 }
 
 /// `at_work` over any process table and notes folder, so it can be tested on made-up ones.
@@ -74,9 +121,9 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             if written.as_secs() + 2 < resume::started(proc, pid, ticks)? {
                 return None;
             }
-            let (note_name, waiting) = parse_note(&entry.path(), meta.len());
+            let (note_name, status) = parse_note(&entry.path(), meta.len());
             let name = note_name.unwrap_or_else(|| folder(proc, pid));
-            Some(Agent { pid, name, waiting })
+            Some(Agent { pid, name, status })
         })
         .collect();
     agents.sort_by_key(|agent| agent.pid);
@@ -84,13 +131,13 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
 }
 
 /// What the note at `path`, `len` bytes long, says about its agent: what to call it (its first
-/// line, if that is plain text) and whether it is waiting on a subagent (second line `waiting`).
-fn parse_note(path: &Path, len: u64) -> (Option<String>, bool) {
+/// line, if that is plain text) and what the agent is doing (from the second line).
+fn parse_note(path: &Path, len: u64) -> (Option<String>, AgentStatus) {
     if len == 0 || len > LONGEST_NOTE {
-        return (None, false);
+        return (None, AgentStatus::Active);
     }
     let Ok(text) = fs::read_to_string(path) else {
-        return (None, false);
+        return (None, AgentStatus::Active);
     };
     let mut lines = text.lines();
     let name = lines.next().and_then(|line| {
@@ -98,8 +145,12 @@ fn parse_note(path: &Path, len: u64) -> (Option<String>, bool) {
         (!line.is_empty() && !line.chars().any(char::is_control))
             .then(|| line.chars().take(LONGEST_NAME).collect())
     });
-    let waiting = lines.next().is_some_and(|line| line.trim() == "waiting");
-    (name, waiting)
+    let status = match lines.next().map(|l| l.trim()) {
+        Some("waiting") => AgentStatus::Subagents,
+        Some("idle") => AgentStatus::Idle,
+        _ => AgentStatus::Active,
+    };
+    (name, status)
 }
 
 /// The name of the folder `pid` is working in, or nothing where it can't be read.
@@ -201,17 +252,31 @@ mod tests {
     }
 
     #[test]
-    fn a_waiting_second_line_marks_the_agent_as_waiting_on_a_subagent() {
-        let machine = Machine::new("working-waiting");
+    fn second_line_sets_the_agent_status() {
+        let machine = Machine::new("working-status");
         machine.process(300, "/home/sam/projects/kiln");
         machine.process(301, "/home/sam/projects/ledger");
+        machine.process(302, "/home/sam/projects/orchard");
         machine.note_saying(300, "claude: fixing the kiln\nwaiting\n", 150);
-        machine.note_saying(301, "claude: counting the ledger\n", 160);
+        machine.note_saying(301, "claude: counting the ledger\nidle\n", 160);
+        machine.note_saying(302, "claude: growing the orchard\n", 170);
         let agents = machine.read();
         assert_eq!(agents[0].name, "claude: fixing the kiln");
-        assert!(agents[0].waiting, "second line 'waiting' → waiting");
+        assert_eq!(agents[0].status, AgentStatus::Subagents, "second line 'waiting'");
         assert_eq!(agents[1].name, "claude: counting the ledger");
-        assert!(!agents[1].waiting, "no second line → not waiting");
+        assert_eq!(agents[1].status, AgentStatus::Idle, "second line 'idle'");
+        assert_eq!(agents[2].name, "claude: growing the orchard");
+        assert_eq!(agents[2].status, AgentStatus::Active, "no second line");
+    }
+
+    #[test]
+    fn idle_agent_is_shown_like_any_other() {
+        let machine = Machine::new("working-idle");
+        machine.process(300, "/home/sam/projects/kiln");
+        machine.note_saying(300, "claude: done\nidle\n", 150);
+        let agents = machine.read();
+        assert_eq!(agents.len(), 1, "idle note is still counted");
+        assert_eq!(agents[0].status, AgentStatus::Idle);
     }
 
     #[test]
@@ -229,9 +294,9 @@ mod tests {
             ["robin: mending the kiln door", "ledger", "orchard"],
             "one plain line, or the folder"
         );
-        // "waiting" only counts when it is the second line, not some other text.
-        let waiting: Vec<bool> = machine.read().into_iter().map(|a| a.waiting).collect();
-        assert_eq!(waiting, [false, false, false]);
+        // status words only count when they are the second line.
+        let statuses: Vec<AgentStatus> = machine.read().into_iter().map(|a| a.status).collect();
+        assert_eq!(statuses, [AgentStatus::Active, AgentStatus::Active, AgentStatus::Active]);
     }
 
     #[test]
