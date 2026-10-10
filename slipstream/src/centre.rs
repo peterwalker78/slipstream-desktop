@@ -479,19 +479,19 @@ impl Centre {
 
             // Apps running with no visible window.
             if !look.background_apps.is_empty() {
-                // Section label.
-                const LABEL_H: f32 = 18.0;
-                p.text("In background", x0, y + LABEL_H / 2.0, &panel::section_style());
-                y += LABEL_H + 4.0;
+                // Section label — same style as the Notifications heading.
+                let heading = Style::new(Face::BodyBold, 16.0, INK);
+                p.text("In background", x0, y + HEAD_H / 2.0, &heading);
+                y += HEAD_H + GAP;
 
                 // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
                 // ICON_SZ must match the px loaded in load_background_app_icons (22 dp).
                 const ICON_SZ: f32 = 22.0;
                 const ICON_R: f32 = 5.0;
-                const CHIP_PAD_H: f32 = 10.0;
-                const CHIP_PAD_TOP: f32 = 10.0;
-                const CHIP_PAD_BOT: f32 = 8.0;
-                const NAME_GAP: f32 = 4.0;
+                const CHIP_PAD_H: f32 = 14.0;
+                const CHIP_PAD_TOP: f32 = 14.0;
+                const CHIP_PAD_BOT: f32 = 12.0;
+                const NAME_GAP: f32 = 5.0;
                 const NAME_H: f32 = 13.0;
                 const CHIP_RADIUS: f32 = panel::ROW_RADIUS;
                 const CHIP_GAP: f32 = 8.0;
@@ -518,8 +518,8 @@ impl Centre {
                     count += 1;
                 }
 
-                // Centre the row.
-                let row_x = x0 + (inner - used) / 2.0;
+                // Left-justify the row from x0.
+                let row_x = x0;
                 let icon_y = y + CHIP_PAD_TOP;
                 let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
                 let mut cx = row_x;
