@@ -2,8 +2,9 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
-## Unreleased
+## 0.11.0 - 2026-10-10
 
+- **Background apps in the notification centre.** Super+N now shows a "Background Apps" section above the notifications list: apps that are running but have no visible window — Discord, Spotify and the like. Each appears as a rounded chip with its icon and name; clicking a chip brings the window forward, or launches the app if it has no window open yet. A focus ring pulses in the chip's colour before the centre closes. Tab and arrow keys reach the chips alongside the notification stops.
 - **A trace for every open session, with three states.** The wallpaper now shows a trace for every agent session that is open, not only ones that are actively working. Three states: a moving cyan wave (working), a dim cyan line that pulses slowly (waiting on a subagent to return), and a flat amber line (open but between tasks, or the session has ended). The label keeps the name from before a wait or an idle. A note stays in the working folder while the session is open; the desktop cleans up notes whose process has gone. Tools that start agent sessions outside the normal process tree can set `AGENT_NOTIFY_PID` to skip the process ancestry walk.
 - **The tour teaches docking and floating, and reads in a better order.** Still sixteen lessons, now in five parts. Moving a window follows straight on from moving the keyboard; workspaces, bullet time and Alt+Tab come together; and a new part covers the places a window can be besides a tile: filling the screen, floating, in a stream, and docked to the bar. The floating lesson shows lifting a window, nudging and resizing it, and getting the keyboard back to the tiles. The docking lesson shows the pane staying put while the workspace changes behind it. The lessons on Windows' own keys and on where settings are kept are gone; what they said that wasn't obvious is a line elsewhere.
 - **The gravity lesson shows the arrangements being chosen.** Its miniature holds Super after Super+T, the strip of arrangements comes up, and each further T takes the next one. Tapping a lesson's key again now goes on to its next step: T along the arrangements, Super+W to the docked window's next size.
@@ -11,6 +12,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Super+arrows lead out of a floating window.** With no other floating window that way they take the keyboard back to the tiles. Before, from a lone floating window they did nothing.
 - **Super+PgUp and Super+PgDn are no longer bound.** Under gravity Super+] and Super+[ already make a window heavier and lighter, and those are the keys the list shows. PgUp and PgDn still weigh the chosen window in bullet time.
 - **A window closing behind the docked pane stays behind it.** Its streaks or falling code poured over the front of the pane, and so did two tiles swapping places; both now pass behind the glass.
+- **Screen sharing shows every window.** Direct scanout — an optimisation that paints a full-screen window straight to the display without compositing — was left on while a screen share was active, so other windows didn't appear to the person you were sharing with. It's now paused for the duration of a screen share.
 
 ## 0.10.0 - 2026-10-09
 
