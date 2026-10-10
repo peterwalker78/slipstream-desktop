@@ -77,8 +77,8 @@ const FLAT: f32 = 0.85;
 const DIMMEST: f32 = 0.25;
 const WAITING: f32 = 0.22;
 /// How much the waiting line brightens at the peak of its pulse, and how many pulses a second.
-const PULSE_SWING: f32 = 0.12;
-const PULSE_RATE: f64 = 0.5;
+const PULSE_SWING: f32 = 0.35;
+const PULSE_RATE: f64 = 1.0;
 
 /// One agent's readout.
 #[derive(Debug, Clone, PartialEq)]
