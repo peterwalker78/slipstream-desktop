@@ -1199,7 +1199,7 @@ impl Slipstream {
     /// Loads missing icons for background apps at the current screen scale.
     /// Called once per frame while the notification centre is open.
     pub fn load_background_app_icons(&mut self, scale: f64) {
-        let px = (22.0 / crate::panel::DESIGN_PX as f64 * scale)
+        let px = (22.0 * crate::panel::DESIGN_PX as f64 * scale)
             .round()
             .max(1.0) as u32;
         for app in &mut self.background_apps {

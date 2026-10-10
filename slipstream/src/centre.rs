@@ -477,21 +477,35 @@ impl Centre {
             }
             y += card_h + GAP;
 
-            // Apps running with no visible window — floating icon strip, no card fill.
+            // Apps running with no visible window.
             if !look.background_apps.is_empty() {
-                const ICON_SZ: f32 = 26.0;
-                const ICON_R: f32 = 6.0;
+                // Section label.
+                const LABEL_H: f32 = 18.0;
+                p.text("In background", x0, y + LABEL_H / 2.0, &panel::section_style());
+                y += LABEL_H + 4.0;
+
+                // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
+                // ICON_SZ must match the px loaded in load_background_app_icons (22 dp).
+                const ICON_SZ: f32 = 22.0;
+                const ICON_R: f32 = 5.0;
+                const CHIP_PAD_H: f32 = 10.0;
+                const CHIP_PAD_TOP: f32 = 10.0;
+                const CHIP_PAD_BOT: f32 = 8.0;
                 const NAME_GAP: f32 = 4.0;
-                const NAME_H: f32 = 14.0;
-                const CHIP_GAP: f32 = 20.0;
-                const STRIP_TOP: f32 = 6.0;
-                const STRIP_BOT: f32 = 8.0;
-                let strip_h = STRIP_TOP + ICON_SZ + NAME_GAP + NAME_H + STRIP_BOT;
+                const NAME_H: f32 = 13.0;
+                const CHIP_RADIUS: f32 = panel::ROW_RADIUS;
+                const CHIP_GAP: f32 = 8.0;
+                const CHIP_H: f32 = CHIP_PAD_TOP + ICON_SZ + NAME_GAP + NAME_H + CHIP_PAD_BOT;
+
                 let name_style = Style::new(Face::Body, 11.0, panel::HINT);
                 let chip_ws: Vec<f32> = bg_data
                     .iter()
-                    .map(|(_, name, _)| ICON_SZ.max(text::width(name, &name_style)))
+                    .map(|(_, name, _)| {
+                        (ICON_SZ + CHIP_PAD_H * 2.0)
+                            .max(text::width(name, &name_style) + CHIP_PAD_H * 2.0)
+                    })
                     .collect();
+
                 // How many chips fit in `inner`?
                 let mut used = 0.0_f32;
                 let mut count = 0usize;
@@ -503,37 +517,42 @@ impl Centre {
                     used += needed;
                     count += 1;
                 }
-                // Centre the strip.
-                let strip_x = x0 + (inner - used) / 2.0;
-                let icon_y = y + STRIP_TOP;
+
+                // Centre the row.
+                let row_x = x0 + (inner - used) / 2.0;
+                let icon_y = y + CHIP_PAD_TOP;
                 let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
-                let mut cx = strip_x;
+                let mut cx = row_x;
                 for i in 0..count {
                     let (_, name, icon) = &bg_data[i];
                     let cw = chip_ws[i];
+                    p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
+                    p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
                     let icon_x = cx + (cw - ICON_SZ) / 2.0;
                     match icon {
                         Some(px) => p.image(px, icon_x, icon_y),
                         None => {
-                            panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 13.0)
+                            panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 12.0)
                         }
                     }
                     let nw = text::width(name, &name_style);
                     p.text(name, cx + (cw - nw) / 2.0, name_y, &name_style);
                     cx += cw + CHIP_GAP;
                 }
-                // Register click targets (after drawing, so no borrow conflict on bg_data).
-                let mut tx = strip_x;
+
+                // Click targets span each full chip.
+                let mut tx = row_x;
                 for i in 0..count {
                     let (app_id, _, _) = &bg_data[i];
                     let cw = chip_ws[i];
                     targets.push((
                         Target::ActivateBackground(app_id.clone()),
-                        on_screen(tx, icon_y, cw, ICON_SZ + NAME_GAP + NAME_H),
+                        on_screen(tx, y, cw, CHIP_H),
                     ));
                     tx += cw + CHIP_GAP;
                 }
-                y += strip_h + GAP;
+
+                y += CHIP_H + GAP;
             }
 
             // "Notifications", and the Do not disturb switch.
