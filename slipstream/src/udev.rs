@@ -727,11 +727,19 @@ impl Slipstream {
         let elements =
             render::output_elements(self, &mut gpu.renderer, &output, Some(&mut udev.cursor));
         let mut drew = false;
+        // Direct scanout places surface buffers on DRM planes without importing them into the GL
+        // context, so draw_offscreen cannot texture them — they appear transparent in the capture.
+        // While anything is recording, keep all content in the GL pipeline.
+        let flags = if self.captures.sharing() || self.screencopy.wants(&output) {
+            FrameFlags::SKIP_CURSOR_ONLY_UPDATES
+        } else {
+            FrameFlags::DEFAULT
+        };
         match screen.drm_output.render_frame(
             &mut gpu.renderer,
             &elements,
             render::BACKGROUND,
-            FrameFlags::DEFAULT,
+            flags,
         ) {
             Ok(frame) => {
                 self.update_scanout_outputs(&output, &frame.states);
