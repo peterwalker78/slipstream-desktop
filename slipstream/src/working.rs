@@ -126,57 +126,8 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             Some(Agent { pid, name, status })
         })
         .collect();
-    // The note's second line says what the agent is doing, but by the time the desktop fades
-    // the agent may already be blocked on subagents it launched before the user stepped away.
-    // One pass over the process table is more reliable: if another agent process is a direct
-    // child of an agent, that agent is waiting on it regardless of what the note says.
-    let waiting_on_subagents = parents_with_agent_child(proc);
-    for agent in &mut agents {
-        if waiting_on_subagents.contains(&agent.pid) {
-            agent.status = AgentStatus::Subagents;
-        }
-    }
     agents.sort_by_key(|agent| agent.pid);
     agents
-}
-
-/// One pass over `proc`, returning the set of PIDs that have at least one direct child process
-/// that is itself a known agent (claude, codex, gemini). Used to detect the subagents state from
-/// the process tree rather than relying on the note file, which may not have been updated before
-/// the desktop faded.
-fn parents_with_agent_child(proc: &Path) -> std::collections::HashSet<u32> {
-    let mut parents = std::collections::HashSet::new();
-    let Ok(dir) = fs::read_dir(proc) else {
-        return parents;
-    };
-    for entry in dir.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let Ok(status) = fs::read_to_string(proc.join(pid.to_string()).join("status")) else {
-            continue;
-        };
-        let mut name = "";
-        let mut ppid: u32 = 0;
-        for line in status.lines() {
-            if let Some(v) = line.strip_prefix("Name:\t") {
-                name = v;
-            } else if let Some(v) = line.strip_prefix("PPid:\t") {
-                ppid = v.trim().parse().unwrap_or(0);
-            }
-            if !name.is_empty() && ppid != 0 {
-                break;
-            }
-        }
-        if matches!(name, "claude" | "codex" | "gemini") && ppid != 0 {
-            parents.insert(ppid);
-        }
-    }
-    parents
 }
 
 /// What the note at `path`, `len` bytes long, says about its agent: what to call it (its first
@@ -247,18 +198,6 @@ mod tests {
             );
             fs::write(dir.join("stat"), format!("{pid} (agent) {fields}\n")).unwrap();
             symlink(cwd, dir.join("cwd")).unwrap();
-        }
-
-        /// A child agent process (`name` is e.g. "claude" or "codex") whose parent is
-        /// `parent_pid`, with no note of its own.
-        fn agent_child(&self, pid: u32, parent_pid: u32, name: &str) {
-            let dir = self.root.join(format!("proc/{pid}"));
-            fs::create_dir_all(&dir).unwrap();
-            fs::write(
-                dir.join("status"),
-                format!("Name:\t{name}\nPPid:\t{parent_pid}\n"),
-            )
-            .unwrap();
         }
 
         /// `pid` leaves an empty note, `after` seconds after boot.
@@ -384,39 +323,4 @@ mod tests {
         assert_eq!(machine.read(), Vec::new());
     }
 
-    #[test]
-    fn a_child_agent_process_overrides_the_note_status_to_subagents() {
-        let machine = Machine::new("working-subagent-proc");
-        machine.process(300, "/home/sam/projects/kiln");
-        machine.note_saying(300, "claude: kiln\n", 150);
-        // A subagent running as a direct child; works for any supported agent name.
-        machine.agent_child(301, 300, "claude");
-        let agents = machine.read();
-        assert_eq!(agents.len(), 1);
-        assert_eq!(agents[0].status, AgentStatus::Subagents, "process tree beats the note");
-        // Once the subagent exits (no status file), the note status is used again.
-        fs::remove_dir_all(machine.root.join("proc/301")).unwrap();
-        let agents = machine.read();
-        assert_eq!(agents[0].status, AgentStatus::Active, "back to active once child is gone");
-    }
-
-    #[test]
-    fn an_idle_agent_with_a_running_child_shows_subagents() {
-        let machine = Machine::new("working-subagent-idle");
-        machine.process(300, "/home/sam/projects/kiln");
-        machine.note_saying(300, "claude: kiln\nidle\n", 150);
-        machine.agent_child(301, 300, "claude");
-        let agents = machine.read();
-        assert_eq!(agents[0].status, AgentStatus::Subagents, "process tree overrides idle too");
-    }
-
-    #[test]
-    fn a_codex_child_process_also_triggers_subagents_state() {
-        let machine = Machine::new("working-subagent-codex");
-        machine.process(300, "/home/sam/projects/kiln");
-        machine.note_saying(300, "codex: kiln\n", 150);
-        machine.agent_child(301, 300, "codex");
-        let agents = machine.read();
-        assert_eq!(agents[0].status, AgentStatus::Subagents);
-    }
 }
