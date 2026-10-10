@@ -120,7 +120,9 @@ mod workspaces;
 /// running. Shown in the notification centre so the user knows it's still there.
 pub struct BackgroundApp {
     pub name: String,
+    pub app_id: String,
     pub client_id: ClientId,
+    pub icon: Option<resvg::tiny_skia::Pixmap>,
 }
 
 /// The last dot-separated segment of a Wayland app ID, with the first letter capitalised:
@@ -352,6 +354,8 @@ pub struct Slipstream {
     /// Apps whose last window closed but whose Wayland client is still running. Shown in the
     /// notification centre. Entries are pruned when the client disconnects or opens a new window.
     pub background_apps: Vec<BackgroundApp>,
+    /// Incremented each time a background app's icon loads, so the centre repaints.
+    pub background_icon_rev: u64,
     /// Windows that asked for fullscreen before they had anything to show — players and games
     /// usually do — and get it the moment they map.
     pub fullscreen_on_map: Vec<Window>,
@@ -733,6 +737,7 @@ impl Slipstream {
             saved_record: None,
             unmapped: Vec::new(),
             background_apps: Vec::new(),
+            background_icon_rev: 0,
             fullscreen_on_map: Vec::new(),
             restoring: None,
             offer: None,
@@ -1187,6 +1192,23 @@ impl Slipstream {
                     "Sharing stopped",
                     "Nothing on this desktop is being shared now.",
                 );
+            }
+        }
+    }
+
+    /// Loads missing icons for background apps at the current screen scale.
+    /// Called once per frame while the notification centre is open.
+    pub fn load_background_app_icons(&mut self, scale: f64) {
+        let px = (22.0 / crate::panel::DESIGN_PX as f64 * scale)
+            .round()
+            .max(1.0) as u32;
+        for app in &mut self.background_apps {
+            if app.icon.is_none() {
+                let loaded = self.explorer.app_icon(&app.app_id, px);
+                if loaded.is_some() {
+                    app.icon = loaded;
+                    self.background_icon_rev += 1;
+                }
             }
         }
     }

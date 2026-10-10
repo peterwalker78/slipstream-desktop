@@ -602,8 +602,16 @@ impl Slipstream {
                 .unwrap_or(false)
         });
         if !still_open && !self.background_apps.iter().any(|a| a.client_id == client_id) {
-            let name = pretty_name(&app_id);
-            self.background_apps.push(BackgroundApp { name, client_id });
+            let name = self
+                .explorer
+                .app_name(&app_id)
+                .unwrap_or_else(|| pretty_name(&app_id));
+            self.background_apps.push(BackgroundApp {
+                name,
+                app_id: app_id.clone(),
+                client_id,
+                icon: None,
+            });
         }
     }
 

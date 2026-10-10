@@ -1896,11 +1896,12 @@ fn card_elements(
         );
     }
     if state.centre.is_open() {
+        state.load_background_app_icons(scale);
         let facts = state.centre_facts();
         elements.extend(
             state
                 .centre
-                .element(renderer, size, scale, now, facts, &state.notices)
+                .element(renderer, size, scale, now, facts, &state.notices, &state.background_apps)
                 .map(OutputElement::Memory),
         );
     }

@@ -410,6 +410,25 @@ impl Slipstream {
         }
     }
 
+    /// Activates a background app: focuses its window if it opened one, otherwise runs its
+    /// desktop entry (the process usually intercepts it to show its window again).
+    pub fn activate_background_app(&mut self, app_id: &str) {
+        let window = self.all_open_windows().into_iter().find(|w| {
+            w.alive() && window_app_id(w).is_some_and(|id| id.eq_ignore_ascii_case(app_id))
+        });
+        if let Some(window) = window {
+            if self.rain.contains(&window) {
+                self.restore(&window);
+            } else {
+                self.activate_window(&window);
+            }
+        } else if let Some(app) = self.explorer.app_for(app_id) {
+            self.start_app(&app);
+        }
+        self.background_apps
+            .retain(|a| !a.app_id.eq_ignore_ascii_case(app_id));
+    }
+
     /// Starts an app from its desktop entry, and says so if it can't be.
     pub(super) fn start_app(&mut self, app: &crate::apps::App) {
         self.concentration.asked(std::time::Instant::now());

@@ -45,7 +45,7 @@ pub enum Item {
 }
 
 /// What a key or click asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     Nothing,
     Close,
@@ -55,15 +55,18 @@ pub enum Request {
     ClearAll,
     /// One of a notification's action buttons.
     Invoke(u32, usize),
+    /// Click on a background app's icon: bring it forward or launch it.
+    ActivateBackground(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Target {
     DoNotDisturb,
     Open(u32),
     Dismiss(u32),
     ClearAll,
     Action(u32, usize),
+    ActivateBackground(String),
 }
 
 /// Everything the centre shows that it doesn't own, besides the notifications.
@@ -74,8 +77,10 @@ pub struct Facts {
     pub reduced_motion: bool,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
-    /// Apps running with no visible window, shown as a card above "Notifications".
+    /// Apps running with no visible window, shown above "Notifications".
     pub background_apps: Vec<String>,
+    /// Increments when a background app's icon loads, triggering a repaint.
+    pub background_icon_rev: u64,
 }
 
 /// Everything the painted panel depends on.
@@ -92,6 +97,7 @@ struct Look {
     size: Size<i32, Logical>,
     scale: f64,
     background_apps: Vec<String>,
+    background_icon_rev: u64,
 }
 
 pub struct Centre {
@@ -115,6 +121,9 @@ pub struct Centre {
     targets: Vec<(Target, Rectangle<f64, Logical>)>,
     /// Opens with a short fade instead of rising (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
+    /// (app_id, display_name, icon) for each background app, set in `element()` so `repaint()`
+    /// can draw real icons without a parameter change.
+    background_icon_data: Vec<(String, String, Option<resvg::tiny_skia::Pixmap>)>,
 }
 
 impl Default for Centre {
@@ -133,6 +142,7 @@ impl Default for Centre {
             frame: Rectangle::from_size((0.0, 0.0).into()),
             targets: Vec::new(),
             reduced_motion: false,
+            background_icon_data: Vec::new(),
         }
     }
 }
@@ -263,7 +273,7 @@ impl Centre {
             .targets
             .iter()
             .find(|(_, area)| area.contains((x, y)))
-            .map(|(target, _)| *target);
+            .map(|(target, _)| target.clone());
         match target {
             Some(Target::DoNotDisturb) => {
                 self.selected = Item::DoNotDisturb;
@@ -273,6 +283,7 @@ impl Centre {
             Some(Target::Dismiss(id)) => Request::Dismiss(id),
             Some(Target::ClearAll) => Request::ClearAll,
             Some(Target::Action(id, index)) => Request::Invoke(id, index),
+            Some(Target::ActivateBackground(id)) => Request::ActivateBackground(id),
             None if self.frame.contains((x, y)) => Request::Nothing,
             None => Request::Close,
         }
@@ -302,6 +313,7 @@ impl Centre {
         now: f64,
         facts: Facts,
         notices: &Notices,
+        background_apps: &[crate::state::BackgroundApp],
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -320,6 +332,10 @@ impl Centre {
         if gone {
             self.selected = Item::DoNotDisturb;
         }
+        self.background_icon_data = background_apps
+            .iter()
+            .map(|a| (a.app_id.clone(), a.name.clone(), a.icon.clone()))
+            .collect();
         let look = Look {
             today: facts.today,
             month: self.month,
@@ -332,6 +348,7 @@ impl Centre {
             size,
             scale,
             background_apps: facts.background_apps,
+            background_icon_rev: facts.background_icon_rev,
         };
         if self.shown.as_ref() != Some(&look) {
             self.repaint(&look, notices)?;
@@ -371,6 +388,8 @@ impl Centre {
         let mut buttons = std::collections::HashMap::new();
         let mut button_ring: Option<[f32; 4]> = None;
         let mut scroll = look.scroll;
+        // Extracted before the closure so the borrow is on the field, not all of self.
+        let bg_data = &self.background_icon_data;
 
         let painted = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
@@ -458,39 +477,63 @@ impl Centre {
             }
             y += card_h + GAP;
 
-            // Apps running with no visible window: icon + name chips from the right.
+            // Apps running with no visible window — floating icon strip, no card fill.
             if !look.background_apps.is_empty() {
-                const CHIP_H: f32 = 38.0;
-                const ICON_SZ: f32 = 20.0;
-                const ICON_R: f32 = 5.0;
-                const CHIP_GAP: f32 = 12.0;
-                const CHIP_PAD: f32 = 14.0;
-                p.fill(x0, y, inner, CHIP_H, panel::TILE_RADIUS, panel::TILE);
-                let mid = y + CHIP_H / 2.0;
-                let icon_top = mid - ICON_SZ / 2.0;
-                let hint = Style::new(Face::Body, 13.0, panel::HINT);
-                p.text("In background", x0 + CHIP_PAD, mid, &hint);
-                let label_end =
-                    x0 + CHIP_PAD + text::width("In background", &hint) + CHIP_GAP;
-                let name_style = Style::new(Face::Body, 13.0, panel::TERTIARY);
-                // Build chips right-to-left, stopping before the label.
-                let mut chips: Vec<(f32, &str)> = Vec::new();
-                let mut rx = x0 + inner - CHIP_PAD;
-                for name in &look.background_apps {
-                    let chip_w = ICON_SZ + 6.0 + text::width(name, &name_style);
-                    let icon_x = rx - chip_w;
-                    if icon_x < label_end {
+                const ICON_SZ: f32 = 26.0;
+                const ICON_R: f32 = 6.0;
+                const NAME_GAP: f32 = 4.0;
+                const NAME_H: f32 = 14.0;
+                const CHIP_GAP: f32 = 20.0;
+                const STRIP_TOP: f32 = 6.0;
+                const STRIP_BOT: f32 = 8.0;
+                let strip_h = STRIP_TOP + ICON_SZ + NAME_GAP + NAME_H + STRIP_BOT;
+                let name_style = Style::new(Face::Body, 11.0, panel::HINT);
+                let chip_ws: Vec<f32> = bg_data
+                    .iter()
+                    .map(|(_, name, _)| ICON_SZ.max(text::width(name, &name_style)))
+                    .collect();
+                // How many chips fit in `inner`?
+                let mut used = 0.0_f32;
+                let mut count = 0usize;
+                for (i, &w) in chip_ws.iter().enumerate() {
+                    let needed = if i == 0 { w } else { CHIP_GAP + w };
+                    if used + needed > inner + 0.5 {
                         break;
                     }
-                    chips.push((icon_x, name.as_str()));
-                    rx = icon_x - CHIP_GAP;
+                    used += needed;
+                    count += 1;
                 }
-                // Draw left-to-right (chips were collected right-to-left, so reverse).
-                for (icon_x, name) in chips.iter().rev() {
-                    panel::app_placeholder(p, name, *icon_x, icon_top, ICON_SZ, ICON_R, 11.0);
-                    p.text(name, icon_x + ICON_SZ + 6.0, mid, &name_style);
+                // Centre the strip.
+                let strip_x = x0 + (inner - used) / 2.0;
+                let icon_y = y + STRIP_TOP;
+                let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
+                let mut cx = strip_x;
+                for i in 0..count {
+                    let (_, name, icon) = &bg_data[i];
+                    let cw = chip_ws[i];
+                    let icon_x = cx + (cw - ICON_SZ) / 2.0;
+                    match icon {
+                        Some(px) => p.image(px, icon_x, icon_y),
+                        None => {
+                            panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 13.0)
+                        }
+                    }
+                    let nw = text::width(name, &name_style);
+                    p.text(name, cx + (cw - nw) / 2.0, name_y, &name_style);
+                    cx += cw + CHIP_GAP;
                 }
-                y += CHIP_H + GAP;
+                // Register click targets (after drawing, so no borrow conflict on bg_data).
+                let mut tx = strip_x;
+                for i in 0..count {
+                    let (app_id, _, _) = &bg_data[i];
+                    let cw = chip_ws[i];
+                    targets.push((
+                        Target::ActivateBackground(app_id.clone()),
+                        on_screen(tx, icon_y, cw, ICON_SZ + NAME_GAP + NAME_H),
+                    ));
+                    tx += cw + CHIP_GAP;
+                }
+                y += strip_h + GAP;
             }
 
             // "Notifications", and the Do not disturb switch.
@@ -673,6 +716,7 @@ impl Slipstream {
             reduced_motion: self.centre.reduced_motion,
             ring: self.panel_ring(),
             background_apps,
+            background_icon_rev: self.background_icon_rev,
         }
     }
 
@@ -725,6 +769,10 @@ impl Slipstream {
                 let ids = self.notices.ids();
                 self.centre.forget(id, &ids);
                 self.invoke_notice_action(id, index);
+            }
+            Request::ActivateBackground(app_id) => {
+                self.centre.close();
+                self.activate_background_app(&app_id);
             }
         }
     }
@@ -779,6 +827,7 @@ mod tests {
             size: (1536, 960).into(),
             scale: 1.25,
             background_apps: Vec::new(),
+            background_icon_rev: 0,
         }
     }
 
