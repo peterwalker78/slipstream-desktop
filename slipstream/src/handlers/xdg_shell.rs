@@ -9,8 +9,11 @@ use smithay::{
         wayland_server::protocol::{wl_output, wl_seat, wl_surface::WlSurface},
     },
     utils::Serial,
-    wayland::shell::xdg::{
-        PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+    wayland::{
+        input_method::InputMethodKeyboardGrab,
+        shell::xdg::{
+            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+        },
     },
 };
 
@@ -70,6 +73,26 @@ impl XdgShellHandler for Slipstream {
             self.set_fullscreen(&window, false);
         } else if let Some(window) = self.unmapped_window(&surface) {
             self.fullscreen_on_map.retain(|waiting| waiting != &window);
+        }
+    }
+
+    /// A menu that had the keyboard without a grab of its own to give it back (one opened while
+    /// an input method held the keyboard, see `grab`) has gone: the keyboard goes back to the
+    /// window it was in.
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        let Some(keyboard) = self.seat.get_keyboard() else {
+            return;
+        };
+        let had_it = matches!(
+            keyboard.current_focus(),
+            Some(KeyboardFocus::Wayland(focus)) if focus == *surface.wl_surface()
+        );
+        // A menu's own grab gives the keyboard back itself; an input method's never does.
+        let menus = keyboard
+            .with_grab(|_, held| !held.is::<InputMethodKeyboardGrab>())
+            .unwrap_or(false);
+        if had_it && !menus {
+            self.restore_focus();
         }
     }
 
@@ -143,13 +166,23 @@ impl XdgShellHandler for Slipstream {
         if let Some(keyboard) = seat.get_keyboard() {
             let theirs = keyboard.has_grab(serial)
                 || keyboard.has_grab(grab.previous_serial().unwrap_or(serial));
-            if keyboard.is_grabbed() && !theirs {
+            // An input method holds the keyboard for as long as the app in front is taking text
+            // (fcitx5 and a terminal, all the time). That is no stale menu: taking it for one
+            // closed every menu of such an app the moment it opened. The menu gets the keyboard's
+            // focus, which ends the text and with it the input method's hold; the hold itself is
+            // the input method's to let go of, and `popup_destroyed` hands the keyboard back.
+            let input_method = keyboard
+                .with_grab(|_, held| held.is::<InputMethodKeyboardGrab>())
+                .unwrap_or(false);
+            if keyboard.is_grabbed() && !theirs && !input_method {
                 grab.ungrab(PopupUngrabStrategy::All);
                 return;
             }
             keyboard.set_focus(self, grab.current_grab(), serial);
-            keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
-            tracing::debug!("a popup took the keyboard");
+            if !input_method {
+                keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+            }
+            tracing::debug!(input_method, "a popup took the keyboard");
         }
         if let Some(pointer) = seat.get_pointer() {
             let theirs = pointer.has_grab(serial)
