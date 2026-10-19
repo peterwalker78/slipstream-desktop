@@ -4,6 +4,7 @@
 
 - **An app can show you another window without taking the keyboard.** The app you're using can ask, over the session bus, to look at the window that holds a process: Slipstream slides to its workspace, raises it and rings it in your focus colour, while your keys still go to the app that asked. It then goes back, or stays with that window. Only the app with the keyboard can ask, and never behind the lock. [How to ask](guide/help.md#showing-another-window-from-your-app).
 - **Your own shortcuts take you to an app that's already open,** on whichever workspace it's on, as the explorer does, rather than only starting apps that aren't.
+- **Remote control with wayvnc works with the mouse too,** as do wlrctl, warpd and lan-mouse. As with the virtual keyboard, only programs outside a sandbox can use it.
 
 ## 1.0.0-rc.3 - 2026-11-12
 

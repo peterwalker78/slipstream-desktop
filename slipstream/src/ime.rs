@@ -42,7 +42,7 @@ pub fn client_may_type(peer: Option<&Peer>) -> bool {
     peer.is_some()
 }
 
-fn may_type(client: &Client) -> bool {
+pub(crate) fn may_type(client: &Client) -> bool {
     client
         .get_data::<ClientState>()
         .is_some_and(|state| state.may_type)

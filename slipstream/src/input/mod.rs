@@ -161,7 +161,7 @@ impl Slipstream {
     /// The wheel over something of Slipstream's own: in the explorer and the notification centre,
     /// each notch (`notch` of scroll) moves the selection a row, as ↓ and ↑ do, and the list
     /// follows it. A touchpad's small movements add up to a notch first.
-    fn overlay_wheel(&mut self, amount: f64, notch: f64) {
+    pub(crate) fn overlay_wheel(&mut self, amount: f64, notch: f64) {
         let list = self.explorer.is_open() || self.centre.is_open() || self.history.is_open();
         if !list {
             self.wheel_rest = 0.0;
@@ -183,7 +183,7 @@ impl Slipstream {
     }
 
     /// Whether `pos` is over a notification pop-up, the toast or the volume display.
-    fn over_chrome(&self, pos: Point<f64, Logical>) -> bool {
+    pub(crate) fn over_chrome(&self, pos: Point<f64, Logical>) -> bool {
         self.drawn
             .chrome_areas
             .iter()
@@ -277,7 +277,7 @@ impl Slipstream {
     /// Not the first output the space happens to hold: that is the order they were mapped in, so a
     /// laptop booted with a monitor already plugged in could send its own touchscreen to the
     /// monitor.
-    fn absolute_screen(&self) -> Option<smithay::output::Output> {
+    pub(crate) fn absolute_screen(&self) -> Option<smithay::output::Output> {
         self.space
             .outputs()
             .find(|output| crate::state::is_internal_panel(&output.name()))

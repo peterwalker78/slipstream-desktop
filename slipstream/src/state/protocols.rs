@@ -89,6 +89,8 @@ impl Protocols {
         // `wlr-screencopy`: grim, wf-recorder and the screenshot scripts people already have.
         // Offered to every client, and refused unless the program has been allowed (`screencopy.rs`).
         crate::screencopy::state(dh);
+        // `wlr-virtual-pointer`: the mouse of VNC servers like wayvnc. Unsandboxed clients only.
+        crate::virtual_pointer::state(dh);
         // Video players ask for the screen to stay awake, which keeps the UI from fading.
         let idle_inhibit_state = IdleInhibitManagerState::new::<Slipstream>(dh);
         // `ext-idle-notify`: swayidle and anything else that waits for the seat to go quiet.
