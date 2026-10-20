@@ -424,7 +424,16 @@ fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
         // Drawn from well above the pane, so the corners rounded off are the lower two.
         let (x, y) = (m - edge, m - 2.0 * DOCK_RADIUS);
         let (wide, tall) = (w + 2.0 * edge, h + edge + 2.0 * DOCK_RADIUS);
-        p.shadow(x, y, wide, tall, DOCK_RADIUS, SHADOW_DROP, SHADOW_BLUR, SHADOW_COLOUR);
+        p.shadow(
+            x,
+            y,
+            wide,
+            tall,
+            DOCK_RADIUS,
+            SHADOW_DROP,
+            SHADOW_BLUR,
+            SHADOW_COLOUR,
+        );
         p.fill(x, y, wide, tall, DOCK_RADIUS, panel::CHIP | 0xe6);
         p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, panel::DIVIDER);
         p.clear(0.0, 0.0, logical.w as f32, m - edge);
