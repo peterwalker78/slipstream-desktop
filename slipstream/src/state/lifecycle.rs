@@ -210,7 +210,6 @@ impl Slipstream {
                             .gravity
                             .is_on()
                             .then(|| workspace.gravity.rung(window).label().to_string()),
-                        pinned: workspace.gravity.is_pinned(window),
                         ..session::Win::default()
                     },
                     session(window),

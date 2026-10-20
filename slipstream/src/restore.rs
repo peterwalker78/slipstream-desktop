@@ -90,7 +90,6 @@ pub struct Place {
     pub focused: bool,
     /// Its rung on gravity's ladder, if gravity was on for its workspace.
     pub rung: Option<Rung>,
-    pub pinned: bool,
     /// The pane's size, for the window that was docked to the bar.
     pub docked: Option<Size>,
 }
@@ -191,7 +190,6 @@ impl<W: Clone + PartialEq> Plan<W> {
                 slot,
                 focused: win.focused,
                 rung: win.gravity.as_deref().and_then(Rung::from_label),
-                pinned: win.pinned,
                 docked: win
                     .docked
                     .as_deref()
@@ -322,7 +320,6 @@ impl<W: Clone + PartialEq> Plan<W> {
     pub fn gravity(&self, index: usize) -> Gravity<W> {
         let mut centre = None;
         let mut distant = Vec::new();
-        let mut pinned = Vec::new();
         let mut grid = false;
         for (i, place) in self.places.iter().enumerate() {
             let (Some(window), Some(rung)) = (self.taken[i].clone(), place.rung) else {
@@ -331,9 +328,6 @@ impl<W: Clone + PartialEq> Plan<W> {
             if place.workspace != Some(index) {
                 continue;
             }
-            if place.pinned {
-                pinned.push(window.clone());
-            }
             match rung {
                 Rung::Centre | Rung::Wide | Rung::Spotlight => centre = Some((window, rung)),
                 Rung::Distant => distant.push(window),
@@ -341,7 +335,7 @@ impl<W: Clone + PartialEq> Plan<W> {
                 Rung::Orbit | Rung::Tiling => {}
             }
         }
-        Gravity::restore(centre, distant, pinned, grid)
+        Gravity::restore(centre, distant, grid)
     }
 
     /// Windows recorded as minimised that have come back, to pour into the code rain in the order
@@ -609,7 +603,6 @@ mod tests {
                 },
                 Win {
                     gravity: Some("distant".into()),
-                    pinned: true,
                     ..win("org.kde.dolphin", 2, 1)
                 },
                 Win {
@@ -627,7 +620,6 @@ mod tests {
         assert_eq!(gravity.centre(), Some(&"konsole"));
         assert_eq!(gravity.rung(&"dolphin"), Rung::Distant);
         assert_eq!(gravity.rung(&"firefox"), Rung::Orbit);
-        assert!(gravity.is_pinned(&"dolphin"));
         // Workspace 1 had no gravity, so it stays tiled.
         assert!(!plan.gravity(0).is_on());
     }

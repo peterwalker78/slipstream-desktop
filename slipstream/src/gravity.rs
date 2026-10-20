@@ -123,18 +123,11 @@ pub enum Step {
 #[derive(Debug, Clone)]
 pub struct Gravity<T> {
     mode: Mode<T>,
-    pinned: Vec<T>,
-    /// The orbit slots from the last layout, so pinned windows keep their place.
-    slots: Vec<T>,
 }
 
 impl<T> Default for Gravity<T> {
     fn default() -> Self {
-        Self {
-            mode: Mode::Off,
-            pinned: Vec::new(),
-            slots: Vec::new(),
-        }
+        Self { mode: Mode::Off }
     }
 }
 
@@ -177,7 +170,7 @@ impl<T: Clone + PartialEq> Gravity<T> {
     /// Gravity as it was, put back from a recorded layout: the centre with its rung, the distant
     /// windows, and whether the grid was on. A centre that never came back leaves gravity off,
     /// because a workspace of orbit windows with nothing to orbit is not a layout anyone recorded.
-    pub fn restore(centre: Option<(T, Rung)>, distant: Vec<T>, pinned: Vec<T>, grid: bool) -> Self {
+    pub fn restore(centre: Option<(T, Rung)>, distant: Vec<T>, grid: bool) -> Self {
         let shape = |rung| match rung {
             Rung::Wide => Some(Shape::Wide),
             Rung::Spotlight => Some(Shape::Spotlight),
@@ -193,17 +186,12 @@ impl<T: Clone + PartialEq> Gravity<T> {
             None if grid => Mode::Grid,
             None => Mode::Off,
         };
-        Self {
-            mode,
-            pinned,
-            slots: Vec::new(),
-        }
+        Self { mode }
     }
 
     /// Back to tiling, with every weight cleared.
     pub fn off(&mut self) {
         self.mode = Mode::Off;
-        self.slots.clear();
     }
 
     /// One rung heavier (`heavier`) or lighter for `id`. `others` are the workspace's other
@@ -226,7 +214,6 @@ impl<T: Clone + PartialEq> Gravity<T> {
                 Step::Moved(Rung::Centre)
             } else {
                 self.mode = Mode::Grid;
-                self.slots.clear();
                 Step::Moved(Rung::Grid)
             };
         }
@@ -252,7 +239,6 @@ impl<T: Clone + PartialEq> Gravity<T> {
             }
             (_, Rung::Grid) => {
                 self.mode = Mode::Grid;
-                self.slots.clear();
             }
             (Rung::Grid, Rung::Orbit) => {
                 self.mode = Mode::Mass {
@@ -292,7 +278,6 @@ impl<T: Clone + PartialEq> Gravity<T> {
             Rung::Tiling => return self.off(),
             Rung::Grid => {
                 self.mode = Mode::Grid;
-                self.slots.clear();
                 return;
             }
             Rung::Centre => Shape::Centre,
@@ -312,7 +297,7 @@ impl<T: Clone + PartialEq> Gravity<T> {
     }
 
     /// Two windows trade places. What belongs to a place goes with the place, not the window: the
-    /// centre, the strip along the bottom, and a pinned slot. The tiling tree's order, which the
+    /// centre and the strip along the bottom. The tiling tree's order, which the
     /// grid and the orbit follow, is swapped by the caller.
     pub fn swap(&mut self, a: &T, b: &T) {
         let trade = |w: &mut T| {
@@ -329,34 +314,12 @@ impl<T: Clone + PartialEq> Gravity<T> {
             trade(centre);
             distant.iter_mut().for_each(trade);
         }
-        self.pinned.iter_mut().for_each(trade);
-        self.slots.iter_mut().for_each(trade);
-    }
-
-    /// Whether `id` is pinned to its orbit slot.
-    pub fn is_pinned(&self, id: &T) -> bool {
-        self.pinned.contains(id)
-    }
-
-    /// Pins or unpins an orbit window to its slot. Returns whether it's pinned now. No key does
-    /// this yet; a pin comes back only with a restored layout.
-    #[cfg(test)]
-    pub fn toggle_pin(&mut self, id: &T) -> bool {
-        if self.pinned.contains(id) {
-            self.pinned.retain(|w| w != id);
-            false
-        } else {
-            self.pinned.push(id.clone());
-            true
-        }
     }
 
     /// A window left the workspace. If it was the centre, the most recently used of
     /// `remaining` (most recent first) takes its place, on the same rung, and is returned; with
     /// none left, gravity turns off.
     pub fn remove(&mut self, id: &T, remaining: &[T]) -> Option<T> {
-        self.pinned.retain(|w| w != id);
-        self.slots.retain(|w| w != id);
         let Mode::Mass {
             centre, distant, ..
         } = &mut self.mode
@@ -383,7 +346,7 @@ impl<T: Clone + PartialEq> Gravity<T> {
     /// Where each of `windows`, in the tiling tree's order, goes in `area`, with the same gaps as
     /// tiling. Empty while gravity is off, or while its centre isn't among `windows`.
     pub fn rects(
-        &mut self,
+        &self,
         windows: &[T],
         area: Rect,
         outer_gap: i32,
@@ -409,8 +372,7 @@ impl<T: Clone + PartialEq> Gravity<T> {
                     .cloned()
                     .collect();
                 let near: Vec<T> = others.filter(|w| !distant.contains(w)).cloned().collect();
-                let slots = self.orbit_slots(near);
-                mass(centre, shape, &slots, &far)
+                mass(centre, shape, &near, &far)
             }
         };
 
@@ -432,31 +394,6 @@ impl<T: Clone + PartialEq> Gravity<T> {
                 (w, rect)
             })
             .collect()
-    }
-
-    /// The orbit windows in slot order: pinned ones keep last layout's slot, the rest fill in
-    /// in the tree's order.
-    fn orbit_slots(&mut self, near: Vec<T>) -> Vec<T> {
-        let mut slots: Vec<Option<T>> = vec![None; near.len()];
-        for w in near.iter().filter(|w| self.pinned.contains(w)) {
-            if let Some(i) = self.slots.iter().position(|slot| slot == w) {
-                if i < slots.len() && slots[i].is_none() {
-                    slots[i] = Some(w.clone());
-                }
-            }
-        }
-        let free: Vec<T> = near
-            .iter()
-            .filter(|w| !slots.iter().flatten().any(|slot| slot == *w))
-            .cloned()
-            .collect();
-        let mut free = free.into_iter();
-        let slots: Vec<T> = slots
-            .into_iter()
-            .filter_map(|slot| slot.or_else(|| free.next()))
-            .collect();
-        self.slots = slots.clone();
-        slots
     }
 }
 
@@ -848,11 +785,7 @@ mod tests {
 
     #[test]
     fn the_grid_fills_rows_and_shares_a_short_last_row() {
-        let rects = Gravity {
-            mode: Mode::Grid,
-            ..Gravity::default()
-        }
-        .rects(&["a", "b", "c"], AREA, 0, 0);
+        let rects = Gravity { mode: Mode::Grid }.rects(&["a", "b", "c"], AREA, 0, 0);
         let (a, b, c) = (
             rect_of(&rects, "a"),
             rect_of(&rects, "b"),
@@ -939,23 +872,20 @@ mod tests {
 
     #[test]
     fn a_recorded_gravity_comes_back() {
-        let mut gravity =
-            Gravity::restore(Some(("a", Rung::Spotlight)), vec!["c"], vec!["b"], false);
+        let gravity = Gravity::restore(Some(("a", Rung::Spotlight)), vec!["c"], false);
         assert_eq!(gravity.rung(&"a"), Rung::Spotlight);
         assert_eq!(gravity.rung(&"b"), Rung::Orbit);
         assert_eq!(gravity.rung(&"c"), Rung::Distant);
-        assert!(gravity.is_pinned(&"b"));
         let rects = gravity.rects(&["a", "b", "c"], AREA, 16, 10);
         assert!(
             rect_of(&rects, "c").w < rect_of(&rects, "b").w,
             "distant takes less of the strip"
         );
-        let grid: Gravity<&str> = Gravity::restore(None, vec![], vec![], true);
+        let grid: Gravity<&str> = Gravity::restore(None, vec![], true);
         assert_eq!(grid.rung(&"a"), Rung::Grid);
-        let off: Gravity<&str> = Gravity::restore(None, vec!["a"], vec![], false);
+        let off: Gravity<&str> = Gravity::restore(None, vec!["a"], false);
         assert!(!off.is_on());
-        let orbit_centre: Gravity<&str> =
-            Gravity::restore(Some(("a", Rung::Orbit)), vec![], vec![], false);
+        let orbit_centre: Gravity<&str> = Gravity::restore(Some(("a", Rung::Orbit)), vec![], false);
         assert!(
             !orbit_centre.is_on(),
             "a centre recorded on no centre rung is ignored"
@@ -968,17 +898,6 @@ mod tests {
             assert_eq!(Rung::from_label(rung.label()), Some(rung));
         }
         assert_eq!(Rung::from_label("heavy"), None);
-    }
-
-    #[test]
-    fn a_pinned_window_keeps_its_slot_as_others_open() {
-        let mut gravity = Gravity::default();
-        gravity.step(&"z", true, &["b", "c"]);
-        let first = gravity.rects(&["z", "b", "c"], AREA, 16, 10);
-        gravity.toggle_pin(&"c");
-        // "a" opens, earlier in the tree; unpinned, "c" would move down a slot.
-        let second = gravity.rects(&["a", "z", "b", "c"], AREA, 16, 10);
-        assert_eq!(rect_of(&first, "c").x, rect_of(&second, "c").x);
     }
 
     #[test]

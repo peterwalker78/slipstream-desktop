@@ -105,8 +105,6 @@ pub struct Win {
     /// "centre", "orbit" or "distant", when gravity was on for its workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gravity: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub pinned: bool,
     /// The command an AI agent in this terminal left for reopening its session. Run only inside
     /// an app whose desktop entry says it is a terminal.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -442,6 +440,11 @@ mod tests {
         assert_eq!(record.version, 1);
         assert!(record.windows.is_empty());
         assert!(!record.is_too_new());
+        // A key an older Slipstream wrote and this one dropped.
+        let record = parse("version = 1\n[[window]]\napp = \"foot\"\npinned = true\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.windows[0].app, "foot");
     }
 
     #[test]
