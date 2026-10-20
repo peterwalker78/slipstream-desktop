@@ -27,8 +27,8 @@
 //! and the same ones back), `idle` (fade the UI out now) and `wake` (as any
 //! input would), `fade:F` (hold the fade to the wallpaper at F, 0 to 1), `slow:MS` (count each
 //! drawn frame as MS milliseconds, script times included; `slow:0` is real time again),
-//! `demand:F` (pin every minimised app's load at F, 0 to 1), `fingers:DX` (three fingers on the
-//! touchpad moving DX sideways; `fingers:lift` lets go), `bullet` (Super+Tab), `bkey:NAME` (a
+//! `demand:F` (pin every minimised app's load at F, 0 to 1), `fingers:DX,DY` (three fingers on
+//! the touchpad moving by DX and DY; `fingers:lift` lets go), `bullet` (Super+Tab), `bkey:NAME` (a
 //! key in bullet time, by xkb name with optional `shift+` or `ctrl+`, such as `bkey:Right` or
 //! `bkey:shift+2`), `bclick:X,Y` (a click in bullet time, in logical pixels on the screen, the
 //! bar's buttons included), `quick` (Super+A), `qkey:NAME` (a key in quick settings, by xkb name
@@ -156,9 +156,9 @@ pub enum Step {
     BulletKey(String),
     /// A three-finger swipe (`swipe:left`, `right`, `up` or `down`).
     Swipe(crate::input::swipe::Direction),
-    /// Three fingers on the touchpad moving sideways by DX (`fingers:DX`, starting a swipe if
-    /// none is under way), or lifting (`fingers:lift`).
-    Fingers(Option<f64>),
+    /// Three fingers on the touchpad moving by DX and DY (`fingers:DX,DY`, or `fingers:DX`
+    /// sideways, starting a swipe if none is under way), or lifting (`fingers:lift`).
+    Fingers(Option<(f64, f64)>),
     BulletClick(f64, f64),
     Quick,
     QuickKey(String),
@@ -418,7 +418,10 @@ impl Script {
                         _ => return None,
                     }),
                     ("fingers", Some("lift")) => Step::Fingers(None),
-                    ("fingers", Some(dx)) => Step::Fingers(Some(dx.trim().parse().ok()?)),
+                    ("fingers", Some(by)) => {
+                        let (dx, dy) = by.split_once(',').unwrap_or((by, "0"));
+                        Step::Fingers(Some((dx.trim().parse().ok()?, dy.trim().parse().ok()?)))
+                    }
                     ("bkey", Some(name)) => Step::BulletKey(name.to_string()),
                     ("bclick", Some(at)) => {
                         let (x, y) = point(at)?;

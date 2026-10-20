@@ -1,28 +1,28 @@
 //! Three-finger swipes on a touchpad: left and right step between workspaces (in bullet time,
-//! the workspace being looked at), up opens bullet time, and down (or up again) leaves it.
-//! Swipes with any other number of fingers go to the window under the pointer, as they always
-//! have.
+//! the workspace being looked at), up opens bullet time, and down leaves it. Swipes with any other
+//! number of fingers go to the window under the pointer, as they always have.
 //!
-//! On the desktop a sideways swipe carries the view with the fingers: it can be held part way,
-//! slowed, or brought back, and where it goes is settled when the fingers lift. Past halfway, or
-//! flicked on, it goes on to the next workspace; otherwise it slides back. Up and down, and
-//! sideways in bullet time, act once, as soon as the swipe has gone far enough one way.
+//! A swipe carries what it moves with the fingers: the view sideways, or bullet time's zoom up
+//! and down. It can be held part way, slowed, or brought back, and where it goes is settled when
+//! the fingers lift. Past halfway, or flicked on, it goes on; otherwise it goes back to where it
+//! was. Nothing changes but the picture until then: bullet time's letters and slow motion come
+//! once it has opened, and focus moves once a workspace has been reached.
 
 use std::collections::VecDeque;
 
-use crate::Slipstream;
+use crate::{Slipstream, anim::Tween, motion};
 
 /// The fingers a swipe needs to be ours.
 pub const FINGERS: u32 = 3;
-/// How far a swipe travels, in libinput's pointer units, before it acts.
-const DISTANCE: f64 = 60.0;
-/// How far a sideways swipe travels before the view starts to follow it.
+/// How far a swipe travels, in libinput's pointer units, before it starts to carry anything.
 const FOLLOW_AFTER: f64 = 10.0;
 /// How much further it has to have gone along its direction than across it.
 const DOMINANCE: f64 = 1.5;
-/// How far the fingers travel to carry the view one whole workspace across.
+/// How far the fingers travel to carry the view one whole workspace across, and bullet time all
+/// the way open or closed.
 const WORKSPACE_TRAVEL: f64 = 400.0;
-/// Where the view would coast to after the fingers lift: this many seconds on at the speed they
+const ZOOM_TRAVEL: f64 = 300.0;
+/// Where a swipe would coast to after the fingers lift: this many seconds on at the speed they
 /// were going, so a flick goes on even if it hasn't reached halfway.
 const COAST: f64 = 0.2;
 /// The speed at the lift is read over this many seconds before it.
@@ -30,6 +30,8 @@ const SPEED_OVER: f64 = 0.08;
 /// Past the first or last workspace the view gives a little, and never more than this far.
 const GIVE: f64 = 0.12;
 
+/// The way a swipe goes. Fingers move the desktop as they'd move a page: swiping left brings in
+/// the workspace to the right.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
@@ -38,32 +40,34 @@ pub enum Direction {
     Down,
 }
 
-/// What a swipe's latest movement asks for.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Moved {
-    /// Nothing yet, or nothing more.
-    Nothing,
-    /// Act once, in this direction.
-    Once(Direction),
-    /// Carry the view this far towards the next workspace, in workspaces: below zero, towards
-    /// the previous one.
-    Follow(f64),
+/// Which way a swipe has been taken to be going, once it has gone far enough to tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    Sideways,
+    Upright,
 }
 
 /// A three-finger swipe under way.
 #[derive(Debug, Default)]
 pub struct Swipe {
     travelled: (f64, f64),
-    /// Whether a sideways swipe may carry the view.
-    follows: bool,
-    done: bool,
-    /// While following: where the view is meant to go, and recent progress with its time in
-    /// seconds, for the speed at the lift.
-    pub drag: Option<Drag>,
+    axis: Option<Axis>,
+    /// What it carries, once it carries anything.
+    pub carry: Option<Carry>,
+    /// Recent progress, with its time in seconds, for the speed at the lift.
     recent: VecDeque<(f64, f64)>,
 }
 
-/// The view a swipe is carrying.
+/// What a swipe carries.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Carry {
+    /// A screen's view, between workspaces.
+    View(Drag),
+    /// Bullet time's zoom, from where it was when the swipe took hold: 0 in, 1 all the way out.
+    Zoom(f64),
+}
+
+/// The view a sideways swipe is carrying.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Drag {
     pub screen: String,
@@ -100,58 +104,52 @@ impl Drag {
     }
 }
 
-impl Swipe {
-    /// A swipe starting now. `follows` says whether a sideways one carries the view.
-    pub fn new(follows: bool) -> Self {
-        Self {
-            follows,
-            ..Self::default()
-        }
-    }
+/// Bullet time's zoom with the swipe `progress` on from `from`: up is out.
+fn zoom_at(from: f64, progress: f64) -> f64 {
+    (from + progress).clamp(0.0, 1.0)
+}
 
-    /// The fingers moved by (`dx`, `dy`) at `time` seconds.
-    pub fn moved(&mut self, dx: f64, dy: f64, time: f64) -> Moved {
+/// Whether bullet time ends up open when the fingers lift `progress` on from `from`, going
+/// `speed` a second.
+fn zoom_settles_open(from: f64, progress: f64, speed: f64) -> bool {
+    from + progress + speed * COAST >= 0.5
+}
+
+impl Swipe {
+    /// The fingers moved by (`dx`, `dy`) at `time` seconds: which way the swipe goes, once it
+    /// has gone far enough to tell, and how far along that way it is, in workspaces sideways or
+    /// in bullet time's zoom upright.
+    pub fn moved(&mut self, dx: f64, dy: f64, time: f64) -> Option<(Axis, f64)> {
         self.travelled.0 += dx;
         self.travelled.1 += dy;
         let (x, y) = self.travelled;
-        if self.done {
-            return Moved::Nothing;
-        }
-        let sideways = x.abs() >= y.abs() * DOMINANCE;
-        if self.follows && (!self.recent.is_empty() || sideways && x.abs() >= FOLLOW_AFTER) {
-            // Fingers moving left bring in the workspace to the right, as they'd move a page.
-            let progress = -x / WORKSPACE_TRAVEL;
-            self.recent.push_back((time, progress));
-            while self
-                .recent
-                .front()
-                .is_some_and(|&(then, _)| time - then > SPEED_OVER)
-            {
-                self.recent.pop_front();
-            }
-            return Moved::Follow(progress);
-        }
-        let direction = if x.abs() >= DISTANCE && sideways {
-            if x < 0.0 {
-                Direction::Left
+        if self.axis.is_none() {
+            self.axis = if x.abs() >= FOLLOW_AFTER && x.abs() >= y.abs() * DOMINANCE {
+                Some(Axis::Sideways)
+            } else if y.abs() >= FOLLOW_AFTER && y.abs() >= x.abs() * DOMINANCE {
+                Some(Axis::Upright)
             } else {
-                Direction::Right
-            }
-        } else if y.abs() >= DISTANCE && y.abs() >= x.abs() * DOMINANCE {
-            if y < 0.0 {
-                Direction::Up
-            } else {
-                Direction::Down
-            }
-        } else {
-            return Moved::Nothing;
+                None
+            };
+        }
+        let axis = self.axis?;
+        let progress = match axis {
+            Axis::Sideways => -x / WORKSPACE_TRAVEL,
+            Axis::Upright => -y / ZOOM_TRAVEL,
         };
-        self.done = true;
-        Moved::Once(direction)
+        self.recent.push_back((time, progress));
+        while self
+            .recent
+            .front()
+            .is_some_and(|&(then, _)| time - then > SPEED_OVER)
+        {
+            self.recent.pop_front();
+        }
+        Some((axis, progress))
     }
 
-    /// How far on a followed swipe is, in workspaces, and how fast it was going when the
-    /// fingers lifted at `time`: fingers held still before lifting have no speed.
+    /// How far on the swipe is, and how fast it was going when the fingers lifted at `time`:
+    /// fingers held still before lifting have no speed.
     pub fn lifted(&self, time: f64) -> Option<(f64, f64)> {
         let &(last_time, progress) = self.recent.back()?;
         let &(first_time, first) = self.recent.front()?;
@@ -171,98 +169,142 @@ impl Slipstream {
         fingers == FINGERS && self.lock.is_none() && !self.shortcuts_inhibited()
     }
 
-    /// A three-finger swipe begins: sideways on the desktop it will carry the view.
     pub fn swipe_began(&mut self) {
-        self.swipe = Some(Swipe::new(self.bullet.is_none()));
+        self.swipe = Some(Swipe::default());
     }
 
     /// A three-finger swipe moved by (`dx`, `dy`) at `time` seconds.
     pub fn swipe_moved(&mut self, dx: f64, dy: f64, time: f64) {
-        let Some(swipe) = self.swipe.as_mut() else {
+        let Some((axis, progress)) = self.swipe.as_mut().and_then(|s| s.moved(dx, dy, time)) else {
             return;
         };
-        match swipe.moved(dx, dy, time) {
-            Moved::Nothing => {}
-            Moved::Once(direction) => self.swiped(direction),
-            Moved::Follow(progress) => {
-                if self.swipe.as_ref().is_some_and(|s| s.drag.is_none()) {
-                    let drag = self.carried_view();
-                    if let Some(swipe) = self.swipe.as_mut() {
-                        swipe.drag = Some(drag);
-                    }
-                }
-                let Some(drag) = self.swipe.as_ref().and_then(|s| s.drag.as_ref()) else {
-                    return;
-                };
-                let (screen, at) = (drag.screen.clone(), drag.position(progress));
-                self.motion.hold_camera(&screen, at);
+        if self.swipe.as_ref().is_some_and(|s| s.carry.is_none()) {
+            let carry = self.take_hold(axis);
+            if let Some(swipe) = self.swipe.as_mut() {
+                swipe.carry = Some(carry);
             }
+        }
+        match self.swipe.as_ref().and_then(|s| s.carry.clone()) {
+            Some(Carry::View(drag)) => self
+                .motion
+                .hold_camera(&drag.screen, drag.position(progress)),
+            Some(Carry::Zoom(from)) => self.overview = Tween::at_rest([zoom_at(from, progress)]),
+            None => {}
         }
     }
 
-    /// The fingers lifted at `time` seconds, or the swipe was `cancelled`: a view being carried
-    /// goes on to the next workspace or back to where it was.
+    /// The fingers lifted at `time` seconds, or the swipe was `cancelled`: what it carried goes
+    /// on, or back to where it was.
     pub fn swipe_ended(&mut self, time: f64, cancelled: bool) {
         let Some(swipe) = self.swipe.take() else {
             return;
         };
-        let (Some(drag), Some((progress, speed))) = (swipe.drag.as_ref(), swipe.lifted(time))
+        let (Some(carry), Some((progress, speed))) = (swipe.carry.clone(), swipe.lifted(time))
         else {
             return;
         };
-        let to = if cancelled {
-            drag.from
+        let (progress, speed) = if cancelled {
+            (0.0, 0.0)
         } else {
-            drag.settle(progress, speed)
+            (progress, speed)
         };
-        tracing::info!(
-            workspace = to + 1,
-            progress,
-            speed,
-            "three-finger swipe let go"
-        );
+        match carry {
+            Carry::View(drag) => self.let_go_of_view(&drag, drag.settle(progress, speed)),
+            Carry::Zoom(from) => self.let_go_of_zoom(zoom_settles_open(from, progress, speed)),
+        }
+    }
+
+    /// What a swipe that has just shown which way it goes takes hold of. Sideways, the focused
+    /// screen's view, from where it is: on the desktop between the workspaces either side that
+    /// Super+Ctrl+←/→ would go to, in bullet time between those either side of the one being
+    /// looked at. Upright, bullet time's zoom.
+    fn take_hold(&mut self, axis: Axis) -> Carry {
         let wall = self.wall();
-        // Something else may have moved this screen on, or the keyboard to another screen, while
-        // the fingers were down: then the view goes back to what the screen shows now.
+        if axis == Axis::Upright {
+            if self.bullet.is_none() {
+                // Opening, everything is placed and every panel closed, as bullet time does.
+                self.close_panels();
+                for index in 0..self.workspaces.count() {
+                    self.place_workspace(index);
+                }
+            }
+            return Carry::Zoom(self.overview.value(wall)[0]);
+        }
+        let screen = self.focused_screen_name();
+        let (from, back, ahead) = match self.bullet.as_ref().map(|mode| mode.view) {
+            Some(view) => {
+                let count = self.workspaces.count();
+                (
+                    view,
+                    view.checked_sub(1),
+                    Some(view + 1).filter(|&i| i < count),
+                )
+            }
+            None => (
+                self.active_workspace(),
+                self.workspace_beside(-1),
+                self.workspace_beside(1),
+            ),
+        };
+        Carry::View(Drag {
+            offset: self.motion.camera(&screen, wall) - from as f64,
+            screen,
+            from,
+            back,
+            ahead,
+        })
+    }
+
+    /// A sideways swipe let go, to settle on workspace `to`. Something else may have moved
+    /// things on while the fingers were down, or the keyboard to another screen: then the view
+    /// goes back to what its screen is showing.
+    fn let_go_of_view(&mut self, drag: &Drag, to: usize) {
+        tracing::info!(workspace = to + 1, "three-finger swipe let go");
+        let wall = self.wall();
+        let still = self.focused_screen_name() == drag.screen;
         let showing = self
             .screens
             .iter()
             .find(|screen| screen.output.name() == drag.screen)
             .map(|screen| screen.workspace);
-        let still = self.focused_screen_name() == drag.screen;
-        match showing {
-            Some(shown) if still && shown == drag.from && to != drag.from => {
+        match self.bullet.as_ref().map(|mode| mode.view) {
+            Some(view) if still && view == drag.from => self.bullet_pan(to, to != drag.from),
+            Some(view) => self.motion.slide_to(&drag.screen, view, wall),
+            None if still && showing == Some(drag.from) && to != drag.from => {
                 self.switch_workspace(to)
             }
-            Some(shown) => self.motion.slide_to(&drag.screen, shown, wall),
-            None => {}
+            None => {
+                if let Some(shown) = showing {
+                    self.motion.slide_to(&drag.screen, shown, wall);
+                }
+            }
         }
     }
 
-    /// What a sideways swipe starting now carries: the focused screen's view, from where it is,
-    /// between the workspaces either side that Super+Ctrl+←/→ would go to.
-    fn carried_view(&mut self) -> Drag {
-        let screen = self.focused_screen_name();
-        let from = self.active_workspace();
-        let wall = self.wall();
-        Drag {
-            offset: self.motion.camera(&screen, wall) - from as f64,
-            back: self.workspace_beside(-1),
-            ahead: self.workspace_beside(1),
-            screen,
-            from,
+    /// An upright swipe let go, with bullet time to end up `open` or not.
+    fn let_go_of_zoom(&mut self, open: bool) {
+        tracing::info!(open, "three-finger swipe let go");
+        match (open, self.bullet.is_some()) {
+            (true, false) => self.enter_bullet_time(),
+            (false, true) => self.bullet_back(),
+            // Back to where it was: the zoom settles there, taking only the time the rest needs.
+            (open, _) => {
+                let (wall, target) = (self.wall(), if open { 1.0 } else { 0.0 });
+                let left = (target - self.overview.value(wall)[0]).abs();
+                let duration = self.overview_duration() * left.max(motion::SHORTEST_SLIDE);
+                self.overview
+                    .retarget([target], wall, duration, motion::HYPR);
+            }
         }
     }
 
-    /// A three-finger swipe went far enough. Fingers move the desktop as they'd move a page:
-    /// swiping left brings in the workspace to the right. In bullet time that's the workspace
-    /// being looked at, with its most recent window chosen, as its number key does.
+    /// A whole three-finger swipe at once, as a debug step makes it.
     pub fn swiped(&mut self, direction: Direction) {
         tracing::info!(?direction, "three-finger swipe");
         let step: i32 = match direction {
-            Direction::Up => return self.toggle_bullet_time(),
-            Direction::Down if self.bullet.is_some() => return self.toggle_bullet_time(),
-            Direction::Down => return,
+            Direction::Up if self.bullet.is_none() => return self.enter_bullet_time(),
+            Direction::Down if self.bullet.is_some() => return self.bullet_back(),
+            Direction::Up | Direction::Down => return,
             Direction::Left => 1,
             Direction::Right => -1,
         };
@@ -295,53 +337,33 @@ mod tests {
     }
 
     #[test]
-    fn a_swipe_acts_once_it_has_gone_far_enough() {
-        let mut swipe = Swipe::new(false);
-        assert_eq!(swipe.moved(-30.0, 2.0, 0.0), Moved::Nothing);
-        assert_eq!(swipe.moved(-35.0, 3.0, 0.0), Moved::Once(Direction::Left));
+    fn a_swipe_takes_its_way_once_it_has_gone_far_enough_and_keeps_it() {
+        let mut swipe = Swipe::default();
+        assert_eq!(swipe.moved(-5.0, 0.0, 0.0), None);
+        assert_eq!(swipe.moved(-15.0, 0.0, FRAME), Some((Axis::Sideways, 0.05)));
         assert_eq!(
-            swipe.moved(-200.0, 0.0, 0.0),
-            Moved::Nothing,
-            "only once a swipe"
+            swipe.moved(-180.0, 0.0, 2.0 * FRAME),
+            Some((Axis::Sideways, 0.5))
         );
-    }
-
-    #[test]
-    fn a_diagonal_swipe_is_nothing() {
-        let mut swipe = Swipe::new(true);
-        assert_eq!(swipe.moved(70.0, -70.0, 0.0), Moved::Nothing);
-        assert_eq!(swipe.moved(0.0, -60.0, 0.0), Moved::Once(Direction::Up));
-    }
-
-    #[test]
-    fn each_direction_is_read() {
-        for (dx, dy, direction) in [
-            (80.0, 0.0, Direction::Right),
-            (-80.0, 0.0, Direction::Left),
-            (0.0, -80.0, Direction::Up),
-            (0.0, 80.0, Direction::Down),
-        ] {
-            assert_eq!(Swipe::new(false).moved(dx, dy, 0.0), Moved::Once(direction));
-        }
-        assert_eq!(
-            Swipe::new(true).moved(0.0, -80.0, 0.0),
-            Moved::Once(Direction::Up),
-            "up still acts once on the desktop"
-        );
-    }
-
-    #[test]
-    fn a_sideways_swipe_on_the_desktop_follows_the_fingers_both_ways() {
-        let mut swipe = Swipe::new(true);
-        assert_eq!(swipe.moved(-5.0, 0.0, 0.0), Moved::Nothing);
-        assert_eq!(swipe.moved(-15.0, 0.0, FRAME), Moved::Follow(0.05));
-        assert_eq!(swipe.moved(-180.0, 0.0, 2.0 * FRAME), Moved::Follow(0.5));
         assert_eq!(
             swipe.moved(0.0, 90.0, 3.0 * FRAME),
-            Moved::Follow(0.5),
-            "once following, it stays a sideways swipe"
+            Some((Axis::Sideways, 0.5)),
+            "once sideways, it stays sideways"
         );
-        assert_eq!(swipe.moved(400.0, 0.0, 4.0 * FRAME), Moved::Follow(-0.5));
+        assert_eq!(
+            swipe.moved(400.0, 0.0, 4.0 * FRAME),
+            Some((Axis::Sideways, -0.5)),
+            "and goes back past where it started"
+        );
+    }
+
+    #[test]
+    fn up_is_out_and_a_diagonal_swipe_waits_to_tell() {
+        let mut swipe = Swipe::default();
+        assert_eq!(swipe.moved(20.0, -20.0, 0.0), None);
+        assert_eq!(swipe.moved(0.0, -40.0, FRAME), Some((Axis::Upright, 0.2)));
+        let mut down = Swipe::default();
+        assert_eq!(down.moved(0.0, 150.0, 0.0), Some((Axis::Upright, -0.5)));
     }
 
     #[test]
@@ -380,8 +402,30 @@ mod tests {
     }
 
     #[test]
+    fn bullet_time_opens_and_closes_with_the_fingers() {
+        assert_eq!(zoom_at(0.0, 0.3), 0.3);
+        assert_eq!(zoom_at(0.0, -0.3), 0.0, "down on the desktop does nothing");
+        assert_eq!(zoom_at(1.0, 0.4), 1.0, "up in bullet time goes no further");
+        assert_eq!(zoom_at(1.0, -0.3), 0.7);
+        assert!(zoom_settles_open(0.0, 0.6, 0.0), "past halfway, it opens");
+        assert!(
+            !zoom_settles_open(0.0, 0.4, 0.0),
+            "held short, it falls back"
+        );
+        assert!(zoom_settles_open(0.0, 0.2, 2.0), "flicked up, it opens");
+        assert!(
+            !zoom_settles_open(1.0, -0.6, 0.0),
+            "down past halfway, it closes"
+        );
+        assert!(
+            zoom_settles_open(1.0, -0.6, 2.0),
+            "sent back up, it stays open"
+        );
+    }
+
+    #[test]
     fn fingers_held_still_before_lifting_have_no_speed() {
-        let mut swipe = Swipe::new(true);
+        let mut swipe = Swipe::default();
         let mut time = 0.0;
         for _ in 0..10 {
             time += FRAME;
@@ -392,6 +436,6 @@ mod tests {
         assert!((speed - 3.6).abs() < 0.01, "moving: {speed}");
         let (_, held) = swipe.lifted(time + 0.5).unwrap();
         assert_eq!(held, 0.0);
-        assert_eq!(Swipe::new(true).lifted(0.0), None, "never followed");
+        assert_eq!(Swipe::default().lifted(0.0), None, "never took hold");
     }
 }

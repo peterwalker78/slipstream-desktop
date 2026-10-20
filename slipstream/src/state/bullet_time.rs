@@ -12,7 +12,7 @@ impl Slipstream {
         }
     }
 
-    pub(super) fn overview_duration(&self) -> f64 {
+    pub(crate) fn overview_duration(&self) -> f64 {
         if self.clock.reduced_motion {
             0.0
         } else {
@@ -103,7 +103,7 @@ impl Slipstream {
     }
 
     /// Esc: back where bullet time started, with nothing changed.
-    pub(super) fn bullet_back(&mut self) {
+    pub(crate) fn bullet_back(&mut self) {
         self.leave_bullet_time();
         let (wall, active) = (self.wall(), self.active_workspace());
         let here = self.focused_screen_name();

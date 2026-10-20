@@ -229,7 +229,7 @@ impl Slipstream {
     /// overview shows the change. They're told their new sizes too: otherwise a window keeps
     /// drawing at the size it had before, say, the code rain took width, and spills out of its
     /// workspace's frame. (The workspace on screen is placed by `retile`.)
-    pub(super) fn place_workspace(&mut self, index: usize) {
+    pub(crate) fn place_workspace(&mut self, index: usize) {
         if self.screens.showing(index).is_some() {
             return;
         }

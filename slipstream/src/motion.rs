@@ -27,7 +27,7 @@ const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
 /// The least share of a whole slide's time a short one takes, so the last part of a swipe let go
 /// near its end still settles rather than snapping.
-const SHORTEST_SLIDE: f64 = 0.4;
+pub const SHORTEST_SLIDE: f64 = 0.4;
 /// Space between workspaces as they slide past, in logical pixels: 160 design pixels.
 pub const WORKSPACE_GAP: i32 = 128;
 
