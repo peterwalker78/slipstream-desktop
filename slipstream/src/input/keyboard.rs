@@ -264,20 +264,24 @@ impl Slipstream {
     ) {
         let pressed = key_state == KeyState::Pressed;
         // The release of a Caps Lock press that only woke the faded UI goes nowhere either.
-        if !pressed && self.caps_woke == Some(keycode) {
-            self.caps_woke = None;
+        if !pressed && self.keys.caps_woke == Some(keycode) {
+            self.keys.caps_woke = None;
             return;
         }
         let caps = pressed && self.is_caps_lock(keycode);
         // Holding Caps Lock turns Awake on from the faded UI as well, since that's when it's
         // wanted; only the lock screen keeps Caps Lock as plain Caps Lock.
         let may_hold = self.lock.is_none();
-        match self.caps_key.key(keycode, pressed, time, caps, may_hold) {
+        match self
+            .keys
+            .caps_key
+            .key(keycode, pressed, time, caps, may_hold)
+        {
             Step::Pass => {}
             Step::Wait(press) => {
                 // Kept back from xkb, but still a sign someone is there. If this press is what
                 // brings the UI back, a tap of it goes nowhere, as any waking key does.
-                self.caps_waking = self.wake_ui();
+                self.keys.caps_waking = self.wake_ui();
                 let _ = self.loop_handle.insert_source(
                     Timer::from_duration(crate::awake::HOLD),
                     move |_, _, state| {
@@ -288,8 +292,8 @@ impl Slipstream {
                 return;
             }
             Step::Replay(caps, at) => {
-                if std::mem::take(&mut self.caps_waking) {
-                    self.caps_woke = Some(caps);
+                if std::mem::take(&mut self.keys.caps_waking) {
+                    self.keys.caps_woke = Some(caps);
                 } else {
                     self.route_key(caps, KeyState::Pressed, at, injected);
                 }
@@ -306,13 +310,13 @@ impl Slipstream {
     /// meanwhile, the press goes to it as a plain Caps Lock.
     fn caps_lock_held(&mut self, press: u64, injected: bool) {
         if self.lock.is_some() {
-            if let Some((keycode, at)) = self.caps_key.settle() {
+            if let Some((keycode, at)) = self.keys.caps_key.settle() {
                 self.route_key(keycode, KeyState::Pressed, at, injected);
             }
             return;
         }
-        if self.caps_key.elapsed(press) {
-            self.caps_waking = false;
+        if self.keys.caps_key.elapsed(press) {
+            self.keys.caps_waking = false;
             self.set_awake(!self.awake);
         }
     }
@@ -413,27 +417,28 @@ impl Slipstream {
                 // them disarms the tap. Super's own release still goes on as usual. A Super
                 // pressed at the lock never arms it, so letting go after unlocking isn't a tap.
                 let may_arm = alone && !waking && state.lock.is_none();
-                tapped = state.super_tap.key(key, pressed, millis, may_arm) && tap_allowed;
+                tapped = state.keys.super_tap.key(key, pressed, millis, may_arm) && tap_allowed;
                 let only_alt_and_shift = modifiers.alt
                     && modifiers.shift
                     && !modifiers.ctrl
                     && !modifiers.logo
                     && !waking;
                 switch_layout = state
+                    .keys
                     .layout_tap
                     .key(key, pressed, others, only_alt_and_shift)
                     && switches_layouts;
                 // An app's shortcut coming up is let go of first, whatever has the keys by now,
                 // so a held push to talk never sticks.
                 if !pressed && state.shortcuts.is_held(keycode) {
-                    release_suppressed(&mut state.suppressed_keys, key);
+                    release_suppressed(&mut state.keys.suppressed_keys, key);
                     for signal in state.shortcuts.release(keycode, u64::from(millis)) {
                         crate::shortcuts::portal::emit(signal);
                     }
                     return FilterResult::Intercept(None);
                 }
                 if waking {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     // An app's shortcut still works as it wakes the desktop: push to talk can't
                     // wait for a second press.
                     if !inhibited {
@@ -448,13 +453,13 @@ impl Slipstream {
                 let sym = handle.modified_sym().raw();
                 let first_vt = Keysym::XF86_Switch_VT_1.raw();
                 if pressed && (first_vt..=Keysym::XF86_Switch_VT_12.raw()).contains(&sym) {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     let vt = (sym - first_vt + 1) as i32;
                     return FilterResult::Intercept(Some(KeyUse::Action(Action::SwitchVt(vt))));
                 }
                 // Esc lets go of a drag under way, and a dragged gap goes back.
                 if pressed && state.drag.is_some() && handle.modified_sym() == Keysym::Escape {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::CancelDrag));
                 }
                 // The zoom keys work whatever holds the keyboard, the lock, the cards and an app
@@ -463,18 +468,18 @@ impl Slipstream {
                 if pressed
                     && let Some(Action::Zoom(step)) = keys::action_for(&state.bindings, mods, key)
                 {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::Zoom(step)));
                 }
                 // While locked every key is the lock's: the pill takes characters, the media
                 // keys still act, and nothing else runs or reaches an app, press or release.
                 if state.lock.is_some() {
                     if !pressed {
-                        release_suppressed(&mut state.suppressed_keys, key);
+                        release_suppressed(&mut state.keys.suppressed_keys, key);
                         return FilterResult::Intercept(Some(KeyUse::LockRelease));
                     }
                     // Its release is swallowed too, should the lock be gone by then.
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     if let Some(action) = crate::lock::allowed(key) {
                         return FilterResult::Intercept(Some(KeyUse::Action(action)));
                     }
@@ -484,7 +489,7 @@ impl Slipstream {
                 // Super+L locks whatever holds the keys: the share picker, the cards and bullet
                 // time all take keys before bindings, and locking closes each of them.
                 if pressed && keys::action_for(&state.bindings, mods, key) == Some(Action::Lock) {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::Action(Action::Lock)));
                 }
                 // A card, panel or mode that's up takes every key, and its release with it.
@@ -492,7 +497,7 @@ impl Slipstream {
                     && let Some(taken) =
                         state.key_for_card(key, handle.modified_sym(), mods, modifiers)
                 {
-                    state.suppressed_keys.push(key);
+                    state.keys.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(taken));
                 }
                 // An app holding the shortcuts (a virtual machine, a remote desktop) gets every
@@ -503,10 +508,10 @@ impl Slipstream {
                         && let Some(action) = keys::action_for(&state.bindings, mods, key)
                         && (action == Action::TakeBack || keys::is_hardware_key(key))
                     {
-                        state.suppressed_keys.push(key);
+                        state.keys.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Action(action)));
                     }
-                    if !pressed && release_suppressed(&mut state.suppressed_keys, key) {
+                    if !pressed && release_suppressed(&mut state.keys.suppressed_keys, key) {
                         return FilterResult::Intercept(None);
                     }
                     return FilterResult::Forward;
@@ -517,20 +522,20 @@ impl Slipstream {
                 }
                 if pressed {
                     if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        state.suppressed_keys.push(key);
+                        state.keys.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Action(action)));
                     }
                     // An app's shortcut: the app is told, and no window sees the key, press or
                     // release.
                     let signals = state.shortcuts.press(keycode, mods, key, u64::from(millis));
                     if !signals.is_empty() {
-                        state.suppressed_keys.push(key);
+                        state.keys.suppressed_keys.push(key);
                         for signal in signals {
                             crate::shortcuts::portal::emit(signal);
                         }
                         return FilterResult::Intercept(None);
                     }
-                } else if release_suppressed(&mut state.suppressed_keys, key) {
+                } else if release_suppressed(&mut state.keys.suppressed_keys, key) {
                     return FilterResult::Intercept(None);
                 }
                 FilterResult::Forward
@@ -604,7 +609,7 @@ impl Slipstream {
             return Some(KeyUse::Polkit(crate::polkit::key_for(key, sym, modifiers)));
         }
         // A snip being chosen takes every key: Esc, Enter or a window's letter.
-        if self.snip.is_some() {
+        if self.shots.snip.is_some() {
             return Some(KeyUse::Snip(sym));
         }
         // The share picker takes every key: an app is waiting on it, and a keypress meant for a
@@ -733,4 +738,21 @@ impl Slipstream {
                 .find(|code| xkb.raw_syms_for_key_in_layout(*code, layout).contains(&sym))
         })
     }
+}
+
+/// What the keyboard's own keys are doing: Super and layout taps, Caps Lock, and presses held back from apps.
+#[derive(Default)]
+pub struct KeyTracking {
+    /// Keys whose press ran a binding; their releases are swallowed too.
+    pub suppressed_keys: Vec<Keysym>,
+    /// Caps Lock, while it's being told apart as a tap or a hold.
+    pub caps_key: crate::awake::CapsKey,
+    /// The Caps Lock press being told apart woke the faded UI, so a tap of it goes nowhere.
+    pub caps_waking: bool,
+    /// A Caps Lock tap that only woke the UI, whose release is to go nowhere too.
+    pub caps_woke: Option<smithay::input::keyboard::Keycode>,
+    /// Super on its own, on its way to being a tap that opens the explorer.
+    pub super_tap: keys::SuperTap,
+    /// Alt and Shift together, on their way to switching the keyboard layout.
+    pub layout_tap: keys::LayoutTap,
 }

@@ -4,6 +4,7 @@
 
 mod button;
 mod keyboard;
+pub use keyboard::KeyTracking;
 pub mod swipe;
 
 use smithay::{
@@ -45,7 +46,7 @@ impl Slipstream {
         let rect = self.screen_rect(index)?;
         let name = self.screens.get(index)?.output.name();
         let (x, y) = (pos.x - rect.x as f64, pos.y - rect.y as f64);
-        self.chromes.get(&name)?.bar.target_at(x, y)
+        self.drawn.chromes.get(&name)?.bar.target_at(x, y)
     }
 
     /// Whether something of Slipstream's own is taking the pointer: the explorer, quick settings,
@@ -63,7 +64,7 @@ impl Slipstream {
             || self.bullet.is_some()
             || self.share.is_some()
             || self.polkit.is_up()
-            || self.snip.is_some()
+            || self.shots.snip.is_some()
             || self.battery.card.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
@@ -110,7 +111,10 @@ impl Slipstream {
 
     /// Whether `pos` is over a notification pop-up, the toast or the volume display.
     fn over_chrome(&self, pos: Point<f64, Logical>) -> bool {
-        self.chrome_areas.iter().any(|area| area.contains(pos))
+        self.drawn
+            .chrome_areas
+            .iter()
+            .any(|area| area.contains(pos))
     }
 
     /// Once a pass of the event loop: if something opened or closed over the pointer since it
@@ -319,8 +323,8 @@ impl Slipstream {
                 self.button_event(event.button_code(), event.state(), event.time());
             }
             InputEvent::PointerAxis { event, .. } => {
-                self.super_tap.disarm();
-                self.layout_tap.disarm();
+                self.keys.super_tap.disarm();
+                self.keys.layout_tap.disarm();
                 self.wake_ui();
                 // A wheel's notch is 120 in v120 units, and 15 of scroll.
                 let amount = |axis: Axis| {

@@ -171,7 +171,11 @@ impl View {
             world_scale: Scale::from((scale.x * dense, scale.y * dense)),
             tilt,
             focused: state.focused_window(),
-            docked: state.dock.as_ref().map(|docked| docked.window.clone()),
+            docked: state
+                .docking
+                .dock
+                .as_ref()
+                .map(|docked| docked.window.clone()),
             bar_apart,
             selected,
             labels,
@@ -283,7 +287,7 @@ pub fn output_elements(
     // keeps every use below a plain local, and keeps the screens from sharing a buffer sized for
     // one of them.
     let name = output.name();
-    let mut chrome = state.chromes.remove(&name).unwrap_or_default();
+    let mut chrome = state.drawn.chromes.remove(&name).unwrap_or_default();
     let mut saver = state
         .savers
         .remove(&name)
@@ -301,7 +305,7 @@ pub fn output_elements(
             cursor,
         );
         chrome.unlock = None;
-        state.chromes.insert(name.clone(), chrome);
+        state.drawn.chromes.insert(name.clone(), chrome);
         state.savers.insert(name, saver);
         return elements;
     }
@@ -320,8 +324,8 @@ pub fn output_elements(
     chrome.panes.begin();
     chrome.overview.set_accent(state.bullet_rgb);
     if v.first && state.bullet.is_some() {
-        state.overview_hits.clear();
-        state.frame_hits.clear();
+        state.drawn.overview_hits.clear();
+        state.drawn.frame_hits.clear();
     }
     if let Some(cursor) = cursor.filter(|_| v.ui > 0.5) {
         elements.extend(pointer_elements(state, renderer, &v, cursor));
@@ -336,7 +340,7 @@ pub fn output_elements(
     let mut world = World::default();
     let layers_shown = overlay_elements(state, renderer, output, &v, &mut chrome, &mut elements);
     if v.first {
-        state.overview_tilt = v.tilt;
+        state.drawn.overview_tilt = v.tilt;
         // Ready before the explorer first opens.
         state.explorer.warm_icons(v.scale.x);
     }
@@ -486,7 +490,7 @@ pub fn output_elements(
     }
     curtain_elements(state, &v, &mut chrome, &mut elements);
     chrome.panes.finish();
-    state.chromes.insert(name.clone(), chrome);
+    state.drawn.chromes.insert(name.clone(), chrome);
     state.savers.insert(name, saver);
     elements
 }
@@ -622,7 +626,7 @@ fn popup_elements(
         elements.extend(osd.map(OutputElement::Memory));
     }
     if v.first {
-        state.chrome_areas = over_windows
+        state.drawn.chrome_areas = over_windows
             .into_iter()
             .map(|area| {
                 let mut area = area.to_f64().to_logical(scale);
@@ -704,6 +708,7 @@ fn bar_elements(
         chrome.slot_at = Some((x, width));
         let keyboard = state.focused_window().as_ref() == Some(&window);
         let look = state
+            .docking
             .dock
             .as_ref()
             .map_or(crate::dock::SlotLook::AT_REST, |docked| {
@@ -717,7 +722,7 @@ fn bar_elements(
         slot = Some((x, width, look, keyboard, false));
     } else if v.rain
         && let Some((x, width)) = chrome.slot_at
-        && let Some((_, flight)) = state.dock_leaving.as_ref()
+        && let Some((_, flight)) = state.docking.dock_leaving.as_ref()
     {
         // The slot of a pane on its way down: its light runs out and it closes behind it.
         slot = Some((
@@ -731,9 +736,9 @@ fn bar_elements(
     if let Some((x, width, look, keyboard, leaving)) = slot {
         let light = state.rain.light();
         let drawn = if leaving {
-            state.dock_slot_leaving.as_mut()
+            state.docking.dock_slot_leaving.as_mut()
         } else {
-            state.dock_slot.as_mut()
+            state.docking.dock_slot.as_mut()
         };
         if let Some(drawn) = drawn {
             let appearance = crate::slot::Appearance {
@@ -943,6 +948,7 @@ fn window_world(
 ) {
     // A window on its way down from the bar is drawn as its pane until it lands.
     let coming_down: Option<Window> = state
+        .docking
         .dock_leaving
         .as_ref()
         .filter(|(_, flight)| {
@@ -955,6 +961,7 @@ fn window_world(
     let dock_flying = v.rain
         && v.zoomed_out <= 0.0
         && state
+            .docking
             .dock
             .as_ref()
             .and_then(|docked| docked.flight)
@@ -985,9 +992,10 @@ fn window_world(
     // Windows drawn here that the space doesn't hold get frame callbacks too (`drawn_off_space`),
     // the deck's among them: they are drawn wherever they live, so they keep drawing.
     for window in windows.iter().map(|(window, _)| window).chain(&in_deck) {
-        if state.space.element_geometry(window).is_none() && !state.drawn_off_space.contains(window)
+        if state.space.element_geometry(window).is_none()
+            && !state.drawn.drawn_off_space.contains(window)
         {
-            state.drawn_off_space.push(window.clone());
+            state.drawn.drawn_off_space.push(window.clone());
         }
     }
     if v.rain && v.ui > 0.0 && v.zoomed_out <= 0.0 {
@@ -1115,12 +1123,13 @@ fn draw_window(
     // A handle on what it was just drawn from, so it can fade out if it closes.
     if let Some(picture) = crate::ghost::Picture::of(&window, &renderer.context_id()) {
         match state
+            .drawn
             .pictures
             .iter_mut()
             .find(|(drawn, _)| *drawn == window)
         {
             Some((_, kept)) => *kept = picture,
-            None => state.pictures.push((window.clone(), picture)),
+            None => state.drawn.pictures.push((window.clone(), picture)),
         }
     }
     if frame.waiting && !surfaces.is_empty() {
@@ -1129,12 +1138,12 @@ fn draw_window(
     // Only a window at rest on the screen it is on takes the pointer where it is drawn.
     if fitted && s == 1.0 && v.zoomed_out <= 0.0 && dx == 0.0 {
         let global = Rectangle::new(shown.loc + v.geo.loc.to_f64(), shown.size);
-        match state.fitted.iter_mut().find(|(w, _)| *w == window) {
+        match state.drawn.fitted.iter_mut().find(|(w, _)| *w == window) {
             Some((_, drawn)) => *drawn = global,
-            None => state.fitted.push((window.clone(), global)),
+            None => state.drawn.fitted.push((window.clone(), global)),
         }
     } else if !fitted {
-        state.fitted.retain(|(w, _)| *w != window);
+        state.drawn.fitted.retain(|(w, _)| *w != window);
     }
     if (frame.moving || fitted || s != 1.0 || v.zoom != 1.0) && own.size.w > 0 && own.size.h > 0 {
         let pivot = shown.loc.to_physical(world_scale).to_i32_round();
@@ -1298,7 +1307,7 @@ fn overview_marks(
                 .elements
                 .extend(near.into_iter().chain(glow).map(OutputElement::Solid));
         }
-        state.overview_hits.push((window.clone(), shown));
+        state.drawn.overview_hits.push((window.clone(), shown));
     }
     // Workspaces not being looked at are dimmed.
     if drawn.home != Some(v.viewed) {
@@ -1394,7 +1403,7 @@ fn docked_marks(
             );
         }
     }
-    let seated = state.dock.as_ref().and_then(|docked| docked.seated);
+    let seated = state.docking.dock.as_ref().and_then(|docked| docked.seated);
     let seam = crate::dock::seam(seated, v.now);
     if seam > 0.0 {
         // White along the bar's edge, and round the glass as it locks in.
@@ -1500,10 +1509,12 @@ fn dock_flight_elements(
 ) {
     if v.rain && v.ui > 0.0 && v.zoomed_out <= 0.0 && chrome.panes.ready(renderer) {
         let arriving = state
+            .docking
             .dock
             .as_ref()
             .and_then(|docked| Some((docked.window.clone(), docked.flight?)));
         let flights: Vec<(Window, crate::dock::Flight)> = state
+            .docking
             .dock_leaving
             .clone()
             .into_iter()
@@ -1573,18 +1584,19 @@ fn dock_flight_elements(
         world.pane_front += pieces.len();
         world.elements.splice(0..0, pieces);
     }
-    if let Some(docked) = state.dock.as_mut()
+    if let Some(docked) = state.docking.dock.as_mut()
         && docked.flight.is_some_and(|flight| flight.done(v.now))
     {
         docked.flight = None;
     }
     if state
+        .docking
         .dock_leaving
         .as_ref()
         .is_some_and(|(_, flight)| flight.done(v.now))
     {
-        state.dock_leaving = None;
-        state.dock_slot_leaving = None;
+        state.docking.dock_leaving = None;
+        state.docking.dock_slot_leaving = None;
     }
 }
 
@@ -1663,7 +1675,7 @@ fn workspace_frame_elements(
             );
         }
         if state.bullet.is_some() {
-            state.frame_hits.push((index, frame));
+            state.drawn.frame_hits.push((index, frame));
         }
     }
 }
@@ -1724,7 +1736,7 @@ fn ghost_elements(
             .splice(world.pane_front..world.pane_front, pieces);
     }
     state.ghosts.retain(|ghost| !ghost.done(now));
-    state.pictures.retain(|(window, _)| window.alive());
+    state.drawn.pictures.retain(|(window, _)| window.alive());
     if let Some(ghost) = world.ghost {
         let alpha = 0.8 * v.bullet_fade();
         let ring = overview::ring(state.bullet_rgb);

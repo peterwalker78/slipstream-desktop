@@ -14,7 +14,7 @@ fn debug_notice() -> crate::notify::Incoming {
 impl Slipstream {
     /// `shot:` paths for the backend to save once it has drawn a frame.
     pub fn take_screenshots(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.screenshots)
+        std::mem::take(&mut self.shots.screenshots)
     }
 
     /// Runs the timed debug steps now due. Screenshots wait for the next frame.
@@ -97,7 +97,7 @@ impl Slipstream {
                         self.inject_key(&name, pressed);
                     }
                 }
-                debug::Step::Screenshot(path) => self.screenshots.push(path),
+                debug::Step::Screenshot(path) => self.shots.screenshots.push(path),
                 // Nested only, never in a login session (`lock::steps_allowed`).
                 debug::Step::Lock if !crate::lock::steps_allowed() => {
                     tracing::warn!("debug step ignored: the lock's step runs nested only");
@@ -283,8 +283,8 @@ impl Slipstream {
     /// Straight out, as the watchdog goes: every headless check ends with this. A key still held
     /// back here means a press whose release never matched it.
     fn debug_quit(&mut self) {
-        if !self.suppressed_keys.is_empty() {
-            tracing::warn!(keys = ?self.suppressed_keys, "keys still suppressed at quit");
+        if !self.keys.suppressed_keys.is_empty() {
+            tracing::warn!(keys = ?self.keys.suppressed_keys, "keys still suppressed at quit");
         }
         self.loop_signal.stop();
     }

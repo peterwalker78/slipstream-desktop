@@ -373,6 +373,21 @@ impl Flight {
     }
 }
 
+/// The window docked to the bar, one on its way down, the pane's size, and their slots in the bar.
+#[derive(Default)]
+pub struct Docking {
+    /// The window docked to the bar as a pane of glass, if one is (`dock.rs`).
+    pub dock: Option<Docked<smithay::desktop::Window>>,
+    /// A window just undocked, whose pane is still on its way down to its place.
+    pub dock_leaving: Option<(smithay::desktop::Window, Flight)>,
+    /// The size the pane was last given, which the next window docked takes.
+    pub dock_size: Size,
+    /// The docked window's slot in the bar: its stream, laid on its side (`slot.rs`).
+    pub dock_slot: Option<crate::slot::Slot>,
+    /// The slot of a window on its way down from the bar, until it lands.
+    pub dock_slot_leaving: Option<crate::slot::Slot>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

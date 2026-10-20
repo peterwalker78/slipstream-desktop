@@ -289,6 +289,21 @@ fn stamp(time: SystemTime) -> String {
     format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
+/// The layout as written down for the next login, and when it is next due.
+#[derive(Default)]
+pub struct Recording {
+    /// What was open when the way out's card went up, ready to be written down if the switch on
+    /// it is on. Taken then rather than at the end, because by the end the windows have gone.
+    pub exit_record: Option<Record>,
+    /// When the layout is next written down: `RECORD_SETTLE` after the last thing that moved, on
+    /// wall time. `None` while nothing has changed since the last write.
+    pub record_due: Option<f64>,
+    /// When a desktop that hasn't moved is next checked against the record.
+    pub record_again: f64,
+    /// What the file on disk holds, so a desktop that hasn't moved isn't written over and over.
+    pub saved_record: Option<Record>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -559,10 +559,10 @@ impl Slipstream {
         self.finish_arrangement();
         self.leave_bullet_time_now();
         // A screenshot asked for just before is never taken of the lock, nor flashes over it.
-        self.screenshot_requests.clear();
-        self.flash = None;
-        self.snip = None;
-        self.snip_flights.clear();
+        self.shots.screenshot_requests.clear();
+        self.shots.flash = None;
+        self.shots.snip = None;
+        self.shots.snip_flights.clear();
         self.cancel_polkit_for_lock();
         if let Some(picker) = self.share.take() {
             tracing::info!("sharing declined: the screen locked");

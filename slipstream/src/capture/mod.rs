@@ -228,7 +228,7 @@ impl ImageCaptureSourceHandler for Slipstream {}
 
 impl OutputCaptureSourceHandler for Slipstream {
     fn output_capture_source_state(&mut self) -> &mut OutputCaptureSourceState {
-        &mut self.output_capture_source
+        &mut self.protocols.output_capture_source
     }
 
     fn output_source_created(&mut self, source: ImageCaptureSource, output: &Output) {
@@ -238,13 +238,13 @@ impl OutputCaptureSourceHandler for Slipstream {
 
 impl ForeignToplevelListHandler for Slipstream {
     fn foreign_toplevel_list_state(&mut self) -> &mut ForeignToplevelListState {
-        &mut self.foreign_toplevel_list
+        &mut self.protocols.foreign_toplevel_list
     }
 }
 
 impl ToplevelCaptureSourceHandler for Slipstream {
     fn toplevel_capture_source_state(&mut self) -> &mut ToplevelCaptureSourceState {
-        &mut self.toplevel_capture_source
+        &mut self.protocols.toplevel_capture_source
     }
 
     fn toplevel_source_created(
@@ -260,7 +260,7 @@ impl ToplevelCaptureSourceHandler for Slipstream {
 
 impl ImageCopyCaptureHandler for Slipstream {
     fn image_copy_capture_state(&mut self) -> &mut ImageCopyCaptureState {
-        &mut self.image_copy_capture
+        &mut self.protocols.image_copy_capture
     }
 
     fn capture_constraints(&mut self, source: &ImageCaptureSource) -> Option<BufferConstraints> {
@@ -526,7 +526,7 @@ impl Slipstream {
     /// goes, or retitles itself.
     pub fn sync_toplevels(&mut self, windows: Vec<Window>) {
         let windows: Vec<Window> = windows.into_iter().filter(|w| w.alive()).collect();
-        let list = &mut self.foreign_toplevel_list;
+        let list = &mut self.protocols.foreign_toplevel_list;
         self.captures.listed.retain(|listed| {
             let open = windows.contains(&listed.window);
             if !open {
@@ -558,6 +558,7 @@ impl Slipstream {
                 }
                 None => {
                     let handle = self
+                        .protocols
                         .foreign_toplevel_list
                         .new_toplevel::<Slipstream>(title.clone(), app_id.clone());
                     self.captures.listed.push(Listed {

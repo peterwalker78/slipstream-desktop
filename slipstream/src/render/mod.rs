@@ -445,6 +445,31 @@ fn fit_within(rect: [f64; 4], tile: [f64; 4], area: [f64; 4]) -> [f64; 4] {
     ]
 }
 
+/// What the frames last drew: where things landed, for the pointer, the windows drawn from outside the space, and each screen's drawing buffers.
+#[derive(Default)]
+pub struct Frames {
+    /// Where windows and workspace frames were drawn in the overview, for clicks.
+    pub overview_hits: Vec<(Window, Rectangle<f64, Logical>)>,
+    /// Where notification pop-ups, the toast and the volume display were drawn last frame, from
+    /// the space's origin: the pointer over them is over glass, not the window beneath.
+    pub chrome_areas: Vec<Rectangle<f64, Logical>>,
+    /// Windows too big for their tiles, and where they were last drawn scaled into them, for
+    /// the pointer. Global logical coordinates.
+    pub fitted: Vec<(Window, Rectangle<f64, Logical>)>,
+    /// What each window was last drawn from, for its fade when it closes.
+    pub pictures: Vec<(Window, crate::ghost::Picture)>,
+    /// Windows drawn in the last frame that aren't in the space (bullet time's other workspaces,
+    /// a workspace sliding away), so they get frame callbacks and keep drawing.
+    pub drawn_off_space: Vec<Window>,
+    pub frame_hits: Vec<(usize, Rectangle<f64, Logical>)>,
+    /// How the overview was last tilted on screen, to map clicks back onto it.
+    pub overview_tilt: Tilt,
+    /// The desktop's own drawing, one set per screen: every buffer in it is sized to the screen
+    /// it is for, so sharing one between two screens of different sizes would repaint it twice a
+    /// frame and, in the wallpaper's case, restart the animation.
+    pub chromes: HashMap<String, Chrome>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

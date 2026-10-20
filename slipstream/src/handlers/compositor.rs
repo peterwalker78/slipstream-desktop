@@ -22,7 +22,7 @@ use super::xdg_shell;
 
 impl CompositorHandler for Slipstream {
     fn compositor_state(&mut self) -> &mut CompositorState {
-        &mut self.compositor_state
+        &mut self.protocols.compositor_state
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
@@ -123,12 +123,12 @@ impl BufferHandler for Slipstream {
 
 impl ShmHandler for Slipstream {
     fn shm_state(&self) -> &ShmState {
-        &self.shm_state
+        &self.protocols.shm_state
     }
 }
 
 impl DrmSyncobjHandler for Slipstream {
     fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
-        self.syncobj.as_mut()
+        self.protocols.syncobj.as_mut()
     }
 }

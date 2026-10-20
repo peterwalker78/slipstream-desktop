@@ -43,7 +43,11 @@ impl Slipstream {
         };
         // Windows drawn from workspaces no screen is showing (bullet time, a window being shared)
         // count too: they are on this screen's frame, so this screen should pace them.
-        for window in self.space.elements().chain(self.drawn_off_space.iter()) {
+        for window in self
+            .space
+            .elements()
+            .chain(self.drawn.drawn_off_space.iter())
+        {
             window.with_surfaces(|surface, surface_states| {
                 update_surface_primary_scanout_output(
                     surface,
@@ -75,7 +79,7 @@ impl Slipstream {
     pub fn send_frames(&mut self, output: &Output) {
         use smithay::desktop::utils::surface_primary_scanout_output;
         let now = self.start_time.elapsed();
-        let off_space = std::mem::take(&mut self.drawn_off_space);
+        let off_space = std::mem::take(&mut self.drawn.drawn_off_space);
         // A surface this screen isn't showing still gets a callback this often, so a window that
         // is hidden or fully covered carries on rather than freezing until it is looked at again.
         let throttle = Some(Duration::from_secs(1));

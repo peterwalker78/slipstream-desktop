@@ -34,7 +34,7 @@ impl Slipstream {
     pub fn notify_idle_listeners(&mut self) {
         if std::mem::take(&mut self.input_since_notified) {
             let seat = self.seat.clone();
-            self.idle_notifier_state.notify_activity(&seat);
+            self.protocols.idle_notifier_state.notify_activity(&seat);
         }
     }
 
@@ -51,7 +51,9 @@ impl Slipstream {
             .iter()
             .any(|surface| self.surface_on_screen(surface));
         let inhibited = self.awake || self.idle.apps_hold();
-        self.idle_notifier_state.set_is_inhibited(inhibited);
+        self.protocols
+            .idle_notifier_state
+            .set_is_inhibited(inhibited);
     }
 
     /// Whether `surface` can be seen: a window's only while it is in the space, so not minimised
@@ -80,7 +82,7 @@ impl Slipstream {
         if !crate::fallback::take_landed() {
             return;
         }
-        for chrome in self.chromes.values_mut() {
+        for chrome in self.drawn.chromes.values_mut() {
             chrome.forget_painted_text();
         }
         self.notices.forget_painted_text();
@@ -124,7 +126,7 @@ impl Slipstream {
             || self.offer.is_some()
             || self.share.is_some()
             || self.polkit.is_up()
-            || self.snip.is_some()
+            || self.shots.snip.is_some()
             || self.battery.card.is_some()
             || self.history.is_open()
             || self.restoring.is_some()
@@ -352,11 +354,11 @@ impl Slipstream {
             if settings.session.remember {
                 // Write what's open now rather than waiting for the next thing to move: the
                 // switch was just turned on, and a layout is what it promises.
-                self.record_due = Some(self.wall());
+                self.record.record_due = Some(self.wall());
             } else {
                 // Off means no record sitting in the state directory at all, not a stale one.
-                self.record_due = None;
-                self.saved_record = None;
+                self.record.record_due = None;
+                self.record.saved_record = None;
                 let path = session::path();
                 // A record in a folder another Slipstream owns isn't this one's to delete.
                 if self.owns_state

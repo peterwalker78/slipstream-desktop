@@ -45,7 +45,7 @@ impl SeatHandler for Slipstream {
     type TouchFocus = WlSurface;
 
     fn seat_state(&mut self) -> &mut SeatState<Slipstream> {
-        &mut self.seat_state
+        &mut self.protocols.seat_state
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
@@ -85,7 +85,7 @@ impl PointerConstraintsHandler for Slipstream {
 /// Virtual machines and remote desktops asking for every key, granted to the focused window.
 impl KeyboardShortcutsInhibitHandler for Slipstream {
     fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
-        &mut self.keyboard_shortcuts_inhibit_state
+        &mut self.protocols.keyboard_shortcuts_inhibit_state
     }
 
     fn new_inhibitor(&mut self, _inhibitor: KeyboardShortcutsInhibitor) {
@@ -96,7 +96,7 @@ impl KeyboardShortcutsInhibitHandler for Slipstream {
 /// `ext-idle-notify`: swayidle and the like wait on this for the seat to go quiet.
 impl IdleNotifierHandler for Slipstream {
     fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
-        &mut self.idle_notifier_state
+        &mut self.protocols.idle_notifier_state
     }
 }
 
@@ -178,13 +178,13 @@ impl SelectionHandler for Slipstream {
 
 impl DataDeviceHandler for Slipstream {
     fn data_device_state(&mut self) -> &mut DataDeviceState {
-        &mut self.data_device_state
+        &mut self.protocols.data_device_state
     }
 }
 
 impl PrimarySelectionHandler for Slipstream {
     fn primary_selection_state(&mut self) -> &mut PrimarySelectionState {
-        &mut self.primary_selection_state
+        &mut self.protocols.primary_selection_state
     }
 }
 
@@ -256,7 +256,7 @@ impl XdgDecorationHandler for Slipstream {
 /// running, say. Whether it happens is `Slipstream::activation_requested`'s call.
 impl XdgActivationHandler for Slipstream {
     fn activation_state(&mut self) -> &mut XdgActivationState {
-        &mut self.xdg_activation_state
+        &mut self.protocols.xdg_activation_state
     }
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
@@ -265,7 +265,8 @@ impl XdgActivationHandler for Slipstream {
             self.concentration.asked(std::time::Instant::now());
         }
         // Tokens nobody used are dropped once they're too old to be honoured anyway.
-        self.xdg_activation_state
+        self.protocols
+            .xdg_activation_state
             .retain_tokens(|_, data| data.timestamp.elapsed().as_secs() < 120);
         true
     }
@@ -276,7 +277,7 @@ impl XdgActivationHandler for Slipstream {
         data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
-        self.xdg_activation_state.remove_token(&token);
+        self.protocols.xdg_activation_state.remove_token(&token);
         self.activation_requested(&data, &surface);
     }
 }
@@ -296,7 +297,7 @@ impl smithay::input::tablet::TabletSeatHandler for Slipstream {
 /// Portal dialogs (a file chooser for a sandboxed app) name the window they belong to.
 impl smithay::wayland::xdg_foreign::XdgForeignHandler for Slipstream {
     fn xdg_foreign_state(&mut self) -> &mut smithay::wayland::xdg_foreign::XdgForeignState {
-        &mut self.xdg_foreign_state
+        &mut self.protocols.xdg_foreign_state
     }
 }
 

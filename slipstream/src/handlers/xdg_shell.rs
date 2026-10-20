@@ -18,7 +18,7 @@ use crate::{Slipstream, focus::KeyboardFocus};
 
 impl XdgShellHandler for Slipstream {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
-        &mut self.xdg_shell_state
+        &mut self.protocols.xdg_shell_state
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {

@@ -113,7 +113,7 @@ impl Slipstream {
 
 impl XWaylandShellHandler for Slipstream {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
-        &mut self.xwayland_shell_state
+        &mut self.protocols.xwayland_shell_state
     }
 }
 

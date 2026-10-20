@@ -238,7 +238,7 @@ impl Slipstream {
             return;
         }
         tracing::info!("screenshot asked for");
-        self.screenshot_requests.push(Request {
+        self.shots.screenshot_requests.push(Request {
             output: output.name(),
         });
     }
@@ -255,11 +255,12 @@ impl Slipstream {
     ) {
         let name = output.name();
         if self.lock.is_some() {
-            self.screenshot_requests.clear();
+            self.shots.screenshot_requests.clear();
             return;
         }
         self.serve_snip(renderer, output, elements, size, scale);
         if !self
+            .shots
             .screenshot_requests
             .iter()
             .any(|request| request.output == name)
@@ -267,10 +268,10 @@ impl Slipstream {
             return;
         }
         let (mine, others): (Vec<Request>, Vec<Request>) =
-            std::mem::take(&mut self.screenshot_requests)
+            std::mem::take(&mut self.shots.screenshot_requests)
                 .into_iter()
                 .partition(|request| request.output == name);
-        self.screenshot_requests = others;
+        self.shots.screenshot_requests = others;
         let pixels = match render::copy_frame(renderer, elements, size, scale) {
             Ok(pixels) => Arc::new(pixels),
             Err(err) => {
@@ -281,7 +282,7 @@ impl Slipstream {
         };
         // After the copy, so the flash is never in the picture.
         if !self.clock.reduced_motion {
-            self.flash = Some((name, self.wall()));
+            self.shots.flash = Some((name, self.wall()));
         }
         for _ in mine {
             self.save_screenshot(pixels.clone(), size, None, scale);
@@ -300,7 +301,7 @@ impl Slipstream {
     ) {
         let crop = crop.map(|rect| to_pixels(rect, scale));
         let file = file_name(local_now());
-        let answers = self.screenshot_answers.clone();
+        let answers = self.shots.screenshot_answers.clone();
         std::thread::spawn(move || {
             // Read here, off the event loop: `user-dirs.dirs` may be on a slow home folder.
             let folder = folder();
@@ -320,16 +321,17 @@ impl Slipstream {
     /// the flash skips that frame, and starts again once the picture is copied.
     pub fn flash_alpha(&mut self, output: &str) -> Option<f32> {
         if self
+            .shots
             .screenshot_requests
             .iter()
             .any(|request| request.output == output)
         {
             return None;
         }
-        let (on, since) = self.flash.as_ref()?;
+        let (on, since) = self.shots.flash.as_ref()?;
         let age = self.wall() - since;
         if age >= FLASH {
-            self.flash = None;
+            self.shots.flash = None;
             return None;
         }
         (on == output).then(|| FLASH_ALPHA * (1.0 - (age / FLASH) as f32))
@@ -385,6 +387,36 @@ impl Slipstream {
             "Screenshot saved",
             &format!("{shown} · copied to the clipboard"),
         );
+    }
+}
+
+/// Screenshots and snips: the shots asked for and being saved, a snip being chosen or flying off, and the flash.
+pub struct Shots {
+    /// `shot:` debug steps waiting for the next frame.
+    pub screenshots: Vec<String>,
+    /// Super+Shift+S while it's being chosen (`snip.rs`).
+    pub snip: Option<crate::snip::Snip>,
+    /// Snips breaking up and flying into their toast.
+    pub snip_flights: Vec<crate::snip::Flight>,
+    /// Print and Super+Shift+S, waiting for their screen's next frame (`screenshot.rs`).
+    pub screenshot_requests: Vec<Request>,
+    /// Where finished screenshots come back to the event loop from the thread that wrote them.
+    pub screenshot_answers: smithay::reexports::calloop::channel::Sender<Saved>,
+    /// The screen a screenshot was just taken of, and when, for its flash.
+    pub flash: Option<(String, f64)>,
+}
+
+impl Shots {
+    /// Nothing asked for yet; finished screenshots come back through `answers`.
+    pub fn new(answers: smithay::reexports::calloop::channel::Sender<Saved>) -> Self {
+        Self {
+            screenshots: Vec::new(),
+            snip: None,
+            snip_flights: Vec::new(),
+            screenshot_requests: Vec::new(),
+            screenshot_answers: answers,
+            flash: None,
+        }
     }
 }
 

@@ -10,7 +10,7 @@ impl Slipstream {
         self.workspaces
             .all_windows()
             .into_iter()
-            .chain(self.dock.iter().map(|docked| docked.window.clone()))
+            .chain(self.docking.dock.iter().map(|docked| docked.window.clone()))
             .chain(self.rain.streams.iter().map(|stream| stream.window.clone()))
             .collect()
     }
@@ -29,10 +29,11 @@ impl Slipstream {
     /// on a workspace out of sight, under the lock or in bullet time's overview.
     pub(super) fn leave_a_ghost(&mut self, window: &Window) {
         let picture = self
+            .drawn
             .pictures
             .iter()
             .position(|(drawn, _)| drawn == window)
-            .map(|at| self.pictures.swap_remove(at).1);
+            .map(|at| self.drawn.pictures.swap_remove(at).1);
         let Some(picture) = picture else {
             return;
         };
@@ -46,7 +47,12 @@ impl Slipstream {
             return;
         }
         let now = self.clock.tick();
-        let rect = match self.fitted.iter().find(|(fitted, _)| fitted == window) {
+        let rect = match self
+            .drawn
+            .fitted
+            .iter()
+            .find(|(fitted, _)| fitted == window)
+        {
             Some((_, drawn)) => Some(*drawn),
             None => self.motion.frame(window, now).map(|frame| {
                 let [x, y, w, h] = frame.rect;

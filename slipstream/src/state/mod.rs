@@ -93,14 +93,12 @@ use crate::{
     offer::{self, Offer},
     osd,
     rain::Rain,
-    render::Chrome,
     restore, resume,
     saver::Saver,
     screen::Screens,
     session,
     share::{self, Picker},
     status,
-    tilt::Tilt,
     toast::Toast,
     udev::UdevData,
     workspace::{Workspace, Workspaces},
@@ -110,6 +108,8 @@ mod app_shortcuts;
 mod arrangements;
 mod bullet_time;
 mod debug_steps;
+mod protocols;
+pub use protocols::Protocols;
 mod docked;
 mod keyboard_focus;
 mod lifecycle;
@@ -154,6 +154,18 @@ const POUR: f64 = crate::motion::MOVE;
 const POUR_ALL: f64 = 0.2;
 
 pub struct Slipstream {
+    /// The window docked to the bar, one on its way down, the pane's size, and their slots in the bar.
+    pub docking: crate::dock::Docking,
+    /// The layout as written down for the next login, and when it is next due.
+    pub record: session::Recording,
+    /// Screenshots and snips: the shots asked for and being saved, a snip being chosen or flying off, and the flash.
+    pub shots: crate::screenshot::Shots,
+    /// What the frames last drew: where things landed, for the pointer, the windows drawn from outside the space, and each screen's drawing buffers.
+    pub drawn: crate::render::Frames,
+    /// What the keyboard's own keys are doing: Super and layout taps, Caps Lock, and presses held back from apps.
+    pub keys: crate::input::KeyTracking,
+    /// The Wayland protocols' own state.
+    pub protocols: Protocols,
     pub start_time: std::time::Instant,
     pub socket_name: OsString,
     pub display_handle: DisplayHandle,
@@ -162,44 +174,8 @@ pub struct Slipstream {
     pub loop_signal: LoopSignal,
     pub loop_handle: LoopHandle<'static, Slipstream>,
 
-    // Smithay State
-    pub compositor_state: CompositorState,
-    pub xdg_shell_state: XdgShellState,
-    pub xdg_decoration_state: XdgDecorationState,
-    pub shm_state: ShmState,
-    pub output_manager_state: OutputManagerState,
-    pub fractional_scale_state: FractionalScaleManagerState,
-    pub viewporter_state: ViewporterState,
-    /// Portal dialogs parented to the app that opened them.
-    pub xdg_foreign_state: XdgForeignState,
-    /// Other programs' panels, launchers and overlays (`layers.rs`).
-    pub layer_shell_state: smithay::wayland::shell::wlr_layer::WlrLayerShellState,
     /// What each screen's layer surfaces leave for tiling, as last tiled.
     pub layer_zones: Vec<(String, Rectangle<i32, Logical>)>,
-    /// Apps asking for one of their windows to be brought forward, with proof of the click or key
-    /// that asked for it (`handlers/mod.rs`).
-    pub xdg_activation_state: XdgActivationState,
-    pub seat_state: SeatState<Slipstream>,
-    pub data_device_state: DataDeviceState,
-    pub primary_selection_state: PrimarySelectionState,
-    /// Clipboard control for `wl-copy`, `wl-paste` and clipboard managers, in both protocols'
-    /// forms, filtered down to the clients `clipboard::may_control` allows.
-    pub ext_data_control: ext_data_control::DataControlState,
-    pub wlr_data_control: wlr_data_control::DataControlState,
-    pub xwayland_shell_state: XWaylandShellState,
-    /// Set up by the hardware backend once it knows the GPU's buffer formats.
-    pub dmabuf: Option<(DmabufState, DmabufGlobal)>,
-    /// Explicit sync (`linux-drm-syncobj-v1`), offered by the hardware backend when the GPU can
-    /// wake us on a timeline point.
-    pub syncobj: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
-    /// Screen sharing: the capture protocols the portal talks to, and the list of windows it
-    /// picks from. Every global is filtered down to the clients `capture::may_capture` allows, so
-    /// no app but the portal can see them at all.
-    pub image_capture_source: ImageCaptureSourceState,
-    pub output_capture_source: OutputCaptureSourceState,
-    pub toplevel_capture_source: ToplevelCaptureSourceState,
-    pub image_copy_capture: ImageCopyCaptureState,
-    pub foreign_toplevel_list: ForeignToplevelListState,
     /// The card asking what to share, while an app waits for the answer.
     pub share: Option<Picker>,
     /// The card asking for a password on polkit's behalf, and the questions behind it.
@@ -213,20 +189,8 @@ pub struct Slipstream {
 
     // Slipstream State
     pub bindings: Vec<keys::Binding>,
-    /// Keys whose press ran a binding; their releases are swallowed too.
-    pub suppressed_keys: Vec<Keysym>,
-    /// Caps Lock, while it's being told apart as a tap or a hold.
-    pub caps_key: crate::awake::CapsKey,
-    /// The Caps Lock press being told apart woke the faded UI, so a tap of it goes nowhere.
-    pub caps_waking: bool,
-    /// A Caps Lock tap that only woke the UI, whose release is to go nowhere too.
-    pub caps_woke: Option<smithay::input::keyboard::Keycode>,
     /// Awake is on: the UI doesn't fade to the wallpaper. Held Caps Lock toggles it.
     pub awake: bool,
-    /// Super on its own, on its way to being a tap that opens the explorer.
-    pub super_tap: keys::SuperTap,
-    /// Alt and Shift together, on their way to switching the keyboard layout.
-    pub layout_tap: keys::LayoutTap,
     /// Running as a window inside another desktop, where Alt stands in for Super.
     pub nested: bool,
     /// Started from the login screen, so the session environment is shared with D-Bus.
@@ -260,20 +224,8 @@ pub struct Slipstream {
     pub floating_sizes: Vec<(Window, (i32, i32))>,
     /// Floating windows tiled while they fill the screen, and where they float again after.
     pub refloat: Vec<(Window, crate::floating::Float<Window>)>,
-    /// `shot:` debug steps waiting for the next frame.
-    pub screenshots: Vec<String>,
-    /// Super+Shift+S while it's being chosen (`snip.rs`).
-    pub snip: Option<crate::snip::Snip>,
     /// The screen zoom, for the session.
     pub zoom: crate::zoom::Zoom,
-    /// Snips breaking up and flying into their toast.
-    pub snip_flights: Vec<crate::snip::Flight>,
-    /// Print and Super+Shift+S, waiting for their screen's next frame (`screenshot.rs`).
-    pub screenshot_requests: Vec<crate::screenshot::Request>,
-    /// Where finished screenshots come back to the event loop from the thread that wrote them.
-    pub screenshot_answers: channel::Sender<crate::screenshot::Saved>,
-    /// The screen a screenshot was just taken of, and when, for its flash.
-    pub flash: Option<(String, f64)>,
     /// Super+D: the workspace it left, and the empty one it went to.
     pub desktop_return: Option<(usize, usize)>,
     /// A gap or a window being dragged with the pointer (`grabs.rs`).
@@ -336,16 +288,6 @@ pub struct Slipstream {
     /// The windows Super+H put into the code rain, so the next press brings back those and
     /// nothing else that happens to be minimised.
     hidden: Option<Vec<Window>>,
-    /// What was open when the way out's card went up, ready to be written down if the switch on
-    /// it is on. Taken then rather than at the end, because by the end the windows have gone.
-    exit_record: Option<session::Record>,
-    /// When the layout is next written down: `RECORD_SETTLE` after the last thing that moved, on
-    /// wall time. `None` while nothing has changed since the last write.
-    record_due: Option<f64>,
-    /// When a desktop that hasn't moved is next checked against the record.
-    record_again: f64,
-    /// What the file on disk holds, so a desktop that hasn't moved isn't written over and over.
-    saved_record: Option<session::Record>,
     /// Toplevels a client has created but not yet shown. They take no tile and no focus until
     /// their first buffer arrives, and plenty never arrive at all.
     pub unmapped: Vec<Window>,
@@ -386,9 +328,6 @@ pub struct Slipstream {
     pub savers: HashMap<String, Saver>,
     /// What a new screen's wallpaper starts from.
     wallpaper: slipstream_config::Wallpaper,
-    pub idle_inhibit_state: IdleInhibitManagerState,
-    /// `ext-idle-notify`: what tells other programs the seat has gone quiet.
-    pub idle_notifier_state: IdleNotifierState<Slipstream>,
     /// Input arrived since `ext-idle-notify` was last told: it's told once a pass rather than on
     /// every event, since each telling re-arms a timer per listener.
     pub input_since_notified: bool,
@@ -398,8 +337,6 @@ pub struct Slipstream {
     pub gamma: crate::gamma::Gamma,
     /// Screen captures asked for through `wlr-screencopy`, waiting for their screen to draw.
     pub screencopy: crate::screencopy::Screencopy,
-    /// Virtual machines and remote desktops asking for every key (`takeback.rs`).
-    pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     /// Which windows have been told they hold the pointer or the keys, and the one refused.
     pub takeback: crate::takeback::TakeBack,
     /// Bullet time while it's open (Super+Tab).
@@ -410,37 +347,17 @@ pub struct Slipstream {
     pub overview: Tween<1>,
     /// The last labels bullet time used, kept while the same windows are open.
     bullet_labels: Vec<(Target<Window>, String)>,
-    /// Where windows and workspace frames were drawn in the overview, for clicks.
-    pub overview_hits: Vec<(Window, Rectangle<f64, Logical>)>,
-    /// Where notification pop-ups, the toast and the volume display were drawn last frame, from
-    /// the space's origin: the pointer over them is over glass, not the window beneath.
-    pub chrome_areas: Vec<Rectangle<f64, Logical>>,
     /// Whether the pointer was kept from windows when last looked, so a change is noticed.
     pub pointer_was_blocked: bool,
     /// Scroll short of a whole notch, over the explorer or the centre.
     pub wheel_rest: f64,
     /// Where what a player is doing after a media key comes back to.
     pub media_replies: Option<smithay::reexports::calloop::channel::Sender<crate::media::Playing>>,
-    /// Windows too big for their tiles, and where they were last drawn scaled into them, for
-    /// the pointer. Global logical coordinates.
-    pub fitted: Vec<(Window, Rectangle<f64, Logical>)>,
     /// Closed windows fading where they were.
     pub ghosts: Vec<crate::ghost::Ghost>,
-    /// What each window was last drawn from, for its fade when it closes.
-    pub pictures: Vec<(Window, crate::ghost::Picture)>,
-    /// Windows drawn in the last frame that aren't in the space (bullet time's other workspaces,
-    /// a workspace sliding away), so they get frame callbacks and keep drawing.
-    pub drawn_off_space: Vec<Window>,
     /// The minimum size each window had when it was last tiled, so a client changing its own
     /// retiles.
     tiled_mins: Vec<(Window, (i32, i32))>,
-    pub frame_hits: Vec<(usize, Rectangle<f64, Logical>)>,
-    /// How the overview was last tilted on screen, to map clicks back onto it.
-    pub overview_tilt: Tilt,
-    /// The desktop's own drawing, one set per screen: every buffer in it is sized to the screen
-    /// it is for, so sharing one between two screens of different sizes would repaint it twice a
-    /// frame and, in the wallpaper's case, restart the animation.
-    pub chromes: HashMap<String, Chrome>,
     /// Clock and battery readings, refreshed off the main thread.
     pub status: Arc<Mutex<status::Reading>>,
     /// What the bar's meter shows, from its command; `None` without one.
@@ -466,16 +383,6 @@ pub struct Slipstream {
     pub deck: Option<crate::deck::Deck<Window>>,
     /// Two tiles passing through each other as they trade places (`pane.rs`).
     pub pass: Option<crate::pane::Pass<Window>>,
-    /// The window docked to the bar as a pane of glass, if one is (`dock.rs`).
-    pub dock: Option<crate::dock::Docked<Window>>,
-    /// A window just undocked, whose pane is still on its way down to its place.
-    pub dock_leaving: Option<(Window, crate::dock::Flight)>,
-    /// The size the pane was last given, which the next window docked takes.
-    pub dock_size: crate::dock::Size,
-    /// The docked window's slot in the bar: its stream, laid on its side (`slot.rs`).
-    pub dock_slot: Option<crate::slot::Slot>,
-    /// The slot of a window on its way down from the bar, until it lands.
-    pub dock_slot_leaving: Option<crate::slot::Slot>,
     /// Where password checks answer, with their numbers.
     pub lock_answers: channel::Sender<(u64, crate::auth::Verdict)>,
     /// The session's line to logind, for locking, unlocking and sleep (`logind.rs`).
@@ -494,39 +401,9 @@ impl Slipstream {
 
         // The protocols' handler traits are implemented in `crate::handlers` and beside each
         // feature that speaks one.
-        let compositor_state = CompositorState::new::<Self>(&dh);
-        let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
-        let shm_state = ShmState::new::<Self>(&dh, vec![]);
+        let mut protocols = Protocols::new(&dh, &event_loop.handle());
         let popups = PopupManager::default();
-
-        let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
-        // Sharp text at 1.25× for apps that support it (Qt 6, GTK 4, Firefox).
-        let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
-        let viewporter_state = ViewporterState::new::<Self>(&dh);
-        // Apps name the cursor they want from the theme (GTK 4, Qt 6, Chromium) instead of
-        // drawing one of their own at the wrong size.
-        CursorShapeManagerState::new::<Self>(&dh);
-        // When each frame reached the screen, so video players and games pace themselves.
-        PresentationState::new::<Self>(&dh, Clock::<Monotonic>::new().id() as u32);
-        // One-colour buffers, which toolkits use for backgrounds and fades.
-        SinglePixelBufferState::new::<Self>(&dh);
-        let xdg_foreign_state = XdgForeignState::new::<Self>(&dh);
-        // Typing other scripts through IBus or fcitx5, and on-screen keyboards.
-        crate::ime::init(&dh);
-        let layer_shell_state = crate::layers::state(&dh);
-        let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
-
-        // Clipboard, drag-and-drop, and middle-click paste.
-        let data_device_state = DataDeviceState::new::<Self>(&dh);
-        let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
-        // Both selections for clipboard tools and managers, without a window of their own, and
-        // only for unsandboxed clients.
-        let clipboard_globals = clipboard::state(&dh, &primary_selection_state);
-        let xwayland_shell_state = XWaylandShellState::new::<Self>(&dh);
-
-        let mut seat_state = SeatState::new();
-        let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
+        let mut seat: Seat<Self> = protocols.seat_state.new_wl_seat(&dh, "seat0");
 
         let settings = crate::settings::startup();
         crate::layouts::add_keyboard(&mut seat, &settings.keyboard);
@@ -536,29 +413,6 @@ impl Slipstream {
         let space = Space::default();
         let socket_name = Self::init_wayland_listener(display, event_loop);
         let loop_signal = event_loop.get_signal();
-
-        // Screen sharing: the portal's own globals, offered to the portal alone.
-        let capture_globals = capture::state(&dh);
-
-        // `wlr-gamma-control`: wlsunset and the like drive a screen's ramps themselves, and the
-        // night light stands aside for whichever screens they have taken.
-        crate::gamma::state(&dh);
-        // `wlr-screencopy`: grim, wf-recorder and the screenshot scripts people already have.
-        // Offered to every client, and refused unless the program has been allowed (`screencopy.rs`).
-        crate::screencopy::state(&dh);
-        // Video players ask for the screen to stay awake, which keeps the UI from fading.
-        let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
-        // `ext-idle-notify`: swayidle and anything else that waits for the seat to go quiet.
-        // Slipstream does its own fading and locking on its own timers; this only tells other
-        // programs what the seat is doing, and honours the same inhibitors we do.
-        let idle_notifier_state = IdleNotifierState::<Self>::new(&dh, event_loop.handle());
-
-        // Games: relative motion for mouse look, and the pointer locked or confined to their
-        // window. Touchpad swipes and pinches reach apps too (zooming a page or a picture).
-        RelativePointerManagerState::new::<Self>(&dh);
-        PointerConstraintsState::new::<Self>(&dh);
-        PointerGesturesState::new::<Self>(&dh);
-        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         // logind's answers to Sleep, Restart and Shut down arrive here from the thread that asked.
         let (power_answers, answers) = channel::channel();
@@ -621,38 +475,21 @@ impl Slipstream {
 
         let reduced_motion = settings.motion.reduced;
         let mut state = Self {
+            docking: Default::default(),
+            record: Default::default(),
+            shots: crate::screenshot::Shots::new(screenshot_answers),
+            drawn: Default::default(),
+            keys: Default::default(),
             start_time,
             display_handle: dh,
+            protocols,
 
             space,
             loop_signal,
             loop_handle: event_loop.handle(),
             socket_name,
 
-            compositor_state,
-            xdg_shell_state,
-            xdg_decoration_state,
-            shm_state,
-            output_manager_state,
-            fractional_scale_state,
-            viewporter_state,
-            xdg_foreign_state,
-            layer_shell_state,
             layer_zones: Vec::new(),
-            xdg_activation_state,
-            seat_state,
-            data_device_state,
-            primary_selection_state,
-            ext_data_control: clipboard_globals.ext,
-            wlr_data_control: clipboard_globals.wlr,
-            xwayland_shell_state,
-            dmabuf: None,
-            syncobj: None,
-            image_capture_source: capture_globals.source,
-            output_capture_source: capture_globals.output_source,
-            toplevel_capture_source: capture_globals.toplevel_source,
-            image_copy_capture: capture_globals.copy,
-            foreign_toplevel_list: capture_globals.toplevel_list,
             share: None,
             polkit: Default::default(),
             captures: Captures::default(),
@@ -661,13 +498,7 @@ impl Slipstream {
             cursor_status: CursorImageStatus::default_named(),
 
             bindings: keys::checked(keys::defaults(settings.keys.style), settings.keys.style),
-            suppressed_keys: Vec::new(),
-            caps_key: Default::default(),
-            caps_waking: false,
-            caps_woke: None,
             awake: false,
-            super_tap: keys::SuperTap::default(),
-            layout_tap: keys::LayoutTap::default(),
             nested: false,
             owns_state: true,
             session: false,
@@ -683,17 +514,11 @@ impl Slipstream {
             refloat: Vec::new(),
             floating_sizes: Vec::new(),
             centre_when_sized: Vec::new(),
-            screenshots: Vec::new(),
-            screenshot_requests: Vec::new(),
-            snip: None,
             zoom: Default::default(),
             history: Default::default(),
             battery: Default::default(),
             night: Default::default(),
             clip_answers,
-            snip_flights: Vec::new(),
-            screenshot_answers,
-            flash: None,
             desktop_return: None,
             drag: None,
             drag_retile_due: false,
@@ -722,11 +547,7 @@ impl Slipstream {
             scope: crate::scope::Scope::new(false),
             agents_read: None,
             exit: None,
-            exit_record: None,
             hidden: None,
-            record_due: None,
-            record_again: 0.0,
-            saved_record: None,
             unmapped: Vec::new(),
             background_apps: Vec::new(),
             background_icon_rev: 0,
@@ -745,31 +566,20 @@ impl Slipstream {
             concentration: Default::default(),
             savers: HashMap::new(),
             wallpaper: settings.wallpaper.clone(),
-            idle_inhibit_state,
-            idle_notifier_state,
             input_since_notified: false,
             screens_off: false,
             gamma: crate::gamma::Gamma::default(),
             screencopy: crate::screencopy::Screencopy::default(),
-            keyboard_shortcuts_inhibit_state,
             takeback: Default::default(),
             bullet: None,
             swipe: None,
             overview: Tween::at_rest([0.0]),
             bullet_labels: Vec::new(),
-            overview_hits: Vec::new(),
-            chrome_areas: Vec::new(),
             pointer_was_blocked: false,
             wheel_rest: 0.0,
             media_replies: None,
-            fitted: Vec::new(),
             ghosts: Vec::new(),
-            pictures: Vec::new(),
-            drawn_off_space: Vec::new(),
             tiled_mins: Vec::new(),
-            frame_hits: Vec::new(),
-            overview_tilt: Tilt::default(),
-            chromes: HashMap::new(),
             status: status::start(),
             meter: meter::start(),
             debug: debug::Script::default(),
@@ -782,11 +592,6 @@ impl Slipstream {
             unlocking: None,
             deck: None,
             pass: None,
-            dock: None,
-            dock_leaving: None,
-            dock_size: Default::default(),
-            dock_slot: None,
-            dock_slot_leaving: None,
             lock_answers,
             logind: Default::default(),
             sleep_delay: Default::default(),
@@ -982,7 +787,7 @@ impl Slipstream {
             .rev()
             .filter(|window| docked.as_ref() != Some(*window));
         docked.iter().chain(rest).find_map(|window| {
-            if let Some((_, drawn)) = self.fitted.iter().find(|(w, _)| w == window) {
+            if let Some((_, drawn)) = self.drawn.fitted.iter().find(|(w, _)| w == window) {
                 let own = window.geometry();
                 if !drawn.contains(pos) || own.size.w <= 0 {
                     return None;
@@ -1053,7 +858,7 @@ impl Slipstream {
     /// Forgets a screen's buffers when it goes out, so an unplugged monitor doesn't leave a
     /// screenful of pixmaps behind.
     pub fn forget_screen_drawing(&mut self, screen: &str) {
-        self.chromes.remove(screen);
+        self.drawn.chromes.remove(screen);
         self.savers.remove(screen);
     }
 
@@ -1061,7 +866,7 @@ impl Slipstream {
     /// are drawn.
     pub fn focused_bar_target(&self, x: f64, y: f64) -> Option<bar::Target> {
         let name = self.screens.focused_output()?.name();
-        self.chromes.get(&name)?.bar.target_at(x, y)
+        self.drawn.chromes.get(&name)?.bar.target_at(x, y)
     }
 
     /// The screen the explorer, the panels, the cards, pop-ups and bullet time are drawn on, and

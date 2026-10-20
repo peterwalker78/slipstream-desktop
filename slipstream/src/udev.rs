@@ -356,19 +356,21 @@ impl Slipstream {
 
         if udev.primary.is_none() {
             udev.primary = Some(node);
-            self.shm_state.update_formats(renderer.shm_formats());
+            self.protocols
+                .shm_state
+                .update_formats(renderer.shm_formats());
             let feedback =
                 DmabufFeedbackBuilder::new(render_node.dev_id(), renderer.dmabuf_formats())
                     .build()?;
             let mut dmabuf_state = DmabufState::new();
             let global = dmabuf_state
                 .create_global_with_default_feedback::<Slipstream>(&self.display_handle, &feedback);
-            self.dmabuf = Some((dmabuf_state, global));
+            self.protocols.dmabuf = Some((dmabuf_state, global));
             tracing::info!(%render_node, "primary GPU");
             // Explicit sync, which games under XWayland and Proton need on drivers without
             // implicit sync, only where the kernel can signal a timeline point to an eventfd.
             if supports_syncobj_eventfd(&import_fd) {
-                self.syncobj = Some(DrmSyncobjState::new::<Slipstream>(
+                self.protocols.syncobj = Some(DrmSyncobjState::new::<Slipstream>(
                     &self.display_handle,
                     import_fd,
                 ));
@@ -1213,6 +1215,7 @@ impl Slipstream {
 impl DmabufHandler for Slipstream {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
         &mut self
+            .protocols
             .dmabuf
             .as_mut()
             .expect("the dmabuf global only exists alongside its state")

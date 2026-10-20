@@ -68,7 +68,7 @@ impl Slipstream {
             self.send_key(code, true);
         }
         // Super pressed again on its own is no tap: the hand never let go of it.
-        self.super_tap.disarm();
+        self.keys.super_tap.disarm();
     }
 
     fn send_key(&mut self, keycode: Keycode, pressed: bool) {

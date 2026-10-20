@@ -13,7 +13,8 @@ impl Slipstream {
             .into_iter()
             .map(|window| (window, false))
             .chain(
-                self.dock
+                self.docking
+                    .dock
                     .iter()
                     .map(|docked| (docked.window.clone(), false)),
             )
@@ -44,7 +45,7 @@ impl Slipstream {
         let open = self.mapped_windows();
         tracing::info!(windows = open.len(), "the way out: asking which");
         let wall = self.wall();
-        self.exit_record = Some(self.take_record());
+        self.record.exit_record = Some(self.take_record());
         self.exit = Some(Exit::choosing(
             open,
             wall,
@@ -63,7 +64,7 @@ impl Slipstream {
         let open = self.mapped_windows();
         tracing::info!(intent = intent.verb(), windows = open.len(), "the way out");
         let wall = self.wall();
-        self.exit_record = Some(self.take_record());
+        self.record.exit_record = Some(self.take_record());
         self.exit = Some(Exit::new(
             intent,
             open,
@@ -77,14 +78,14 @@ impl Slipstream {
     pub fn cancel_exit(&mut self) {
         tracing::info!("the way out was cancelled");
         self.exit = None;
-        self.exit_record = None;
+        self.record.exit_record = None;
     }
 
     /// Something moved. The layout goes to disk once the desktop has been still for
     /// `RECORD_SETTLE`, so every retile can say so without costing anything.
     pub(super) fn note_layout_change(&mut self) {
         if self.settings.session.remember {
-            self.record_due = Some(self.wall() + RECORD_SETTLE);
+            self.record.record_due = Some(self.wall() + RECORD_SETTLE);
         }
     }
 
@@ -93,18 +94,20 @@ impl Slipstream {
     /// back to, which is when a person most wants their desktop back. Wall time, so bullet time
     /// can't hold the save off.
     pub fn tick_record(&mut self) {
-        let Some(due) = self.record_due else {
+        let Some(due) = self.record.record_due else {
             // An agent's session starts and ends inside a terminal without anything moving, so
             // a desktop that has stood still is looked at again now and then.
-            if self.settings.session.remember && self.owns_state && self.wall() >= self.record_again
+            if self.settings.session.remember
+                && self.owns_state
+                && self.wall() >= self.record.record_again
             {
-                self.record_due = Some(self.wall());
+                self.record.record_due = Some(self.wall());
             }
             return;
         };
         // The record belongs to the compositor that owns the state folder.
         if !self.owns_state {
-            self.record_due = None;
+            self.record.record_due = None;
             return;
         }
         if self.wall() < due {
@@ -120,8 +123,8 @@ impl Slipstream {
         if self.exit.is_some() {
             return;
         }
-        self.record_due = None;
-        self.record_again = self.wall() + RECORD_REFRESH;
+        self.record.record_due = None;
+        self.record.record_again = self.wall() + RECORD_REFRESH;
         if !self.settings.session.remember {
             return;
         }
@@ -132,6 +135,7 @@ impl Slipstream {
             return;
         }
         if self
+            .record
             .saved_record
             .as_ref()
             .is_some_and(|saved| saved.same_desktop(&record))
@@ -142,7 +146,7 @@ impl Slipstream {
         match session::write(&path, &record) {
             Ok(()) => {
                 tracing::debug!(windows = record.windows.len(), "layout written down");
-                self.saved_record = Some(record);
+                self.record.saved_record = Some(record);
             }
             Err(err) => {
                 tracing::warn!(path = %path.display(), "couldn't write the layout down: {err}");
@@ -243,7 +247,7 @@ impl Slipstream {
         }
         // A docked window has no place in any workspace's tree: it is kept as one more in the
         // rain, with the pane's size, and goes back up to the bar from there.
-        if let Some(docked) = &self.dock
+        if let Some(docked) = &self.docking.dock
             && let Some(app) = window_app_id(&docked.window)
         {
             windows.push(with_agent_session(
@@ -780,7 +784,7 @@ impl Slipstream {
             return;
         }
         let path = session::path();
-        let done = match (remember, self.exit_record.take()) {
+        let done = match (remember, self.record.exit_record.take()) {
             (true, Some(record)) => {
                 let windows = record.windows.len();
                 session::write(&path, &record).inspect(|()| {
@@ -836,12 +840,12 @@ impl Slipstream {
             // Nothing was lost: the desktop is as it was, minus whatever already closed.
             Act::Cancel => {
                 self.exit = None;
-                self.exit_record = None;
+                self.record.exit_record = None;
             }
             // The one answer that keeps the session: the card goes and the lock comes up.
             Act::Lock => {
                 self.exit = None;
-                self.exit_record = None;
+                self.record.exit_record = None;
                 self.lock_now();
             }
             // The switch on the card is the setting, so it is still on the next time.
@@ -899,7 +903,7 @@ impl Slipstream {
     pub(super) fn power_refused(&mut self, refusal: crate::power::Refused) {
         if refusal.power != crate::power::Power::Sleep {
             self.exit = None;
-            self.exit_record = None;
+            self.record.exit_record = None;
         }
         let (title, body) = refusal.message();
         self.wake_ui();

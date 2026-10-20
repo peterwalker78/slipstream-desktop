@@ -64,13 +64,13 @@ pub fn state(display: &DisplayHandle, primary: &PrimarySelectionState) -> Global
 
 impl ext_data_control::DataControlHandler for Slipstream {
     fn data_control_state(&mut self) -> &mut ext_data_control::DataControlState {
-        &mut self.ext_data_control
+        &mut self.protocols.ext_data_control
     }
 }
 
 impl wlr_data_control::DataControlHandler for Slipstream {
     fn data_control_state(&mut self) -> &mut wlr_data_control::DataControlState {
-        &mut self.wlr_data_control
+        &mut self.protocols.wlr_data_control
     }
 }
 

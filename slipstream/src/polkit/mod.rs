@@ -664,7 +664,7 @@ impl Slipstream {
         self.explorer.close();
         self.quick.close();
         self.centre.close();
-        self.snip = None;
+        self.shots.snip = None;
         // SAFETY: getuid has no failure mode.
         let me = unsafe { libc::getuid() };
         self.polkit.prompt = Some(Prompt::new(request, me, now, self.clock.reduced_motion));

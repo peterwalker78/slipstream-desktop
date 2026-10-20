@@ -40,8 +40,8 @@ impl Slipstream {
     /// A pointer button pressed or let go: from a mouse or touchpad, or the `button:` debug step,
     /// which takes the same path so a script exercises the real click routing.
     pub fn button_event(&mut self, button: u32, button_state: ButtonState, time: InputTime) {
-        self.super_tap.disarm();
-        self.layout_tap.disarm();
+        self.keys.super_tap.disarm();
+        self.keys.layout_tap.disarm();
         let pressed = button_state == ButtonState::Pressed;
         // Reaching for the mouse ends any typing: what a click opens was asked for.
         if pressed {
@@ -88,7 +88,7 @@ impl Slipstream {
 
         // A snip being chosen takes every button: a drag, a click on a window, or a right click to
         // give up.
-        if self.snip.is_some() {
+        if self.shots.snip.is_some() {
             self.snip_button(button, pressed);
             return;
         }

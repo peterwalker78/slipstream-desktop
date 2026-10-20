@@ -173,8 +173,8 @@ impl Slipstream {
         if self.lock.is_some() {
             return;
         }
-        if self.snip.is_some() {
-            self.snip = None;
+        if self.shots.snip.is_some() {
+            self.shots.snip = None;
             return;
         }
         let Some(output) = self.screens.focused_output() else {
@@ -182,7 +182,7 @@ impl Slipstream {
         };
         self.close_panels();
         tracing::info!(screen = output.name(), "snip asked for");
-        self.snip = Some(Snip {
+        self.shots.snip = Some(Snip {
             output: output.name(),
             frozen: None,
         });
@@ -198,6 +198,7 @@ impl Slipstream {
         scale: f64,
     ) {
         let waiting = self
+            .shots
             .snip
             .as_ref()
             .is_some_and(|snip| snip.output == output.name() && snip.frozen.is_none());
@@ -215,7 +216,7 @@ impl Slipstream {
             Ok(pixels) => Arc::new(pixels),
             Err(err) => {
                 tracing::warn!("snip failed: {err}");
-                self.snip = None;
+                self.shots.snip = None;
                 self.show_toast("Snip not taken", "The screen couldn’t be read back.");
                 return;
             }
@@ -230,7 +231,7 @@ impl Slipstream {
         );
         let windows = self.snip_targets(screen);
         let pointer = self.pointer_location() - screen.loc.to_f64();
-        if let Some(snip) = self.snip.as_mut() {
+        if let Some(snip) = self.shots.snip.as_mut() {
             snip.frozen = Some(Frozen {
                 pixels,
                 size,
@@ -254,6 +255,7 @@ impl Slipstream {
             .rev()
             .filter_map(|window| {
                 let drawn = self
+                    .drawn
                     .fitted
                     .iter()
                     .find(|(fitted, _)| fitted == window)
@@ -273,7 +275,12 @@ impl Slipstream {
     }
 
     pub fn snip_key(&mut self, key: Keysym) {
-        let act = match self.snip.as_ref().and_then(|snip| snip.frozen.as_ref()) {
+        let act = match self
+            .shots
+            .snip
+            .as_ref()
+            .and_then(|snip| snip.frozen.as_ref())
+        {
             Some(frozen) => frozen.key(key),
             // Still waiting for the frame: only Esc does anything.
             None if key == Keysym::Escape => Act::Cancel,
@@ -293,11 +300,16 @@ impl Slipstream {
 
     /// A pointer button while snipping: true when the snip took it.
     pub fn snip_button(&mut self, button: u32, pressed: bool) -> bool {
-        let Some(snip) = self.snip.as_ref() else {
+        let Some(snip) = self.shots.snip.as_ref() else {
             return false;
         };
         let at = self.pointer_location() - self.snip_origin(snip);
-        let act = match self.snip.as_mut().and_then(|snip| snip.frozen.as_mut()) {
+        let act = match self
+            .shots
+            .snip
+            .as_mut()
+            .and_then(|snip| snip.frozen.as_mut())
+        {
             Some(frozen) => frozen.button(button == 0x110, pressed, at),
             None => Act::Nothing,
         };
@@ -306,11 +318,16 @@ impl Slipstream {
     }
 
     pub fn snip_pointer_moved(&mut self, pos: Point<f64, Logical>) {
-        let Some(snip) = self.snip.as_ref() else {
+        let Some(snip) = self.shots.snip.as_ref() else {
             return;
         };
         let origin = self.snip_origin(snip);
-        if let Some(frozen) = self.snip.as_mut().and_then(|snip| snip.frozen.as_mut()) {
+        if let Some(frozen) = self
+            .shots
+            .snip
+            .as_mut()
+            .and_then(|snip| snip.frozen.as_mut())
+        {
             frozen.moved(pos - origin);
         }
     }
@@ -320,13 +337,13 @@ impl Slipstream {
             Act::Nothing => {}
             Act::Cancel => {
                 tracing::info!("snip cancelled");
-                self.snip = None;
+                self.shots.snip = None;
             }
             Act::Take(rect) => {
                 let Some(Snip {
                     output,
                     frozen: Some(frozen),
-                }) = self.snip.take()
+                }) = self.shots.snip.take()
                 else {
                     return;
                 };
@@ -352,7 +369,7 @@ impl Slipstream {
                     self.clock.reduced_motion,
                     self.ring_rgb,
                 );
-                self.snip_flights.push(flight);
+                self.shots.snip_flights.push(flight);
             }
         }
     }
@@ -369,6 +386,7 @@ impl Slipstream {
         let mut elements = Vec::new();
         let ring = overview::ring(self.ring_rgb);
         let Some(frozen) = self
+            .shots
             .snip
             .as_mut()
             .filter(|snip| snip.output == output.name())
@@ -499,9 +517,10 @@ impl Slipstream {
         output: &Output,
     ) -> Vec<OutputElement> {
         let now = self.wall();
-        self.snip_flights.retain(|flight| !flight.done(now));
+        self.shots.snip_flights.retain(|flight| !flight.done(now));
         let name = output.name();
-        self.snip_flights
+        self.shots
+            .snip_flights
             .iter()
             .filter(|flight| flight.output == name)
             .flat_map(|flight| flight.elements(renderer, now))

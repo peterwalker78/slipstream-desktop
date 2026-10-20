@@ -481,8 +481,8 @@ impl Slipstream {
             }
             mode.labels.retain(|(target, _)| target.window() != window);
         }
-        self.overview_hits.retain(|(hit, _)| hit != window);
-        self.fitted.retain(|(hit, _)| hit != window);
+        self.drawn.overview_hits.retain(|(hit, _)| hit != window);
+        self.drawn.fitted.retain(|(hit, _)| hit != window);
         self.tiled_mins.retain(|(hit, _)| hit != window);
         self.motion.remove(window);
         self.space.unmap_elem(window);

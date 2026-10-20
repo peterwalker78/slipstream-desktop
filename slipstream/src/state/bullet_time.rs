@@ -417,7 +417,7 @@ impl Slipstream {
     pub(super) fn overview_point(&self, pos: Point<f64, Logical>) -> Option<Point<f64, Logical>> {
         let screen = self.output_rect()?;
         let local = (pos.x - screen.x as f64, pos.y - screen.y as f64);
-        self.overview_tilt.unproject(local).map(Point::from)
+        self.drawn.overview_tilt.unproject(local).map(Point::from)
     }
 
     /// The window drawn at the flat point `at` in the overview, and where it's drawn.
@@ -425,7 +425,8 @@ impl Slipstream {
         &self,
         at: Point<f64, Logical>,
     ) -> Option<(Window, Rectangle<f64, Logical>)> {
-        self.overview_hits
+        self.drawn
+            .overview_hits
             .iter()
             .find(|(_, area)| area.contains(at))
             .cloned()
@@ -433,7 +434,8 @@ impl Slipstream {
 
     /// The workspace whose frame is at the flat point `at` in the overview.
     pub(super) fn overview_frame_at(&self, at: Point<f64, Logical>) -> Option<usize> {
-        self.frame_hits
+        self.drawn
+            .frame_hits
             .iter()
             .find(|(_, area)| area.contains(at))
             .map(|(index, _)| *index)

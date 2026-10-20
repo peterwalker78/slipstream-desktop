@@ -10,7 +10,8 @@ use crate::dock::{self, Docked, Flight, Size, Stop};
 
 impl Slipstream {
     pub fn is_docked(&self, window: &Window) -> bool {
-        self.dock
+        self.docking
+            .dock
             .as_ref()
             .is_some_and(|docked| docked.window == *window)
     }
@@ -29,7 +30,7 @@ impl Slipstream {
 
     /// Where the docked pane rests now.
     pub fn docked_rect(&self) -> Option<Rect> {
-        self.dock_rect(self.dock.as_ref()?.size)
+        self.dock_rect(self.docking.dock.as_ref()?.size)
     }
 
     /// Super+W: the window with the keyboard goes up to the bar, taking the place of any docked
@@ -45,9 +46,9 @@ impl Slipstream {
             }
             return;
         };
-        match self.dock.as_ref().map(|docked| docked.size) {
+        match self.docking.dock.as_ref().map(|docked| docked.size) {
             Some(size) if self.is_docked(&window) => self.dock_window(&window, size.next()),
-            _ => self.dock_window(&window, self.dock_size),
+            _ => self.dock_window(&window, self.docking.dock_size),
         }
     }
 
@@ -78,20 +79,20 @@ impl Slipstream {
             .map(|from| Flight::new(from, Stop::at_bar(rect), now));
         tracing::info!(window = logged_app(window), ?size, "docked to the bar");
         // A pane changing size keeps the light its slot has; one flying up has it from landing.
-        let lit_from = match self.dock.as_ref() {
+        let lit_from = match self.docking.dock.as_ref() {
             Some(docked) if docked.window == *window => docked.lit_from,
             _ => flight.map(|flight| flight.end()),
         };
         if !self.is_docked(window) {
-            self.dock_slot = Some(crate::slot::Slot::new(
+            self.docking.dock_slot = Some(crate::slot::Slot::new(
                 self.stream_name(window),
                 self.window_pid(window),
                 now,
             ));
-            self.dock_slot_leaving = None;
+            self.docking.dock_slot_leaving = None;
         }
-        self.dock_size = size;
-        self.dock = Some(Docked {
+        self.docking.dock_size = size;
+        self.docking.dock = Some(Docked {
             window: window.clone(),
             size,
             flight,
@@ -113,7 +114,7 @@ impl Slipstream {
         }
         let beside = self.focused_window();
         // Its slot in the bar outlives it for as long as its pane takes to come down.
-        let slot = self.dock_slot.take();
+        let slot = self.docking.dock_slot.take();
         let Some((window, pane)) = self.come_down(beside.as_ref()) else {
             return;
         };
@@ -124,11 +125,11 @@ impl Slipstream {
             && let Some(to) = self.motion.target(&window)
         {
             let now = self.clock.tick();
-            self.dock_leaving = Some((
+            self.docking.dock_leaving = Some((
                 window.clone(),
                 Flight::new(Stop::at_bar(pane), Stop::among(to), now),
             ));
-            self.dock_slot_leaving = slot;
+            self.docking.dock_slot_leaving = slot;
             self.motion.jump(
                 &window,
                 Rect {
@@ -147,8 +148,8 @@ impl Slipstream {
     /// which window it was and where its pane hung.
     pub(super) fn come_down(&mut self, beside: Option<&Window>) -> Option<(Window, Rect)> {
         let pane = self.docked_rect();
-        let docked = self.dock.take()?;
-        self.dock_slot = None;
+        let docked = self.docking.dock.take()?;
+        self.docking.dock_slot = None;
         let window = docked.window;
         let screen = self.screen_rect(0)?;
         let area = self.output_area().unwrap_or(screen);
@@ -196,16 +197,17 @@ impl Slipstream {
     /// A window that has closed is no longer docked, nor on its way down.
     pub(super) fn forget_docked(&mut self, window: &Window) {
         if self.is_docked(window) {
-            self.dock = None;
-            self.dock_slot = None;
+            self.docking.dock = None;
+            self.docking.dock_slot = None;
         }
         if self
+            .docking
             .dock_leaving
             .as_ref()
             .is_some_and(|(leaving, _)| leaving == window)
         {
-            self.dock_leaving = None;
-            self.dock_slot_leaving = None;
+            self.docking.dock_leaving = None;
+            self.docking.dock_slot_leaving = None;
         }
     }
 
@@ -218,7 +220,8 @@ impl Slipstream {
 
     /// The window `retile` keeps mapped although no workspace on screen holds it.
     pub fn docked_on_show(&self) -> Option<Window> {
-        self.dock
+        self.docking
+            .dock
             .as_ref()
             .filter(|_| self.dock_shown())
             .map(|docked| docked.window.clone())
