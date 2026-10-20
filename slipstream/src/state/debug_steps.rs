@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// A notification from a debug step, before what it says: never expiring by itself.
+fn debug_notice() -> crate::notify::Incoming {
+    crate::notify::Incoming {
+        id: crate::notify::next_id(),
+        expire_timeout: -1,
+        ..Default::default()
+    }
+}
+
 impl Slipstream {
     /// `shot:` paths for the backend to save once it has drawn a frame.
     pub fn take_screenshots(&mut self) -> Vec<String> {
@@ -21,6 +30,12 @@ impl Slipstream {
                 tracing::info!("debug step ignored: locked");
                 continue;
             }
+            self.run_debug_step(step);
+        }
+    }
+
+    fn run_debug_step(&mut self, step: debug::Step) {
+        {
             match step {
                 debug::Step::Workspace(n) => self.switch_workspace((n as usize).saturating_sub(1)),
                 debug::Step::MoveTo(n) => {
@@ -32,18 +47,7 @@ impl Slipstream {
                         command.split_whitespace().map(String::from).collect();
                     let _ = launch::spawn(&command);
                 }
-                debug::Step::Wallpaper(id) => {
-                    let now = self.clock.tick();
-                    // Every screen's wallpaper, and `any` would stop at the first.
-                    let shown: Vec<bool> = self
-                        .savers
-                        .values_mut()
-                        .map(|saver| saver.show(&id, now))
-                        .collect();
-                    if !shown.into_iter().any(|shown| shown) {
-                        tracing::warn!(id, "no living-wallpaper variation by that name");
-                    }
-                }
+                debug::Step::Wallpaper(id) => self.debug_wallpaper(&id),
                 debug::Step::Demand(value) => self.rain.pin_demand(Some(value)),
                 debug::Step::Fade(value) => {
                     self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
@@ -75,40 +79,11 @@ impl Slipstream {
                         self.set_fullscreen(&window, on);
                     }
                 }
-                debug::Step::FocusTile(way) => {
-                    let direction = match way.as_str() {
-                        "left" => Some(Direction::Left),
-                        "right" => Some(Direction::Right),
-                        "up" => Some(Direction::Up),
-                        "down" => Some(Direction::Down),
-                        _ => None,
-                    };
-                    if let Some(direction) = direction {
-                        self.focus_direction(direction);
-                    }
-                }
+                debug::Step::FocusTile(way) => self.debug_focus_tile(&way),
                 debug::Step::ConnectKey(name) => {
                     self.connect_key(xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS))
                 }
-                debug::Step::SharePicker(kinds) => {
-                    let mut list = String::new();
-                    if kinds.contains('m') {
-                        for output in self.space.outputs() {
-                            list.push_str(&format!("Monitor: {} test\n", output.name()));
-                        }
-                    }
-                    if kinds.contains('w') {
-                        for window in self.all_open_windows() {
-                            if let Some(listed) = self.captures.identifier_of(&window) {
-                                list.push_str(&format!(
-                                    "Window: {} ({listed})\n",
-                                    window_title(&window)
-                                ));
-                            }
-                        }
-                    }
-                    self.open_share_picker(&list, None);
-                }
+                debug::Step::SharePicker(kinds) => self.debug_share_picker(&kinds),
                 debug::Step::Polkit(message) => self.open_stand_in_polkit(message),
                 debug::Step::ShareKey(name) => {
                     let (key, shift) = shifted_key(&name);
@@ -116,14 +91,7 @@ impl Slipstream {
                 }
                 debug::Step::ShareClick(x, y) => self.share_click(x, y),
                 debug::Step::StopSharing => self.bar_clicked(bar::Target::Sharing),
-                // Straight out, as the watchdog goes: every headless check ends with this. A key
-                // still held back here means a press whose release never matched it.
-                debug::Step::Quit => {
-                    if !self.suppressed_keys.is_empty() {
-                        tracing::warn!(keys = ?self.suppressed_keys, "keys still suppressed at quit");
-                    }
-                    self.loop_signal.stop();
-                }
+                debug::Step::Quit => self.debug_quit(),
                 debug::Step::Keys(keys) => {
                     for (name, pressed) in keys {
                         self.inject_key(&name, pressed);
@@ -140,12 +108,7 @@ impl Slipstream {
                 debug::Step::Battery(reading) => self.battery.pinned = reading,
                 debug::Step::Explore => self.toggle_explorer(),
                 debug::Step::ScreensOff(off) => self.set_screens_off(off),
-                debug::Step::Tour(step, t) => {
-                    self.close_panels();
-                    let now = self.clock.tick();
-                    self.sheet.reduced_motion = self.clock.reduced_motion;
-                    self.sheet.hold_tour(step, t, now);
-                }
+                debug::Step::Tour(step, t) => self.debug_tour(step, t),
                 debug::Step::SheetKey(name) => {
                     let sym = xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS);
                     self.sheet_key(sym, None);
@@ -196,20 +159,7 @@ impl Slipstream {
                     };
                     self.button_event(button, state, InputTime::now());
                 }
-                debug::Step::Pointer(screen, x, y) => {
-                    // On the named screen, or the focused one.
-                    let rect = match &screen {
-                        Some(name) => self
-                            .screens
-                            .iter()
-                            .position(|s| s.output.name() == *name)
-                            .and_then(|index| self.screen_rect(index)),
-                        None => self.output_rect(),
-                    };
-                    let origin = rect.map_or((0, 0), |r| (r.x, r.y));
-                    let at = Point::from((origin.0 as f64 + x, origin.1 as f64 + y));
-                    self.pointer_moved_to(at, InputTime::now());
-                }
+                debug::Step::Pointer(screen, x, y) => self.debug_pointer(screen.as_deref(), x, y),
                 debug::Step::Cycle(tabs) => {
                     for _ in 0..tabs {
                         self.cycle_windows(true);
@@ -239,28 +189,7 @@ impl Slipstream {
                         self.bullet_click(at);
                     }
                 }
-                // Only the card: a debug step that really changed the volume would change it on
-                // the laptop the nested run is on.
-                debug::Step::Osd(what) => {
-                    let (kind, level) = match what.split_once('@') {
-                        Some((kind, level)) => (kind, level.parse().unwrap_or(50)),
-                        None => (what.as_str(), 50),
-                    };
-                    let kind = match kind {
-                        "muted" => Some(osd::Kind::Volume { muted: true }),
-                        "volume" => Some(osd::Kind::Volume { muted: false }),
-                        "mic" => Some(osd::Kind::Microphone { muted: false }),
-                        "micmuted" => Some(osd::Kind::Microphone { muted: true }),
-                        "brightness" => Some(osd::Kind::Brightness),
-                        other => {
-                            tracing::warn!(other, "no such display");
-                            None
-                        }
-                    };
-                    if let Some(kind) = kind {
-                        self.show_osd(kind, level);
-                    }
-                }
+                debug::Step::Osd(what) => self.debug_osd(&what),
                 debug::Step::Quick => self.toggle_quick_settings(),
                 debug::Step::QuickKey(_) | debug::Step::QuickClick(..) if !self.quick.is_open() => {
                     tracing::info!("debug step ignored: panel closed");
@@ -281,55 +210,152 @@ impl Slipstream {
                     self.centre_key(key, shift);
                 }
                 debug::Step::CentreClick(x, y) => self.centre_click(x, y),
-                debug::Step::Notify(app, summary, body, actions) => {
+                debug::Step::Notify(app_name, summary, body, actions) => {
                     self.notification_arrived(crate::notify::Incoming {
-                        id: crate::notify::next_id(),
-                        app_name: app,
+                        app_name,
                         summary,
                         body,
                         default_action: true,
                         actions,
                         urgency: 1,
-                        expire_timeout: -1,
-                        ..Default::default()
-                    });
+                        ..debug_notice()
+                    })
                 }
-                debug::Step::AskShortcuts(app, wanted) => {
-                    use crate::shortcuts::portal::{Event, Wanted};
-                    let session = format!("/org/slipstream/debug/{}", app.replace('.', "_"));
-                    self.shortcut_event(Event::Opened {
-                        session: session.clone(),
-                        app,
-                    });
-                    // Nobody waits on the answer; the card's own answers are what's checked.
-                    let (reply, _) = async_channel::bounded(1);
-                    let wanted = wanted
-                        .into_iter()
-                        .map(|(id, description, preferred)| Wanted {
-                            id,
-                            description,
-                            preferred,
-                        })
-                        .collect();
-                    self.shortcut_event(Event::Bind {
-                        session,
-                        wanted,
-                        reply,
-                    });
-                }
-                debug::Step::NotifyCritical(app, summary, body) => {
+                debug::Step::AskShortcuts(app, wanted) => self.debug_ask_shortcuts(app, wanted),
+                debug::Step::NotifyCritical(app_name, summary, body) => {
                     self.notification_arrived(crate::notify::Incoming {
-                        id: crate::notify::next_id(),
-                        app_name: app,
+                        app_name,
                         summary,
                         body,
                         urgency: 2,
-                        expire_timeout: -1,
-                        ..Default::default()
-                    });
+                        ..debug_notice()
+                    })
                 }
             }
         }
+    }
+
+    /// Every screen's wallpaper shows variation `id`.
+    fn debug_wallpaper(&mut self, id: &str) {
+        let now = self.clock.tick();
+        // Every screen's wallpaper, and `any` would stop at the first.
+        let shown: Vec<bool> = self
+            .savers
+            .values_mut()
+            .map(|saver| saver.show(id, now))
+            .collect();
+        if !shown.into_iter().any(|shown| shown) {
+            tracing::warn!(id, "no living-wallpaper variation by that name");
+        }
+    }
+
+    /// The keyboard to the neighbouring tile `way` (left, right, up or down).
+    fn debug_focus_tile(&mut self, way: &str) {
+        let direction = match way {
+            "left" => Direction::Left,
+            "right" => Direction::Right,
+            "up" => Direction::Up,
+            "down" => Direction::Down,
+            _ => return,
+        };
+        self.focus_direction(direction);
+    }
+
+    /// The share picker, offering the screens (`m` in `kinds`), the windows (`w`), or both, as
+    /// the portal would list them.
+    fn debug_share_picker(&mut self, kinds: &str) {
+        let mut list = String::new();
+        if kinds.contains('m') {
+            for output in self.space.outputs() {
+                list.push_str(&format!("Monitor: {} test\n", output.name()));
+            }
+        }
+        if kinds.contains('w') {
+            for window in self.all_open_windows() {
+                if let Some(listed) = self.captures.identifier_of(&window) {
+                    list.push_str(&format!("Window: {} ({listed})\n", window_title(&window)));
+                }
+            }
+        }
+        self.open_share_picker(&list, None);
+    }
+
+    /// Straight out, as the watchdog goes: every headless check ends with this. A key still held
+    /// back here means a press whose release never matched it.
+    fn debug_quit(&mut self) {
+        if !self.suppressed_keys.is_empty() {
+            tracing::warn!(keys = ?self.suppressed_keys, "keys still suppressed at quit");
+        }
+        self.loop_signal.stop();
+    }
+
+    /// The tour at lesson `step`, its miniature held at `t` through its loop if given.
+    fn debug_tour(&mut self, step: usize, t: Option<f32>) {
+        self.close_panels();
+        let now = self.clock.tick();
+        self.sheet.reduced_motion = self.clock.reduced_motion;
+        self.sheet.hold_tour(step, t, now);
+    }
+
+    /// The pointer to (`x`, `y`) on the named screen, or the focused one.
+    fn debug_pointer(&mut self, screen: Option<&str>, x: f64, y: f64) {
+        let rect = match screen {
+            Some(name) => self
+                .screens
+                .iter()
+                .position(|s| s.output.name() == name)
+                .and_then(|index| self.screen_rect(index)),
+            None => self.output_rect(),
+        };
+        let origin = rect.map_or((0, 0), |r| (r.x, r.y));
+        let at = Point::from((origin.0 as f64 + x, origin.1 as f64 + y));
+        self.pointer_moved_to(at, InputTime::now());
+    }
+
+    /// The volume or brightness display, `kind@level`. Only the card: a debug step that really
+    /// changed the volume would change it on the laptop the nested run is on.
+    fn debug_osd(&mut self, what: &str) {
+        let (kind, level) = match what.split_once('@') {
+            Some((kind, level)) => (kind, level.parse().unwrap_or(50)),
+            None => (what, 50),
+        };
+        let kind = match kind {
+            "muted" => osd::Kind::Volume { muted: true },
+            "volume" => osd::Kind::Volume { muted: false },
+            "mic" => osd::Kind::Microphone { muted: false },
+            "micmuted" => osd::Kind::Microphone { muted: true },
+            "brightness" => osd::Kind::Brightness,
+            other => {
+                tracing::warn!(other, "no such display");
+                return;
+            }
+        };
+        self.show_osd(kind, level);
+    }
+
+    /// An app asking for shortcuts through the portal, as `app` would.
+    fn debug_ask_shortcuts(&mut self, app: String, wanted: Vec<(String, String, Option<String>)>) {
+        use crate::shortcuts::portal::{Event, Wanted};
+        let session = format!("/org/slipstream/debug/{}", app.replace('.', "_"));
+        self.shortcut_event(Event::Opened {
+            session: session.clone(),
+            app,
+        });
+        // Nobody waits on the answer; the card's own answers are what's checked.
+        let (reply, _) = async_channel::bounded(1);
+        let wanted = wanted
+            .into_iter()
+            .map(|(id, description, preferred)| Wanted {
+                id,
+                description,
+                preferred,
+            })
+            .collect();
+        self.shortcut_event(Event::Bind {
+            session,
+            wanted,
+            reply,
+        });
     }
 
     /// A left click at a point on screen, in logical pixels, as the mouse would make it:

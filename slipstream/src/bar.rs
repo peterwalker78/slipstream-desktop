@@ -220,48 +220,80 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     let device_w = (width as f64 * scale).round() as u32;
     let device_h = (HEIGHT as f64 * scale).round() as u32;
     let f = device_h as f32 / TALL;
-    let mut p = Painter::new(device_w, device_h, f)?;
-    let wide = device_w as f32 / f;
-    // Design pixels to logical ones, for the click targets.
-    let unit = f as f64 / scale;
-    let mut targets = Vec::new();
-    // Each button takes clicks the bar's whole height, up to the screen's top edge, so a pointer
-    // thrown against the edge still lands on what's under it.
-    let mut target = |target, x: f32, w: f32| {
-        targets.push((
-            target,
-            Rectangle::new(
-                (x as f64 * unit, 0.0).into(),
-                (w as f64 * unit, HEIGHT as f64).into(),
-            ),
-        ));
+    let mut bar = Strip {
+        p: Painter::new(device_w, device_h, f)?,
+        wide: device_w as f32 / f,
+        // Design pixels to logical ones, for the click targets.
+        unit: f as f64 / scale,
+        targets: Vec::new(),
     };
-
-    p.fill(0.0, 0.0, wide, TALL, 0.0, panel::CHIP | 0xe6);
+    let wide = bar.wide;
+    bar.p.fill(0.0, 0.0, wide, TALL, 0.0, panel::CHIP | 0xe6);
     // The line along the foot, broken where a docked pane's frame carries the bar on downwards.
-    let span = content
-        .dock
-        .map(|(left, right)| ((left as f64 / unit) as f32, (right as f64 / unit) as f32));
+    let span = content.dock.map(|(left, right)| {
+        (
+            (left as f64 / bar.unit) as f32,
+            (right as f64 / bar.unit) as f32,
+        )
+    });
     match span {
         Some((left, right)) => {
-            p.fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, panel::DIVIDER);
-            p.fill(
-                right,
-                TALL - 1.0,
-                (wide - right).max(0.0),
-                1.0,
-                0.0,
-                panel::DIVIDER,
-            );
+            bar.p
+                .fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, panel::DIVIDER);
+            let rest = (wide - right).max(0.0);
+            bar.p
+                .fill(right, TALL - 1.0, rest, 1.0, 0.0, panel::DIVIDER);
         }
-        None => p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER),
+        None => bar.p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER),
     }
+    let x = paint_left(&mut bar, content);
+    let (centre_x, centre_w) = paint_clock(&mut bar, &content.status);
+    paint_title(&mut bar, content, x, centre_x);
+    let right = paint_right(&mut bar, content);
 
-    // Left: the apps button, then the workspaces.
+    // Leftmost of them all: room for the docked window's slot, in the same place whatever size
+    // its pane is. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
+    // painted here. A bar too narrow to keep it clear of the clock goes without.
+    if span.is_some() {
+        let x = right - 8.0 - DOCK_SLOT;
+        if x >= centre_x + centre_w + 8.0 {
+            bar.target(Target::Dock, x, DOCK_SLOT);
+        }
+    }
+    Some((bar.p.pixmap, bar.targets))
+}
+
+/// The bar as it is painted, in design pixels `wide`, and where its buttons are.
+struct Strip {
+    p: Painter,
+    wide: f32,
+    /// Logical pixels to a design pixel.
+    unit: f64,
+    targets: Targets,
+}
+
+impl Strip {
+    /// A button from `x`, `w` wide. Each takes clicks the bar's whole height, up to the screen's
+    /// top edge, so a pointer thrown against the edge still lands on what's under it.
+    fn target(&mut self, target: Target, x: f32, w: f32) {
+        self.targets.push((
+            target,
+            Rectangle::new(
+                (x as f64 * self.unit, 0.0).into(),
+                (w as f64 * self.unit, HEIGHT as f64).into(),
+            ),
+        ));
+    }
+}
+
+/// Left: the apps button, the workspaces, the overview's and the mode's chip. Returns where the
+/// window's title can start.
+fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
+    let wide = bar.wide;
     let mut x = 8.0;
-    p.icon(icons::LOGO, x + 6.5, 9.5, 21.0, None);
+    bar.p.icon(icons::LOGO, x + 6.5, 9.5, 21.0, None);
     // The buttons in the corners reach out to the screen's side edges as well.
-    target(Target::Apps, 0.0, x + 34.0);
+    bar.target(Target::Apps, 0.0, x + 34.0);
     x += 34.0 + 8.0;
     // Names take room the clock needs. When they would run past a third of the bar, only the
     // workspace in front shows its name and the rest go by their numbers.
@@ -289,23 +321,25 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let label_w = text::width(&label, &style);
         let w = (label_w + 16.0).max(30.0);
         if on && content.keyboard_here {
-            p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff26);
-            p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x33ccffff);
+            bar.p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff26);
+            bar.p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x33ccffff);
         } else if on {
-            p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff14);
+            bar.p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff14);
         } else if content.elsewhere.get(index).copied().unwrap_or(false) {
-            p.inset_bottom(x, 7.0, w, 26.0, 6.0, (panel::HINT & 0xffffff00) | 0xb0);
+            bar.p
+                .inset_bottom(x, 7.0, w, 26.0, 6.0, (panel::HINT & 0xffffff00) | 0xb0);
         }
         if content.home == Some(index) {
-            p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
+            bar.p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
         }
-        p.text(&label, x + (w - label_w) / 2.0, 20.0, &style);
-        target(Target::Workspace(index), x, w);
+        bar.p.text(&label, x + (w - label_w) / 2.0, 20.0, &style);
+        bar.target(Target::Workspace(index), x, w);
         x += w + 6.0;
     }
     x += OVERVIEW_GAP;
-    p.icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(panel::TERTIARY));
-    target(Target::Overview, x, OVERVIEW_W);
+    bar.p
+        .icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(panel::TERTIARY));
+    bar.target(Target::Overview, x, OVERVIEW_W);
     x += OVERVIEW_W + 8.0;
 
     if let Some((mode, chip)) = content.mode {
@@ -314,13 +348,17 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
             ..Style::new(Face::MonoBold, 15.0, ink_on(chip))
         };
         let w = text::width(mode, &style) + 20.0;
-        p.fill(x, 7.0, w, 26.0, 6.0, chip);
-        p.text(mode, x + 10.0, 20.0, &style);
+        bar.p.fill(x, 7.0, w, 26.0, 6.0, chip);
+        bar.p.text(mode, x + 10.0, 20.0, &style);
         x += w + 8.0;
     }
 
-    // Centre: the time and date, sharing a baseline.
-    let status = &content.status;
+    x
+}
+
+/// Centre: the time and date, sharing a baseline. Returns where they start and how wide they are.
+fn paint_clock(bar: &mut Strip, status: &Shown) -> (f32, f32) {
+    let wide = bar.wide;
     let clock = Style {
         tabular: true,
         ..Style::new(Face::Body, 16.0, panel::BRIGHT)
@@ -330,17 +368,22 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     let centre_w = 14.0 + time_w + 10.0 + text::width(&status.date, &date) + 14.0;
     let centre_x = ((wide - centre_w) / 2.0).round();
     let baseline = text::baseline(&clock, 20.0);
-    p.text_on(&status.time, centre_x + 14.0, baseline, &clock);
-    p.text_on(
+    bar.p
+        .text_on(&status.time, centre_x + 14.0, baseline, &clock);
+    bar.p.text_on(
         &status.date,
         centre_x + 14.0 + time_w + 10.0,
         baseline,
         &date,
     );
-    target(Target::Clock, centre_x, centre_w);
+    bar.target(Target::Clock, centre_x, centre_w);
 
-    // The title of this screen's window fills what's left of the left column, dimmed where the
-    // keyboard isn't.
+    (centre_x, centre_w)
+}
+
+/// The title of this screen's window fills what's left of the left column, from `x` to the
+/// clock, dimmed where the keyboard isn't.
+fn paint_title(bar: &mut Strip, content: &Content, x: f32, centre_x: f32) {
     let title_ink = if content.keyboard_here {
         panel::TERTIARY
     } else {
@@ -349,23 +392,27 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     let title = Style::new(Face::Body, 14.0, title_ink);
     let room = centre_x - 16.0 - x;
     if room > 24.0 {
-        p.text(
+        bar.p.text(
             &text::ellipsize(&content.title, &title, room),
             x,
             20.0,
             &title,
         );
     }
+}
 
-    // Right, from the edge inwards: the bell, then the tray.
+/// Right, from the edge inwards: the bell, the tray, the keyboard layout, the meter, and the pills
+/// that say a state is on. Returns where they end on the left.
+fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
+    let (wide, status) = (bar.wide, &content.status);
     let mut right = wide - 8.0 - 36.0;
     let bell = if content.do_not_disturb {
         icons::DND
     } else {
         icons::BELL
     };
-    p.icon(bell, right + 9.0, 11.0, 18.0, Some(INK));
-    target(Target::Bell, right, wide - right);
+    bar.p.icon(bell, right + 9.0, 11.0, 18.0, Some(INK));
+    bar.target(Target::Bell, right, wide - right);
     // The unread badge, over the bell's top right corner.
     if content.unread > 0 {
         let count = if content.unread > 99 {
@@ -377,8 +424,9 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         let count_w = text::width(&count, &style);
         let badge_w = (count_w + 8.0).max(16.0);
         let badge_x = right + 36.0 - 2.0 - badge_w;
-        p.fill(badge_x, 6.0, badge_w, 16.0, 8.0, AMBER);
-        p.text(&count, badge_x + (badge_w - count_w) / 2.0, 14.0, &style);
+        bar.p.fill(badge_x, 6.0, badge_w, 16.0, 8.0, AMBER);
+        bar.p
+            .text(&count, badge_x + (badge_w - count_w) / 2.0, 14.0, &style);
     }
 
     let battery = status.battery.map(|(percent, charging)| {
@@ -418,14 +466,14 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
     }
     let tray_w = 22.0 + tray.len() as f32 * 18.0 + (tray.len() - 1) as f32 * 11.0 + percent_w;
     right -= 8.0 + tray_w;
-    target(Target::Tray, right, tray_w);
+    bar.target(Target::Tray, right, tray_w);
     let mut item_x = right + 11.0;
     for (icon, ink) in &tray {
-        p.icon(icon, item_x, 11.0, 18.0, Some(*ink));
+        bar.p.icon(icon, item_x, 11.0, 18.0, Some(*ink));
         item_x += 18.0 + 11.0;
     }
     if let Some((_, percent, style)) = &battery {
-        p.text(percent, item_x, 20.0, style);
+        bar.p.text(percent, item_x, 20.0, style);
     }
 
     // Right beside the tray, while there are layouts to switch between: the one in use, as
@@ -437,8 +485,8 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         };
         let w = 8.0 + text::width(layout, &style) + 8.0;
         right -= 4.0 + w;
-        p.text(layout, right + 8.0, 20.0, &style);
-        target(Target::Layout, right, w);
+        bar.p.text(layout, right + 8.0, 20.0, &style);
+        bar.target(Target::Layout, right, w);
     }
 
     // Left of the tray: the meter, a gauge for each section with its first meter's percentage.
@@ -455,86 +503,76 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
                     rgba
                 }
             };
-            let mut bar = |y: f32, h: f32, percent: u8| {
-                p.fill(x, y, GAUGE_W, h, h / 2.0, shade(0xffffff26));
+            let mut gauge = |y: f32, h: f32, percent: u8| {
+                bar.p.fill(x, y, GAUGE_W, h, h / 2.0, shade(0xffffff26));
                 let filled = GAUGE_W * percent as f32 / 100.0;
                 if filled > 0.0 {
-                    p.fill(x, y, filled.max(h), h, h / 2.0, shade(meter::ink(percent)));
+                    bar.p
+                        .fill(x, y, filled.max(h), h, h / 2.0, shade(meter::ink(percent)));
                 }
             };
-            bar(14.0, 6.0, first.percent);
+            gauge(14.0, 6.0, first.percent);
             if let Some(second) = section.gauges.get(1) {
-                bar(23.0, 3.0, second.percent);
+                gauge(23.0, 3.0, second.percent);
             }
             let style = meter_style(section);
             let label = format!("{}%", first.percent);
-            let label_w = p.text(&label, x + GAUGE_W + 6.0, 20.0, &style);
+            let label_w = bar.p.text(&label, x + GAUGE_W + 6.0, 20.0, &style);
             x += GAUGE_W + 6.0 + label_w + 12.0;
         }
-        target(Target::Meter, right, w);
+        bar.target(Target::Meter, right, w);
     }
 
     // Left of the tray while Caps Lock is on: the key's arrow and the word, on a faint amber pill,
     // the way the red one says something is shared.
     if content.caps_lock {
-        let style = Style {
-            tracking: 0.06,
-            ..Style::new(Face::MonoBold, 12.0, AMBER)
-        };
-        let word = "CAPS";
-        let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
-        right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, (AMBER & 0xffffff00) | PILL);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (AMBER & 0xffffff00) | 0x70);
-        p.icon(icons::CAPS_LOCK, right + 10.0, 13.0, 14.0, Some(AMBER));
-        p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
+        right = pill(bar, right, "CAPS", AMBER, Mark::Icon(icons::CAPS_LOCK)).0;
     }
-
-    // Left of the tray while Awake is on: an open eye and the word, on a faint cyan pill, which
-    // turns it off when clicked.
+    // While Awake is on: an open eye and the word, on a faint cyan pill, which turns it off when
+    // clicked.
     if content.awake {
-        let style = Style {
-            tracking: 0.06,
-            ..Style::new(Face::MonoBold, 12.0, AWAKE)
-        };
-        let word = "AWAKE";
-        let w = 10.0 + 14.0 + 6.0 + text::width(word, &style) + 12.0;
-        right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, (AWAKE & 0xffffff00) | PILL);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (AWAKE & 0xffffff00) | 0x70);
-        p.icon(icons::EYE, right + 10.0, 13.0, 14.0, Some(AWAKE));
-        p.text(word, right + 10.0 + 14.0 + 6.0, 20.0, &style);
-        target(Target::Awake, right, w);
+        let (x, w) = pill(bar, right, "AWAKE", AWAKE, Mark::Icon(icons::EYE));
+        bar.target(Target::Awake, x, w);
+        right = x;
     }
-
-    // Left of the tray while anything is shared: a red dot and the word, on a faint red pill,
-    // which stops every share when clicked.
+    // While anything is shared: a red dot and the word, on a faint red pill, which stops every
+    // share when clicked.
     if content.sharing {
-        let style = Style {
-            tracking: 0.06,
-            ..Style::new(Face::MonoBold, 12.0, LIVE)
-        };
-        let word = "SHARING";
-        let w = 12.0 + 8.0 + 8.0 + text::width(word, &style) + 12.0;
-        right -= 8.0 + w;
-        p.fill(right, 8.0, w, 24.0, 12.0, (LIVE & 0xffffff00) | PILL);
-        p.border(right, 8.0, w, 24.0, 12.0, 1.0, (LIVE & 0xffffff00) | 0x80);
-        p.fill(right + 12.0, 16.0, 8.0, 8.0, 4.0, LIVE);
-        p.text(word, right + 12.0 + 8.0 + 8.0, 20.0, &style);
-        target(Target::Sharing, right, w);
+        let (x, w) = pill(bar, right, "SHARING", LIVE, Mark::Dot);
+        bar.target(Target::Sharing, x, w);
+        right = x;
     }
+    right
+}
 
-    // Leftmost of them all: room for the docked window's slot, in the same place whatever size
-    // its pane is. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
-    // painted here. A bar too narrow to keep it clear of the clock goes without.
-    if span.is_some() {
-        let x = right - 8.0 - DOCK_SLOT;
-        if x >= centre_x + centre_w + 8.0 {
-            target(Target::Dock, x, DOCK_SLOT);
-        }
+/// What goes before a pill's word: an icon, or a dot.
+enum Mark {
+    Icon(&'static str),
+    Dot,
+}
+
+/// A faint pill in `colour` saying a state is on, ending 8 short of `right`. Returns where it
+/// starts and how wide it is.
+fn pill(bar: &mut Strip, right: f32, word: &str, colour: u32, mark: Mark) -> (f32, f32) {
+    let style = Style {
+        tracking: 0.06,
+        ..Style::new(Face::MonoBold, 12.0, colour)
+    };
+    let (lead, mark_w, gap, edge) = match mark {
+        Mark::Icon(_) => (10.0, 14.0, 6.0, 0x70),
+        Mark::Dot => (12.0, 8.0, 8.0, 0x80),
+    };
+    let w = lead + mark_w + gap + text::width(word, &style) + 12.0;
+    let x = right - (8.0 + w);
+    let p = &mut bar.p;
+    p.fill(x, 8.0, w, 24.0, 12.0, (colour & 0xffffff00) | PILL);
+    p.border(x, 8.0, w, 24.0, 12.0, 1.0, (colour & 0xffffff00) | edge);
+    match mark {
+        Mark::Icon(icon) => p.icon(icon, x + lead, 13.0, 14.0, Some(colour)),
+        Mark::Dot => p.fill(x + lead, 16.0, 8.0, 8.0, 4.0, colour),
     }
-
-    Some((p.pixmap, targets))
+    p.text(word, x + lead + mark_w + gap, 20.0, &style);
+    (x, w)
 }
 
 /// How wide the docked window's slot is, in the bar's units.

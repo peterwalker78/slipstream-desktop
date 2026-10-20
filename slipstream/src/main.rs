@@ -164,34 +164,7 @@ static SESSION_ENDED: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // For bug reports, and for the install scripts to check a binary runs on this system at all.
-    if args.first().map(String::as_str) == Some("--version") {
-        println!("slipstream {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-    // The lock screen's password check (`auth.rs`): nothing else runs, and nothing is logged.
-    if args.first().map(String::as_str) == Some(auth::FLAG) {
-        std::process::exit(auth::authenticate());
-    }
-    // The screen-sharing portal's chooser: no compositor, just a question passed to the running
-    // one and its answer printed.
-    if args.iter().any(|arg| arg == "--choose-share") {
-        std::process::exit(share::choose());
-    }
-    // A living-wallpaper variation drawn off screen for the Settings app's previews: no display,
-    // no GPU, and nothing else started.
-    if args.first().map(String::as_str) == Some("--wallpaper-preview") {
-        let done = saver::preview::Request::parse(&args[1..])
-            .and_then(|request| saver::preview::run(&request));
-        if let Err(err) = done {
-            eprintln!(
-                "slipstream --wallpaper-preview: {err}\nusage: slipstream --wallpaper-preview ID \
-                 [--size WxH] [--frames N] [--from SECS] [--every SECS] [--out DIR]"
-            );
-            std::process::exit(2);
-        }
-        std::process::exit(0);
-    }
+    run_one_off(&args);
     let session = args.iter().any(|arg| arg == "--session");
     let hardware = session
         || args.iter().any(|arg| arg == "--tty")
@@ -216,30 +189,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
 
-    // Held until the process ends. Only the compositor holding it offers, reopens or writes the
-    // recorded layout, or writes the settings file.
-    let state_dir = session::state_dir();
-    let owner = match live::OwnerLock::take(&state_dir) {
-        Ok(Some(lock)) => {
-            tracing::info!(folder = %state_dir.display(), "this Slipstream owns the state folder");
-            Some(Ok(lock))
-        }
-        Ok(None) => {
-            tracing::warn!(
-                "another Slipstream owns {}: not recording or reopening the layout, and not \
-                 writing settings",
-                state_dir.display()
-            );
-            None
-        }
-        // A folder that can't be locked (or made) isn't another compositor's: carry on as the
-        // owner rather than lose the session's own settings and record.
-        Err(err) => {
-            tracing::warn!(folder = %state_dir.display(), "couldn't lock the state folder: {err}");
-            Some(Err(err))
-        }
-    };
-
+    // Held until the process ends.
+    let owner = take_state_folder();
     let mut event_loop: EventLoop<'static, Slipstream> = EventLoop::try_new()?;
 
     // Before any thread is spawned: `Signals` blocks the signal for the calling thread, and
@@ -254,166 +205,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = Slipstream::new(&mut event_loop, display);
     state.owns_state = owner.is_some();
     resume::make_notes_dir();
-    // The explorer follows apps being installed and removed.
-    watch::watch_apps(&event_loop.handle());
-    watch::watch_recent_files(&event_loop.handle());
-    // Settings apply as soon as they're saved.
-    watch::watch_settings(&event_loop.handle());
-    // A fallback face loaded on its own thread wakes the loop, which takes it in between paints.
-    {
-        use smithay::reexports::calloop::ping;
-        let (waker, landed) = ping::make_ping()?;
-        event_loop
-            .handle()
-            .insert_source(landed, |_, _, state| state.fallback_fonts_landed())
-            .map_err(|err| err.error)?;
-        fallback::set_waker(waker);
-    }
-    // What a player is doing after a media key.
-    {
-        use smithay::reexports::calloop::channel;
-        let (sender, replies) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(replies, |event, _, state| {
-                if let channel::Event::Msg(playing) = event {
-                    state.media_played(playing);
-                }
-            })
-            .map_err(|err| err.error)?;
-        state.media_replies = Some(sender);
-    }
-    // The screen-sharing portal's chooser asks here what to share.
-    share::listen(&event_loop.handle(), &state.socket_name.to_string_lossy());
-    // The session's notification server. Nested, the desktop Slipstream runs inside keeps the
-    // name, unless SLIPSTREAM_NOTIFICATIONS=1.
-    if session || std::env::var("SLIPSTREAM_NOTIFICATIONS").as_deref() == Ok("1") {
-        use smithay::reexports::calloop::channel;
-        let (sender, notifications) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(notifications, |event, _, state| {
-                if let channel::Event::Msg(event) = event {
-                    state.notification_event(event);
-                }
-            })
-            .map_err(|err| err.error)?;
-        notify::serve(sender);
-    }
-    // The portal backend: dark or light, and shortcuts apps keep while another app has the
-    // keyboard. Nested, the desktop Slipstream runs inside already answers both for its own apps.
-    if session || std::env::var("SLIPSTREAM_PORTAL").as_deref() == Ok("1") {
-        use smithay::reexports::calloop::channel;
-        let (sender, shortcut_events) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(shortcut_events, |event, _, state| {
-                if let channel::Event::Msg(event) = event {
-                    state.shortcut_event(event);
-                }
-            })
-            .map_err(|err| err.error)?;
-        portal::serve(state.settings.appearance.colour_scheme, sender);
-        watch::watch_shortcuts(&event_loop.handle());
-    }
-    // The password card for programs that need an administrator's say-so. Nested, the desktop
-    // Slipstream runs inside already has an agent for its session, and polkit takes one only.
-    if session || std::env::var("SLIPSTREAM_POLKIT").as_deref() == Ok("1") {
-        use smithay::reexports::calloop::channel;
-        let (sender, events) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(events, |event, _, state| {
-                if let channel::Event::Msg(event) = event {
-                    state.polkit_event(event);
-                }
-            })
-            .map_err(|err| err.error)?;
-        state.polkit.events = Some(sender.clone());
-        polkit::serve(sender);
-    }
-    // Where X11 and Electron apps ask for the screen to stay awake. Nested, the desktop Slipstream
-    // runs inside has the name.
-    if session || std::env::var("SLIPSTREAM_SCREENSAVER").as_deref() == Ok("1") {
-        use smithay::reexports::calloop::channel;
-        let (sender, events) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(events, |event, _, state| {
-                if let channel::Event::Msg(event) = event {
-                    state.screensaver_event(event);
-                }
-            })
-            .map_err(|err| err.error)?;
-        screensaver::serve(sender);
-    }
-
+    start_services(&event_loop, &mut state, session)?;
     if hardware {
-        // Only the portal captures a real screen, whatever the environment asks.
-        if std::env::var_os("SLIPSTREAM_CAPTURE_ANYONE").is_some() {
-            tracing::warn!("SLIPSTREAM_CAPTURE_ANYONE is ignored outside a nested run");
-        }
-        // Debug steps press keys and run commands; a login session takes none, whatever its
-        // environment says.
-        if std::env::var_os("SLIPSTREAM_DEBUG").is_some() {
-            tracing::warn!("SLIPSTREAM_DEBUG is ignored outside a nested run");
-        }
-        // Before anything starts, so every child connects here and none reaches for X11.
-        // The socket's name also goes in SLIPSTREAM_LIVE_SOCKET, so a Slipstream started from
-        // inside this session knows not to nest on it.
-        // SAFETY: the threads already running reach the environment only through `std::env` and
-        // `Command`, which take the same lock as these writes.
-        unsafe {
-            std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
-            std::env::set_var(live::LIVE_SOCKET, &state.socket_name);
-            std::env::remove_var("DISPLAY");
-        }
-        udev::run(&mut event_loop, &mut state)?;
-        tracing::info!(
-            "Slipstream is running on WAYLAND_DISPLAY={}. Super+Return opens a terminal, Super+E \
-             files, a tapped Super the apps; Ctrl+Alt+Del is the way out",
-            state.socket_name.to_string_lossy()
-        );
+        start_on_hardware(&mut event_loop, &mut state)?;
     } else {
-        // Nested, the volume, the radios and logind belong to the desktop around this window, so
-        // commands that would change them are only logged.
-        let held = launch::holds_machine_commands(
-            true,
-            std::env::var_os("SLIPSTREAM_REAL_COMMANDS").as_deref(),
-        );
-        launch::hold_machine_commands(held);
-        if held {
-            tracing::info!(
-                "nested: volume, brightness, radio, power-mode and logind commands are logged, \
-                 not run"
-            );
-        }
-        // Tools such as grim speak the capture protocols directly; a nested check may let them.
-        let open = capture::opens_to_anyone(
-            true,
-            std::env::var_os("SLIPSTREAM_CAPTURE_ANYONE").as_deref(),
-        );
-        capture::open_to_anyone(open);
-        if open {
-            tracing::info!("capture open to every unsandboxed client (nested test opt-in)");
-        }
-        // Debug steps, and the `lock` step among them, which a login session never has.
-        state.debug = debug::Script::from_env();
-        lock::allow_steps(lock::steps_allowed_for(true));
-        // Before the window, whose output connecting already asks things of the backend (the lid
-        // switch, for one).
-        state.nested = true;
-        crate::winit::init_winit(&mut event_loop, &mut state)?;
-
-        // After the window has connected to the host, so that children connect here instead.
-        // SAFETY: as above, the other threads reach the environment only through `std`.
-        unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
-        tracing::info!(
-            "listening on WAYLAND_DISPLAY={}. Nested, Alt is the Mod key: Alt+arrows move focus, \
-             Alt+1–9 and Alt+Ctrl+←/→ switch workspace, Alt+Shift+1–9 and Alt+Shift+←/→ move the \
-             window there, Alt+Return opens a terminal, and closing the window quits",
-            state.socket_name.to_string_lossy()
-        );
+        start_nested(&mut event_loop, &mut state)?;
     }
 
     state.session = session;
@@ -427,17 +223,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start_session_target();
         std::thread::spawn(unlock_kwallet);
         // logind's lock, unlock and sleep, for this session.
-        use smithay::reexports::calloop::channel;
-        let (sender, events) = channel::channel();
-        event_loop
-            .handle()
-            .insert_source(events, |event, _, state| {
-                if let channel::Event::Msg(event) = event {
-                    state.logind_event(event);
-                }
-            })
-            .map_err(|err| err.error)?;
-        state.logind = logind::Logind::start(sender);
+        let events = channel_into(&event_loop, Slipstream::logind_event)?;
+        state.logind = logind::Logind::start(events);
     }
     // X11 apps: Steam, and Flatpaks without Wayland access. SLIPSTREAM_XWAYLAND=0 turns it off.
     if std::env::var("SLIPSTREAM_XWAYLAND").as_deref() != Ok("0") {
@@ -468,31 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wakes at least once a second, so the watchdog can tell idle from stuck.
     event_loop.run(Some(Duration::from_secs(1)), &mut state, move |state| {
         heartbeat.store(started.elapsed().as_secs(), Ordering::Relaxed);
-        // The way out's timers run here, so a window closing ends the grace on the same pass.
-        state.tick_exit();
-        // Idle listeners hear about this pass's input once, however many events it brought.
-        state.notify_idle_listeners();
-        // And a recorded layout's, so it finishes on the pass its last window arrives.
-        state.tick_restore();
-        // The layout goes to disk here once the desktop has settled, so a crash still leaves one.
-        state.tick_record();
-        // The lock by itself after idle, and a sleep waiting for the lock to be drawn.
-        state.tick_lock();
-        // Low battery: the wallpaper's pace, the warnings and the countdown to sleep.
-        state.tick_battery();
-        // Night light's schedule, and its warmth easing in and out.
-        state.tick_night_light();
-        // Which agents are at work, for the faded desktop's traces.
-        state.tick_agents();
-        state.drop_dead_streams();
-        state.refresh_pointer_focus();
-        // The portal picks windows to share from this list.
-        let windows = state.all_open_windows();
-        state.sync_toplevels(windows);
-        state.space.refresh();
-        state.popups.cleanup();
-        // Queued replies go out after every pass, not only on redraw.
-        let _ = state.display_handle.flush_clients();
+        pass(state);
     })?;
 
     // So the login screen, or the next session, doesn't inherit warmed colours.
@@ -503,7 +266,249 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     sound::restore();
     end_session();
     tracing::info!("stopped cleanly");
+    drop(owner);
     Ok(())
+}
+
+/// The modes that do one job and exit without starting a compositor: the version, the lock
+/// screen's password check, the share portal's chooser, and a wallpaper preview.
+fn run_one_off(args: &[String]) {
+    // For bug reports, and for the install scripts to check a binary runs on this system at all.
+    if args.first().map(String::as_str) == Some("--version") {
+        println!("slipstream {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+    // The lock screen's password check (`auth.rs`): nothing else runs, and nothing is logged.
+    if args.first().map(String::as_str) == Some(auth::FLAG) {
+        std::process::exit(auth::authenticate());
+    }
+    // The screen-sharing portal's chooser: no compositor, just a question passed to the running
+    // one and its answer printed.
+    if args.iter().any(|arg| arg == "--choose-share") {
+        std::process::exit(share::choose());
+    }
+    // A living-wallpaper variation drawn off screen for the Settings app's previews: no display,
+    // no GPU, and nothing else started.
+    if args.first().map(String::as_str) == Some("--wallpaper-preview") {
+        let done = saver::preview::Request::parse(&args[1..])
+            .and_then(|request| saver::preview::run(&request));
+        if let Err(err) = done {
+            eprintln!(
+                "slipstream --wallpaper-preview: {err}\nusage: slipstream --wallpaper-preview ID \
+                 [--size WxH] [--frames N] [--from SECS] [--every SECS] [--out DIR]"
+            );
+            std::process::exit(2);
+        }
+        std::process::exit(0);
+    }
+}
+
+/// The lock on the state folder, held until the process ends. Only the compositor holding it
+/// offers, reopens or writes the recorded layout, or writes the settings file. `None` when
+/// another Slipstream holds it.
+fn take_state_folder() -> Option<std::io::Result<live::OwnerLock>> {
+    let state_dir = session::state_dir();
+    match live::OwnerLock::take(&state_dir) {
+        Ok(Some(lock)) => {
+            tracing::info!(folder = %state_dir.display(), "this Slipstream owns the state folder");
+            Some(Ok(lock))
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "another Slipstream owns {}: not recording or reopening the layout, and not \
+                 writing settings",
+                state_dir.display()
+            );
+            None
+        }
+        // A folder that can't be locked (or made) isn't another compositor's: carry on as the
+        // owner rather than lose the session's own settings and record.
+        Err(err) => {
+            tracing::warn!(folder = %state_dir.display(), "couldn't lock the state folder: {err}");
+            Some(Err(err))
+        }
+    }
+}
+
+/// A channel whose messages the event loop hands to `deliver`, and the sender for whichever
+/// thread produces them.
+fn channel_into<T: 'static>(
+    event_loop: &EventLoop<'static, Slipstream>,
+    deliver: fn(&mut Slipstream, T),
+) -> Result<smithay::reexports::calloop::channel::Sender<T>, Box<dyn std::error::Error>> {
+    use smithay::reexports::calloop::channel;
+    let (sender, messages) = channel::channel();
+    event_loop
+        .handle()
+        .insert_source(messages, move |event, _, state| {
+            if let channel::Event::Msg(message) = event {
+                deliver(state, message);
+            }
+        })
+        .map_err(|err| err.error)?;
+    Ok(sender)
+}
+
+/// What runs beside the compositor: the watches on apps, files and settings, the fallback fonts,
+/// the media keys' replies, the share chooser, and the session's D-Bus services. Nested, the
+/// desktop Slipstream runs inside keeps the services' names, unless its variable asks for one.
+fn start_services(
+    event_loop: &EventLoop<'static, Slipstream>,
+    state: &mut Slipstream,
+    session: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let wanted = |name: &str| session || std::env::var(name).as_deref() == Ok("1");
+    // The explorer follows apps being installed and removed.
+    watch::watch_apps(&event_loop.handle());
+    watch::watch_recent_files(&event_loop.handle());
+    // Settings apply as soon as they're saved.
+    watch::watch_settings(&event_loop.handle());
+    // A fallback face loaded on its own thread wakes the loop, which takes it in between paints.
+    {
+        use smithay::reexports::calloop::ping;
+        let (waker, landed) = ping::make_ping()?;
+        event_loop
+            .handle()
+            .insert_source(landed, |_, _, state| state.fallback_fonts_landed())
+            .map_err(|err| err.error)?;
+        fallback::set_waker(waker);
+    }
+    // What a player is doing after a media key.
+    state.media_replies = Some(channel_into(event_loop, Slipstream::media_played)?);
+    // The screen-sharing portal's chooser asks here what to share.
+    share::listen(&event_loop.handle(), &state.socket_name.to_string_lossy());
+    // The session's notification server.
+    if wanted("SLIPSTREAM_NOTIFICATIONS") {
+        notify::serve(channel_into(event_loop, Slipstream::notification_event)?);
+    }
+    // The portal backend: dark or light, and shortcuts apps keep while another app has the
+    // keyboard.
+    if wanted("SLIPSTREAM_PORTAL") {
+        let shortcut_events = channel_into(event_loop, Slipstream::shortcut_event)?;
+        portal::serve(state.settings.appearance.colour_scheme, shortcut_events);
+        watch::watch_shortcuts(&event_loop.handle());
+    }
+    // The password card for programs that need an administrator's say-so. Polkit takes one
+    // agent a session only.
+    if wanted("SLIPSTREAM_POLKIT") {
+        let events = channel_into(event_loop, Slipstream::polkit_event)?;
+        state.polkit.events = Some(events.clone());
+        polkit::serve(events);
+    }
+    // Where X11 and Electron apps ask for the screen to stay awake.
+    if wanted("SLIPSTREAM_SCREENSAVER") {
+        screensaver::serve(channel_into(event_loop, Slipstream::screensaver_event)?);
+    }
+    Ok(())
+}
+
+/// The login session, or a text console: the real screens, keyboard and mouse.
+fn start_on_hardware(
+    event_loop: &mut EventLoop<'static, Slipstream>,
+    state: &mut Slipstream,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Only the portal captures a real screen, whatever the environment asks.
+    if std::env::var_os("SLIPSTREAM_CAPTURE_ANYONE").is_some() {
+        tracing::warn!("SLIPSTREAM_CAPTURE_ANYONE is ignored outside a nested run");
+    }
+    // Debug steps press keys and run commands; a login session takes none, whatever its
+    // environment says.
+    if std::env::var_os("SLIPSTREAM_DEBUG").is_some() {
+        tracing::warn!("SLIPSTREAM_DEBUG is ignored outside a nested run");
+    }
+    // Before anything starts, so every child connects here and none reaches for X11.
+    // The socket's name also goes in SLIPSTREAM_LIVE_SOCKET, so a Slipstream started from
+    // inside this session knows not to nest on it.
+    // SAFETY: the threads already running reach the environment only through `std::env` and
+    // `Command`, which take the same lock as these writes.
+    unsafe {
+        std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
+        std::env::set_var(live::LIVE_SOCKET, &state.socket_name);
+        std::env::remove_var("DISPLAY");
+    }
+    udev::run(event_loop, state)?;
+    tracing::info!(
+        "Slipstream is running on WAYLAND_DISPLAY={}. Super+Return opens a terminal, Super+E \
+         files, a tapped Super the apps; Ctrl+Alt+Del is the way out",
+        state.socket_name.to_string_lossy()
+    );
+    Ok(())
+}
+
+/// A window inside another desktop, for trying Slipstream out and for its tests.
+fn start_nested(
+    event_loop: &mut EventLoop<'static, Slipstream>,
+    state: &mut Slipstream,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Nested, the volume, the radios and logind belong to the desktop around this window, so
+    // commands that would change them are only logged.
+    let held = launch::holds_machine_commands(
+        true,
+        std::env::var_os("SLIPSTREAM_REAL_COMMANDS").as_deref(),
+    );
+    launch::hold_machine_commands(held);
+    if held {
+        tracing::info!(
+            "nested: volume, brightness, radio, power-mode and logind commands are logged, not run"
+        );
+    }
+    // Tools such as grim speak the capture protocols directly; a nested check may let them.
+    let open = capture::opens_to_anyone(
+        true,
+        std::env::var_os("SLIPSTREAM_CAPTURE_ANYONE").as_deref(),
+    );
+    capture::open_to_anyone(open);
+    if open {
+        tracing::info!("capture open to every unsandboxed client (nested test opt-in)");
+    }
+    // Debug steps, and the `lock` step among them, which a login session never has.
+    state.debug = debug::Script::from_env();
+    lock::allow_steps(lock::steps_allowed_for(true));
+    // Before the window, whose output connecting already asks things of the backend (the lid
+    // switch, for one).
+    state.nested = true;
+    crate::winit::init_winit(event_loop, state)?;
+
+    // After the window has connected to the host, so that children connect here instead.
+    // SAFETY: as above, the other threads reach the environment only through `std`.
+    unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
+    tracing::info!(
+        "listening on WAYLAND_DISPLAY={}. Nested, Alt is the Mod key: Alt+arrows move focus, \
+         Alt+1–9 and Alt+Ctrl+←/→ switch workspace, Alt+Shift+1–9 and Alt+Shift+←/→ move the \
+         window there, Alt+Return opens a terminal, and closing the window quits",
+        state.socket_name.to_string_lossy()
+    );
+    Ok(())
+}
+
+/// One pass of the event loop, after its events: the timers and the bookkeeping that runs
+/// whether or not anything was drawn.
+fn pass(state: &mut Slipstream) {
+    // The way out's timers run here, so a window closing ends the grace on the same pass.
+    state.tick_exit();
+    // Idle listeners hear about this pass's input once, however many events it brought.
+    state.notify_idle_listeners();
+    // And a recorded layout's, so it finishes on the pass its last window arrives.
+    state.tick_restore();
+    // The layout goes to disk here once the desktop has settled, so a crash still leaves one.
+    state.tick_record();
+    // The lock by itself after idle, and a sleep waiting for the lock to be drawn.
+    state.tick_lock();
+    // Low battery: the wallpaper's pace, the warnings and the countdown to sleep.
+    state.tick_battery();
+    // Night light's schedule, and its warmth easing in and out.
+    state.tick_night_light();
+    // Which agents are at work, for the faded desktop's traces.
+    state.tick_agents();
+    state.drop_dead_streams();
+    state.refresh_pointer_focus();
+    // The portal picks windows to share from this list.
+    let windows = state.all_open_windows();
+    state.sync_toplevels(windows);
+    state.space.refresh();
+    state.popups.cleanup();
+    // Queued replies go out after every pass, not only on redraw.
+    let _ = state.display_handle.flush_clients();
 }
 
 /// Quits if the event loop stops turning. On real hardware a frozen compositor leaves only the
