@@ -25,6 +25,9 @@ pub const REDUCED_FADE: f64 = 0.08;
 /// rather than as a ghost crossing whatever is behind it.
 const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
+/// The least share of a whole slide's time a short one takes, so the last part of a swipe let go
+/// near its end still settles rather than snapping.
+const SHORTEST_SLIDE: f64 = 0.4;
 /// Space between workspaces as they slide past, in logical pixels: 160 design pixels.
 pub const WORKSPACE_GAP: i32 = 128;
 
@@ -206,10 +209,19 @@ impl<T: Clone + PartialEq> Motion<T> {
     }
 
     /// Slides `screen`'s view to workspace `index` (0-based). Higher numbers sit to the right.
+    /// A view already part of the way there, as one let go mid-swipe is, takes less time over
+    /// the rest.
     pub fn slide_to(&mut self, screen: &str, index: usize, now: f64) {
-        let duration = self.move_duration();
+        let camera = self.camera_mut(screen);
+        let left = (index as f64 - camera.value(now)[0]).abs();
+        let duration = self.move_duration() * left.clamp(SHORTEST_SLIDE, 1.0);
         self.camera_mut(screen)
             .retarget([index as f64], now, duration, HYPR);
+    }
+
+    /// Holds `screen`'s view at `at` workspaces, between two while a swipe carries it.
+    pub fn hold_camera(&mut self, screen: &str, at: f64) {
+        *self.camera_mut(screen) = Tween::at_rest([at]);
     }
 
     /// Where `id` is headed, x, y, w and h.

@@ -220,6 +220,13 @@ impl Slipstream {
                 debug::Step::Unlock => self.unlock(),
                 debug::Step::Bullet => self.toggle_bullet_time(),
                 debug::Step::Swipe(direction) => self.swiped(direction),
+                debug::Step::Fingers(Some(dx)) => {
+                    if self.swipe.is_none() {
+                        self.swipe_began();
+                    }
+                    self.swipe_moved(dx, 0.0, self.wall());
+                }
+                debug::Step::Fingers(None) => self.swipe_ended(self.wall(), false),
                 debug::Step::BulletKey(name) => {
                     let (mods, key) = debug::mods_and_key(&name);
                     self.bullet_key(key, mods);

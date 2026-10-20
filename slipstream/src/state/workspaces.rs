@@ -110,18 +110,25 @@ impl Slipstream {
     /// Super+Ctrl+←/→: the previous or next workspace on this screen, passing over any another
     /// screen is showing.
     pub fn switch_workspace_by(&mut self, delta: i32) {
+        if let Some(target) = self.workspace_beside(delta) {
+            self.switch_workspace(target);
+        }
+    }
+
+    /// The previous or next workspace along from this screen's, as `delta` says, passing over
+    /// any another screen is showing. Nothing past either end.
+    pub fn workspace_beside(&self, delta: i32) -> Option<usize> {
         let count = self.workspaces.count() as i32;
         let mut target = self.active_workspace() as i32;
         loop {
             target += delta.signum();
             if target < 0 || target >= count || delta == 0 {
-                return;
+                return None;
             }
             if self.screens.showing(target as usize).is_none() {
-                break;
+                return Some(target as usize);
             }
         }
-        self.switch_workspace(target as usize);
     }
 
     /// Points the keyboard at another screen: Super+P, a click on it, or the screen it was on

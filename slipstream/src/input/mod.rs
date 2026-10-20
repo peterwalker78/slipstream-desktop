@@ -372,7 +372,7 @@ impl Slipstream {
             InputEvent::GestureSwipeBegin { event, .. } => {
                 let fingers = event.fingers();
                 if self.takes_swipe(fingers) {
-                    self.swipe = Some(swipe::Swipe::default());
+                    self.swipe_began();
                     return;
                 }
                 let pointer = self.seat.get_pointer().unwrap();
@@ -388,10 +388,9 @@ impl Slipstream {
             }
             InputEvent::GestureSwipeUpdate { event, .. } => {
                 let delta = GestureSwipeUpdateEventTrait::delta(&event);
-                if let Some(swipe) = self.swipe.as_mut() {
-                    if let Some(direction) = swipe.moved(delta.x, delta.y) {
-                        self.swiped(direction);
-                    }
+                if self.swipe.is_some() {
+                    let time = Event::time(&event).micros() as f64 / 1e6;
+                    self.swipe_moved(delta.x, delta.y, time);
                     return;
                 }
                 let pointer = self.seat.get_pointer().unwrap();
@@ -404,7 +403,9 @@ impl Slipstream {
                 );
             }
             InputEvent::GestureSwipeEnd { event, .. } => {
-                if self.swipe.take().is_some() {
+                if self.swipe.is_some() {
+                    let time = Event::time(&event).micros() as f64 / 1e6;
+                    self.swipe_ended(time, GestureEndEventTrait::cancelled(&event));
                     return;
                 }
                 let pointer = self.seat.get_pointer().unwrap();
