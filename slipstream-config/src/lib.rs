@@ -112,12 +112,12 @@ pub use display::{
 pub use file::{
     FILE_NAME, civil, move_aside, path, read, replace, replace_private, write, xdg_home,
 };
-pub use pages::{SETTINGS_PAGES, SettingsPage};
 pub use input::{
     Acceleration, Keyboard, KeyboardLayout, LAYOUT_LISTS, LayoutChoice, Mouse, Scrolling, Touchpad,
     layout_catalogue, layout_label, options_switch_layouts, system_layouts,
     system_layouts_from_env,
 };
+pub use pages::{SETTINGS_PAGES, SettingsPage};
 pub use wallpaper::{VARIATIONS, Variation, Wallpaper, current_id};
 pub use workspaces::{MAX_WORKSPACES, WorkspaceEntry, Workspaces, unused_id, workspace_label};
 

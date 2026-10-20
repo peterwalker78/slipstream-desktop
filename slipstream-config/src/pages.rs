@@ -12,7 +12,7 @@ pub struct SettingsPage {
     pub holds: &'static [&'static str],
 }
 
-pub const SETTINGS_PAGES: [SettingsPage; 12] = [
+pub const SETTINGS_PAGES: [SettingsPage; 13] = [
     SettingsPage {
         id: "appearance",
         title: "Appearance",
@@ -72,8 +72,24 @@ pub const SETTINGS_PAGES: [SettingsPage; 12] = [
         holds: &["Bar meter", "Meter command"],
     },
     SettingsPage {
-        id: "keyboard",
-        title: "Keyboard",
+        id: "input",
+        title: "Mouse & keyboard",
+        holds: &[
+            "Pointer speed",
+            "Acceleration",
+            "Natural scrolling",
+            "Tap to click",
+            "Ignore the touchpad while typing",
+            "Scrolling",
+            "Repeat after",
+            "Repeat speed",
+            "Layouts",
+            "Switch layout",
+        ],
+    },
+    SettingsPage {
+        id: "shortcuts",
+        title: "Shortcuts",
         holds: &[
             "Shortcut style",
             "Windows style",
