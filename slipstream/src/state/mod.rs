@@ -188,6 +188,9 @@ pub struct Slipstream {
     pub xwayland_shell_state: XWaylandShellState,
     /// Set up by the hardware backend once it knows the GPU's buffer formats.
     pub dmabuf: Option<(DmabufState, DmabufGlobal)>,
+    /// Explicit sync (`linux-drm-syncobj-v1`), offered by the hardware backend when the GPU can
+    /// wake us on a timeline point.
+    pub syncobj: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
     /// Screen sharing: the capture protocols the portal talks to, and the list of windows it
     /// picks from. Every global is filtered down to the clients `capture::may_capture` allows, so
     /// no app but the portal can see them at all.
@@ -636,6 +639,7 @@ impl Slipstream {
             wlr_data_control: clipboard_globals.wlr,
             xwayland_shell_state,
             dmabuf: None,
+            syncobj: None,
             image_capture_source: capture_globals.source,
             output_capture_source: capture_globals.output_source,
             toplevel_capture_source: capture_globals.toplevel_source,

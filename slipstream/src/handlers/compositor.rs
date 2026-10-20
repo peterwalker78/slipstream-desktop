@@ -2,15 +2,16 @@ use crate::{Slipstream, state::ClientState};
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     reexports::wayland_server::{
-        Client,
+        Client, Resource,
         protocol::{wl_buffer, wl_surface::WlSurface},
     },
     wayland::{
         buffer::BufferHandler,
         compositor::{
-            CompositorClientState, CompositorHandler, CompositorState, get_parent,
-            is_sync_subsurface,
+            CompositorClientState, CompositorHandler, CompositorState, add_blocker,
+            add_pre_commit_hook, get_parent, is_sync_subsurface, with_states,
         },
+        drm_syncobj::{DrmSyncobjCachedState, DrmSyncobjHandler, DrmSyncobjState},
         seat::WaylandFocus,
         shm::{ShmHandler, ShmState},
     },
@@ -30,6 +31,44 @@ impl CompositorHandler for Slipstream {
             return &xwayland.compositor_state;
         }
         &client.get_data::<ClientState>().unwrap().compositor_state
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        add_pre_commit_hook::<Self, _>(surface, |state, _dh, surface| {
+            // A client using explicit sync hands over a buffer the GPU may still be drawing:
+            // hold the commit back until its acquire point is signalled, so nothing reads the
+            // buffer half-drawn. The release point is signalled by the renderer once it lets go.
+            let acquire = with_states(surface, |states| {
+                states
+                    .cached_state
+                    .get::<DrmSyncobjCachedState>()
+                    .pending()
+                    .acquire_point
+                    .clone()
+            });
+            let Some(acquire) = acquire else {
+                return;
+            };
+            let Some(client) = surface.client() else {
+                return;
+            };
+            match acquire.generate_blocker() {
+                Ok((blocker, source)) => {
+                    let inserted = state.loop_handle.insert_source(source, move |_, _, state| {
+                        let dh = state.display_handle.clone();
+                        state
+                            .client_compositor_state(&client)
+                            .blocker_cleared(state, &dh);
+                        Ok(())
+                    });
+                    match inserted {
+                        Ok(_) => add_blocker(surface, blocker),
+                        Err(err) => tracing::warn!("couldn't wait on an acquire point: {err}"),
+                    }
+                }
+                Err(err) => tracing::warn!("couldn't wait on an acquire point: {err}"),
+            }
+        });
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -85,5 +124,11 @@ impl BufferHandler for Slipstream {
 impl ShmHandler for Slipstream {
     fn shm_state(&self) -> &ShmState {
         &self.shm_state
+    }
+}
+
+impl DrmSyncobjHandler for Slipstream {
+    fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
+        self.syncobj.as_mut()
     }
 }

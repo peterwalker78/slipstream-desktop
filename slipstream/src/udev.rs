@@ -41,6 +41,7 @@ use smithay::{
     utils::{Clock, DeviceFd, Monotonic, Transform},
     wayland::{
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
+        drm_syncobj::{DrmSyncobjState, supports_syncobj_eventfd},
         presentation::Refresh,
     },
 };
@@ -263,6 +264,7 @@ impl Slipstream {
             OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
         )?;
         let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+        let import_fd = fd.clone();
         let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
         let gbm = GbmDevice::new(fd)?;
 
@@ -323,6 +325,17 @@ impl Slipstream {
                 .create_global_with_default_feedback::<Slipstream>(&self.display_handle, &feedback);
             self.dmabuf = Some((dmabuf_state, global));
             tracing::info!(%render_node, "primary GPU");
+            // Explicit sync, which games under XWayland and Proton need on drivers without
+            // implicit sync, only where the kernel can signal a timeline point to an eventfd.
+            if supports_syncobj_eventfd(&import_fd) {
+                self.syncobj = Some(DrmSyncobjState::new::<Slipstream>(
+                    &self.display_handle,
+                    import_fd,
+                ));
+                tracing::info!(%node, "explicit sync offered (linux-drm-syncobj-v1)");
+            } else {
+                tracing::info!(%node, "explicit sync not offered: the GPU can't signal timeline points");
+            }
         }
 
         udev.gpus.insert(
