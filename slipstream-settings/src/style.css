@@ -213,6 +213,31 @@ window.slipstream-settings headerbar windowcontrols button {
   outline-offset: 2px;
 }
 
+/* A slider, lit in the same colour as a switch that's on. */
+.row scale trough {
+  min-height: 4px;
+  border: none;
+  border-radius: 2px;
+  background: #3a4050;
+}
+
+.row scale highlight {
+  margin: 0;
+  border: none;
+  border-radius: 2px;
+  background: #42d3ff;
+}
+
+.row scale slider {
+  min-width: 16px;
+  min-height: 16px;
+  margin: -6px;
+  border: none;
+  border-radius: 50%;
+  background: #aeb3bf;
+  box-shadow: none;
+}
+
 /* Text entries, and the flat icon buttons beside them. */
 .row entry {
   min-height: 30px;

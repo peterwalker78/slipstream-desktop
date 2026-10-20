@@ -1,4 +1,4 @@
-//! Keyboard: whose shortcuts the keys follow.
+//! Shortcuts: whose habits the desktop's keys follow.
 
 use slipstream_config::KeyStyle;
 
@@ -6,7 +6,7 @@ use super::*;
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
-        "Keyboard",
+        "Shortcuts",
         "The shortcuts your hands already know. The shortcut sheet and the tour show the keys of \
          the style chosen here.",
     );

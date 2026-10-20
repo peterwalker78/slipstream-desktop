@@ -2,7 +2,7 @@
 
 Super+/ shows this list inside Slipstream, whenever you forget one. Press Enter there for the tour: fourteen short lessons for anyone new to tiling, each one drawn happening on a miniature of the desktop.
 
-These are the Windows style's keys, which Slipstream starts with. Settings → Keyboard switches to the [Mac style](#mac-style) or the [Omarchy style](#omarchy-style); the list, the tour and the hints on screen then show that style's keys.
+These are the Windows style's keys, which Slipstream starts with. Settings → Shortcuts switches to the [Mac style](#mac-style) or the [Omarchy style](#omarchy-style); the list, the tour and the hints on screen then show that style's keys.
 
 [← back to the README](../README.md)
 
@@ -35,6 +35,7 @@ These are the Windows style's keys, which Slipstream starts with. Settings → K
 | Print, Super+Print, Super+Shift+S | Screenshot of the screen; snip a region or a window |
 | Super+L | Lock |
 | Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
+| Alt+Shift, pressed together and let go | The next keyboard layout, once Settings → Mouse & keyboard has more than one |
 | Caps Lock | Tap: Caps Lock. Hold: Awake, the screen stays on and doesn't lock; hold again or click AWAKE on the bar to end it |
 | Ctrl+Alt+Del, Super+X | The way out: lock, log out, restart, shut down |
 | Super+/ | Every key, and Enter there starts the tour |

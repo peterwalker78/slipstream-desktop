@@ -3,13 +3,14 @@
 
 mod about;
 mod appearance;
-mod keyboard;
+mod input;
 mod meter;
 mod notifications;
 mod power;
 mod privacy;
 mod screens;
 mod session;
+mod shortcuts;
 mod sound;
 mod wallpaper;
 mod workspaces;
@@ -34,7 +35,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 12] = [
+pub const PAGES: [Page; 13] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -101,14 +102,24 @@ pub const PAGES: [Page; 12] = [
         build: meter::build,
     },
     Page {
-        id: "keyboard",
-        title: "Keyboard",
+        id: "input",
+        title: "Mouse & keyboard",
         icons: &[
+            "input-mouse-symbolic",
+            "preferences-desktop-peripherals-symbolic",
             "input-keyboard-symbolic",
+        ],
+        build: input::build,
+    },
+    Page {
+        id: "shortcuts",
+        title: "Shortcuts",
+        icons: &[
             "preferences-desktop-keyboard-shortcuts-symbolic",
+            "input-keyboard-symbolic",
             "preferences-desktop-keyboard-symbolic",
         ],
-        build: keyboard::build,
+        build: shortcuts::build,
     },
     Page {
         id: "workspaces",
