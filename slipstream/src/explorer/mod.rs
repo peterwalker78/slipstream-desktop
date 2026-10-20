@@ -1,11 +1,15 @@
-//! The app explorer on a tapped Super. Type to search the installed apps, arrow keys to choose, Enter
-//! to open, Esc to close. While it's open it takes every key, so nothing reaches the focused app.
+//! The app explorer on a tapped Super. Type to search the installed apps, Settings' pages and the
+//! files in the home folder, arrow keys to choose, Enter to open, Esc to close. While it's open it
+//! takes every key, so nothing reaches the focused app.
 //!
-//! Its side column lists recent files and a log-out action. With a query that matches no app,
-//! Enter runs the query as a command, as Windows' Run dialog does.
+//! Its side column lists recent files and the system's actions: lock, quick settings and log out.
+//! With a query that matches no app, Enter runs the query as a command, as Windows' Run dialog
+//! does, unless a setting or a file matches it better.
 
 mod catalog;
 mod draw;
+mod index;
+mod results;
 
 use std::{
     collections::HashMap,
@@ -38,6 +42,8 @@ use crate::{
 };
 use catalog::*;
 use draw::*;
+pub use results::System;
+use results::*;
 
 // Sizes in design pixels.
 const WIDTH: f32 = 1040.0;
@@ -66,9 +72,9 @@ pub enum Item {
     File(PathBuf),
     /// A command typed into the search box.
     Run(String),
-    LogOut,
-    /// The shortcut sheet.
-    Shortcuts,
+    /// A page of the Settings app, by its id.
+    Setting(&'static str),
+    System(System),
     /// A sum or a conversion worked out from the query: Enter copies it.
     Answer(crate::calc::Answer),
     /// An emoji found by a `:` query, and its name: Enter types it.
@@ -82,43 +88,36 @@ pub enum Outcome {
     Activate(Item, bool),
 }
 
-/// How many emoji a `:` query lists.
-const EMOJI_SHOWN: usize = 6;
 /// How long an answer takes to decode when it changes.
 const ANSWER_DECODE: f64 = 0.32;
 
 /// How many recent files are kept for the side column and the search.
 const RECENT: usize = 24;
+/// How often the home folder is walked again for the search, at most.
+const REINDEX: Duration = Duration::from_secs(120);
 
-struct Results {
-    apps: Vec<App>,
-    answer: Option<crate::calc::Answer>,
-    emoji: Vec<(&'static str, &'static str)>,
-    run: Option<String>,
-    files: Vec<PathBuf>,
-    log_out: bool,
-    shortcuts: bool,
+/// The keys the explorer names, as the current keyboard style binds them. Empty for an action
+/// with no key.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Keys {
+    pub explorer: String,
+    pub sheet: String,
+    pub lock: String,
+    pub quick: String,
+    pub way_out: String,
 }
 
-impl Results {
-    /// Everything selectable, in selection order.
-    fn items(&self) -> Vec<Item> {
-        let mut items: Vec<Item> = self.apps.iter().cloned().map(Item::App).collect();
-        items.extend(self.answer.clone().map(Item::Answer));
-        items.extend(
-            self.emoji
-                .iter()
-                .map(|(emoji, name)| Item::Emoji(emoji, name)),
-        );
-        items.extend(self.run.clone().map(Item::Run));
-        items.extend(self.files.iter().cloned().map(Item::File));
-        if self.log_out {
-            items.push(Item::LogOut);
+impl Keys {
+    /// Each key, labelled by `label`.
+    pub fn new(label: impl Fn(crate::keys::Action) -> String) -> Self {
+        use crate::keys::Action;
+        Self {
+            explorer: label(Action::Explorer),
+            sheet: label(Action::ShortcutSheet),
+            lock: label(Action::Lock),
+            quick: label(Action::QuickSettings),
+            way_out: label(Action::WayOut),
         }
-        if self.shortcuts {
-            items.push(Item::Shortcuts);
-        }
-        items
     }
 }
 
@@ -133,6 +132,11 @@ pub struct Explorer {
     catalog: Arc<Mutex<Catalog>>,
     scanned: Option<Instant>,
     read_recent_files: RecentReader,
+    walk_home: HomeWalker,
+    /// When the home folder was last walked for the search.
+    indexed: Option<Instant>,
+    /// The app last chosen in the grid, which ← and ↑ go back to from the side column.
+    grid_at: usize,
     /// Icons rasterised so far, by name and size in device pixels.
     icon_cache: HashMap<(String, u32), Option<Pixmap>>,
     shown: Option<Look>,
@@ -167,6 +171,7 @@ impl Explorer {
         // Read the apps and the recent files now, so the first tap of Super finds them.
         explorer.rescan();
         explorer.read_recent();
+        explorer.index_home();
         explorer
     }
 
@@ -181,6 +186,13 @@ impl Explorer {
             catalog: Arc::default(),
             scanned: None,
             read_recent_files: Arc::new(|| apps::recent_files(RECENT, |path| path.is_file())),
+            walk_home: Arc::new(|| {
+                std::env::var_os("HOME")
+                    .filter(|home| !home.is_empty())
+                    .map_or_else(Vec::new, |home| index::walk(std::path::Path::new(&home)))
+            }),
+            indexed: None,
+            grid_at: 0,
             icon_cache: HashMap::new(),
             shown: None,
             buffer: None,
@@ -211,6 +223,7 @@ impl Explorer {
         // What was last read shows now. A file deleted since goes from the list once this read
         // is back, and a hung mount keeps the last list up rather than the explorer shut.
         self.read_recent();
+        self.index_home();
     }
 
     pub fn close(&mut self) {
@@ -220,68 +233,10 @@ impl Explorer {
         self.targets.clear();
     }
 
-    /// The sum or conversion the query answers, on its own: what each frame needs, without
-    /// searching every app for the rest of the results.
-    fn answer(&self) -> Option<crate::calc::Answer> {
-        if self.query.trim_start().starts_with(':') {
-            return None;
-        }
-        crate::calc::answer(&self.query)
-    }
-
-    fn results(&self) -> Results {
-        // `:` and a word looks for emoji and nothing else.
-        if let Some(words) = self.query.trim_start().strip_prefix(':') {
-            return Results {
-                apps: Vec::new(),
-                answer: None,
-                emoji: crate::emoji::search(words, EMOJI_SHOWN),
-                run: None,
-                files: Vec::new(),
-                log_out: false,
-                shortcuts: false,
-            };
-        }
-        let answer = self.answer();
-        let query = self.query.trim().to_lowercase();
-        let catalog = self.catalog.lock().unwrap();
-        let apps: Vec<App> = apps::search(&catalog.apps, &query)
-            .into_iter()
-            .cloned()
-            .collect();
-        // What is typed is offered as a command only as the last resort, once no app and no sum
-        // has matched.
-        let run = (!query.is_empty() && apps.is_empty() && answer.is_none())
-            .then(|| self.query.trim().to_string());
-        let files = if query.is_empty() {
-            catalog.recent.iter().take(3).cloned().collect()
-        } else {
-            catalog
-                .recent
-                .iter()
-                .filter(|path| file_name(path).to_lowercase().contains(&query))
-                .take(4)
-                .cloned()
-                .collect()
-        };
-        Results {
-            apps,
-            answer,
-            emoji: Vec::new(),
-            run,
-            files,
-            log_out: "log out".contains(&query) || "logout".contains(&query),
-            // Asked for by name, never shown on an empty query: the hint card teaches Super+/.
-            shortcuts: !query.is_empty()
-                && ["keyboard shortcuts", "keys", "help"]
-                    .iter()
-                    .any(|words| words.contains(&query)),
-        }
-    }
-
-    /// Back to the row Enter lands on for what is typed now: the first one.
+    /// Back to the row Enter lands on for what is typed now: the best match.
     fn reset_selection(&mut self) {
-        self.selected = 0;
+        self.selected = self.results().best;
+        self.grid_at = 0;
     }
 
     /// A key while the explorer is open, with the modifiers held. `ch` is the character it types,
@@ -291,6 +246,8 @@ impl Explorer {
         let apps = results.apps.len();
         let total = results.items().len();
         let at = self.selected;
+        // Where ← and ↑ go back to from the side column: the app last chosen.
+        let back_to_grid = self.grid_at.min(apps.saturating_sub(1));
         match sym {
             // Esc backs out one level: a query first, then the explorer.
             Keysym::Escape if !self.query.is_empty() => {
@@ -316,23 +273,42 @@ impl Explorer {
                 self.query.pop();
                 self.reset_selection();
             }
+            // ← and → move along the grid's rows; → from its last column crosses to the side
+            // column, and ← from there comes back.
+            Keysym::Left if at >= apps && apps > 0 => self.selected = back_to_grid,
             Keysym::Left => self.selected = at.saturating_sub(1),
-            Keysym::Right => self.selected += 1,
-            // Tab walks everything in order, as → and ← do, and wraps.
+            Keysym::Right if at < apps => {
+                if at % COLUMNS != COLUMNS - 1 && at + 1 < apps {
+                    self.selected = at + 1;
+                } else if total > apps {
+                    self.selected = apps;
+                }
+            }
+            Keysym::Right if apps == 0 => self.selected = at + 1,
+            Keysym::Right => {}
+            // Tab jumps to the next group, the grid or a section of the side column, and wraps;
+            // Shift+Tab goes back one.
             Keysym::Tab | Keysym::ISO_Left_Tab if total > 0 => {
-                self.selected = if mods.shift || sym == Keysym::ISO_Left_Tab {
-                    (at + total - 1) % total
+                let starts = results.group_starts();
+                let group = starts.iter().rposition(|start| *start <= at).unwrap_or(0);
+                let back = mods.shift || sym == Keysym::ISO_Left_Tab;
+                let to = if back {
+                    (group + starts.len() - 1) % starts.len()
                 } else {
-                    (at + 1) % total
+                    (group + 1) % starts.len()
                 };
+                self.selected = starts[to];
             }
             Keysym::Home => self.selected = 0,
             Keysym::End => self.selected = total.saturating_sub(1),
-            // Down a row in the grid, or from its last row to the side column. With nothing
-            // below, the selection stays rather than jumping sideways.
+            // Down a row in the grid, to the last app from a row with nothing straight below,
+            // and from the last row to the side column. With nothing below at all, the
+            // selection stays rather than jumping sideways.
             Keysym::Down => {
                 let to = if at < apps && at + COLUMNS < apps {
                     at + COLUMNS
+                } else if at < apps && at / COLUMNS < (apps - 1) / COLUMNS {
+                    apps - 1
                 } else if at < apps {
                     apps
                 } else {
@@ -342,10 +318,9 @@ impl Explorer {
                     self.selected = to;
                 }
             }
-            Keysym::Up => {
-                let step = if at < apps { COLUMNS } else { 1 };
-                self.selected = at.saturating_sub(step);
-            }
+            Keysym::Up if at < apps => self.selected = at.saturating_sub(COLUMNS),
+            Keysym::Up if at == apps && apps > 0 => self.selected = back_to_grid,
+            Keysym::Up => self.selected = at.saturating_sub(1),
             // PgUp and PgDn move three rows, within the grid or within the side column.
             Keysym::Prior | Keysym::Next => {
                 let down = sym == Keysym::Next;
@@ -370,15 +345,12 @@ impl Explorer {
                 _ => return Outcome::Nothing,
             },
         }
-        let apps = self.results().apps.len();
-        let total = if matches!(sym, Keysym::BackSpace | Keysym::u) || ch.is_some() {
-            self.results().items().len()
-        } else {
-            total
-        };
-        self.selected = self.selected.min(total.saturating_sub(1));
-        // Keep the selected app's row in view.
+        let results = self.results();
+        let apps = results.apps.len();
+        self.selected = self.selected.min(results.items().len().saturating_sub(1));
         if self.selected < apps {
+            self.grid_at = self.selected;
+            // Keep the selected app's row in view.
             let row = self.selected / COLUMNS;
             if row < self.scroll {
                 self.scroll = row;
@@ -411,7 +383,9 @@ mod tests {
         // Never this machine's recent files.
         let explorer = Explorer {
             scanned: Some(Instant::now()),
+            indexed: Some(Instant::now()),
             read_recent_files: Arc::new(Vec::new),
+            walk_home: Arc::new(Vec::new),
             ..Explorer::idle(true)
         };
         explorer.catalog.lock().unwrap().apps = names
@@ -485,7 +459,12 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(
-            explorer.results().files,
+            explorer
+                .results()
+                .files
+                .into_iter()
+                .map(|found| found.path)
+                .collect::<Vec<_>>(),
             [
                 PathBuf::from("/srv/share/plan.odt"),
                 PathBuf::from("/srv/share/notes.txt")
@@ -565,10 +544,38 @@ mod tests {
         assert_eq!(explorer.selected, 13, "the fourth row");
         assert_eq!(explorer.scroll, 1, "scrolled to keep it in view");
         explorer.key(Keysym::Down, None, Mods::default());
-        assert_eq!(explorer.selected, 14, "past the apps: the log-out row");
-        assert_eq!(selected(&explorer), Some(Item::LogOut));
+        assert_eq!(explorer.selected, 14, "past the apps: the side column");
+        assert_eq!(selected(&explorer), Some(Item::System(System::Lock)));
+        explorer.key(Keysym::Down, None, Mods::default());
         explorer.key(Keysym::Up, None, Mods::default());
-        assert_eq!(explorer.selected, 13);
+        explorer.key(Keysym::Up, None, Mods::default());
+        assert_eq!(explorer.selected, 13, "back to the app it left");
+    }
+
+    #[test]
+    fn right_crosses_to_the_side_column_and_left_comes_back() {
+        let names: Vec<String> = (0..10).map(|i| format!("App {i:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut explorer = with_apps(&names);
+        explorer.open(0.0);
+        explorer.key(Keysym::Down, None, NONE);
+        explorer.key(Keysym::Right, None, NONE);
+        explorer.key(Keysym::Right, None, NONE);
+        explorer.key(Keysym::Right, None, NONE);
+        assert_eq!(explorer.selected, 7, "the row's last app");
+        explorer.key(Keysym::Right, None, NONE);
+        assert_eq!(selected(&explorer), Some(Item::System(System::Lock)));
+        explorer.key(Keysym::Down, None, NONE);
+        explorer.key(Keysym::Right, None, NONE);
+        assert_eq!(
+            selected(&explorer),
+            Some(Item::System(System::QuickSettings))
+        );
+        explorer.key(Keysym::Left, None, NONE);
+        assert_eq!(explorer.selected, 7);
+        // From a row with nothing straight below, Down goes to the last app.
+        explorer.key(Keysym::Down, None, NONE);
+        assert_eq!(explorer.selected, 9);
     }
 
     const NONE: Mods = Mods {
@@ -605,24 +612,143 @@ mod tests {
     }
 
     #[test]
-    fn tab_moves_on_and_wraps() {
-        let mut explorer = with_apps(&["A", "B", "C"]);
+    fn tab_jumps_from_section_to_section_and_wraps() {
+        let recent = || vec![PathBuf::from("/srv/share/notes.txt")];
+        let mut explorer = Explorer {
+            read_recent_files: Arc::new(recent),
+            ..with_apps(&["A", "B", "C"])
+        };
+        explorer.catalog.lock().unwrap().recent = recent();
         explorer.open(0.0);
-        // Three apps and the log-out row.
+        explorer.key(Keysym::Right, None, NONE);
+        // Three apps, a recent file and the system's rows.
         explorer.key(Keysym::Tab, None, NONE);
-        assert_eq!(explorer.selected, 1);
-        explorer.key(Keysym::ISO_Left_Tab, None, NONE);
-        explorer.key(Keysym::ISO_Left_Tab, None, NONE);
-        assert_eq!(explorer.selected, 3, "back round to the last");
+        assert_eq!(
+            selected(&explorer),
+            Some(Item::File("/srv/share/notes.txt".into()))
+        );
         explorer.key(Keysym::Tab, None, NONE);
-        assert_eq!(explorer.selected, 0);
+        assert_eq!(selected(&explorer), Some(Item::System(System::Lock)));
+        explorer.key(Keysym::Down, None, NONE);
+        explorer.key(Keysym::Tab, None, NONE);
+        assert_eq!(explorer.selected, 0, "round to the grid");
+        explorer.key(Keysym::ISO_Left_Tab, None, NONE);
+        assert_eq!(selected(&explorer), Some(Item::System(System::Lock)));
+        let shift = Mods {
+            shift: true,
+            ..NONE
+        };
+        explorer.key(Keysym::Tab, None, shift);
+        assert_eq!(explorer.selected, 3, "Shift+Tab goes back too");
+    }
+
+    #[test]
+    fn enter_opens_the_best_match_wherever_it_is() {
+        let mut explorer = with_apps(&["Budgie Settings", "Notes", "Wallpaper Downloader"]);
+        explorer.catalog.lock().unwrap().home = vec![
+            index::entry("/home/sam/budget.ods", 0, false),
+            index::entry("/home/sam/notes.txt", 0, false),
+        ];
+        explorer.open(0.0);
+        let enter = |explorer: &mut Explorer| match explorer.key(Keysym::Return, None, NONE) {
+            Outcome::Activate(item, _) => Some(item),
+            _ => None,
+        };
+        // Its letters are in an app's name, but a file is named for it.
+        typed(&mut explorer, "budget");
+        assert_eq!(
+            enter(&mut explorer),
+            Some(Item::File("/home/sam/budget.ods".into()))
+        );
+        // An app and a file of the same name: the app.
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "notes");
+        assert!(matches!(enter(&mut explorer), Some(Item::App(app)) if app.name == "Notes"));
+        // A setting held on a page, ahead of running what was typed.
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "night light");
+        assert_eq!(enter(&mut explorer), Some(Item::Setting("appearance")));
+        // An app's name beats a page's title.
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "wallpaper");
+        assert!(matches!(enter(&mut explorer), Some(Item::App(_))));
+        assert!(
+            explorer
+                .results()
+                .items()
+                .contains(&Item::Setting("wallpaper")),
+            "the page is still listed"
+        );
+        // The system's actions by name.
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "lock");
+        assert_eq!(enter(&mut explorer), Some(Item::System(System::Lock)));
+    }
+
+    #[test]
+    fn the_side_column_never_lists_more_than_fits() {
+        let mut explorer = with_apps(&["Settings Manager"]);
+        explorer.catalog.lock().unwrap().home = (0..10)
+            .map(|n| index::entry(&format!("/home/sam/s{n}.txt"), 0, false))
+            .collect();
+        explorer.open(0.0);
+        typed(&mut explorer, "s");
+        let results = explorer.results();
+        assert!(!results.settings.is_empty() && !results.files.is_empty());
+        let sections = [
+            results.settings.len(),
+            results.files.len(),
+            results.system.len(),
+        ];
+        let height: f32 = sections
+            .iter()
+            .filter(|rows| **rows > 0)
+            .map(|rows| HEADER_H + *rows as f32 * ROW_STEP)
+            .sum();
+        assert!(height <= BODY_H - 20.0, "{sections:?} is {height} high");
+    }
+
+    #[test]
+    fn system_rows_show_the_keys_each_style_binds() {
+        use crate::keys;
+        use slipstream_config::KeyStyle;
+        // Log out shows the key for the card it opens on, which also restarts and shuts down.
+        for (style, lock, quick, log_out) in [
+            (KeyStyle::Windows, "Super+L", "Super+A", "Ctrl+Alt+Del"),
+            (KeyStyle::Mac, "Super+Ctrl+Q", "Super+A", "Super+Shift+Q"),
+            (
+                KeyStyle::Omarchy,
+                "Super+Ctrl+L",
+                "Super+Ctrl+A",
+                "Super+Esc",
+            ),
+        ] {
+            let bindings = keys::checked(keys::defaults(style), style);
+            let shown = Keys::new(|action| {
+                keys::binding_for(&bindings, action)
+                    .map(|binding| keys::label(binding.mods, binding.key))
+                    .unwrap_or_default()
+            });
+            assert_eq!(System::Lock.key(&shown).as_deref(), Some(lock), "{style:?}");
+            assert_eq!(
+                System::QuickSettings.key(&shown).as_deref(),
+                Some(quick),
+                "{style:?}"
+            );
+            assert_eq!(
+                System::LogOut.key(&shown).as_deref(),
+                Some(log_out),
+                "{style:?}"
+            );
+            assert_eq!(System::Restart.key(&shown), None);
+        }
     }
 
     #[test]
     fn down_with_nothing_below_stays_put() {
         let mut explorer = with_apps(&["Foot", "Foot Client", "Foot Server", "Kate"]);
         explorer.open(0.0);
-        typed(&mut explorer, "fo");
+        typed(&mut explorer, "foot");
         assert_eq!(
             explorer.results().items().len(),
             3,
@@ -640,7 +766,7 @@ mod tests {
         let mut explorer = with_apps(&names);
         explorer.open(0.0);
         explorer.key(Keysym::End, None, NONE);
-        assert_eq!(selected(&explorer), Some(Item::LogOut));
+        assert_eq!(selected(&explorer), Some(Item::System(System::LogOut)));
         explorer.key(Keysym::Home, None, NONE);
         assert_eq!(explorer.selected, 0);
         explorer.key(Keysym::Right, None, NONE);

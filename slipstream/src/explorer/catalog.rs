@@ -1,5 +1,5 @@
-//! The explorer's catalogue of installed apps, recent files and icons, read and rasterised off
-//! the event loop.
+//! The explorer's catalogue of installed apps, recent files, the home folder's files and icons,
+//! read and rasterised off the event loop.
 
 use super::*;
 
@@ -17,7 +17,12 @@ pub(super) struct Catalog {
     pub(super) reading_recent: bool,
     /// They were asked for again while being read, so that thread reads them once more.
     pub(super) recent_stale: bool,
-    /// Goes up with every scan, and whenever the recent files change, so the explorer repaints.
+    /// The home folder's files and folders, as last walked.
+    pub(super) home: Vec<super::index::Entry>,
+    /// The home folder is being walked on a thread of its own.
+    pub(super) indexing: bool,
+    /// Goes up with every scan, and whenever the recent or home files change, so the explorer
+    /// repaints.
     pub(super) version: u64,
     /// The apps' icons, rasterised on a thread of their own at the grid's size, by icon name.
     /// `None` for a name no theme has.
@@ -36,6 +41,8 @@ pub(super) struct Catalog {
 
 /// Reads the recent files: the list on disk in the session, a stand-in in tests.
 pub(super) type RecentReader = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
+/// Walks the home folder: the real one in the session, a stand-in in tests.
+pub(super) type HomeWalker = Arc<dyn Fn() -> Vec<super::index::Entry> + Send + Sync>;
 
 impl Explorer {
     /// Whether the installed apps have been read yet. They are scanned on another thread at
@@ -113,6 +120,35 @@ impl Explorer {
                     return;
                 }
             }
+        });
+    }
+
+    /// Walks the home folder again on a thread of its own, at most every two minutes, never
+    /// waiting for it. A walk stuck on a mount that doesn't answer keeps the last list, and no
+    /// other walk starts until it's done.
+    pub(super) fn index_home(&mut self) {
+        if self.indexed.is_some_and(|at| at.elapsed() < REINDEX) {
+            return;
+        }
+        {
+            let mut catalog = self.catalog.lock().unwrap();
+            if catalog.indexing {
+                return;
+            }
+            catalog.indexing = true;
+        }
+        self.indexed = Some(Instant::now());
+        let catalog = self.catalog.clone();
+        let walk = self.walk_home.clone();
+        std::thread::spawn(move || {
+            let found = walk();
+            tracing::debug!(found = found.len(), "walked the home folder");
+            let mut catalog = catalog.lock().unwrap();
+            if catalog.home != found {
+                catalog.home = found;
+                catalog.version += 1;
+            }
+            catalog.indexing = false;
         });
     }
 

@@ -415,7 +415,7 @@ impl Slipstream {
             }
             Item::File(path) => self.open_path(&path),
             Item::Run(query) => self.run_query(&query),
-            Item::Shortcuts => self.toggle_sheet(),
+            Item::Setting(page) => self.open_slipstream_settings(page),
             Item::Answer(answer) => {
                 tracing::info!("copied an answer from the explorer");
                 let clip = crate::history::Clip::Text(answer.value.clone().into());
@@ -426,9 +426,18 @@ impl Slipstream {
                 tracing::info!(name, "typing an emoji from the explorer");
                 self.put_on_clipboard(crate::history::Clip::Text(emoji.into()), true);
             }
-            Item::LogOut => {
-                tracing::info!("log out chosen in the explorer");
-                self.begin_exit(Intent::LogOut);
+            Item::System(action) => {
+                tracing::info!(?action, "chosen in the explorer");
+                match action {
+                    System::Lock => {
+                        self.lock_now();
+                    }
+                    System::QuickSettings => self.toggle_quick_settings(),
+                    System::LogOut => self.begin_exit(Intent::LogOut),
+                    System::Restart => self.begin_exit(Intent::Restart),
+                    System::ShutDown => self.begin_exit(Intent::ShutDown),
+                    System::Shortcuts => self.toggle_sheet(),
+                }
             }
         }
     }

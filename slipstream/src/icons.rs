@@ -19,6 +19,7 @@ pub const BELL: &str =
 pub const BLUETOOTH: &str = r#"<path d="M7 7.5l10 9-5 4.5v-18l5 4.5-10 9"/>"#;
 pub const SEARCH: &str = r#"<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/>"#;
 pub const FILE: &str = r#"<path d="M6 3.5h8l4.5 4.5v12.5H6z"/><path d="M14 3.5V8h4.5"/>"#;
+pub const FOLDER: &str = r#"<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.5l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/>"#;
 /// A padlock.
 pub const LOCK: &str = r#"<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>"#;
 pub const POWER: &str = r#"<path d="M12 3.5v8"/><path d="M6.8 6.8a7.5 7.5 0 1 0 10.4 0"/>"#;

@@ -328,7 +328,10 @@ pub fn search<'a>(apps: &'a [App], query: &str) -> Vec<&'a App> {
     scored.into_iter().map(|(_, _, app)| app).collect()
 }
 
-fn score(app: &App, query: &str) -> Option<u8> {
+/// How well `app` matches a lower-case query: 0 for its name's start, 1 for a word in its name,
+/// 2 for its generic name, a keyword or its id, 3 for anywhere in its name, 4 for its letters in
+/// order. `None` when it doesn't.
+pub fn score(app: &App, query: &str) -> Option<u8> {
     let words = |text: &str| {
         text.to_lowercase()
             .split(|ch: char| !ch.is_alphanumeric())

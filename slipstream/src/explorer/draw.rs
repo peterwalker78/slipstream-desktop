@@ -25,8 +25,8 @@ pub(super) struct Look {
     pub(super) scale: f64,
     /// How far the answer's decode is, in thirtieths of a second, while it runs.
     pub(super) decode_step: Option<u64>,
-    /// The keys named in it: the explorer's own, and the shortcut sheet's.
-    pub(super) keys: [String; 2],
+    /// The keys named in it.
+    pub(super) keys: Keys,
 }
 
 impl Explorer {
@@ -42,7 +42,7 @@ impl Explorer {
         now: f64,
         running: Vec<String>,
         ring: u32,
-        keys: [String; 2],
+        keys: Keys,
     ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -203,7 +203,7 @@ impl Explorer {
         ));
         if look.query.is_empty() {
             p.text(
-                "Apps, files, sums, :emoji",
+                "Apps, files, settings, sums, :emoji",
                 x + 9.0,
                 centre,
                 &Style::new(Face::Body, 27.0, panel::PLACEHOLDER),
@@ -213,7 +213,7 @@ impl Explorer {
             &mut p,
             fx + width - panel::HEAD_INSET,
             centre,
-            &[&look.keys[0]],
+            &[&look.keys.explorer],
             "",
         );
         p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, panel::DIVIDER);
@@ -304,7 +304,7 @@ impl Explorer {
             p.fill(fx + apps_w - 9.0, top, 3.0, thumb, 1.5, 0xffffff26);
         }
 
-        // The side column: run, files, system.
+        // The side column: answer, emoji, settings, files, run, system.
         let side_x = fx + apps_w;
         p.fill(side_x, body_y, 1.0, BODY_H, 0.0, panel::DIVIDER);
         let (row_x, row_w) = (side_x + 17.0, width - apps_w - 33.0);
@@ -327,7 +327,7 @@ impl Explorer {
                 Item::Answer(answer.clone()),
                 on_screen(row_x, y, row_w, ROW_H),
             ));
-            y += ROW_H + 3.0;
+            y += ROW_STEP;
             index += 1;
         }
         if !results.emoji.is_empty() {
@@ -354,7 +354,7 @@ impl Explorer {
                 },
                 look.ring,
             );
-            y += ROW_H + 3.0;
+            y += ROW_STEP;
         }
         for (emoji, name) in &results.emoji {
             side_row(
@@ -374,22 +374,28 @@ impl Explorer {
                 look.ring,
             );
             targets.push((Item::Emoji(emoji, name), on_screen(row_x, y, row_w, ROW_H)));
-            y += ROW_H + 3.0;
+            y += ROW_STEP;
             index += 1;
         }
-        if let Some(command) = &results.run {
-            y += header(&mut p, row_x, y, "Run");
-            let (opens, label) = run_label(command, self.run_is_program(command));
+        if !results.settings.is_empty() {
+            y += header(&mut p, row_x, y, "Settings");
+        }
+        for found in &results.settings {
+            // A setting found on a page says which page it's on.
+            let (label, trailing) = match found.matched {
+                Some(setting) => (setting, Some(found.page.title.to_string())),
+                None => (found.page.title, None),
+            };
             side_row(
                 &mut p,
                 row_x,
                 y,
                 row_w,
                 &Row {
-                    icon: if opens { icons::FILE } else { icons::RUN },
-                    label,
-                    trailing: (index == look.selected).then(|| "⏎".to_string()),
-                    keycap: true,
+                    icon: icons::COG,
+                    label: label.to_string(),
+                    trailing,
+                    keycap: false,
                     selected: index == look.selected,
                     dim: false,
                     glyph: None,
@@ -397,10 +403,10 @@ impl Explorer {
                 look.ring,
             );
             targets.push((
-                Item::Run(command.clone()),
+                Item::Setting(found.page.id),
                 on_screen(row_x, y, row_w, ROW_H),
             ));
-            y += ROW_H + 3.0;
+            y += ROW_STEP;
             index += 1;
         }
         let files_title = if look.query.trim().is_empty() {
@@ -421,7 +427,11 @@ impl Explorer {
                 row_w,
                 &Row {
                     icon: icons::FILE,
-                    label: "No files".into(),
+                    label: if look.query.trim().is_empty() {
+                        "No recent files".into()
+                    } else {
+                        "No files match".into()
+                    },
                     trailing: None,
                     keycap: false,
                     selected: false,
@@ -430,22 +440,23 @@ impl Explorer {
                 },
                 look.ring,
             );
-            y += ROW_H + 3.0;
+            y += ROW_STEP;
         }
-        for file in &results.files {
-            let folder = file
-                .parent()
-                .and_then(|dir| dir.file_name())
-                .map(|name| name.to_string_lossy().into_owned());
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        for found in &results.files {
             side_row(
                 &mut p,
                 row_x,
                 y,
                 row_w,
                 &Row {
-                    icon: icons::FILE,
-                    label: file_name(file),
-                    trailing: folder,
+                    icon: if found.folder {
+                        icons::FOLDER
+                    } else {
+                        icons::FILE
+                    },
+                    label: file_name(&found.path),
+                    trailing: folder_name(&found.path, home.as_deref()),
                     keycap: false,
                     selected: index == look.selected,
                     dim: false,
@@ -453,23 +464,55 @@ impl Explorer {
                 },
                 look.ring,
             );
-            targets.push((Item::File(file.clone()), on_screen(row_x, y, row_w, ROW_H)));
-            y += ROW_H + 3.0;
+            targets.push((
+                Item::File(found.path.clone()),
+                on_screen(row_x, y, row_w, ROW_H),
+            ));
+            y += ROW_STEP;
             index += 1;
         }
-        if results.log_out || results.shortcuts {
+        let mut run_opens = false;
+        if let Some(command) = &results.run {
+            y += header(&mut p, row_x, y, "Run");
+            let (opens, label) = run_label(command, self.run_is_program(command));
+            run_opens = opens;
+            side_row(
+                &mut p,
+                row_x,
+                y,
+                row_w,
+                &Row {
+                    icon: if opens { icons::FILE } else { icons::RUN },
+                    label,
+                    // Enter's key, as on an emoji, only while Enter would run it.
+                    trailing: (index == look.selected).then(|| "⏎".to_string()),
+                    keycap: true,
+                    selected: index == look.selected,
+                    dim: false,
+                    glyph: None,
+                },
+                look.ring,
+            );
+            targets.push((
+                Item::Run(command.clone()),
+                on_screen(row_x, y, row_w, ROW_H),
+            ));
+            y += ROW_STEP;
+            index += 1;
+        }
+        if !results.system.is_empty() {
             y += header(&mut p, row_x, y, "System");
         }
-        if results.log_out {
+        for action in &results.system {
             side_row(
                 &mut p,
                 row_x,
                 y,
                 row_w,
                 &Row {
-                    icon: icons::POWER,
-                    label: "Log out".into(),
-                    trailing: Some("Ctrl+Alt+Del".into()),
+                    icon: action.icon(),
+                    label: action.label().into(),
+                    trailing: action.key(&look.keys),
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,
@@ -477,41 +520,31 @@ impl Explorer {
                 },
                 look.ring,
             );
-            targets.push((Item::LogOut, on_screen(row_x, y, row_w, ROW_H)));
-            y += ROW_H + 3.0;
+            targets.push((Item::System(*action), on_screen(row_x, y, row_w, ROW_H)));
+            y += ROW_STEP;
             index += 1;
         }
-        if results.shortcuts {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: icons::KEYBOARD,
-                    label: "Keyboard shortcuts".into(),
-                    trailing: Some(look.keys[1].clone()),
-                    keycap: true,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((Item::Shortcuts, on_screen(row_x, y, row_w, ROW_H)));
-        }
 
-        // The footer.
+        // The footer: what the keys do, with Enter's word for what's chosen.
         let foot_y = body_y + BODY_H;
         p.fill(fx, foot_y, width, 1.0, 0.0, panel::DIVIDER);
         let mut right = fx + width - 22.0;
-        let keys: &[(&[&str], &str)] = &[
-            (&["Esc"], "clear, close"),
-            (&["Shift+⏎"], "new window"),
-            (&["⏎"], "open"),
-            (&["Tab"], "next"),
+        let chosen = results.items().into_iter().nth(look.selected);
+        let enter = match &chosen {
+            Some(Item::Answer(_)) => "copy",
+            Some(Item::Emoji(..)) => "type",
+            Some(Item::Run(_)) if !run_opens => "run",
+            _ => "open",
+        };
+        let mut keys: Vec<(&[&str], &str)> = vec![(&["Esc"], "clear, close")];
+        if matches!(chosen, Some(Item::App(_))) {
+            keys.push((&["Shift+⏎"], "new window"));
+        }
+        keys.extend([
+            (&["⏎"][..], enter),
+            (&["Tab"], "next section"),
             (&["← → ↑ ↓"], "choose"),
-        ];
+        ]);
         for (keys, label) in keys {
             right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label)
                 - panel::HINT_GAP;
@@ -563,6 +596,20 @@ pub(super) fn file_name(path: &std::path::Path) -> String {
         .unwrap_or_default()
 }
 
+/// The name of the folder a file is in, shown beside it: Home for the home folder itself.
+pub(super) fn folder_name(
+    path: &std::path::Path,
+    home: Option<&std::path::Path>,
+) -> Option<String> {
+    let folder = path.parent()?;
+    if Some(folder) == home {
+        return Some("Home".into());
+    }
+    folder
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
 /// An app with no icon gets a coloured square with its initial.
 pub(super) fn placeholder(p: &mut Painter, name: &str, x: f32, y: f32) {
     panel::app_placeholder(p, name, x + 4.0, y + 4.0, ICON - 8.0, 15.0, 30.0);
@@ -576,7 +623,7 @@ pub(super) fn header(p: &mut Painter, x: f32, y: f32, title: &str) -> f32 {
         y + 19.0,
         &panel::section_style(),
     );
-    32.0
+    HEADER_H
 }
 
 pub(super) struct Row<'a> {

@@ -80,7 +80,7 @@ use crate::{
     connect::{self, Connect},
     debug,
     exit::{self, Act, Exit, Intent},
-    explorer::{Explorer, Item, Outcome},
+    explorer::{Explorer, Item, Outcome, System},
     focus::KeyboardFocus,
     gravity::{Rung, Step},
     idle::Idle,

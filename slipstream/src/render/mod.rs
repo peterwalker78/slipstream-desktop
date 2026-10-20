@@ -1849,10 +1849,7 @@ fn card_elements(
     if state.explorer.is_open() {
         let running = state.running_apps();
         let ring = state.panel_ring();
-        let keys = [
-            state.key_label(crate::keys::Action::Explorer),
-            state.key_label(crate::keys::Action::ShortcutSheet),
-        ];
+        let keys = crate::explorer::Keys::new(|action| state.key_label(action));
         elements.extend(
             state
                 .explorer
