@@ -313,4 +313,14 @@ mod tests {
         );
         assert_eq!(choices(&CHANGE_CHOICES, 10), CHANGE_CHOICES);
     }
+
+    #[test]
+    fn every_page_can_be_found_from_the_app_explorer() {
+        let found: Vec<(&str, &str)> = slipstream_config::SETTINGS_PAGES
+            .iter()
+            .map(|page| (page.id, page.title))
+            .collect();
+        let shown: Vec<(&str, &str)> = PAGES.iter().map(|page| (page.id, page.title)).collect();
+        assert_eq!(found, shown);
+    }
 }

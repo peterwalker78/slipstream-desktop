@@ -75,6 +75,7 @@ pub mod battery;
 mod display;
 mod file;
 pub mod meter;
+mod pages;
 pub mod screens;
 pub mod sun;
 mod wallpaper;
@@ -90,6 +91,7 @@ pub use display::{
 pub use file::{
     FILE_NAME, civil, move_aside, path, read, replace, replace_private, write, xdg_home,
 };
+pub use pages::{SETTINGS_PAGES, SettingsPage};
 pub use wallpaper::{VARIATIONS, Variation, Wallpaper, current_id};
 pub use workspaces::{MAX_WORKSPACES, WorkspaceEntry, Workspaces, unused_id, workspace_label};
 
