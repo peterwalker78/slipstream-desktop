@@ -304,7 +304,7 @@ impl Streaks {
                     } else {
                         ((yf - trail_top) / (tail - trail_top)).clamp(0.0, 1.0) * TRAIL_LIGHT
                     } * b;
-                    column(&mut sum, w, h, y, streak.x, half, colour, amount);
+                    column(&mut sum, (w, h), y, streak.x, half, colour, amount);
                 }
             }
             // The head's glow.
@@ -483,8 +483,7 @@ fn add(sum: &mut [f32], w: usize, x: usize, y: usize, rgb: [f32; 3], amount: f32
 /// covers it, so fine streaks between pixels stay smooth.
 fn column(
     sum: &mut [f32],
-    w: usize,
-    h: usize,
+    (w, h): (usize, usize),
     y: usize,
     x: f32,
     half: f32,

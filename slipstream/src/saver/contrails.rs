@@ -153,16 +153,15 @@ pub struct Contrails {
 }
 
 impl Contrails {
-    /// Lays down one flight's trail at `t`, and raises each letter's entry in `lit` to how brightly
-    /// the trail lights it.
+    /// Lays down one flight's trail at `t`, in `smoke` lit by `glow`, and raises each letter's
+    /// entry in `lit` to how brightly the trail lights it.
     fn trail(
         letter_at: &[Option<usize>],
         layout: &Layout,
         grid: &mut Grid,
         flight: &Flight,
         t: f64,
-        smoke: [f32; 3],
-        glow: f32,
+        (smoke, glow): ([f32; 3], f32),
         lit: &mut [f32],
     ) {
         let head = flight.along(t);
@@ -356,8 +355,7 @@ impl Variation for Contrails {
                     grid,
                     &flight,
                     t,
-                    smoke,
-                    glow,
+                    (smoke, glow),
                     &mut self.lit,
                 );
             }

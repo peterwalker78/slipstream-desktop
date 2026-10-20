@@ -460,6 +460,8 @@ impl Band {
                 clip,
                 colour: self.colour,
                 name_colour: self.name_colour,
+                glyphs: &mut *glyphs,
+                size,
             };
             for cell in 0..self.rows {
                 let glyph = s.glyphs[cell];
@@ -474,24 +476,20 @@ impl Band {
                     continue;
                 }
                 target.glyph(
-                    glyphs,
                     glyph,
                     s.highlight[cell],
                     left,
                     screen_y(s.y - cell as f32 + 1.0),
-                    size,
                     ramp(j) * light,
                     splash,
                 );
             }
             if !s.erasing {
                 target.glyph(
-                    glyphs,
                     s.spinner,
                     false,
                     left,
                     screen_y(s.y - s.spinner_y + 1.0),
-                    size,
                     light,
                     splash,
                 );
@@ -531,6 +529,8 @@ impl Band {
             clip: (0, w as i32),
             colour: self.colour,
             name_colour: self.name_colour,
+            glyphs,
+            size,
         };
         for cell in 0..self.rows {
             let glyph = s.glyphs[cell];
@@ -544,24 +544,20 @@ impl Band {
                 continue;
             }
             target.glyph(
-                glyphs,
                 glyph,
                 s.highlight[cell],
                 along(s.y - cell as f32 + 1.0),
                 top,
-                size,
                 ramp(j) * light,
                 1.0,
             );
         }
         if !s.erasing {
             target.glyph(
-                glyphs,
                 s.spinner,
                 false,
                 along(s.y - s.spinner_y + 1.0),
                 top,
-                size,
                 light,
                 1.0,
             );
@@ -571,6 +567,9 @@ impl Band {
 
 struct Target<'a> {
     pixels: &'a mut [u8],
+    /// The glyphs, and the size each is drawn at.
+    glyphs: &'a mut Glyphs,
+    size: (usize, usize),
     w: usize,
     h: usize,
     /// Left inclusive, right exclusive.
@@ -582,17 +581,8 @@ struct Target<'a> {
 }
 
 impl Target<'_> {
-    fn glyph(
-        &mut self,
-        glyphs: &mut Glyphs,
-        glyph: i16,
-        highlight: bool,
-        x: f32,
-        y: f32,
-        size: (usize, usize),
-        brightness: f32,
-        splash: f32,
-    ) {
+    fn glyph(&mut self, glyph: i16, highlight: bool, x: f32, y: f32, brightness: f32, splash: f32) {
+        let size = self.size;
         let (x, y) = (x.round() as i32, y.round() as i32);
         if y > self.h as i32 || y + (size.1 as i32) < 0 {
             return;
@@ -613,7 +603,7 @@ impl Target<'_> {
         }
         let index = (glyph.unsigned_abs() - 1) as usize;
         // Matrix mode mirrors every glyph; text stays readable.
-        let Some(light) = glyphs.scaled(index, !highlight, size) else {
+        let Some(light) = self.glyphs.scaled(index, !highlight, size) else {
             return;
         };
         // Coverage is cached uncoloured, so one cached glyph serves every colour the rain takes.

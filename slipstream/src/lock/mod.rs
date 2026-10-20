@@ -380,8 +380,17 @@ impl<W> Lock<W> {
         let view = self.view(facts, now);
         let alpha = self.shown(now);
         let dx = self.shake(now);
-        self.card
-            .elements(renderer, &view, size, scale, Shown { alpha, grow: 1.0, dx })
+        self.card.elements(
+            renderer,
+            &view,
+            size,
+            scale,
+            Shown {
+                alpha,
+                grow: 1.0,
+                dx,
+            },
+        )
     }
 
     /// The card as it was at the moment of unlocking, to fade out.
@@ -466,8 +475,17 @@ impl Unlocking {
         if alpha <= 0.0 {
             return Vec::new();
         }
-        self.card
-            .elements(renderer, &self.view, size, scale, Shown { alpha, grow, dx: 0.0 })
+        self.card.elements(
+            renderer,
+            &self.view,
+            size,
+            scale,
+            Shown {
+                alpha,
+                grow,
+                dx: 0.0,
+            },
+        )
     }
 }
 

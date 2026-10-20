@@ -313,9 +313,7 @@ impl Explorer {
             let selected = index == look.selected;
             answer_row(
                 &mut p,
-                row_x,
-                y,
-                row_w,
+                (row_x, y, row_w),
                 answer,
                 selected,
                 look.ring,
@@ -636,13 +634,12 @@ pub(super) struct Row<'a> {
     pub(super) glyph: Option<&'a str>,
 }
 
-/// The answer to a sum or a conversion: what was understood, then the value, which decodes out of
-/// rain glyphs for `decoding` seconds after it changes. Enter copies it.
+/// The answer to a sum or a conversion, in a row `w` wide at (`x`, `y`): what was understood, then
+/// the value, which decodes out of rain glyphs for `decoding` seconds after it changes. Enter
+/// copies it.
 pub(super) fn answer_row(
     p: &mut Painter,
-    x: f32,
-    y: f32,
-    w: f32,
+    (x, y, w): (f32, f32, f32),
     answer: &crate::calc::Answer,
     selected: bool,
     ring: u32,

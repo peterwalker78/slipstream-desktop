@@ -105,8 +105,7 @@ impl View {
             && ui < 1.0
             && !state.clock.reduced_motion
             && chrome.glass.ready(renderer);
-        let bar_apart =
-            glass && rain && zoomed_out <= 0.0 && state.docked_on_show().is_some();
+        let bar_apart = glass && rain && zoomed_out <= 0.0 && state.docked_on_show().is_some();
         // Bullet time leans the overview back like a floor, in a near perspective, and turns it a
         // little while gliding between workspaces, unless fingers are moving it.
         let velocity = if state.clock.reduced_motion || !state.motion.turns(&name) {
@@ -292,8 +291,15 @@ pub fn output_elements(
     let now = state.clock.frame();
     // While locked, the lock is all there is: nothing below reads a window.
     if state.lock.is_some() {
-        let elements =
-            lock_elements(state, renderer, output, geo, &mut chrome, &mut saver, cursor);
+        let elements = lock_elements(
+            state,
+            renderer,
+            output,
+            geo,
+            &mut chrome,
+            &mut saver,
+            cursor,
+        );
         chrome.unlock = None;
         state.chromes.insert(name.clone(), chrome);
         state.savers.insert(name, saver);
@@ -345,13 +351,7 @@ pub fn output_elements(
     }
     if v.first {
         elements.extend(card_elements(
-            state,
-            renderer,
-            geo.size,
-            v.scale.x,
-            now,
-            v.wall,
-            deck_shown,
+            state, renderer, geo.size, v.scale.x, now, v.wall, deck_shown,
         ));
     }
     elements.extend(popup_elements(state, renderer, &v));
@@ -395,7 +395,10 @@ pub fn output_elements(
         }
     }
     elements.splice(behind_bar..behind_bar, deck_elements);
-    elements.splice(behind_bar..behind_bar, std::mem::take(&mut world.pane_layer));
+    elements.splice(
+        behind_bar..behind_bar,
+        std::mem::take(&mut world.pane_layer),
+    );
 
     if v.first && v.ui > 0.0 && v.zoomed_out > 0.0 {
         workspace_frame_elements(state, renderer, &v, &mut chrome, &mut world);
@@ -458,13 +461,28 @@ pub fn output_elements(
     }
 
     let fallen = if v.glass {
-        fade_into_glass(renderer, &v, &mut chrome, &mut elements, world.bar_pane, pane_start)
+        fade_into_glass(
+            renderer,
+            &v,
+            &mut chrome,
+            &mut elements,
+            world.bar_pane,
+            pane_start,
+        )
     } else {
         Fallen::default()
     };
     unlock_elements(state, renderer, &v, &mut chrome, &mut elements, pane_start);
     if v.tiling {
-        wallpaper_elements(state, renderer, &v, &mut chrome, &mut saver, &mut elements, fallen);
+        wallpaper_elements(
+            state,
+            renderer,
+            &v,
+            &mut chrome,
+            &mut saver,
+            &mut elements,
+            fallen,
+        );
     }
     curtain_elements(state, &v, &mut chrome, &mut elements);
     chrome.panes.finish();
@@ -472,7 +490,6 @@ pub fn output_elements(
     state.savers.insert(name, saver);
     elements
 }
-
 
 /// The password card, a snip being chosen, and other programs' launchers, pickers and panels, in
 /// front of everything of the desktop's. Returns whether other programs' layers are shown at all.
@@ -586,10 +603,9 @@ fn popup_elements(
     let mut over_windows = Vec::new();
     let (size, scale) = (v.geo.size, v.scale);
     if v.first && v.ui > 0.0 && !state.fullscreen_on(v.active) {
-        let (popups, expired) =
-            state
-                .notices
-                .popup_elements(renderer, size.w, scale.x, v.now, v.ui_alpha);
+        let (popups, expired) = state
+            .notices
+            .popup_elements(renderer, size.w, scale.x, v.now, v.ui_alpha);
         over_windows.extend(popups.iter().map(|popup| popup.geometry(scale)));
         elements.extend(popups.into_iter().map(OutputElement::Memory));
         crate::notify::closed(expired, crate::notify::Reason::Expired);
@@ -649,7 +665,11 @@ fn bullet_border_elements(
             ((v.geo.size.w - legend.logical.w) / 2) as f64,
             h - 28.0 * 0.8 - legend.logical.h as f64,
         ));
-        elements.extend(legend.element(renderer, at, fade).map(OutputElement::Memory));
+        elements.extend(
+            legend
+                .element(renderer, at, fade)
+                .map(OutputElement::Memory),
+        );
     }
     elements
 }
@@ -700,7 +720,13 @@ fn bar_elements(
         && let Some((_, flight)) = state.dock_leaving.as_ref()
     {
         // The slot of a pane on its way down: its light runs out and it closes behind it.
-        slot = Some((x, width, crate::dock::SlotLook::left(flight, v.now), false, true));
+        slot = Some((
+            x,
+            width,
+            crate::dock::SlotLook::left(flight, v.now),
+            false,
+            true,
+        ));
     }
     if let Some((x, width, look, keyboard, leaving)) = slot {
         let light = state.rain.light();
@@ -892,10 +918,7 @@ fn dock_bay_elements(
     else {
         return;
     };
-    let at = Point::from((
-        (pane.x - v.geo.loc.x) as f64,
-        (pane.y - v.geo.loc.y) as f64,
-    ));
+    let at = Point::from(((pane.x - v.geo.loc.x) as f64, (pane.y - v.geo.loc.y) as f64));
     world.elements.extend(
         chrome
             .dock_frame(renderer, (pane.w, pane.h), v.scale.x, at, v.ui_alpha)
@@ -903,14 +926,10 @@ fn dock_bay_elements(
     );
     let inside =
         Rectangle::<i32, Logical>::new((at.x as i32, at.y as i32).into(), (pane.w, pane.h).into());
-    world.elements.push(OutputElement::Solid(chrome.overview.solid(
-        inside,
-        DOCK_BAY,
-        v.scale,
-        v.ui_alpha,
-    )));
+    world.elements.push(OutputElement::Solid(
+        chrome.overview.solid(inside, DOCK_BAY, v.scale, v.ui_alpha),
+    ));
 }
-
 
 /// The windows, front to back, and what moves among them: the docked pane's bay and flights, and
 /// two tiles passing through each other. The deck's windows are drawn in the deck instead.
@@ -1275,21 +1294,18 @@ fn overview_marks(
             let outline = &mut chrome.overview;
             let near = outline.outline(shown, 6.0, 6, ring, drawn.scale, alpha);
             let glow = outline.outline(shown, 14.0 + 6.0, 1, ring, drawn.scale, alpha * 0.25);
-            world.elements.extend(
-                near.into_iter()
-                    .chain(glow)
-                    .map(OutputElement::Solid),
-            );
+            world
+                .elements
+                .extend(near.into_iter().chain(glow).map(OutputElement::Solid));
         }
         state.overview_hits.push((window.clone(), shown));
     }
     // Workspaces not being looked at are dimmed.
     if drawn.home != Some(v.viewed) {
         let dim = alpha * 0.55 * v.zoomed_out.min(1.0) as f32;
-        let shade =
-            chrome
-                .overview
-                .solid(shown.to_i32_round(), overview::SHADE, drawn.scale, dim);
+        let shade = chrome
+            .overview
+            .solid(shown.to_i32_round(), overview::SHADE, drawn.scale, dim);
         world.elements.push(OutputElement::Solid(shade));
     }
 }
@@ -1391,12 +1407,14 @@ fn docked_marks(
                 .into(),
             (shown.size.w.round() as i32 + 2 * edge, 2).into(),
         );
-        world.elements.push(OutputElement::Solid(chrome.overview.solid(
-            line,
-            WHITE,
-            drawn.scale,
-            alpha * seam,
-        )));
+        world
+            .elements
+            .push(OutputElement::Solid(chrome.overview.solid(
+                line,
+                WHITE,
+                drawn.scale,
+                alpha * seam,
+            )));
         world.elements.extend(
             chrome
                 .overview
@@ -1436,7 +1454,9 @@ fn passing_elements(
         crate::pane::Axis::Across => {
             crate::pane::project(&front, &camera, (end, 0.5)).map(|(x, _)| x)
         }
-        crate::pane::Axis::Down => crate::pane::project(&front, &camera, (0.5, end)).map(|(_, y)| y),
+        crate::pane::Axis::Down => {
+            crate::pane::project(&front, &camera, (0.5, end)).map(|(_, y)| y)
+        }
     };
     let deep = deep as f32;
     let front_look = crate::pane::Look {
@@ -1619,7 +1639,14 @@ fn workspace_frame_elements(
         world.elements.extend(
             chrome
                 .overview
-                .workspace_label(renderer, (&label, &caption), viewed, at, v.world_scale.x, fade)
+                .workspace_label(
+                    renderer,
+                    (&label, &caption),
+                    viewed,
+                    at,
+                    v.world_scale.x,
+                    fade,
+                )
                 .map(OutputElement::Memory),
         );
         if count == 0 {
@@ -1746,13 +1773,10 @@ fn fade_into_glass(
     // The bar's pane first: it is in front.
     if !bar_pane.is_empty() {
         let gone = crate::glass::nearer(1.0 - v.ui);
-        match chrome.glass_bar.element(
-            renderer,
-            &bar_pane,
-            screen,
-            gone,
-            crate::glass::NEARER,
-        ) {
+        match chrome
+            .glass_bar
+            .element(renderer, &bar_pane, screen, gone, crate::glass::NEARER)
+        {
             Some(bar) => {
                 fallen.bar = Some(elements.len());
                 elements.push(OutputElement::Shaded(bar));
@@ -1895,7 +1919,10 @@ fn curtain_elements(
     if !v.tiling {
         return;
     }
-    let alpha = state.exit.as_ref().map_or(0.0, |exit| exit.blackout(v.wall));
+    let alpha = state
+        .exit
+        .as_ref()
+        .map_or(0.0, |exit| exit.blackout(v.wall));
     if alpha > 0.0 {
         chrome.blackout.update(v.geo.size, BLACK);
         elements.insert(

@@ -78,6 +78,16 @@ fn rounded(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<tiny_skia::Pat
     path.finish()
 }
 
+/// How a glass card looks: its corners, the shadow it casts (`dy` down, `blur` wide, in its
+/// colour), its fill and the faint edge inside it.
+#[derive(Debug, Clone, Copy)]
+pub struct CardStyle {
+    pub radius: f32,
+    pub shadow: (f32, f32, u32),
+    pub fill: u32,
+    pub edge: u32,
+}
+
 /// A drop shadow, and the glass card casting it if there is one, in layout units.
 struct Layer {
     w: f32,
@@ -186,6 +196,8 @@ impl Painter {
     }
 
     /// A border `width` thick inside the box, as CSS draws one.
+    // Box, corner radius, then paint: the order every painting call here takes.
+    #[allow(clippy::too_many_arguments)]
     pub fn border(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, width: f32, rgba: u32) {
         let half = width / 2.0;
         if let Some(path) = rounded(x + half, y + half, w - width, h - width, radius - half) {
@@ -216,6 +228,8 @@ impl Painter {
 
     /// A soft drop shadow, like CSS `box-shadow: 0 dy blur`, built from stacked translucent
     /// rounded rectangles, since tiny-skia can't blur.
+    // Box, corner radius, then paint: the order every painting call here takes.
+    #[allow(clippy::too_many_arguments)]
     pub fn shadow(
         &mut self,
         x: f32,
@@ -242,28 +256,19 @@ impl Painter {
         );
     }
 
-    /// A glass card with its shadow: the shadow, a fill with a faint edge inside it, and a dark
-    /// line just outside.
-    pub fn card(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        radius: f32,
-        (dy, blur, shadow): (f32, f32, u32),
-        fill: u32,
-        edge: u32,
-    ) {
+    /// A glass card in `style` with its shadow: the shadow, a fill with a faint edge inside it,
+    /// and a dark line just outside.
+    pub fn card(&mut self, x: f32, y: f32, w: f32, h: f32, style: &CardStyle) {
+        let (dy, blur, shadow) = style.shadow;
         self.layer(
             Layer {
                 w,
                 h,
-                radius,
+                radius: style.radius,
                 dy,
                 blur,
                 shadow,
-                glass: Some((fill, edge)),
+                glass: Some((style.fill, style.edge)),
             },
             x,
             y,
@@ -766,6 +771,12 @@ mod layer_tests {
     const SHADOW: (f32, f32, u32) = (40.0, 110.0, 0x000000b0);
     const FILL: u32 = 0x10131af8;
     const EDGE: u32 = 0xffffff1c;
+    const STYLE: CardStyle = CardStyle {
+        radius: 18.0,
+        shadow: SHADOW,
+        fill: FILL,
+        edge: EDGE,
+    };
 
     /// The card painted the slow way, straight onto the pixmap, a dozen fills and two strokes.
     fn in_place(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
@@ -837,7 +848,7 @@ mod layer_tests {
             // Painted fresh, then copied from the cache.
             for _ in 0..2 {
                 let mut fast = Painter::new(900, 700, f).unwrap();
-                fast.card(x, y, 400.0, 250.0, 18.0, SHADOW, FILL, EDGE);
+                fast.card(x, y, 400.0, 250.0, &STYLE);
                 let worst = difference_off_the_outline(&slow, &fast, (x, y, 400.0, 250.0));
                 assert!(worst <= 4, "at {f}×, ({x}, {y}): {worst}");
             }
@@ -851,7 +862,7 @@ mod layer_tests {
         in_place(&mut slow, 60.0, 30.0, 300.0, 200.0);
         let mut fast = Painter::new(600, 500, 1.0).unwrap();
         fast.fill(0.0, 0.0, 600.0, 40.0, 0.0, 0x3cf0c0ff);
-        fast.card(60.0, 30.0, 300.0, 200.0, 18.0, SHADOW, FILL, EDGE);
+        fast.card(60.0, 30.0, 300.0, 200.0, &STYLE);
         assert!(difference_off_the_outline(&slow, &fast, (60.0, 30.0, 300.0, 200.0)) <= 4);
         // The green band still shows beside the card.
         assert_eq!(&fast.pixmap.data()[..4], &[0x3c, 0xf0, 0xc0, 0xff]);
@@ -887,7 +898,7 @@ mod layer_tests {
     #[test]
     fn a_layer_hanging_off_the_pixmap_is_clipped() {
         let mut p = Painter::new(100, 80, 1.0).unwrap();
-        p.card(-50.0, 40.0, 300.0, 200.0, 18.0, SHADOW, FILL, EDGE);
+        p.card(-50.0, 40.0, 300.0, 200.0, &STYLE);
         p.shadow(80.0, -30.0, 60.0, 60.0, 10.0, 6.0, 16.0, 0x00000099);
     }
 }

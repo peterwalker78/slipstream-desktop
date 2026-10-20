@@ -17,10 +17,7 @@ impl GlyphCache {
         &mut self,
         pixels: &mut [u8],
         width: usize,
-        x0: usize,
-        y0: usize,
-        w: usize,
-        h: usize,
+        (x0, y0, w, h): (usize, usize, usize, usize),
         ch: char,
         rgb: [u8; 3],
         weight: f32,
@@ -64,10 +61,7 @@ impl GlyphCache {
 pub(super) fn fill(
     pixels: &mut [u8],
     width: usize,
-    x: usize,
-    y: usize,
-    w: usize,
-    h: usize,
+    (x, y, w, h): (usize, usize, usize, usize),
     rgb: [u8; 3],
 ) {
     for row in y..y + h {
@@ -82,10 +76,7 @@ pub(super) fn fill(
 pub(super) fn ink_fill(
     pixels: &mut [u8],
     width: usize,
-    x: usize,
-    y: usize,
-    w: usize,
-    h: usize,
+    (x, y, w, h): (usize, usize, usize, usize),
     rgb: [u8; 3],
     weight: f32,
 ) {
@@ -124,7 +115,7 @@ pub(super) fn paint_cell(
     let (w, h) = (layout.cell_w, layout.cell_h);
     let x0 = layout.origin.0 + col as usize * w;
     let y0 = layout.origin.1 + row as usize * h;
-    fill(pixels, width, x0, y0, w, h, BACKGROUND);
+    fill(pixels, width, (x0, y0, w, h), BACKGROUND);
     let weight = along as f32 / TWEEN_LEVELS as f32;
     if from != to {
         ink_cell(pixels, width, glyphs, (x0, y0, w, h), from, 1.0 - weight);
@@ -145,7 +136,7 @@ pub(super) fn ink_cell(
     let (half_w, half_h) = (w / 2, h / 2);
     if let Some(lit) = quarters(cell.ch) {
         if lit == [true; 4] {
-            ink_fill(pixels, width, x0, y0, w, h, rgb, weight);
+            ink_fill(pixels, width, (x0, y0, w, h), rgb, weight);
             return;
         }
         for (at, _) in lit.iter().enumerate().filter(|(_, on)| **on) {
@@ -159,7 +150,7 @@ pub(super) fn ink_cell(
             } else {
                 (y0, half_h)
             };
-            ink_fill(pixels, width, x, y, qw, qh, rgb, weight);
+            ink_fill(pixels, width, (x, y, qw, qh), rgb, weight);
         }
         return;
     }
@@ -167,16 +158,13 @@ pub(super) fn ink_cell(
         ' ' => {}
         // Shades fill the cell at a fraction of the ink, which is what they look like in a
         // terminal and several times cheaper than a glyph.
-        '░' => ink_fill(pixels, width, x0, y0, w, h, rgb, weight * 0.25),
-        '▒' => ink_fill(pixels, width, x0, y0, w, h, rgb, weight * 0.5),
-        '▓' => ink_fill(pixels, width, x0, y0, w, h, rgb, weight * 0.75),
+        '░' => ink_fill(pixels, width, (x0, y0, w, h), rgb, weight * 0.25),
+        '▒' => ink_fill(pixels, width, (x0, y0, w, h), rgb, weight * 0.5),
+        '▓' => ink_fill(pixels, width, (x0, y0, w, h), rgb, weight * 0.75),
         '─' => ink_fill(
             pixels,
             width,
-            x0,
-            y0 + half_h,
-            w,
-            (h / 14).max(1),
+            (x0, y0 + half_h, w, (h / 14).max(1)),
             rgb,
             weight,
         ),
@@ -185,30 +173,26 @@ pub(super) fn ink_cell(
         '▔' => ink_fill(
             pixels,
             width,
-            x0,
-            y0 + half_h - h / 3,
-            w,
-            (h / 14).max(1),
+            (x0, y0 + half_h - h / 3, w, (h / 14).max(1)),
             rgb,
             weight,
         ),
         '▁' => ink_fill(
             pixels,
             width,
-            x0,
-            y0 + half_h + h / 3 - (h / 14).max(1),
-            w,
-            (h / 14).max(1),
+            (
+                x0,
+                y0 + half_h + h / 3 - (h / 14).max(1),
+                w,
+                (h / 14).max(1),
+            ),
             rgb,
             weight,
         ),
         '━' => ink_fill(
             pixels,
             width,
-            x0,
-            y0 + half_h - h / 12,
-            w,
-            (h / 6).max(2),
+            (x0, y0 + half_h - h / 12, w, (h / 6).max(2)),
             rgb,
             weight,
         ),
@@ -221,11 +205,11 @@ pub(super) fn ink_cell(
                 if bits & (1 << bit) != 0 {
                     let x = x0 + (w * (1 + 2 * across)) / 4 - dot_w / 2;
                     let y = y0 + (h * (1 + 2 * down)) / 8 - dot_h / 2;
-                    ink_fill(pixels, width, x, y, dot_w, dot_h, rgb, weight);
+                    ink_fill(pixels, width, (x, y, dot_w, dot_h), rgb, weight);
                 }
             }
         }
-        ch => glyphs.draw(pixels, width, x0, y0, w, h, ch, rgb, weight),
+        ch => glyphs.draw(pixels, width, (x0, y0, w, h), ch, rgb, weight),
     }
 }
 

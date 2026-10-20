@@ -94,16 +94,15 @@ pub fn run(request: &Request) -> Result<(), String> {
     // The still picture, from a variation of its own so it starts from nothing.
     if let Some(mut still) = make(&request.id) {
         still.reset(&layout, 1);
-        compose(
-            &mut *still,
-            &layout,
-            &mut grid,
-            0.0,
-            0.0,
-            true,
-            &readings,
-            None,
-        );
+        let frame = Frame {
+            layout: &layout,
+            elapsed: 0.0,
+            dt: 0.0,
+            still: true,
+            readings: &readings,
+            local: None,
+        };
+        compose(&mut *still, &mut grid, frame);
         canvas.save(&layout, &grid, &request.out.join("still.png"))?;
     }
 
@@ -114,16 +113,15 @@ pub fn run(request: &Request) -> Result<(), String> {
     let mut frame = 0;
     while frame < request.frames {
         let local = offset.map(|minutes| started + elapsed + minutes as f64 * 60.0);
-        compose(
-            &mut *variation,
-            &layout,
-            &mut grid,
+        let moment = Frame {
+            layout: &layout,
             elapsed,
-            dt as f32,
-            false,
-            &readings,
+            dt: dt as f32,
+            still: false,
+            readings: &readings,
             local,
-        );
+        };
+        compose(&mut *variation, &mut grid, moment);
         let step = 1.0 / step_hz(variation.step_hz(), &layout);
         // Every frame due before the next step shows this one, as the screen would.
         while frame < request.frames && from + frame as f64 * request.every < elapsed + step {
@@ -140,28 +138,9 @@ pub fn run(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-fn compose(
-    variation: &mut dyn super::Variation,
-    layout: &Layout,
-    grid: &mut Grid,
-    elapsed: f64,
-    dt: f32,
-    still: bool,
-    readings: &Readings,
-    local: Option<f64>,
-) {
-    grid.blank(layout.cols, layout.rows);
-    variation.compose(
-        Frame {
-            layout,
-            elapsed,
-            dt,
-            still,
-            readings,
-            local,
-        },
-        grid,
-    );
+fn compose(variation: &mut dyn super::Variation, grid: &mut Grid, frame: Frame) {
+    grid.blank(frame.layout.cols, frame.layout.rows);
+    variation.compose(frame, grid);
 }
 
 /// The time, the date and the first workspace, as the bar would give them now. No battery: a

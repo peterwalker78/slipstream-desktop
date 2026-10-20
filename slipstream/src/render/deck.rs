@@ -123,14 +123,11 @@ pub(super) fn deck_elements_for(
             shade: *shade,
             ..Default::default()
         };
-        if let Some(element) = chrome.panes.element(
-            renderer,
-            &deck.windows[*i],
-            pose,
-            &eye,
-            view.sizes(),
-            &look,
-        ) {
+        if let Some(element) =
+            chrome
+                .panes
+                .element(renderer, &deck.windows[*i], pose, &eye, view.sizes(), &look)
+        {
             elements.push(OutputElement::Shaded(element));
         }
         if *alpha > 0.5

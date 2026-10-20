@@ -69,17 +69,16 @@ const OPEN: f64 = 0.2;
 /// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
 /// nearly solid, as the explorer's is.
 pub fn glass(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
-    p.card(
-        x,
-        y,
-        w,
-        h,
-        18.0,
-        (16.0, 64.0, 0x00000048),
-        GLASS,
-        GLASS_EDGE,
-    );
+    p.card(x, y, w, h, &PANEL_CARD);
 }
+
+/// Large panels' card: their glass, its edge, and the soft shadow under it.
+const PANEL_CARD: crate::paint::CardStyle = crate::paint::CardStyle {
+    radius: 18.0,
+    shadow: (16.0, 64.0, 0x00000048),
+    fill: GLASS,
+    edge: GLASS_EDGE,
+};
 
 /// Large panels' glass: the explorer, quick settings, the centre, the cards and the sheet.
 pub const GLASS: u32 = 0x10131af8;

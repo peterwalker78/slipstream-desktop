@@ -245,7 +245,15 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
                     fade(0xffffff18, win.dock),
                 );
             }
-            window(p, win.kind, x, y, ww, wh, frame.scale, win.alpha, scene);
+            let place = Place {
+                x,
+                y,
+                w: ww,
+                h: wh,
+                k: frame.scale,
+                alpha: win.alpha,
+            };
+            window(p, win.kind, place, scene);
             if scene.focus == Some(index) {
                 p.border(
                     x - 1.0,
@@ -462,8 +470,10 @@ fn streams(p: &mut Painter, streams: &[Stream], frame: &Frame, look: &Look) {
         let bottom = ay + ah;
         p.fill(x, top, sw, bottom - top, 3.0, fade(0x0f131aff, open));
         match look.effects {
-            Effects::Matrix => glyphs(p, stream, index, x, sw, top, bottom, look.secs, open),
-            Effects::Slipstream => streaks(p, stream, index, x, sw, top, bottom, look.secs, open),
+            Effects::Matrix => glyphs(p, stream, index, (x, sw), (top, bottom), look.secs, open),
+            Effects::Slipstream => {
+                streaks(p, stream, index, (x, sw), (top, bottom), look.secs, open)
+            }
         }
         x += (STREAM_W + STREAM_GAP) * open;
     }
@@ -479,10 +489,8 @@ fn glyphs(
     p: &mut Painter,
     stream: &Stream,
     index: usize,
-    x: f32,
-    w: f32,
-    top: f32,
-    bottom: f32,
+    (x, w): (f32, f32),
+    (top, bottom): (f32, f32),
     secs: f32,
     alpha: f32,
 ) {
@@ -523,10 +531,8 @@ fn streaks(
     p: &mut Painter,
     stream: &Stream,
     index: usize,
-    x: f32,
-    w: f32,
-    top: f32,
-    bottom: f32,
+    (x, w): (f32, f32),
+    (top, bottom): (f32, f32),
     secs: f32,
     alpha: f32,
 ) {
@@ -567,40 +573,40 @@ fn streaks(
 }
 
 /// One window, drawn as its app, `k` times its natural size.
-fn window(
-    p: &mut Painter,
-    kind: Kind,
+fn window(p: &mut Painter, kind: Kind, place: Place, scene: &Scene) {
+    match kind {
+        Kind::Terminal => terminal(p, place, scene.typing),
+        Kind::Browser => browser(p, place),
+        Kind::Editor => editor(p, place),
+        Kind::Files => files(p, place),
+        Kind::Music => music(p, place),
+        Kind::Chat => chat(p, place),
+    }
+}
+
+/// Where a window of the miniature is drawn: its box, `k` times its natural size, at `alpha`.
+#[derive(Debug, Clone, Copy)]
+struct Place {
     x: f32,
     y: f32,
     w: f32,
     h: f32,
     k: f32,
     alpha: f32,
-    scene: &Scene,
-) {
-    match kind {
-        Kind::Terminal => terminal(p, x, y, w, h, k, alpha, scene.typing),
-        Kind::Browser => browser(p, x, y, w, h, k, alpha),
-        Kind::Editor => editor(p, x, y, w, h, k, alpha),
-        Kind::Files => files(p, x, y, w, h, k, alpha),
-        Kind::Music => music(p, x, y, w, h, k, alpha),
-        Kind::Chat => chat(p, x, y, w, h, k, alpha),
-    }
 }
 
 type Span = (&'static str, u32);
 
 /// A terminal's lines of coloured spans, top down, as many as fit.
-fn lines(
-    p: &mut Painter,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    k: f32,
-    alpha: f32,
-    rows: &[&[Span]],
-) -> f32 {
+fn lines(p: &mut Painter, place: Place, rows: &[&[Span]]) -> f32 {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     let pitch = 8.6 * k;
     let right = x + w - 4.0 * k;
     let mut line_y = y + 7.0 * k;
@@ -629,16 +635,15 @@ const DOLLAR: Span = (" $ ", DIM);
 /// The command typed in the lesson about typing.
 const COMMAND: &str = "git commit -m \"Fix the login redirect\"";
 
-fn terminal(
-    p: &mut Painter,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-    k: f32,
-    alpha: f32,
-    typing: Option<f32>,
-) {
+fn terminal(p: &mut Painter, place: Place, typing: Option<f32>) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     p.fill(x, y, w, h, 0.0, fade(0x1d2026ff, alpha));
     let rows: &[&[Span]] = &[
         &[PROMPT, DOLLAR, ("cargo build --release", TERMINAL_INK)],
@@ -650,7 +655,7 @@ fn terminal(
         &[(" M", RED), (" src/login.rs", TERMINAL_INK)],
         &[(" M", RED), (" src/routes.rs", TERMINAL_INK)],
     ];
-    let line_y = lines(p, x, y, w, h, k, alpha, rows);
+    let line_y = lines(p, place, rows);
     if line_y + 4.3 * k > y + h {
         return;
     }
@@ -693,9 +698,7 @@ fn terminal(
 /// Lines of prose as grey bars, `widths` long in shares of `w`, as many as fit above `bottom`.
 fn prose(
     p: &mut Painter,
-    x: f32,
-    mut y: f32,
-    w: f32,
+    (x, mut y, w): (f32, f32, f32),
     bottom: f32,
     k: f32,
     widths: &[f32],
@@ -711,7 +714,15 @@ fn prose(
     y
 }
 
-fn browser(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
+fn browser(p: &mut Painter, place: Place) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     let chrome = 13.0 * k;
     p.fill(x, y, w, h, 0.0, fade(0xf4f5f7ff, alpha));
     p.fill(x, y, w, chrome, 0.0, fade(0x2a2e35ff, alpha));
@@ -768,7 +779,7 @@ fn browser(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) 
         py += 11.0 * k;
     }
     let grey = fade(0xb9bec7ff, alpha);
-    py = prose(p, px, py, pw, bottom, k, &[0.96, 0.92, 0.98, 0.64], grey);
+    py = prose(p, (px, py, pw), bottom, k, &[0.96, 0.92, 0.98, 0.64], grey);
     let picture = (h * 0.28).min(pw * 0.5);
     if py + picture + 4.0 * k < bottom {
         py += 3.0 * k;
@@ -793,9 +804,7 @@ fn browser(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) 
     }
     prose(
         p,
-        px,
-        py,
-        pw,
+        (px, py, pw),
         bottom,
         k,
         &[
@@ -805,7 +814,15 @@ fn browser(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) 
     );
 }
 
-fn editor(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
+fn editor(p: &mut Painter, place: Place) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     const KW: u32 = 0xc678ddff;
     const FUNC: u32 = 0x61afefff;
     const TYPE: u32 = 0xe5c07bff;
@@ -886,7 +903,15 @@ fn editor(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
     }
 }
 
-fn files(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
+fn files(p: &mut Painter, place: Place) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     p.fill(x, y, w, h, 0.0, fade(0x1f2229ff, alpha));
     let head = 12.0 * k;
     p.fill(x, y, w, head, 0.0, fade(0x25282fff, alpha));
@@ -980,7 +1005,15 @@ fn files(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
     }
 }
 
-fn music(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
+fn music(p: &mut Painter, place: Place) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     p.fill(x, y, w, h, 0.0, fade(0x16181dff, alpha));
     let pad = 9.0 * k;
     let art = (h * 0.5).min(w * 0.4);
@@ -1088,7 +1121,15 @@ fn music(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
     }
 }
 
-fn chat(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, k: f32, alpha: f32) {
+fn chat(p: &mut Painter, place: Place) {
+    let Place {
+        x,
+        y,
+        w,
+        h,
+        k,
+        alpha,
+    } = place;
     const FACES: [u32; 5] = [0xf59e0bff, 0x10b981ff, 0x6366f1ff, 0xec4899ff, 0x0ea5e9ff];
     p.fill(x, y, w, h, 0.0, fade(0x1b1e24ff, alpha));
     let side = w * 0.32;

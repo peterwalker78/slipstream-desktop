@@ -63,7 +63,10 @@ impl Slipstream {
             xwayland_shell::XWAYLAND_SHELL_ROLE,
         };
         let root = crate::takeback::root_of(surface);
-        let window = matches!(get_role(&root), Some(XDG_TOPLEVEL_ROLE | XWAYLAND_SHELL_ROLE));
+        let window = matches!(
+            get_role(&root),
+            Some(XDG_TOPLEVEL_ROLE | XWAYLAND_SHELL_ROLE)
+        );
         !window
             || self
                 .space
