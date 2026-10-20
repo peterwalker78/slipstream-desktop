@@ -85,6 +85,7 @@ mod saver;
 mod scope;
 mod screen;
 mod screencopy;
+mod screensaver;
 mod screenshot;
 mod session;
 mod settings;
@@ -297,6 +298,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // inside already answers that for its own apps.
     if session || std::env::var("SLIPSTREAM_APPEARANCE").as_deref() == Ok("1") {
         appearance::serve(state.settings.appearance.colour_scheme);
+    }
+    // Where X11 and Electron apps ask for the screen to stay awake. Nested, the desktop Slipstream
+    // runs inside has the name.
+    if session || std::env::var("SLIPSTREAM_SCREENSAVER").as_deref() == Ok("1") {
+        use smithay::reexports::calloop::channel;
+        let (sender, events) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(events, |event, _, state| {
+                if let channel::Event::Msg(event) = event {
+                    state.screensaver_event(event);
+                }
+            })
+            .map_err(|err| err.error)?;
+        screensaver::serve(sender);
     }
 
     if hardware {

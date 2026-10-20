@@ -41,7 +41,7 @@ impl Slipstream {
     /// Keeps `ext-idle-notify` in step with the idle inhibitors an app holds: while one is held
     /// nothing may be told the seat has gone quiet, which is what the inhibitor is for.
     pub fn follow_idle_inhibitors(&mut self) {
-        let inhibited = self.awake || self.idle.inhibitors.iter().any(|s| s.alive());
+        let inhibited = self.awake || self.idle.apps_hold();
         self.idle_notifier_state.set_is_inhibited(inhibited);
     }
 
@@ -95,6 +95,7 @@ impl Slipstream {
             || self.lock.is_some()
             || self.unlocking.is_some();
         let opacity = self.idle.update(now, keep_up) as f32;
+        crate::screensaver::set_active(self.idle.is_faded() || self.lock.is_some());
         // Pop-ups that arrived while it was faded show now it's coming back, and ones that
         // arrived while you typed show at the pause.
         self.show_waiting_popups(now);

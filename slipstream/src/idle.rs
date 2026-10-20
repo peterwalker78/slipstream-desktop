@@ -38,6 +38,9 @@ pub struct Idle {
     pub reduced_motion: bool,
     /// Surfaces whose apps asked for the screen to stay awake.
     pub inhibitors: Vec<WlSurface>,
+    /// How many holds apps have on the session bus's `org.freedesktop.ScreenSaver`, which count
+    /// the same as an inhibitor: X11 and Electron apps ask there.
+    pub bus_holds: usize,
     /// The last input, or the last moment something held the lock off.
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
@@ -63,6 +66,7 @@ impl Idle {
             opacity: Tween::at_rest([1.0]),
             reduced_motion,
             inhibitors: Vec::new(),
+            bus_holds: 0,
             lock_idle_since: Instant::now(),
             lock_after: None,
             screen_idle_since: Instant::now(),
@@ -81,8 +85,7 @@ impl Idle {
     /// and nothing has held it off in that time — `held` (Awake, or a fullscreen window) or an app
     /// asking for the screen to stay awake.
     pub fn lock_due(&mut self, now: Instant, held: bool) -> bool {
-        self.inhibitors.retain(|surface| surface.alive());
-        if held || !self.inhibitors.is_empty() {
+        if held || self.apps_hold() {
             self.lock_idle_since = now;
             return false;
         }
@@ -99,12 +102,11 @@ impl Idle {
     /// lock. The lock screen turns them off after `LOCKED_SCREEN_OFF`, counted from when it came
     /// up, whatever the setting: nobody is reading it.
     pub fn screen_off_due(&mut self, now: Instant, held: bool, locked: bool) -> bool {
-        self.inhibitors.retain(|surface| surface.alive());
         if locked != self.locked_when_looked {
             self.locked_when_looked = locked;
             self.screen_idle_since = now;
         }
-        if held || !self.inhibitors.is_empty() {
+        if held || self.apps_hold() {
             self.screen_idle_since = now;
             return false;
         }
@@ -114,6 +116,13 @@ impl Idle {
             self.screen_off_after
         };
         after.is_some_and(|after| now.saturating_duration_since(self.screen_idle_since) >= after)
+    }
+
+    /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor or the
+    /// session bus. Inhibitors whose surfaces have gone are forgotten on the way.
+    pub fn apps_hold(&mut self) -> bool {
+        self.inhibitors.retain(|surface| surface.alive());
+        !self.inhibitors.is_empty() || self.bus_holds > 0
     }
 
     /// Starts the wait before locking again, as input does.
@@ -197,8 +206,7 @@ impl Idle {
     /// The UI's opacity now, fading it out once idle long enough, unless `keep_up` or an app
     /// asks for the screen to stay awake.
     pub fn update(&mut self, now: f64, keep_up: bool) -> f64 {
-        self.inhibitors.retain(|surface| surface.alive());
-        if keep_up || !self.inhibitors.is_empty() {
+        if keep_up || self.apps_hold() {
             self.last_input = Instant::now();
             if self.faded {
                 self.show(now);
@@ -300,6 +308,34 @@ mod tests {
         assert!(idle.lock_due(later(16), false));
         idle.set_lock_after(0);
         assert!(!idle.lock_due(later(100), false), "0 is never");
+    }
+
+    /// A game or video player holding the screen awake over the session bus keeps it awake
+    /// exactly as a Wayland inhibitor does: no fade, no lock, no screens going off.
+    #[test]
+    fn a_hold_on_the_session_bus_keeps_the_screen_awake_like_an_inhibitor() {
+        let start = Instant::now();
+        let mut idle = Idle {
+            timeout: Some(Duration::ZERO),
+            ..Idle::new(false, 120)
+        };
+        idle.set_lock_after(5);
+        idle.set_screen_off_after(10);
+        idle.lock_idle_since = start;
+        idle.screen_idle_since = start;
+        let later = |mins: u64| start + Duration::from_secs(mins * 60);
+        idle.bus_holds = 1;
+        assert!(idle.apps_hold());
+        assert_eq!(idle.update(0.0, false), 1.0, "the UI stays up");
+        assert!(!idle.is_faded());
+        assert!(!idle.lock_due(later(60), false), "nor does it lock");
+        assert!(!idle.screen_off_due(later(60), false, false), "nor go dark");
+        // Let go, the waits count from then.
+        idle.bus_holds = 0;
+        assert!(!idle.lock_due(later(64), false));
+        assert!(idle.lock_due(later(65), false));
+        idle.update(1.0, false);
+        assert!(idle.is_faded());
     }
 
     #[test]
