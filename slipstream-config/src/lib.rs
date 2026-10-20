@@ -99,6 +99,7 @@ mod input;
 pub mod meter;
 mod pages;
 pub mod screens;
+pub mod shortcuts;
 pub mod sun;
 mod wallpaper;
 mod workspaces;
