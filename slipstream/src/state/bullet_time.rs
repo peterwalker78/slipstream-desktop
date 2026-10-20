@@ -146,6 +146,12 @@ impl Slipstream {
         let wall = self.wall();
         let here = self.focused_screen_name();
         self.motion.slide_to(&here, index, wall);
+        self.bullet_look(index, choose);
+    }
+
+    /// Takes workspace `index` as the one being looked at, choosing its most recent window when
+    /// `choose` is set, and leaves the view where it is: a swipe is carrying it.
+    pub(crate) fn bullet_look(&mut self, index: usize, choose: bool) {
         let most_recent = self.windows_by_recency(index).into_iter().next();
         if let Some(mode) = self.bullet.as_mut() {
             mode.view = index;

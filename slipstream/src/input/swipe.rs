@@ -10,7 +10,9 @@
 
 use std::collections::VecDeque;
 
-use crate::{Slipstream, anim::Tween, motion};
+use smithay::desktop::Window;
+
+use crate::{Slipstream, anim::Tween, bullet::Target, motion};
 
 /// The fingers a swipe needs to be ours.
 pub const FINGERS: u32 = 3;
@@ -77,6 +79,9 @@ pub struct Drag {
     pub offset: f64,
     pub back: Option<usize>,
     pub ahead: Option<usize>,
+    /// In bullet time, what was chosen when the swipe took hold, to choose again if it comes
+    /// back to where it started.
+    pub chosen: Option<Target<Window>>,
 }
 
 impl Drag {
@@ -188,7 +193,11 @@ impl Slipstream {
             Some(Carry::View(drag)) => {
                 let wall = self.wall();
                 self.motion
-                    .hold_camera(&drag.screen, drag.position(progress), wall)
+                    .hold_camera(&drag.screen, drag.position(progress), wall);
+                // In bullet time the workspace it would land on is the one looked at, framed and
+                // with a window chosen, from the moment it's past halfway: the frame and the
+                // ring go with the swipe instead of sliding away against it.
+                self.bullet_look_along(&drag, drag.settle(progress, 0.0));
             }
             Some(Carry::Zoom(from)) => self.overview = Tween::at_rest([zoom_at(from, progress)]),
             None => {}
@@ -256,7 +265,25 @@ impl Slipstream {
             from,
             back,
             ahead,
+            chosen: self.bullet.as_ref().and_then(|mode| mode.selected.clone()),
         })
+    }
+
+    /// In bullet time, looks at workspace `index` as a sideways swipe reaches it: its most
+    /// recent window is chosen, or, back where the swipe started, what was chosen then.
+    fn bullet_look_along(&mut self, drag: &Drag, index: usize) {
+        let Some(mode) = self.bullet.as_mut() else {
+            return;
+        };
+        if mode.view == index {
+            return;
+        }
+        if index == drag.from {
+            mode.view = index;
+            mode.selected = drag.chosen.clone();
+        } else {
+            self.bullet_look(index, true);
+        }
     }
 
     /// A sideways swipe let go going `speed`, to settle on workspace `to`. Something else may
@@ -272,8 +299,8 @@ impl Slipstream {
             .find(|screen| screen.output.name() == drag.screen)
             .map(|screen| screen.workspace);
         let settle = match self.bullet.as_ref().map(|mode| mode.view) {
-            Some(view) if still && view == drag.from => {
-                self.bullet_pan(to, to != drag.from);
+            Some(_) if still => {
+                self.bullet_look_along(drag, to);
                 Some(to)
             }
             Some(view) => Some(view),
@@ -340,6 +367,7 @@ mod tests {
             offset: 0.0,
             back,
             ahead,
+            chosen: None,
         }
     }
 
