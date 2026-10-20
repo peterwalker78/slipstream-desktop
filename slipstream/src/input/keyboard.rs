@@ -348,8 +348,15 @@ impl Slipstream {
             && !gamescope_focused
             && !fullscreen_focused
             && !inhibited;
-        // Whether another key is already down, before `input` counts this one.
-        let alone = !keyboard.pressed_keys().iter().any(|held| *held != keycode);
+        // How many other keys are already down, before `input` counts this one.
+        let others = keyboard
+            .pressed_keys()
+            .iter()
+            .filter(|held| **held != keycode)
+            .count();
+        let alone = others == 0;
+        let switches_layouts = self.layouts.switch_key(&self.settings.keyboard);
+        let mut switch_layout = false;
         let millis = time.millis();
         let mut tapped = false;
         // For `concentration`: a press that isn't a modifier, and whether a shortcut modifier was
@@ -395,6 +402,15 @@ impl Slipstream {
                 // pressed at the lock never arms it, so letting go after unlocking isn't a tap.
                 let may_arm = alone && !waking && state.lock.is_none();
                 tapped = state.super_tap.key(key, pressed, millis, may_arm) && tap_allowed;
+                let only_alt_and_shift = modifiers.alt
+                    && modifiers.shift
+                    && !modifiers.ctrl
+                    && !modifiers.logo
+                    && !waking;
+                switch_layout = state
+                    .layout_tap
+                    .key(key, pressed, others, only_alt_and_shift)
+                    && switches_layouts;
                 if waking {
                     state.suppressed_keys.push(key);
                     return FilterResult::Intercept(None);
@@ -619,6 +635,9 @@ impl Slipstream {
         }
         if tapped {
             self.super_tapped();
+        }
+        if switch_layout {
+            self.next_layout();
         }
         // The switcher settles when the modifier it was opened with is let go: Alt for Alt+Tab,
         // Super for a Mac's ⌘Tab.

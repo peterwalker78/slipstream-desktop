@@ -39,6 +39,7 @@ impl Slipstream {
     /// which takes the same path so a script exercises the real click routing.
     pub fn button_event(&mut self, button: u32, button_state: ButtonState, time: InputTime) {
         self.super_tap.disarm();
+        self.layout_tap.disarm();
         // Reaching for the mouse ends any typing: what a click opens was asked for.
         if button_state == ButtonState::Pressed {
             self.concentration.end();

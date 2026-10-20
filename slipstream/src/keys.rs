@@ -792,6 +792,54 @@ impl SuperTap {
     }
 }
 
+/// Alt and Shift pressed together and let go, with nothing else pressed in between: the next
+/// keyboard layout, as on Windows. Alt+Shift+Tab and Alt+Shift with any other key stay what they
+/// were, since the other key disarms it. Neither key is kept from the app.
+#[derive(Debug, Default)]
+pub struct LayoutTap {
+    armed: bool,
+}
+
+impl LayoutTap {
+    /// A key pressed or let go. `others` is how many other keys were down as it was pressed, and
+    /// `only_alt_and_shift` whether Alt and Shift are the only modifiers held with it counted.
+    /// True when this completes the switch.
+    pub fn key(
+        &mut self,
+        key: Keysym,
+        pressed: bool,
+        others: usize,
+        only_alt_and_shift: bool,
+    ) -> bool {
+        let pair = matches!(
+            key,
+            Keysym::Alt_L
+                | Keysym::Alt_R
+                | Keysym::Meta_L
+                | Keysym::Meta_R
+                | Keysym::Shift_L
+                | Keysym::Shift_R
+        );
+        match (pair, pressed) {
+            (true, true) => {
+                self.armed = others == 1 && only_alt_and_shift;
+                false
+            }
+            (true, false) => std::mem::take(&mut self.armed),
+            (false, true) => {
+                self.armed = false;
+                false
+            }
+            (false, false) => false,
+        }
+    }
+
+    /// A pointer button or the wheel: Alt and Shift are held for a click, not a switch.
+    pub fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
 /// The number keys 1–9, in order.
 pub const DIGITS: [Keysym; 9] = [
     Keysym::_1,
@@ -1429,6 +1477,39 @@ mod tests {
             action_for(&windows_checked(defaults()), SUPER, Keysym::slash),
             Some(Action::ShortcutSheet)
         );
+    }
+
+    #[test]
+    fn alt_and_shift_together_switch_layouts_but_not_with_another_key() {
+        let mut tap = LayoutTap::default();
+        // Alt down, Shift down with Alt held, both let go: one switch, on the first release.
+        assert!(!tap.key(Keysym::Alt_L, true, 0, false));
+        assert!(!tap.key(Keysym::Shift_L, true, 1, true));
+        assert!(tap.key(Keysym::Shift_L, false, 1, false));
+        assert!(!tap.key(Keysym::Alt_L, false, 0, false));
+        // The other way round, Shift first.
+        assert!(!tap.key(Keysym::Shift_R, true, 0, false));
+        assert!(!tap.key(Keysym::Alt_L, true, 1, true));
+        assert!(tap.key(Keysym::Alt_L, false, 1, false));
+        // Alt+Shift+Tab, the switcher going backwards.
+        tap.key(Keysym::Alt_L, true, 0, false);
+        tap.key(Keysym::Shift_L, true, 1, true);
+        tap.key(Keysym::Tab, true, 2, true);
+        tap.key(Keysym::Tab, false, 2, true);
+        assert!(!tap.key(Keysym::Shift_L, false, 1, false));
+        // Ctrl held too.
+        tap.key(Keysym::Control_L, true, 0, false);
+        tap.key(Keysym::Alt_L, true, 1, false);
+        assert!(!tap.key(Keysym::Shift_L, true, 2, false));
+        assert!(!tap.key(Keysym::Shift_L, false, 2, false));
+        // A click with them held.
+        tap.key(Keysym::Alt_L, true, 0, false);
+        tap.key(Keysym::Shift_L, true, 1, true);
+        tap.disarm();
+        assert!(!tap.key(Keysym::Shift_L, false, 1, false));
+        // Shift alone is no switch.
+        tap.key(Keysym::Shift_L, true, 0, false);
+        assert!(!tap.key(Keysym::Shift_L, false, 0, false));
     }
 
     #[test]

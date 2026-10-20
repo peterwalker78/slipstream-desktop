@@ -219,6 +219,8 @@ pub struct Slipstream {
     pub awake: bool,
     /// Super on its own, on its way to being a tap that opens the explorer.
     pub super_tap: keys::SuperTap,
+    /// Alt and Shift together, on their way to switching the keyboard layout.
+    pub layout_tap: keys::LayoutTap,
     /// Running as a window inside another desktop, where Alt stands in for Super.
     pub nested: bool,
     /// Started from the login screen, so the session environment is shared with D-Bus.
@@ -435,6 +437,8 @@ pub struct Slipstream {
     pub debug: debug::Script,
     /// The settings as applied: the file's, with any environment overrides.
     pub settings: slipstream_config::Settings,
+    /// The system's keyboard layouts, used while Settings chooses none.
+    pub layouts: crate::layouts::Layouts,
     /// The focused window's ring colour, parsed from the settings once rather than every frame.
     /// The panels' keyboard ring takes it too: one colour for where the keys are aimed.
     pub ring_rgb: [f32; 3],
@@ -513,9 +517,8 @@ impl Slipstream {
         let mut seat_state = SeatState::new();
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
 
-        // The layout comes from XKB_DEFAULT_LAYOUT and friends, which the session script sets
-        // from the system keyboard settings.
-        seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        let settings = crate::settings::startup();
+        crate::layouts::add_keyboard(&mut seat, &settings.keyboard);
         // There is always a pointer, plugged in or not, so the rest of the code can rely on one.
         seat.add_pointer();
 
@@ -601,7 +604,6 @@ impl Slipstream {
             })
             .expect("a channel source always inserts");
 
-        let settings = crate::settings::startup();
         meter::configure(&settings.meter);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();
@@ -652,6 +654,7 @@ impl Slipstream {
             caps_woke: None,
             awake: false,
             super_tap: keys::SuperTap::default(),
+            layout_tap: keys::LayoutTap::default(),
             nested: false,
             owns_state: true,
             session: false,
@@ -754,6 +757,7 @@ impl Slipstream {
             meter: meter::start(),
             debug: debug::Script::default(),
             settings,
+            layouts: crate::layouts::Layouts::from_env(),
             ring_rgb,
             bullet_rgb,
             power_answers,
@@ -1160,6 +1164,7 @@ impl Slipstream {
             bar::Target::Overview => self.toggle_bullet_time(),
             bar::Target::Dock => self.dock_clicked(),
             bar::Target::Awake => self.set_awake(false),
+            bar::Target::Layout => self.next_layout(),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(

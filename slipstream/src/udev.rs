@@ -64,7 +64,9 @@ pub struct UdevData {
     primary: Option<DrmNode>,
     gpus: HashMap<DrmNode, Gpu>,
     cursor: Cursor,
-    keyboards: Vec<libinput::Device>,
+    /// Every input device plugged in: set up again when the settings change, and the keyboards'
+    /// lights kept in step.
+    devices: Vec<libinput::Device>,
     /// Screens that are connected but deliberately not lit: the laptop's panel while the lid is
     /// shut and another screen is carrying the desktop. Kept so the panel can be lit again
     /// without waiting for a hotplug that will never come — the connector never went anywhere.
@@ -130,7 +132,7 @@ pub fn run(
         primary: None,
         gpus: HashMap::new(),
         cursor: Cursor::load(),
-        keyboards: Vec::new(),
+        devices: Vec::new(),
         sleeping: Vec::new(),
     });
 
@@ -141,16 +143,15 @@ pub fn run(
             |mut event, _, state| {
                 match &mut event {
                     InputEvent::DeviceAdded { device } => {
-                        configure_input_device(device);
-                        if device.has_capability(DeviceCapability::Keyboard) {
-                            if let Some(udev) = state.udev.as_mut() {
-                                udev.keyboards.push(device.clone());
-                            }
+                        let settings = &state.settings;
+                        crate::devices::configure(device, &settings.mouse, &settings.touchpad);
+                        if let Some(udev) = state.udev.as_mut() {
+                            udev.devices.push(device.clone());
                         }
                     }
                     InputEvent::DeviceRemoved { device } => {
                         if let Some(udev) = state.udev.as_mut() {
-                            udev.keyboards.retain(|keyboard| keyboard != device);
+                            udev.devices.retain(|known| known != device);
                         }
                     }
                     _ => {}
@@ -1077,9 +1078,21 @@ impl Slipstream {
     /// Caps Lock and Num Lock lights.
     pub fn update_leds(&mut self, leds: LedState) {
         if let Some(udev) = self.udev.as_mut() {
-            for keyboard in &mut udev.keyboards {
-                keyboard.led_update(leds.into());
+            for keyboard in &mut udev.devices {
+                if keyboard.has_capability(DeviceCapability::Keyboard) {
+                    keyboard.led_update(leds.into());
+                }
             }
+        }
+    }
+
+    /// Every mouse and touchpad plugged in, set up again after the settings changed.
+    pub fn configure_input_devices(&mut self) {
+        let Some(udev) = self.udev.as_mut() else {
+            return;
+        };
+        for device in &mut udev.devices {
+            crate::devices::configure(device, &self.settings.mouse, &self.settings.touchpad);
         }
     }
 }
@@ -1121,13 +1134,6 @@ impl DmabufHandler for Slipstream {
 fn look_after(period: Duration, empty_run: u32) -> Duration {
     let doubled = period * (1 << empty_run.saturating_sub(1).min(3));
     doubled.min(IDLE_LOOK).max(period)
-}
-
-/// Touchpads tap to click.
-fn configure_input_device(device: &mut libinput::Device) {
-    if device.config_tap_finger_count() > 0 {
-        let _ = device.config_tap_set_enabled(true);
-    }
 }
 
 /// How a connector is known to clients and the settings: `eDP-1`, `HDMI-A-2`.

@@ -316,6 +316,7 @@ impl Slipstream {
             }
             InputEvent::PointerAxis { event, .. } => {
                 self.super_tap.disarm();
+                self.layout_tap.disarm();
                 self.wake_ui();
                 // A wheel's notch is 120 in v120 units, and 15 of scroll.
                 let amount = |axis: Axis| {

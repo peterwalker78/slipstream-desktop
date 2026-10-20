@@ -1817,6 +1817,7 @@ fn bar_content(
             .get_keyboard()
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         awake: state.awake,
+        layout: state.layout_label(),
         meter: crate::status::held(&state.meter)
             .as_ref()
             .map(|reading| crate::meter::shown(reading, &state.settings.meter)),

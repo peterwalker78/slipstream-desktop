@@ -329,7 +329,18 @@ impl Slipstream {
                 }
             }
         }
+        let (old_keyboard, pointers_changed) = (
+            self.settings.keyboard.clone(),
+            (&settings.mouse, &settings.touchpad)
+                != (&self.settings.mouse, &self.settings.touchpad),
+        );
         self.settings = settings;
+        if self.settings.keyboard != old_keyboard {
+            self.apply_keyboard(&old_keyboard);
+        }
+        if pointers_changed {
+            self.configure_input_devices();
+        }
         // The screens were moved about in Settings: put them where they are now said to be, and
         // re-tile, since every workspace's area has changed with them.
         if rearrange {

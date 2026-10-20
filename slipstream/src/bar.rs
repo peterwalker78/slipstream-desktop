@@ -63,6 +63,9 @@ pub struct Content {
     pub caps_lock: bool,
     /// Awake is on: a chip beside the tray says so, and a click on it turns it off.
     pub awake: bool,
+    /// The keyboard layout in use, such as `GB`, when there are others to switch to. A click on
+    /// it switches to the next.
+    pub layout: Option<String>,
     /// What the meter's command last reported, when there is a meter.
     pub meter: Option<meter::Reading>,
     /// Where the frame of a pane hanging from this bar meets it, when one does: the frame's
@@ -111,6 +114,8 @@ pub enum Target {
     /// The red dot while something is shared.
     Sharing,
     Awake,
+    /// The keyboard layout's code beside the tray.
+    Layout,
     /// Beside the workspaces: bullet time, as Windows' Task View button.
     Overview,
     /// The meter beside the tray, whose details are in quick settings.
@@ -423,6 +428,19 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         p.text(percent, item_x, 20.0, style);
     }
 
+    // Right beside the tray, while there are layouts to switch between: the one in use, as
+    // Windows shows it beside its tray.
+    if let Some(layout) = &content.layout {
+        let style = Style {
+            tracking: 0.06,
+            ..Style::new(Face::MonoBold, 12.0, INK)
+        };
+        let w = 8.0 + text::width(layout, &style) + 8.0;
+        right -= 4.0 + w;
+        p.text(layout, right + 8.0, 20.0, &style);
+        target(Target::Layout, right, w);
+    }
+
     // Left of the tray: the meter, a gauge for each section with its first meter's percentage.
     // The gauge's thick bar is that meter and the thin one under it the next.
     if let Some(w) = meter_width(content) {
@@ -584,6 +602,7 @@ mod tests {
             sharing: false,
             caps_lock: false,
             awake: false,
+            layout: None,
             meter: None,
             dock: None,
         }
@@ -639,6 +658,35 @@ mod tests {
         assert!(
             dot.loc.x + dot.size.w <= awake.loc.x,
             "the chips don't overlap"
+        );
+    }
+
+    #[test]
+    fn the_layout_shows_beside_the_tray_only_when_there_are_others() {
+        let (_, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        assert!(!quiet.iter().any(|(target, _)| *target == Target::Layout));
+        let two = Content {
+            layout: Some("GB".into()),
+            awake: true,
+            ..content()
+        };
+        let (_, targets) = paint(&two, 1536, 1.25).unwrap();
+        let area = |wanted: Target| {
+            targets
+                .iter()
+                .find(|(target, _)| *target == wanted)
+                .map(|(_, area)| *area)
+                .unwrap()
+        };
+        let (layout, awake, tray) = (
+            area(Target::Layout),
+            area(Target::Awake),
+            area(Target::Tray),
+        );
+        assert!(layout.loc.x + layout.size.w <= tray.loc.x);
+        assert!(
+            awake.loc.x + awake.size.w <= layout.loc.x,
+            "{awake:?} {layout:?}"
         );
     }
 
