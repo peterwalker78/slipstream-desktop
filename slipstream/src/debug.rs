@@ -49,8 +49,9 @@
 //! into the log), `nextscreen`, `movescreen` and `swapscreens` (Super+P, Super+Shift+P and
 //! Super+Ctrl+P), `share:KINDS` (the screen-sharing picker, as the portal would open it, offering
 //! screens for `m`, windows for `w`, or both for `mw`) with `skey:NAME` and `sclick:X,Y` to answer
-//! it, `unshare` (a click on the bar's red dot), `press:NAME`, `release:NAME` and
-//! `chord:super+shift+s` (keys by xkb name, through the same routing as the keyboard, and meaning
+//! it, `unshare` (a click on the bar's red dot), `polkit:MESSAGE` (the password card, as a
+//! program needing an administrator would open it, checking nothing), `press:NAME`,
+//! `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same routing as the keyboard, and meaning
 //! what they mean in the login session: Super is Super even nested), `motion` (every animating
 //! part's reduced-motion flag, into the log), `lock` (the lock screen; nested runs only), `unlock`
 //! (the lock taken down as a right password would), `battery:N` (pretend the battery is at N
@@ -203,6 +204,8 @@ pub enum Step {
     FocusTile(String),
     /// The share picker, offering screens (`m`), windows (`w`) or both.
     SharePicker(String),
+    /// The password card with this message, checking nothing.
+    Polkit(String),
     ShareKey(String),
     ShareClick(f64, f64),
     StopSharing,
@@ -493,6 +496,7 @@ impl Script {
                         Step::OfferClick(x, y)
                     }
                     ("share", Some(kinds)) => Step::SharePicker(kinds.trim().to_string()),
+                    ("polkit", Some(message)) => Step::Polkit(message.to_string()),
                     ("skey", Some(name)) => Step::ShareKey(name.to_string()),
                     ("sclick", Some(at)) => {
                         let (x, y) = point(at)?;

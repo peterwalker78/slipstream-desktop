@@ -75,6 +75,7 @@ mod overview;
 mod paint;
 mod pane;
 mod panel;
+mod polkit;
 mod power;
 mod quick;
 mod rain;
@@ -301,6 +302,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // inside already answers that for its own apps.
     if session || std::env::var("SLIPSTREAM_APPEARANCE").as_deref() == Ok("1") {
         appearance::serve(state.settings.appearance.colour_scheme);
+    }
+    // The password card for programs that need an administrator's say-so. Nested, the desktop
+    // Slipstream runs inside already has an agent for its session, and polkit takes one only.
+    if session || std::env::var("SLIPSTREAM_POLKIT").as_deref() == Ok("1") {
+        use smithay::reexports::calloop::channel;
+        let (sender, events) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(events, |event, _, state| {
+                if let channel::Event::Msg(event) = event {
+                    state.polkit_event(event);
+                }
+            })
+            .map_err(|err| err.error)?;
+        state.polkit.events = Some(sender.clone());
+        polkit::serve(sender);
     }
     // Where X11 and Electron apps ask for the screen to stay awake. Nested, the desktop Slipstream
     // runs inside has the name.
@@ -622,7 +639,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QuietWhileLocked {
         metadata: &tracing::Metadata<'_>,
         _: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
-        !quiet(*metadata.level(), lock::held())
+        !quiet(*metadata.level(), lock::held() || polkit::asking())
     }
 }
 

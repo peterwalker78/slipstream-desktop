@@ -545,6 +545,7 @@ impl Slipstream {
         self.flash = None;
         self.snip = None;
         self.snip_flights.clear();
+        self.cancel_polkit_for_lock();
         if let Some(picker) = self.share.take() {
             tracing::info!("sharing declined: the screen locked");
             // A program asking to record has frames held on the card; they fail with it.

@@ -269,7 +269,7 @@ fn run(events: Sender<Event>, inbox: mpsc::Receiver<Command>) {
 }
 
 /// This process's session object.
-fn session_path(connection: &zbus::blocking::Connection) -> zbus::Result<String> {
+pub(crate) fn session_path(connection: &zbus::blocking::Connection) -> zbus::Result<String> {
     let reply = connection.call_method(
         Some(LOGIND),
         MANAGER_PATH,
@@ -282,7 +282,10 @@ fn session_path(connection: &zbus::blocking::Connection) -> zbus::Result<String>
 }
 
 /// The session's plain ID, as `loginctl list-sessions` shows it.
-fn session_id(connection: &zbus::blocking::Connection, session: &str) -> zbus::Result<String> {
+pub(crate) fn session_id(
+    connection: &zbus::blocking::Connection,
+    session: &str,
+) -> zbus::Result<String> {
     let reply = connection.call_method(
         Some(LOGIND),
         session,

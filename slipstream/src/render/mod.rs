@@ -328,6 +328,17 @@ pub fn output_elements(
     // Other programs' launchers, pickers and panels in front of everything of the desktop's, and
     // their docks and wallpapers behind the windows, all inside the pane that fades. Not in
     // bullet time, which is the desktop's own.
+    // The password card in front of everything but the pointer, other programs' overlays
+    // included, so nothing can be drawn over what it says. The rest of the screen is shaded behind
+    // it, the bar and every other card too.
+    if first_output {
+        let ring = state.panel_ring();
+        if let Some(prompt) = state.polkit.prompt.as_mut() {
+            let (card, shade) = prompt.elements(renderer, output_geo.size, scale.x, wall, ring);
+            elements.extend(card.map(OutputElement::Memory));
+            elements.push(OutputElement::Solid(shade));
+        }
+    }
     // A snip being chosen is in front of everything but the pointer; fragments of one just taken
     // fly in front of that.
     elements.extend(state.snip_flight_elements(renderer, output));

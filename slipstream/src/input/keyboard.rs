@@ -38,6 +38,8 @@ enum KeyUse {
     Battery(Keysym),
     /// A key for the lock screen's password pill.
     Lock(crate::lock::Key),
+    /// A key for the card asking for a password on polkit's behalf.
+    Polkit(crate::polkit::Key),
     /// A key let go while locked.
     LockRelease,
     /// Esc during a drag with the pointer.
@@ -206,6 +208,7 @@ impl Slipstream {
     /// bullet time keeps the keys to itself, so there it does nothing.
     fn super_tapped(&mut self) {
         let keys_taken = self.lock.is_some()
+            || self.polkit.is_up()
             || self.share.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
@@ -386,8 +389,8 @@ impl Slipstream {
                     typed_shortcut = Some(mods.ctrl || mods.alt || mods.logo);
                 }
                 // RUST_LOG=slipstream=trace shows every key as Slipstream sees it, except while
-                // locked, when a key is a character of a password.
-                if state.lock.is_none() {
+                // a password is being typed: at the lock, or on the password card.
+                if state.lock.is_none() && !state.polkit.is_up() {
                     tracing::trace!(?key, ?mods, pressed, "key");
                 }
                 // Num Lock says which way it went; Caps Lock has its chip on the bar and its
@@ -461,6 +464,13 @@ impl Slipstream {
                 if pressed && keys::action_for(&state.bindings, mods, key) == Some(Action::Lock) {
                     state.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::Action(Action::Lock)));
+                }
+                // The password card takes every key, before any other card: what is typed there
+                // is a password, and must reach nothing else.
+                if pressed && state.polkit.is_up() {
+                    state.suppressed_keys.push(key);
+                    let typed = crate::polkit::key_for(key, handle.modified_sym(), modifiers);
+                    return FilterResult::Intercept(Some(KeyUse::Polkit(typed)));
                 }
                 // A snip being chosen takes every key: Esc, Enter or a window's letter.
                 if pressed && state.snip.is_some() {
@@ -618,6 +628,7 @@ impl Slipstream {
             Some(Some(KeyUse::Battery(key))) => self.battery_key(key),
             Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),
+            Some(Some(KeyUse::Polkit(key))) => self.polkit_key(key),
             Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),
             Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
             Some(Some(KeyUse::CancelArrange)) => self.cancel_arrangement(),

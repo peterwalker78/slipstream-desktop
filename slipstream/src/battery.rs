@@ -161,6 +161,7 @@ impl LowCard {
             ),
             rows: Vec::new(),
             more: None,
+            field: None,
             remember: None,
             buttons: vec![
                 Btn {

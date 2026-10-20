@@ -516,6 +516,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                 })
                 .collect(),
             more: None,
+            field: None,
             remember: None,
             buttons: vec![
                 Btn {
@@ -550,6 +551,7 @@ impl<W: Clone + PartialEq> Exit<W> {
             note,
             rows: Vec::new(),
             more: None,
+            field: None,
             remember: Some(self.remember),
             buttons: vec![
                 Btn {
@@ -598,6 +600,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                 })
                 .collect(),
             more: (count > MAX_ROWS).then(|| format!("and {} more", count - MAX_ROWS)),
+            field: None,
             remember: None,
             buttons: vec![
                 Btn {

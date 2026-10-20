@@ -71,6 +71,17 @@ pub struct Btn {
     pub primary: bool,
 }
 
+/// A box to type into, under the rows, with a line under it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    /// What it asks for, shown in it while it is empty.
+    pub label: String,
+    /// What it shows of what is typed: only dots for a password.
+    pub shown: String,
+    /// The line under it, and whether it is a warning.
+    pub line: Option<(String, bool)>,
+}
+
 /// A card in the middle of the screen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
@@ -79,6 +90,8 @@ pub struct Card {
     pub rows: Vec<Row>,
     /// "and 3 more", when there are more windows than rows.
     pub more: Option<String>,
+    /// Something to type, on the card that asks for a password.
+    pub field: Option<Field>,
     /// The switch, on the card that still has a choice to make.
     pub remember: Option<bool>,
     pub buttons: Vec<Btn>,
@@ -159,7 +172,51 @@ pub fn measure(card: &Card, note_lines: usize) -> f32 {
     } else {
         0.0
     };
-    PADDING + 30.0 + 8.0 + note_lines as f32 * 22.0 + list + switch + 10.0 + FOOT_H
+    let field = if card.field.is_some() {
+        16.0 + FIELD_H + FIELD_LINE
+    } else {
+        0.0
+    };
+    PADDING + 30.0 + 8.0 + note_lines as f32 * 22.0 + list + field + switch + 10.0 + FOOT_H
+}
+
+/// The box to type into, and the line under it.
+const FIELD_H: f32 = 40.0;
+const FIELD_LINE: f32 = 28.0;
+
+/// The box to type into: dots or text in it, or what it asks for while it's empty, the amber
+/// caret after them, and the line under it.
+fn paint_field(p: &mut Painter, field: &Field, x: f32, y: f32, w: f32) {
+    p.fill(x, y, w, FIELD_H, panel::ROW_RADIUS, 0xffffff14);
+    p.border(x, y, w, FIELD_H, panel::ROW_RADIUS, 1.0, panel::EDGE);
+    let middle = y + FIELD_H / 2.0;
+    let inset = 14.0;
+    let room = w - 2.0 * inset - 6.0;
+    let typed = Style {
+        tracking: 0.1,
+        ..Style::new(Face::Body, 16.0, panel::BRIGHT)
+    };
+    let end = if field.shown.is_empty() {
+        let label = Style::new(Face::Body, 15.0, panel::PLACEHOLDER);
+        p.text(&field.label, x + inset, middle, &label);
+        x + inset
+    } else {
+        // The end of a long entry stays in view, which is where the typing is.
+        let mut shown = field.shown.as_str();
+        while text::width(shown, &typed) > room {
+            let mut chars = shown.chars();
+            chars.next();
+            shown = chars.as_str();
+        }
+        p.text(shown, x + inset, middle, &typed);
+        x + inset + text::width(shown, &typed)
+    };
+    p.fill(end + 2.0, middle - 10.0, 2.0, 20.0, 0.0, AMBER);
+    if let Some((line, warning)) = &field.line {
+        let style = Style::new(Face::Body, 13.0, if *warning { AMBER } else { HINT });
+        let line = text::ellipsize(line, &style, w);
+        p.text(&line, x, y + FIELD_H + FIELD_LINE / 2.0 + 2.0, &style);
+    }
 }
 
 pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
@@ -238,6 +295,11 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
                 p.text(more, x0, y + ROW_H / 2.0, &note);
                 y += ROW_H;
             }
+        }
+        if let Some(field) = &card.field {
+            y += 16.0;
+            paint_field(p, field, x0, y, inner);
+            y += FIELD_H + FIELD_LINE;
         }
         if let Some(on) = card.remember {
             y += 16.0;

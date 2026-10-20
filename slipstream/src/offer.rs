@@ -142,6 +142,7 @@ impl Offer {
                 })
                 .collect(),
             more: None,
+            field: None,
             remember: None,
             buttons: vec![
                 Btn {

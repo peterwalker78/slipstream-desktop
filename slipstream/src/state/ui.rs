@@ -70,6 +70,9 @@ impl Slipstream {
         if let Some(share) = self.share.as_mut() {
             share.forget_painted_text();
         }
+        if let Some(prompt) = self.polkit.prompt.as_mut() {
+            prompt.forget_painted_text();
+        }
     }
 
     /// How visible the UI is now. It fades after a while with no input, unless Awake is on,
@@ -88,6 +91,7 @@ impl Slipstream {
             || self.exit.is_some()
             || self.offer.is_some()
             || self.share.is_some()
+            || self.polkit.is_up()
             || self.snip.is_some()
             || self.battery.card.is_some()
             || self.history.is_open()

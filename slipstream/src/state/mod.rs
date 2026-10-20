@@ -201,6 +201,8 @@ pub struct Slipstream {
     pub foreign_toplevel_list: ForeignToplevelListState,
     /// The card asking what to share, while an app waits for the answer.
     pub share: Option<Picker>,
+    /// The card asking for a password on polkit's behalf, and the questions behind it.
+    pub polkit: crate::polkit::Polkit,
     /// What is being captured, and what is waiting for the next frame of it.
     pub captures: Captures,
     pub popups: PopupManager,
@@ -648,6 +650,7 @@ impl Slipstream {
             image_copy_capture: capture_globals.copy,
             foreign_toplevel_list: capture_globals.toplevel_list,
             share: None,
+            polkit: Default::default(),
             captures: Captures::default(),
             popups,
             seat,
@@ -822,6 +825,9 @@ impl Slipstream {
         }
         if let Some(share) = self.share.as_mut() {
             share.reduced_motion = on;
+        }
+        if let Some(prompt) = self.polkit.prompt.as_mut() {
+            prompt.reduced_motion = on;
         }
         if let Some(lock) = self.lock.as_mut() {
             lock.reduced_motion = on;

@@ -14,6 +14,7 @@ impl Slipstream {
     /// What is up on the focused screen that a press on another screen has to respect.
     fn overlay_up(&self) -> Overlay {
         if self.share.is_some()
+            || self.polkit.is_up()
             || self.battery.card.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
@@ -107,6 +108,13 @@ impl Slipstream {
             return;
         }
 
+        // So does the password card, over everything else but the lock.
+        if self.polkit.is_up() {
+            if let Some(pos) = pressed_at {
+                self.polkit_click(pos.x, pos.y);
+            }
+            return;
+        }
         // So does the share picker, and each card while it's asking: its own buttons, and a click
         // beside it that mustn't reach through to the windows underneath.
         if self.share.is_some() {

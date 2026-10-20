@@ -62,6 +62,7 @@ impl Slipstream {
             || self.centre.is_open()
             || self.bullet.is_some()
             || self.share.is_some()
+            || self.polkit.is_up()
             || self.snip.is_some()
             || self.battery.card.is_some()
             || self.offer.is_some()
@@ -155,6 +156,7 @@ impl Slipstream {
         self.battery_hover(pos);
         self.share_hover(pos);
         self.rain_hover(pos);
+        self.polkit_hover(pos);
         self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
         // A slider held in quick settings.

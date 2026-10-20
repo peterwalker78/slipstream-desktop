@@ -321,6 +321,7 @@ impl Picker {
                 ),
                 rows: self.rows.clone(),
                 more: None,
+                field: None,
                 remember: None,
                 buttons: vec![
                     Btn {
@@ -363,6 +364,7 @@ impl Picker {
             ),
             rows: self.rows[self.top..end].to_vec(),
             more: (hidden > 0).then(|| format!("{hidden} more — arrow keys scroll")),
+            field: None,
             remember: None,
             buttons: vec![
                 Btn {

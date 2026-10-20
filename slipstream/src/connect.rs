@@ -172,6 +172,7 @@ impl Connect {
             note,
             rows: Vec::new(),
             more: None,
+            field: None,
             remember: None,
             buttons,
             hover: self.hovered,

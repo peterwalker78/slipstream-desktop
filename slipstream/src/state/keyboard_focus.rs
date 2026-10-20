@@ -143,6 +143,14 @@ impl Slipstream {
             tracing::debug!(window = logged_app(window), "no focus while locked");
             return;
         }
+        // Nor while the password card is up: it gives the keyboard back when it goes.
+        if self.polkit.is_up() {
+            tracing::debug!(
+                window = logged_app(window),
+                "no focus while a password is asked"
+            );
+            return;
+        }
         let Some(target) = KeyboardFocus::for_window(window) else {
             return;
         };

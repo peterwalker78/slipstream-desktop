@@ -109,6 +109,7 @@ impl Slipstream {
                     }
                     self.open_share_picker(&list, None);
                 }
+                debug::Step::Polkit(message) => self.open_stand_in_polkit(message),
                 debug::Step::ShareKey(name) => {
                     let (key, shift) = shifted_key(&name);
                     self.share_key(key, shift)
