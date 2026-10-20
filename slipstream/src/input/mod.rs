@@ -67,6 +67,7 @@ impl Slipstream {
             || self.battery.card.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
+            || self.shortcuts.ask().is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
     }
 
@@ -153,6 +154,7 @@ impl Slipstream {
         self.exit_hover(pos);
         self.offer_hover(pos);
         self.connect_hover(pos);
+        self.shortcuts_hover(pos);
         self.battery_hover(pos);
         self.share_hover(pos);
         self.rain_hover(pos);

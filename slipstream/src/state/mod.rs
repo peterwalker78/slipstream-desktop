@@ -106,6 +106,7 @@ use crate::{
     workspace::{Workspace, Workspaces},
 };
 
+mod app_shortcuts;
 mod arrangements;
 mod bullet_time;
 mod debug_steps;
@@ -362,6 +363,9 @@ pub struct Slipstream {
     pub offer: Option<Offer>,
     /// The card asking what a screen Slipstream has never seen should show.
     pub connect: Option<Connect>,
+    /// Shortcuts apps keep while another app has the keyboard, and the card that asks about
+    /// them.
+    pub shortcuts: crate::shortcuts::Shortcuts,
     /// The screens this machine has shown a desktop on, and what each one comes back to
     /// (`known.rs`). Read at startup, written as screens come and go.
     pub known: known::Remembered,
@@ -730,6 +734,9 @@ impl Slipstream {
             restoring: None,
             offer: None,
             connect: None,
+            shortcuts: crate::shortcuts::Shortcuts::new(slipstream_config::shortcuts::read(
+                &slipstream_config::shortcuts::path(),
+            )),
             known: known::read(&known::path()),
             restore_looked: false,
             tags: Vec::new(),
@@ -822,6 +829,9 @@ impl Slipstream {
         }
         if let Some(connect) = self.connect.as_mut() {
             connect.reduced_motion = on;
+        }
+        if let Some(ask) = self.shortcuts.ask_mut() {
+            ask.reduced_motion = on;
         }
         if let Some(share) = self.share.as_mut() {
             share.reduced_motion = on;

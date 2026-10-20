@@ -326,6 +326,10 @@ grep -q "^DBusName=org.freedesktop.impl.portal.desktop.slipstream$" "$portal_bac
     || fail "$case_name: no settings portal backend at $portal_backend"
 grep -q "^org.freedesktop.impl.portal.Settings=slipstream;\*$" "$portals_conf" \
     || fail "$case_name: Slipstream isn't asked about dark and light first"
+grep -q "^org.freedesktop.impl.portal.GlobalShortcuts=slipstream$" "$portals_conf" \
+    || fail "$case_name: apps' shortcuts aren't Slipstream's to answer"
+grep -q "^Interfaces=.*impl.portal.GlobalShortcuts;" "$portal_backend" \
+    || fail "$case_name: the backend doesn't say it answers apps' shortcuts"
 grep -q "portals/slipstream.portal$" "$manifest" || fail "$case_name: not in the manifest"
 
 case_name="Slipstream's own backend stays out of the list of the others"

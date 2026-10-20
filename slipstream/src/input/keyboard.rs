@@ -34,6 +34,9 @@ enum KeyUse {
     Offer(Keysym),
     /// A key for the card asking what a screen just plugged in should show.
     Connect(Keysym),
+    /// A key for the card asking about an app's shortcuts: the unshifted symbol, and the
+    /// modifiers held, since pressing keys there picks them.
+    Shortcuts(Keysym, Mods),
     /// A key for the low battery card.
     Battery(Keysym),
     /// A key for the lock screen's password pill.
@@ -214,6 +217,7 @@ impl Slipstream {
             || self.share.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
+            || self.shortcuts.ask().is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.bullet.is_some();
         if keys_taken {
@@ -419,8 +423,24 @@ impl Slipstream {
                     .layout_tap
                     .key(key, pressed, others, only_alt_and_shift)
                     && switches_layouts;
+                // An app's shortcut coming up is let go of first, whatever has the keys by now,
+                // so a held push to talk never sticks.
+                if !pressed && state.shortcuts.is_held(keycode) {
+                    release_suppressed(&mut state.suppressed_keys, key);
+                    for signal in state.shortcuts.release(keycode, u64::from(millis)) {
+                        crate::shortcuts::portal::emit(signal);
+                    }
+                    return FilterResult::Intercept(None);
+                }
                 if waking {
                     state.suppressed_keys.push(key);
+                    // An app's shortcut still works as it wakes the desktop: push to talk can't
+                    // wait for a second press.
+                    if !inhibited {
+                        for signal in state.shortcuts.press(keycode, mods, key, u64::from(millis)) {
+                            crate::shortcuts::portal::emit(signal);
+                        }
+                    }
                     return FilterResult::Intercept(None);
                 }
                 // Ctrl+Alt+F1–F12 arrive as XF86Switch_VT_n. They belong to the
@@ -508,6 +528,12 @@ impl Slipstream {
                 if pressed && state.connect.is_some() {
                     state.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::Connect(handle.modified_sym())));
+                }
+                // So does the card asking about an app's shortcuts: keys pressed there are the
+                // ones being picked.
+                if pressed && state.shortcuts.ask().is_some() {
+                    state.suppressed_keys.push(key);
+                    return FilterResult::Intercept(Some(KeyUse::Shortcuts(key, mods)));
                 }
                 // The way out takes every key while it's asking, and none at all
                 // while the apps are closing: a save prompt needs them more.
@@ -616,6 +642,16 @@ impl Slipstream {
                         state.suppressed_keys.push(key);
                         return FilterResult::Intercept(Some(KeyUse::Action(action)));
                     }
+                    // An app's shortcut: the app is told, and no window sees the key, press or
+                    // release.
+                    let signals = state.shortcuts.press(keycode, mods, key, u64::from(millis));
+                    if !signals.is_empty() {
+                        state.suppressed_keys.push(key);
+                        for signal in signals {
+                            crate::shortcuts::portal::emit(signal);
+                        }
+                        return FilterResult::Intercept(None);
+                    }
                 } else if release_suppressed(&mut state.suppressed_keys, key) {
                     return FilterResult::Intercept(None);
                 }
@@ -631,6 +667,7 @@ impl Slipstream {
             Some(Some(KeyUse::Exit(key))) => self.exit_key(key),
             Some(Some(KeyUse::Offer(key))) => self.offer_key(key),
             Some(Some(KeyUse::Connect(key))) => self.connect_key(key),
+            Some(Some(KeyUse::Shortcuts(key, mods))) => self.shortcuts_key(key, mods),
             Some(Some(KeyUse::Battery(key))) => self.battery_key(key),
             Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),

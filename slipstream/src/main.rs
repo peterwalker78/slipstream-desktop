@@ -76,6 +76,7 @@ mod paint;
 mod pane;
 mod panel;
 mod polkit;
+mod portal;
 mod power;
 mod quick;
 mod rain;
@@ -93,6 +94,7 @@ mod session;
 mod settings;
 mod share;
 mod sheet;
+mod shortcuts;
 mod slot;
 mod snip;
 mod sound;
@@ -298,10 +300,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|err| err.error)?;
         notify::serve(sender);
     }
-    // Dark or light, for every app that asks the desktop. Nested, the desktop Slipstream runs
-    // inside already answers that for its own apps.
-    if session || std::env::var("SLIPSTREAM_APPEARANCE").as_deref() == Ok("1") {
-        appearance::serve(state.settings.appearance.colour_scheme);
+    // The portal backend: dark or light, and shortcuts apps keep while another app has the
+    // keyboard. Nested, the desktop Slipstream runs inside already answers both for its own apps.
+    if session || std::env::var("SLIPSTREAM_PORTAL").as_deref() == Ok("1") {
+        use smithay::reexports::calloop::channel;
+        let (sender, shortcut_events) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(shortcut_events, |event, _, state| {
+                if let channel::Event::Msg(event) = event {
+                    state.shortcut_event(event);
+                }
+            })
+            .map_err(|err| err.error)?;
+        portal::serve(state.settings.appearance.colour_scheme, sender);
+        watch::watch_shortcuts(&event_loop.handle());
     }
     // The password card for programs that need an administrator's say-so. Nested, the desktop
     // Slipstream runs inside already has an agent for its session, and polkit takes one only.

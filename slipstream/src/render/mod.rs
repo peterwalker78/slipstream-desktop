@@ -1998,6 +1998,13 @@ fn card_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // The card asking about an app's shortcuts, where the keyboard is.
+    if let Some(ask) = state.shortcuts.ask_mut() {
+        elements.extend(
+            ask.element(renderer, size, scale, wall, ring)
+                .map(OutputElement::Memory),
+        );
+    }
     // The way out: the ask card in the middle of the screen, or the slim one while the apps are
     // closing. It draws whatever else is up, and the fade to black goes over everything below.
     let ring = state.panel_ring();

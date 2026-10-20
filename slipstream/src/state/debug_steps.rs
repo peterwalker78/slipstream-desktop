@@ -294,6 +294,29 @@ impl Slipstream {
                         ..Default::default()
                     });
                 }
+                debug::Step::AskShortcuts(app, wanted) => {
+                    use crate::shortcuts::portal::{Event, Wanted};
+                    let session = format!("/org/slipstream/debug/{}", app.replace('.', "_"));
+                    self.shortcut_event(Event::Opened {
+                        session: session.clone(),
+                        app,
+                    });
+                    // Nobody waits on the answer; the card's own answers are what's checked.
+                    let (reply, _) = async_channel::bounded(1);
+                    let wanted = wanted
+                        .into_iter()
+                        .map(|(id, description, preferred)| Wanted {
+                            id,
+                            description,
+                            preferred,
+                        })
+                        .collect();
+                    self.shortcut_event(Event::Bind {
+                        session,
+                        wanted,
+                        reply,
+                    });
+                }
                 debug::Step::NotifyCritical(app, summary, body) => {
                     self.notification_arrived(crate::notify::Incoming {
                         id: crate::notify::next_id(),

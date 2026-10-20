@@ -18,6 +18,7 @@ impl Slipstream {
             || self.battery.card.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
+            || self.shortcuts.ask().is_some()
             || self.exit.as_ref().is_some_and(|exit| exit.modal())
             || self.switcher.is_some()
             || self.arrange.is_some()
@@ -151,6 +152,12 @@ impl Slipstream {
         if self.connect.is_some() {
             if let Some(pos) = pressed_at {
                 self.connect_click(pos.x, pos.y);
+            }
+            return;
+        }
+        if self.shortcuts.ask().is_some() {
+            if let Some(pos) = pressed_at {
+                self.shortcuts_click(pos.x, pos.y);
             }
             return;
         }

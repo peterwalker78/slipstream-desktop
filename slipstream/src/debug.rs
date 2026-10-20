@@ -35,7 +35,8 @@
 //! with optional `shift+`), `qclick:X,Y` (a click while quick settings is open, in logical pixels
 //! on the screen), `centre`, `ckey:NAME` and `cclick:X,Y` (the same for the notification centre,
 //! Super+N), `notify:APP|TITLE|BODY` (a notification, as if an app had sent one; a fourth field
-//! `id=Label,id=Label` adds action buttons), `critical:APP|TITLE|BODY` (a critical one, which
+//! `id=Label,id=Label` adds action buttons), `shortcuts:APPID|id=Description=CTRL+ALT+t,...` (an
+//! app asking for shortcuts, as through the portal), `critical:APP|TITLE|BODY` (a critical one, which
 //! wakes the faded UI), `osd:KIND` (the volume or brightness display, drawn without changing
 //! anything), `wallpaper:ID` (show one living-wallpaper variation now, by its id in the settings
 //! file), `wayout` (the way out on its chooser, as Ctrl+Alt+Del opens it), `logout`, `restart`
@@ -171,6 +172,9 @@ pub enum Step {
     Notify(String, String, String, Vec<(String, String)>),
     /// A critical notification: app, title, body.
     NotifyCritical(String, String, String),
+    /// An app asking for shortcuts through the portal: its app ID, and each shortcut's id,
+    /// description and preferred keys.
+    AskShortcuts(String, Vec<(String, String, Option<String>)>),
     /// A living-wallpaper variation, by id.
     Wallpaper(String),
     /// Every minimised app's load, pinned, so a stream's two ends can be looked at without
@@ -441,6 +445,20 @@ impl Script {
                     ("cclick", Some(at)) => {
                         let (x, y) = point(at)?;
                         Step::CentreClick(x, y)
+                    }
+                    ("shortcuts", Some(text)) => {
+                        let (app, list) = text.split_once('|')?;
+                        let wanted = list
+                            .split(',')
+                            .filter_map(|shortcut| {
+                                let mut fields = shortcut.splitn(3, '=');
+                                let id = fields.next()?.trim().to_string();
+                                let description = fields.next().unwrap_or_default().to_string();
+                                let keys = fields.next().map(str::to_string);
+                                Some((id, description, keys))
+                            })
+                            .collect();
+                        Step::AskShortcuts(app.to_string(), wanted)
                     }
                     ("notify", Some(text)) => {
                         let mut fields = text.splitn(4, '|');

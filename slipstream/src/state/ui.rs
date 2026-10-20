@@ -73,6 +73,9 @@ impl Slipstream {
         if let Some(prompt) = self.polkit.prompt.as_mut() {
             prompt.forget_painted_text();
         }
+        if let Some(ask) = self.shortcuts.ask_mut() {
+            ask.forget_painted_text();
+        }
     }
 
     /// How visible the UI is now. It fades after a while with no input, unless Awake is on,

@@ -8,14 +8,11 @@
 //! Slipstream names only itself in `XDG_CURRENT_DESKTOP`, so no other desktop's backend answers
 //! for it. Without this one nothing would, and every app would fall back to light.
 //!
-//! `session/slipstream.portal` points xdg-desktop-portal at the bus name below and
+//! `session/slipstream.portal` points xdg-desktop-portal at Slipstream's backend (`portal.rs`) and
 //! `slipstream-portals.conf` asks for it first; the rest of the namespace (accent colour, fonts,
 //! contrast) still goes on to whatever backend the machine has.
 
-use std::{
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use slipstream_config::ColourScheme;
 use zbus::{
@@ -24,8 +21,6 @@ use zbus::{
     zvariant::{OwnedValue, Value},
 };
 
-const NAME: &str = "org.freedesktop.impl.portal.desktop.slipstream";
-const PATH: &str = "/org/freedesktop/portal/desktop";
 const INTERFACE: &str = "org.freedesktop.impl.portal.Settings";
 
 /// The cross-desktop namespace, and the only one that carries a preference rather than a theme's
@@ -37,8 +32,6 @@ const GNOME: &str = "org.gnome.desktop.interface";
 
 /// What the settings file says now. Read by the bus thread, written by the main loop.
 static SCHEME: Mutex<ColourScheme> = Mutex::new(ColourScheme::Dark);
-/// The connection, once the name is ours, for sending `SettingChanged`.
-static CONNECTION: OnceLock<zbus::blocking::Connection> = OnceLock::new();
 
 /// Every namespace and key Slipstream answers for, as they stand.
 fn readings() -> Vec<(&'static str, Vec<(&'static str, OwnedValue)>)> {
@@ -79,7 +72,7 @@ fn reading(namespace: &str, key: &str) -> Option<OwnedValue> {
         .map(|(_, value)| value)
 }
 
-struct Server;
+pub struct Server;
 
 #[interface(name = "org.freedesktop.impl.portal.Settings")]
 impl Server {
@@ -130,23 +123,9 @@ impl Server {
     ) -> zbus::Result<()>;
 }
 
-/// Takes the appearance backend's name on the session bus and serves it. If something else has
-/// the name there is another Slipstream running, and this one leaves the setting to it.
-pub fn serve(scheme: ColourScheme) {
+/// What apps are told before the settings change.
+pub fn start_with(scheme: ColourScheme) {
     *SCHEME.lock().unwrap() = scheme;
-    std::thread::spawn(move || {
-        let connection = zbus::blocking::connection::Builder::session()
-            .and_then(|builder| builder.name(NAME))
-            .and_then(|builder| builder.serve_at(PATH, Server))
-            .and_then(|builder| builder.build());
-        match connection {
-            Ok(connection) => {
-                tracing::info!("serving the appearance settings portal on the session bus");
-                let _ = CONNECTION.set(connection);
-            }
-            Err(err) => tracing::warn!("couldn't serve the appearance settings portal: {err}"),
-        }
-    });
 }
 
 /// The setting changed. Apps are told one key at a time, as the interface asks, and take it
@@ -159,16 +138,20 @@ pub fn set(scheme: ColourScheme) {
         }
         *held = scheme;
     }
-    let Some(connection) = CONNECTION.get().cloned() else {
+    let Some(connection) = crate::portal::connection() else {
         return;
     };
     std::thread::spawn(move || {
         for (namespace, keys) in readings() {
             for (key, value) in keys {
                 let body = (namespace, key, Value::from(value));
-                if let Err(err) =
-                    connection.emit_signal(None::<&str>, PATH, INTERFACE, "SettingChanged", &body)
-                {
+                if let Err(err) = connection.emit_signal(
+                    None::<&str>,
+                    crate::portal::PATH,
+                    INTERFACE,
+                    "SettingChanged",
+                    &body,
+                ) {
                     tracing::warn!(namespace, key, "couldn't send SettingChanged: {err}");
                 }
             }

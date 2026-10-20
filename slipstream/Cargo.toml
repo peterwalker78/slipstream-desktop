@@ -11,6 +11,7 @@ rust-version.workspace = true
 # Smithay's own calloop, with the signals source turned on: the session teardown has to run on
 # SIGTERM too, and a signalfd through the event loop is the only way to do that safely.
 calloop = { version = "0.14", features = ["signals"] }
+async-channel.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 fontdue.workspace = true

@@ -1,7 +1,7 @@
 //! Follows changes on disk. The explorer's app list keeps in step with what's installed: every
 //! applications folder (Flatpak exports included) is watched, and any change there, an app
 //! installed, removed or updated, reads the apps and their icons again once the changes settle. The recent files list is read again when an app rewrites it. Settings apply as
-//! soon as the Settings app saves them.
+//! soon as the Settings app saves them, and a shortcut taken away from an app there stops working.
 
 use std::{cell::Cell, mem::MaybeUninit, path::PathBuf, rc::Rc, time::Duration};
 
@@ -81,6 +81,27 @@ pub fn watch_settings(handle: &LoopHandle<'static, Slipstream>) {
                 state.apply_settings(settings);
             }
         },
+    );
+}
+
+/// Follows the shortcuts apps were given, so one taken away in Settings stops working at once.
+pub fn watch_shortcuts(handle: &LoopHandle<'static, Slipstream>) {
+    let dir = slipstream_config::screens::state_dir();
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(dir = %dir.display(), "can't watch the shortcuts apps were given: {err}");
+        return;
+    }
+    watch(
+        handle,
+        "changes to apps' shortcuts",
+        vec![dir],
+        SETTINGS_SETTLE,
+        |event| {
+            event.file_name().is_some_and(|name| {
+                name.to_bytes() == slipstream_config::shortcuts::FILE_NAME.as_bytes()
+            })
+        },
+        |state| state.shortcuts_file_changed(),
     );
 }
 
