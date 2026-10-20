@@ -3,8 +3,8 @@
 //! The wallpaper is drawn on the CPU by the compositor, so the compositor draws the previews too:
 //! `slipstream --wallpaper-preview ID` composes a variation off screen, with no display and no
 //! GPU, and writes a few small frames. They are made once for each build of the compositor, on a
-//! thread of their own, and kept in the cache folder; the page shows each card's frames in turn,
-//! or only the still picture when motion is reduced.
+//! thread of their own, and kept in the cache folder; the page's one preview turns over the
+//! frames of the variation it shows, or holds its still picture when motion is reduced.
 
 use std::{
     cell::{Cell, RefCell},
@@ -22,7 +22,7 @@ const COMPOSITOR: &str = "slipstream";
 
 /// A preview's size in logical pixels, the size its frames are drawn at (a little larger, for
 /// screens scaled above 1), how many frames it has, and the seconds between them.
-const SHOWN: (i32, i32) = (256, 160);
+pub const SHOWN: (i32, i32) = (256, 160);
 const DRAWN: (u32, u32) = (320, 200);
 const FRAMES: usize = 16;
 const EVERY: f64 = 0.2;
@@ -40,7 +40,7 @@ pub fn hold() {
 /// The compositor installed beside this app. Only that one: a compositor from somewhere else on
 /// `PATH` might be an older build that doesn't know how to draw a preview, and would start a whole
 /// session instead.
-fn compositor() -> Option<PathBuf> {
+pub fn compositor() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name(COMPOSITOR))
@@ -115,7 +115,7 @@ fn make(compositor: &Path, id: &str, dir: &Path) -> Result<Frames, String> {
     })
 }
 
-/// A preview's place in its card, waiting for its frames.
+/// The picture a preview is shown in, waiting for its frames.
 pub fn picture() -> gtk::Picture {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
@@ -129,88 +129,121 @@ pub fn picture() -> gtk::Picture {
     picture
 }
 
-/// Fills `pictures` (a variation id and its picture each) with their previews as they are made,
-/// one at a time off the main thread, and keeps the moving ones turning over while they are on
-/// screen. With `reduced` motion each shows its still picture instead.
-pub fn fill(pictures: Vec<(&'static str, gtk::Picture)>, reduced: bool) {
-    let Some(compositor) = compositor() else {
-        return;
-    };
-    let Some(build) = build_name(&compositor) else {
-        return;
-    };
-    let root = cache_root();
-    let folder = root.join(&build);
-    if HELD.with(Cell::get) {
-        // A screenshot: every preview in place before the window first draws, since a picture
-        // that changes afterwards can't be drawn into one. Waiting here is fine for that.
-        forget_other_builds(&root, &build);
-        for (id, picture) in &pictures {
-            if let Ok(frames) = make(&compositor, id, &folder.join(id)) {
-                match frames.moving.get(FRAMES / 2) {
-                    Some(frame) if !reduced => picture.set_paintable(Some(frame)),
-                    _ => picture.set_paintable(Some(&frames.still)),
-                }
-            }
-        }
-        return;
-    }
-    // Each picture's frames once they are loaded. Held weakly, so the page can go and take its
-    // previews with it.
-    let shown: Shown = Rc::new(
-        pictures
-            .iter()
-            .map(|(_, picture)| (picture.downgrade(), RefCell::new(Vec::new())))
-            .collect(),
-    );
-    if !reduced {
-        animate(Rc::clone(&shown));
-    }
-    glib::spawn_future_local(async move {
-        // Previews of earlier builds are no use any more.
-        let _ = gio::spawn_blocking({
-            let (root, build) = (root.clone(), build.clone());
-            move || forget_other_builds(&root, &build)
-        })
-        .await;
-        for (index, (id, picture)) in pictures.into_iter().enumerate() {
-            let (compositor, dir) = (compositor.clone(), folder.join(id));
-            let made = gio::spawn_blocking(move || make(&compositor, id, &dir)).await;
-            let Ok(Ok(frames)) = made else {
-                continue;
-            };
-            picture.set_paintable(Some(&frames.still));
-            if !reduced {
-                *shown[index].1.borrow_mut() = frames.moving;
-            }
-        }
-    });
+/// The frames made so far, each beside its variation's id.
+type Made = Rc<RefCell<Vec<(&'static str, Frames)>>>;
+
+/// One picture for many variations: it shows whichever it was last asked to, turning over while
+/// it is on screen, or holding still when motion is reduced.
+pub struct Preview {
+    picture: gtk::Picture,
+    showing: Rc<Cell<&'static str>>,
+    made: Made,
+    reduced: bool,
 }
 
-/// The pictures being animated, and the frames each turns through.
-type Shown = Rc<Vec<(glib::WeakRef<gtk::Picture>, RefCell<Vec<gdk::Texture>>)>>;
+impl Preview {
+    /// Makes the previews of `ids` for `picture`, one at a time off the main thread, starting
+    /// with whichever it is showing, and shows `first`.
+    pub fn new(
+        picture: &gtk::Picture,
+        ids: Vec<&'static str>,
+        first: &'static str,
+        reduced: bool,
+    ) -> Preview {
+        let preview = Preview {
+            picture: picture.clone(),
+            showing: Rc::new(Cell::new(first)),
+            made: Rc::default(),
+            reduced,
+        };
+        let Some(compositor) = compositor() else {
+            return preview;
+        };
+        let Some(build) = build_name(&compositor) else {
+            return preview;
+        };
+        let root = cache_root();
+        let folder = root.join(&build);
+        if HELD.with(Cell::get) {
+            // A screenshot: the picture in place before the window first draws, since a picture
+            // that changes afterwards can't be drawn into one. Waiting here is fine for that.
+            forget_other_builds(&root, &build);
+            if let Ok(frames) = make(&compositor, first, &folder.join(first)) {
+                preview.made.borrow_mut().push((first, frames));
+            }
+            preview.show(first);
+            return preview;
+        }
+        if !reduced {
+            animate(&preview);
+        }
+        let (picture, showing, made) = (
+            picture.downgrade(),
+            Rc::clone(&preview.showing),
+            Rc::clone(&preview.made),
+        );
+        glib::spawn_future_local(async move {
+            // Previews of earlier builds are no use any more.
+            let _ = gio::spawn_blocking({
+                let (root, build) = (root.clone(), build.clone());
+                move || forget_other_builds(&root, &build)
+            })
+            .await;
+            let mut left = ids;
+            while !left.is_empty() && picture.upgrade().is_some() {
+                let at = left.iter().position(|id| *id == showing.get()).unwrap_or(0);
+                let id = left.remove(at);
+                let (compositor, dir) = (compositor.clone(), folder.join(id));
+                let made_now = gio::spawn_blocking(move || make(&compositor, id, &dir)).await;
+                let Ok(Ok(frames)) = made_now else {
+                    continue;
+                };
+                if let Some(picture) = picture.upgrade()
+                    && showing.get() == id
+                {
+                    picture.set_paintable(Some(&frames.still));
+                }
+                made.borrow_mut().push((id, frames));
+            }
+        });
+        preview
+    }
 
-/// Turns every preview over to its next frame while it is on screen, until the page is gone.
-fn animate(shown: Shown) {
+    /// Shows `id`'s preview, or an empty picture until it is made.
+    pub fn show(&self, id: &'static str) {
+        self.showing.set(id);
+        let made = self.made.borrow();
+        match made.iter().find(|(made, _)| *made == id) {
+            Some((_, frames)) => match frames.moving.get(FRAMES / 2) {
+                Some(frame) if !self.reduced => self.picture.set_paintable(Some(frame)),
+                _ => self.picture.set_paintable(Some(&frames.still)),
+            },
+            None => self.picture.set_paintable(None::<&gdk::Paintable>),
+        }
+    }
+}
+
+/// Turns the preview over to its next frame while it is on screen, until the page is gone.
+fn animate(preview: &Preview) {
+    let (picture, showing, made) = (
+        preview.picture.downgrade(),
+        Rc::clone(&preview.showing),
+        Rc::clone(&preview.made),
+    );
     let mut frame = 0usize;
     glib::timeout_add_local(Duration::from_secs_f64(EVERY), move || {
-        let mut alive = false;
+        let Some(picture) = picture.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
         frame = frame.wrapping_add(1);
-        for (picture, frames) in shown.iter() {
-            let Some(picture) = picture.upgrade() else {
-                continue;
-            };
-            alive = true;
-            let frames = frames.borrow();
-            if !frames.is_empty() && picture.is_mapped() {
-                picture.set_paintable(Some(&frames[frame % frames.len()]));
-            }
+        let made = made.borrow();
+        if let Some((_, frames)) = made.iter().find(|(id, _)| *id == showing.get())
+            && !frames.moving.is_empty()
+            && picture.is_mapped()
+        {
+            picture.set_paintable(Some(&frames.moving[frame % frames.moving.len()]));
         }
-        if alive {
-            glib::ControlFlow::Continue
-        } else {
-            glib::ControlFlow::Break
-        }
+        glib::ControlFlow::Continue
     });
 }
 

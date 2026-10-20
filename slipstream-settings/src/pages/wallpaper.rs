@@ -9,10 +9,61 @@ pub(super) const FADE_CHOICES: [u64; 7] = [30, 60, 120, 300, 600, 1800, 0];
 /// How long a variation holds before the next one takes over, in minutes; 0 never changes.
 pub(super) const CHANGE_CHOICES: [u64; 8] = [1, 2, 5, 10, 15, 30, 60, 0];
 
+/// How tall the list of variations is, and the room above and below its rows that lets the
+/// first and last of them scroll to its middle.
+const LIST_HEIGHT: i32 = 320;
+const LIST_PAD: i32 = LIST_HEIGHT / 2 - 26;
+
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Wallpaper",
         "The living wallpaper behind your windows. Tick more than one and they take turns.",
+    );
+
+    let cycle = group(&page, "Cycle");
+    let current = store.get().wallpaper.change_every_mins;
+    let every = choices(&CHANGE_CHOICES, current);
+    let names: Vec<String> = every.iter().map(|&mins| describe(mins * 60)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let change = gtk::DropDown::from_strings(&names);
+    change.set_selected(every.iter().position(|&mins| mins == current).unwrap_or(0) as u32);
+    let change_store = store.clone();
+    change.connect_selected_notify(move |change| {
+        if let Some(&mins) = every.get(change.selected() as usize) {
+            change_store.change(|settings| settings.wallpaper.change_every_mins = mins);
+        }
+    });
+    row(
+        &cycle,
+        "Change the picture every",
+        Some(
+            "With more than one ticked, they take turns in a random order. The next one takes \
+             over at the end of a turn, so the screen is nearly empty when the picture changes.",
+        ),
+        &change,
+    );
+
+    let idle = group(&page, "Taking the screen");
+    let current = store.get().wallpaper.fade_after_secs;
+    let waits = choices(&FADE_CHOICES, current);
+    let names: Vec<String> = waits.iter().map(|&secs| describe(secs)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let fade = gtk::DropDown::from_strings(&names);
+    fade.set_selected(waits.iter().position(|&secs| secs == current).unwrap_or(0) as u32);
+    let fade_store = store.clone();
+    fade.connect_selected_notify(move |fade| {
+        if let Some(&secs) = waits.get(fade.selected() as usize) {
+            fade_store.change(|settings| settings.wallpaper.fade_after_secs = secs);
+        }
+    });
+    row(
+        &idle,
+        "Fade to the wallpaper after",
+        Some(
+            "Time with no keyboard or mouse input. A fullscreen window or a playing video keeps \
+             the desktop up, and so does Awake: hold Caps Lock down to turn it on or off.",
+        ),
+        &fade,
     );
 
     let turns = group(&page, "Taking turns");
@@ -25,35 +76,128 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         .collect();
     let all = gtk::CheckButton::new();
     let all_sub = row(&turns, "All of them", Some(""), &all);
-    let mut pictures = Vec::new();
+
+    // The variations, family by family, beside one preview of the row in the list's middle.
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .activate_on_single_click(false)
+        .margin_top(LIST_PAD)
+        .margin_bottom(LIST_PAD)
+        .css_classes(["variations"])
+        .build();
+    let mut listed: Vec<&'static slipstream_config::Variation> = Vec::new();
     let mut checks: Vec<(&'static str, gtk::CheckButton)> = Vec::new();
+    let mut headings: Vec<(usize, &'static str)> = Vec::new();
     for (family, ids) in FAMILIES {
-        let gallery = gallery(&page, family);
+        headings.push((listed.len(), family));
         for id in ids {
             let Some(variation) = slipstream_config::VARIATIONS.iter().find(|v| v.id == *id) else {
                 continue;
             };
             let check = gtk::CheckButton::new();
             check.set_active(chosen.contains(&variation.id));
-            let picture = previews::picture();
-            picture.update_property(&[gtk::accessible::Property::Label(&format!(
-                "Preview of {}",
-                variation.title
-            ))]);
-            gallery.append(&variation_card(variation, &picture, &check));
-            pictures.push((variation.id, picture));
+            list.append(&variation_row(variation, &check));
+            listed.push(variation);
             checks.push((variation.id, check));
         }
-        // A card chosen anywhere but on its tick: the keyboard's Enter or Space, or a click on
-        // the picture or the words.
-        gallery.connect_child_activated(|_, child| {
-            if let Some(check) = card_check(child) {
+    }
+    list.set_header_func(move |row, _| {
+        let heading = headings
+            .iter()
+            .find(|(at, _)| *at == row.index() as usize)
+            .map(|(_, family)| {
+                let heading = label(&family.to_uppercase(), "group-title");
+                heading.set_margin_top(12);
+                heading.set_margin_bottom(4);
+                heading.set_margin_start(10);
+                heading
+            });
+        row.set_header(heading.as_ref());
+    });
+    let viewport = gtk::Viewport::builder()
+        .scroll_to_focus(false)
+        .child(&list)
+        .build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(LIST_HEIGHT)
+        .max_content_height(LIST_HEIGHT)
+        .hexpand(true)
+        .child(&viewport)
+        .build();
+    let picture = previews::picture();
+    // Held at its own size: in the row it would otherwise grow to the list's height and crowd
+    // the list out.
+    let (width, height) = previews::SHOWN;
+    let holder = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::External)
+        .vscrollbar_policy(gtk::PolicyType::External)
+        .min_content_width(width)
+        .max_content_width(width)
+        .min_content_height(height)
+        .max_content_height(height)
+        .valign(gtk::Align::Center)
+        .child(&picture)
+        .build();
+    let preview = previews::Preview::new(
+        &picture,
+        listed.iter().map(|variation| variation.id).collect(),
+        listed[0].id,
+        store.get().motion.reduced,
+    );
+    let shelf = gtk::Box::builder().spacing(16).css_classes(["row"]).build();
+    shelf.append(&holder);
+    shelf.append(&scroller);
+    turns.append(&shelf);
+
+    // Scrolling picks the row that comes to the middle; picking a row with the keys or the
+    // pointer brings it to the middle. Either way the preview shows it.
+    let scrolling = Rc::new(Cell::new(false));
+    let adjustment = scroller.vadjustment();
+    {
+        let (list, scrolling) = (list.clone(), Rc::clone(&scrolling));
+        adjustment.connect_value_changed(move |adjustment| {
+            let middle = adjustment.value() + adjustment.page_size() / 2.0 - f64::from(LIST_PAD);
+            if let Some(row) = list.row_at_y(middle as i32)
+                && !row.is_selected()
+            {
+                scrolling.set(true);
+                list.select_row(Some(&row));
+                scrolling.set(false);
+            }
+        });
+    }
+    list.connect_row_selected(move |list, row| {
+        let Some(row) = row else {
+            return;
+        };
+        let Some(variation) = listed.get(row.index() as usize) else {
+            return;
+        };
+        preview.show(variation.id);
+        picture.update_property(&[gtk::accessible::Property::Label(&format!(
+            "Preview of {}",
+            variation.title
+        ))]);
+        if !scrolling.get()
+            && let Some(bounds) = row.compute_bounds(list)
+        {
+            let middle = f64::from(LIST_PAD + bounds.y() as i32) + f64::from(bounds.height()) / 2.0;
+            adjustment.set_value(middle - adjustment.page_size() / 2.0);
+        }
+    });
+    list.select_row(list.row_at_index(0).as_ref());
+
+    let checks = Rc::new(checks);
+    // Enter or Space on a row ticks it, as a click on its tick does.
+    {
+        let checks = Rc::clone(&checks);
+        list.connect_row_activated(move |_, row| {
+            if let Some((_, check)) = checks.get(row.index() as usize) {
                 check.set_active(!check.is_active());
             }
         });
     }
-    let checks = Rc::new(checks);
-    previews::fill(pictures, store.get().motion.reduced);
 
     // Setting ticks from here must not be taken for the user's own changes.
     let settling = Rc::new(Cell::new(false));
@@ -126,53 +270,51 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         save();
         sync_all();
     });
-
-    let cycle = group(&page, "Cycle");
-    let current = store.get().wallpaper.change_every_mins;
-    let every = choices(&CHANGE_CHOICES, current);
-    let names: Vec<String> = every.iter().map(|&mins| describe(mins * 60)).collect();
-    let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let change = gtk::DropDown::from_strings(&names);
-    change.set_selected(every.iter().position(|&mins| mins == current).unwrap_or(0) as u32);
-    let change_store = store.clone();
-    change.connect_selected_notify(move |change| {
-        if let Some(&mins) = every.get(change.selected() as usize) {
-            change_store.change(|settings| settings.wallpaper.change_every_mins = mins);
-        }
-    });
-    row(
-        &cycle,
-        "Change the picture every",
-        Some(
-            "With more than one ticked, they take turns in a random order. The next one takes \
-             over at the end of a turn, so the screen is nearly empty when the picture changes.",
-        ),
-        &change,
-    );
-
-    let idle = group(&page, "Taking the screen");
-    let current = store.get().wallpaper.fade_after_secs;
-    let waits = choices(&FADE_CHOICES, current);
-    let names: Vec<String> = waits.iter().map(|&secs| describe(secs)).collect();
-    let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let fade = gtk::DropDown::from_strings(&names);
-    fade.set_selected(waits.iter().position(|&secs| secs == current).unwrap_or(0) as u32);
-    let fade_store = store.clone();
-    fade.connect_selected_notify(move |fade| {
-        if let Some(&secs) = waits.get(fade.selected() as usize) {
-            fade_store.change(|settings| settings.wallpaper.fade_after_secs = secs);
-        }
-    });
-    row(
-        &idle,
-        "Fade to the wallpaper after",
-        Some(
-            "Time with no keyboard or mouse input. A fullscreen window or a playing video keeps \
-             the desktop up, and so does Awake: hold Caps Lock down to turn it on or off.",
-        ),
-        &fade,
-    );
     page.upcast()
+}
+
+/// A variation as a row of the list: its tick, then its name and what it does.
+fn variation_row(
+    variation: &slipstream_config::Variation,
+    check: &gtk::CheckButton,
+) -> gtk::ListBoxRow {
+    let text = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .hexpand(true)
+        .build();
+    text.append(&label(variation.title, "variation-title"));
+    let blurb = label(variation.blurb, "row-sub");
+    blurb.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    text.append(&blurb);
+    // The row takes the keyboard, so the tick is only for the pointer.
+    check.set_focusable(false);
+    let line = gtk::Box::builder()
+        .spacing(12)
+        .css_classes(["variation"])
+        .build();
+    line.append(check);
+    line.append(&text);
+    let row = gtk::ListBoxRow::builder()
+        .child(&line)
+        .tooltip_text(variation.blurb)
+        .build();
+    row.update_property(&[
+        gtk::accessible::Property::Label(variation.title),
+        gtk::accessible::Property::Description(variation.blurb),
+    ]);
+    let mark = {
+        let row = row.clone();
+        move |check: &gtk::CheckButton| {
+            row.update_state(&[gtk::accessible::State::Checked(if check.is_active() {
+                gtk::AccessibleTristate::True
+            } else {
+                gtk::AccessibleTristate::False
+            })]);
+        }
+    };
+    mark(check);
+    check.connect_toggled(mark);
+    row
 }
 
 /// The ticks after "All of them" is pressed, for `count` variations: every one when it goes on,
@@ -195,7 +337,7 @@ fn all_blurb(ticked: usize, count: usize) -> String {
     }
 }
 
-/// The variations in families, so they are chosen among rather than scrolled past. Every
+/// The variations in families, each under its own heading in the list. Every
 /// variation is in exactly one.
 const FAMILIES: [(&str, &[&str]); 3] = [
     (
@@ -227,95 +369,6 @@ const FAMILIES: [(&str, &[&str]); 3] = [
         &["departures", "prompt", "circuit", "sonar", "glitch", "maze"],
     ),
 ];
-
-/// A titled gallery of cards on `page`, as many across as fit.
-fn gallery(page: &gtk::Box, title: &str) -> gtk::FlowBox {
-    let group = gtk::Box::new(gtk::Orientation::Vertical, 7);
-    group.append(&label(&title.to_uppercase(), "group-title"));
-    let gallery = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .homogeneous(true)
-        .min_children_per_line(2)
-        .max_children_per_line(4)
-        .column_spacing(12)
-        .row_spacing(12)
-        .activate_on_single_click(true)
-        .css_classes(["gallery"])
-        .build();
-    group.append(&gallery);
-    page.append(&group);
-    gallery
-}
-
-/// A variation as a card: its moving picture with the tick over a corner, and its name and what
-/// it does beneath. A chosen card is outlined, so what takes turns shows at a glance.
-fn variation_card(
-    variation: &slipstream_config::Variation,
-    picture: &gtk::Picture,
-    check: &gtk::CheckButton,
-) -> gtk::FlowBoxChild {
-    let card = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(4)
-        .css_classes(["variation"])
-        .build();
-    let overlay = gtk::Overlay::builder().halign(gtk::Align::Start).build();
-    overlay.set_child(Some(picture));
-    check.set_halign(gtk::Align::End);
-    check.set_valign(gtk::Align::Start);
-    check.set_margin_top(8);
-    check.set_margin_end(8);
-    // The card takes the keyboard, so the tick is only for the pointer.
-    check.set_focusable(false);
-    overlay.add_overlay(check);
-    card.append(&overlay);
-    let title = label(variation.title, "variation-title");
-    card.append(&title);
-    let blurb = label(variation.blurb, "row-sub");
-    blurb.set_lines(3);
-    blurb.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    blurb.set_tooltip_text(Some(variation.blurb));
-    card.append(&blurb);
-
-    let child = gtk::FlowBoxChild::builder()
-        .child(&card)
-        .tooltip_text(variation.blurb)
-        .build();
-    child.update_property(&[
-        gtk::accessible::Property::Label(variation.title),
-        gtk::accessible::Property::Description(variation.blurb),
-    ]);
-    let mark = {
-        let (card, child) = (card.clone(), child.clone());
-        move |check: &gtk::CheckButton| {
-            if check.is_active() {
-                card.add_css_class("chosen");
-            } else {
-                card.remove_css_class("chosen");
-            }
-            child.update_state(&[gtk::accessible::State::Checked(if check.is_active() {
-                gtk::AccessibleTristate::True
-            } else {
-                gtk::AccessibleTristate::False
-            })]);
-        }
-    };
-    mark(check);
-    check.connect_toggled(mark);
-    child
-}
-
-/// The tick on a card made by `variation_card`.
-fn card_check(child: &gtk::FlowBoxChild) -> Option<gtk::CheckButton> {
-    child
-        .child()?
-        .first_child()?
-        .downcast::<gtk::Overlay>()
-        .ok()?
-        .last_child()?
-        .downcast::<gtk::CheckButton>()
-        .ok()
-}
 
 /// What to write for the ticked variations: nothing at all when every one of them is ticked, so
 /// that goes on meaning "all of them" as more are added. Otherwise the ones still ticked keep the

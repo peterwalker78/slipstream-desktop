@@ -177,40 +177,35 @@ window.slipstream-settings headerbar windowcontrols button {
   color: #42d3ff;
 }
 
-/* A wallpaper variation's moving preview, dark until its frames arrive. */
-.variation picture.preview {
+/* The wallpaper's one moving preview, dark until its frames arrive. */
+picture.preview {
   border-radius: 6px;
   background: #0b0e13;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* A wallpaper variation's card in the gallery, outlined in cyan while it's chosen. */
-.variation {
-  padding: 8px 8px 10px;
-  border-radius: 10px;
-  background: #1f222b;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.variation.chosen {
-  border-color: #42d3ff;
-  background: rgba(66, 211, 255, 0.06);
-}
-
-.variation-title {
-  margin-top: 4px;
-  font-weight: 700;
-}
-
-.gallery > flowboxchild {
-  padding: 0;
-  border-radius: 11px;
+/* The list of variations: the row in its middle, which the preview shows, is lit. */
+.variations {
   background: none;
 }
 
-.gallery > flowboxchild:focus-visible {
+.variations > row {
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.variations > row:selected {
+  background: rgba(66, 211, 255, 0.10);
+  color: inherit;
+}
+
+.variations > row:focus-visible {
   outline: 2px solid #42d3ff;
-  outline-offset: 2px;
+  outline-offset: -2px;
+}
+
+.variation-title {
+  font-weight: 700;
 }
 
 /* A slider, lit in the same colour as a switch that's on. */
