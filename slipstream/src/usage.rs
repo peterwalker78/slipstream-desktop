@@ -27,7 +27,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::tcp;
+use crate::tcp::{self, Traffic};
 
 /// How much of an app's meter its first busy core takes. Most apps work in one thread, so one
 /// core flat out has to read as real work on any machine; the rest of the meter is shared evenly
@@ -83,7 +83,8 @@ pub struct Figures {
     /// Processor time as a percentage of everything the machine has.
     pub cpu: f32,
     /// Bytes sent and received a second, over TCP.
-    pub network: f32,
+    pub sent: f32,
+    pub received: f32,
 }
 
 /// One app's running totals, as the kernel has them now.
@@ -135,7 +136,7 @@ struct Probe {
     /// The last look: when, and the totals then.
     last: Option<(Instant, u64, u64)>,
     /// What each of the app's connections had carried at the last look, by socket inode.
-    connections: HashMap<u64, u64>,
+    connections: HashMap<u64, Traffic>,
     reading: Reading,
 }
 
@@ -150,7 +151,7 @@ impl Probe {
     }
 
     /// Reads the app's totals and scores what it did since the last look.
-    fn sample(&mut self, now: Instant, tcp: &HashMap<u64, u64>) {
+    fn sample(&mut self, now: Instant, tcp: &HashMap<u64, Traffic>) {
         if self
             .last
             .is_some_and(|(then, ..)| now.duration_since(then) < SHORTEST)
@@ -166,7 +167,7 @@ impl Probe {
         // No connections anywhere, or a kernel that didn't list them this time: no files to
         // walk, and what is known of the app's connections stands until there is a list again.
         let carried = if tcp.is_empty() {
-            0
+            Traffic::default()
         } else {
             let totals = counters
                 .pids
@@ -180,12 +181,12 @@ impl Probe {
 
     /// Turns totals into a reading: the busiest of the three, risen to at once and fallen from
     /// slowly. The first look only notes where the totals stand.
-    fn score(&mut self, now: Instant, cpu: u64, memory: u64, carried: u64) {
+    fn score(&mut self, now: Instant, cpu: u64, memory: u64, carried: Traffic) {
         if let Some((then, last_cpu, last_memory)) = self.last {
             let seconds = now.duration_since(then).as_secs_f32().max(0.001);
             let cores = cpu.saturating_sub(last_cpu) as f32 / 1e6 / seconds;
             let moved_mb = memory.abs_diff(last_memory) as f32 / (1024.0 * 1024.0) / seconds;
-            let carried_kb = carried as f32 / 1024.0 / seconds;
+            let carried_kb = carried.total() as f32 / 1024.0 / seconds;
             let reading = &mut self.reading;
             reading.cpu = cpu_share(cores, processors());
             reading.memory = log_share(moved_mb, APP_MEMORY_STILL_MB, APP_MEMORY_FULL_MB);
@@ -196,7 +197,8 @@ impl Probe {
             reading.figures = Some(Figures {
                 memory,
                 cpu: 100.0 * cores / processors(),
-                network: carried as f32 / seconds,
+                sent: carried.sent as f32 / seconds,
+                received: carried.received as f32 / seconds,
             });
         }
         self.last = Some((now, cpu, memory));
@@ -244,19 +246,20 @@ fn settle(was: f32, busiest: f32, seconds: f32) -> f32 {
     busiest + (was - busiest) * 0.5_f32.powf(seconds / HALF_LIFE_SECS)
 }
 
-/// The bytes an app's connections have carried since the last look, given each one's total now.
+/// What an app's connections have carried each way since the last look, given each one's totals
+/// now.
 /// `known` is left holding those totals for next time.
 ///
 /// A connection not seen before is counted from nothing, since it was opened since the last
 /// look, except on the first look of all, when every connection is new and none of what they
 /// have carried is news.
 fn carried(
-    known: &mut HashMap<u64, u64>,
+    known: &mut HashMap<u64, Traffic>,
     first: bool,
-    totals: impl Iterator<Item = (u64, u64)>,
-) -> u64 {
+    totals: impl Iterator<Item = (u64, Traffic)>,
+) -> Traffic {
     let mut now = HashMap::new();
-    let mut bytes = 0u64;
+    let mut carried = Traffic::default();
     for (inode, total) in totals {
         // A connection shared between processes turns up once for each of them.
         if now.insert(inode, total).is_some() {
@@ -265,12 +268,17 @@ fn carried(
         let before = if first {
             total
         } else {
-            known.get(&inode).copied().unwrap_or(0)
+            known.get(&inode).copied().unwrap_or_default()
         };
-        bytes = bytes.saturating_add(total.saturating_sub(before));
+        carried.sent = carried
+            .sent
+            .saturating_add(total.sent.saturating_sub(before.sent));
+        carried.received = carried
+            .received
+            .saturating_add(total.received.saturating_sub(before.received));
     }
     *known = now;
-    bytes
+    carried
 }
 
 /// An app on its way to the sampling thread: what to read, and where to leave the reading. The
@@ -451,6 +459,11 @@ mod tests {
     const MB: u64 = 1024 * 1024;
     const SECOND: Duration = Duration::from_secs(1);
 
+    /// Traffic that only came in.
+    fn received(received: u64) -> Traffic {
+        Traffic { sent: 0, received }
+    }
+
     /// The processor time, in microseconds, of every processor busy for `seconds`.
     fn flat_out(seconds: u64) -> u64 {
         (processors() * 1e6) as u64 * seconds
@@ -459,7 +472,7 @@ mod tests {
     /// A probe that has had its first look, with `memory` held and nothing done yet.
     fn probe_holding(memory: u64, at: Instant) -> Probe {
         let mut probe = Probe::new(std::process::id());
-        probe.score(at, 0, memory, 0);
+        probe.score(at, 0, memory, received(0));
         probe
     }
 
@@ -472,14 +485,14 @@ mod tests {
             "nothing to compare the first look with"
         );
         // Every processor flat out for two seconds, 300 MB held, 1 MB carried.
-        probe.score(start + SECOND * 2, flat_out(2), 300 * MB, 2 * MB);
+        probe.score(start + SECOND * 2, flat_out(2), 300 * MB, received(2 * MB));
         let figures = probe.reading.figures.unwrap();
         assert_eq!(figures.memory, 300 * MB);
         assert!((figures.cpu - 100.0).abs() < 0.01, "{}", figures.cpu);
         assert!(
-            (figures.network - MB as f32).abs() < 1.0,
+            (figures.received - MB as f32).abs() < 1.0,
             "{}",
-            figures.network
+            figures.received
         );
     }
 
@@ -488,7 +501,7 @@ mod tests {
         let start = Instant::now();
         let mut probe = probe_holding(2048 * MB, start);
         for second in 1..=5 {
-            probe.score(start + SECOND * second, 0, 2048 * MB, 0);
+            probe.score(start + SECOND * second, 0, 2048 * MB, received(0));
             assert_eq!(probe.reading.load, 0.0, "holding memory is not work");
         }
     }
@@ -524,13 +537,13 @@ mod tests {
         let start = Instant::now();
         let mut probe = probe_holding(500 * MB, start);
         // Taking 45 MB in a second is about half way up the scale.
-        probe.score(start + SECOND, 0, 545 * MB, 0);
+        probe.score(start + SECOND, 0, 545 * MB, received(0));
         assert!((probe.reading.memory - 0.5).abs() < 0.01);
         // Giving it back is work too.
-        probe.score(start + SECOND * 2, 0, 500 * MB, 0);
+        probe.score(start + SECOND * 2, 0, 500 * MB, received(0));
         assert!((probe.reading.memory - 0.5).abs() < 0.01);
         // A megabyte or two of wander isn't.
-        probe.score(start + SECOND * 3, 0, 502 * MB, 0);
+        probe.score(start + SECOND * 3, 0, 502 * MB, received(0));
         assert_eq!(probe.reading.memory, 0.0);
     }
 
@@ -550,7 +563,7 @@ mod tests {
         let start = Instant::now();
         let mut probe = probe_holding(500 * MB, start);
         // A gigabyte in a second, and not a tick of processor time.
-        probe.score(start + SECOND, 0, 500 * MB, 1 << 30);
+        probe.score(start + SECOND, 0, 500 * MB, received(1 << 30));
         assert_eq!(probe.reading.load, APP_NETWORK_MOST);
         assert!(probe.reading.load < 1.0);
     }
@@ -561,13 +574,13 @@ mod tests {
         let mut probe = probe_holding(500 * MB, start);
         // An idle processor and still memory, but 64 KB a second coming down the line: half way
         // up what traffic can read.
-        probe.score(start + SECOND, 0, 500 * MB, 64 * 1024);
+        probe.score(start + SECOND, 0, 500 * MB, received(64 * 1024));
         assert!((probe.reading.load - 0.5 * APP_NETWORK_MOST).abs() < 0.01);
         assert_eq!(probe.reading.cpu, 0.0);
 
         let mut probe = probe_holding(500 * MB, start);
         // Every processor flat out outweighs a trickle on the network.
-        probe.score(start + SECOND, flat_out(1), 500 * MB, 4 * 1024);
+        probe.score(start + SECOND, flat_out(1), 500 * MB, received(4 * 1024));
         assert_eq!(probe.reading.load, 1.0);
     }
 
@@ -575,22 +588,22 @@ mod tests {
     fn a_reading_rises_at_once_and_falls_slowly() {
         let start = Instant::now();
         let mut probe = probe_holding(500 * MB, start);
-        probe.score(start + SECOND, flat_out(1), 500 * MB, 0);
+        probe.score(start + SECOND, flat_out(1), 500 * MB, received(0));
         assert_eq!(probe.reading.load, 1.0, "flat out within the second");
         // The work stops. Half the reading is left a half-life later, a quarter after two.
         let mut at = start + SECOND;
         for _ in 0..3 {
             at += SECOND;
-            probe.score(at, flat_out(1), 500 * MB, 0);
+            probe.score(at, flat_out(1), 500 * MB, received(0));
         }
         assert!((probe.reading.load - 0.5).abs() < 0.01);
         for _ in 0..3 {
             at += SECOND;
-            probe.score(at, flat_out(1), 500 * MB, 0);
+            probe.score(at, flat_out(1), 500 * MB, received(0));
         }
         assert!((probe.reading.load - 0.25).abs() < 0.01);
         // And it comes straight back up when the work does.
-        probe.score(at + SECOND, flat_out(2), 500 * MB, 0);
+        probe.score(at + SECOND, flat_out(2), 500 * MB, received(0));
         assert_eq!(probe.reading.load, 1.0);
     }
 
@@ -609,18 +622,32 @@ mod tests {
     fn connections_are_counted_from_where_they_were_last_seen() {
         let mut known = HashMap::new();
         // The first look: two connections that have carried plenty already, none of it news.
-        let first = carried(&mut known, true, [(10, 5_000), (11, 80_000)].into_iter());
-        assert_eq!(first, 0);
+        let both = |sent, received| Traffic { sent, received };
+        let first = carried(
+            &mut known,
+            true,
+            [(10, both(1_000, 5_000)), (11, both(0, 80_000))].into_iter(),
+        );
+        assert_eq!(first, Traffic::default());
         // One carries on, one has closed, one has opened since and is counted from nothing.
-        let second = carried(&mut known, false, [(10, 6_500), (12, 300)].into_iter());
-        assert_eq!(second, 1_800);
+        let second = carried(
+            &mut known,
+            false,
+            [(10, both(1_200, 6_500)), (12, both(100, 300))].into_iter(),
+        );
+        assert_eq!(second, both(300, 1_800));
         // A connection held by two processes of the app is counted once.
         let third = carried(
             &mut known,
             false,
-            [(10, 7_000), (10, 7_000), (12, 300)].into_iter(),
+            [
+                (10, both(1_200, 7_000)),
+                (10, both(1_200, 7_000)),
+                (12, both(100, 300)),
+            ]
+            .into_iter(),
         );
-        assert_eq!(third, 500);
+        assert_eq!(third, both(0, 500));
         assert_eq!(known.len(), 2);
     }
 

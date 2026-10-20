@@ -135,13 +135,14 @@ fn place(column: Rect, screen: Rect, top: i32, y: f64, size: (f64, f64)) -> (f64
     (x, (y - h / 2.0).clamp(highest, lowest))
 }
 
-/// What an app is using, as a line: "312 MB memory · 4% CPU · 1.2 MB/s network".
+/// What an app is using, as a line: "312 MB memory · 4% CPU · 1.2 MB/s down · 40 KB/s up".
 fn describe(figures: Figures) -> String {
     format!(
-        "{} memory · {}% CPU · {} network",
+        "{} memory · {}% CPU · {} down · {} up",
         memory(figures.memory),
         figures.cpu.clamp(0.0, 100.0).round() as u32,
-        rate(figures.network),
+        rate(figures.received),
+        rate(figures.sent),
     )
 }
 
@@ -290,11 +291,12 @@ mod tests {
         let figures = Figures {
             memory: 312 * MB,
             cpu: 3.6,
-            network: 1.2 * 1024.0 * 1024.0,
+            sent: 40.0 * 1024.0,
+            received: 1.2 * 1024.0 * 1024.0,
         };
         assert_eq!(
             describe(figures),
-            "312 MB memory · 4% CPU · 1.2 MB/s network"
+            "312 MB memory · 4% CPU · 1.2 MB/s down · 40 KB/s up"
         );
     }
 }

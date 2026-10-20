@@ -33,11 +33,25 @@ const BYTES_RECEIVED_AT: usize = 128;
 /// packets. The bits are the kernel's TCP states.
 const CARRYING: u32 = 0xfff & !(1 << 10 | 1 << 7 | 1 << 6 | 1 << 3);
 
+/// What one connection has carried so far, each way.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Traffic {
+    /// Bytes sent and acknowledged by the other end.
+    pub sent: u64,
+    pub received: u64,
+}
+
+impl Traffic {
+    pub fn total(self) -> u64 {
+        self.sent.saturating_add(self.received)
+    }
+}
+
 /// Bytes sent and received so far by every TCP connection, by socket inode. Empty where the
 /// kernel won't say (a container without the diagnostics module, say), and empty rather than
 /// partial if it stops part way: a connection missing from one answer and back in the next
 /// would look as if it had carried its whole life's traffic in between.
-pub fn bytes_by_inode() -> HashMap<u64, u64> {
+pub fn bytes_by_inode() -> HashMap<u64, Traffic> {
     let mut table = HashMap::new();
     let Ok(socket) = open() else {
         return table;
@@ -96,7 +110,7 @@ fn open() -> io::Result<OwnedFd> {
 }
 
 /// Asks for every carrying connection of one address family and adds their totals to `table`.
-fn dump(socket: &OwnedFd, family: u8, table: &mut HashMap<u64, u64>) -> io::Result<()> {
+fn dump(socket: &OwnedFd, family: u8, table: &mut HashMap<u64, Traffic>) -> io::Result<()> {
     let mut request = [0u8; HEADER + REQUEST];
     request[0..4].copy_from_slice(&((HEADER + REQUEST) as u32).to_ne_bytes());
     request[4..6].copy_from_slice(&SOCK_DIAG_BY_FAMILY.to_ne_bytes());
@@ -142,7 +156,7 @@ fn dump(socket: &OwnedFd, family: u8, table: &mut HashMap<u64, u64>) -> io::Resu
 }
 
 /// Reads one datagram of answers. True once the kernel says the list is finished.
-fn read_answer(mut data: &[u8], table: &mut HashMap<u64, u64>) -> io::Result<bool> {
+fn read_answer(mut data: &[u8], table: &mut HashMap<u64, Traffic>) -> io::Result<bool> {
     while data.len() >= HEADER {
         let length = u32::from_ne_bytes([data[0], data[1], data[2], data[3]]) as usize;
         let kind = u16::from_ne_bytes([data[4], data[5]]);
@@ -153,8 +167,8 @@ fn read_answer(mut data: &[u8], table: &mut HashMap<u64, u64>) -> io::Result<boo
             NLMSG_DONE => return Ok(true),
             NLMSG_ERROR => return Err(io::ErrorKind::Unsupported.into()),
             SOCK_DIAG_BY_FAMILY => {
-                if let Some((inode, bytes)) = connection(&data[HEADER..length]) {
-                    table.insert(inode, bytes);
+                if let Some((inode, traffic)) = connection(&data[HEADER..length]) {
+                    table.insert(inode, traffic);
                 }
             }
             _ => {}
@@ -164,9 +178,9 @@ fn read_answer(mut data: &[u8], table: &mut HashMap<u64, u64>) -> io::Result<boo
     Ok(false)
 }
 
-/// One connection's inode and the bytes it has carried both ways, from its `inet_diag_msg` and
-/// the attributes after it.
-fn connection(message: &[u8]) -> Option<(u64, u64)> {
+/// One connection's inode and what it has carried each way, from its `inet_diag_msg` and the
+/// attributes after it.
+fn connection(message: &[u8]) -> Option<(u64, Traffic)> {
     let inode = u32::from_ne_bytes(message.get(INODE_AT..INODE_AT + 4)?.try_into().ok()?);
     let mut attributes = message.get(MESSAGE..)?;
     while attributes.len() >= 4 {
@@ -180,9 +194,12 @@ fn connection(message: &[u8]) -> Option<(u64, u64)> {
             let total = |at: usize| -> Option<u64> {
                 Some(u64::from_ne_bytes(info.get(at..at + 8)?.try_into().ok()?))
             };
-            let bytes = total(BYTES_ACKED_AT)?.saturating_add(total(BYTES_RECEIVED_AT)?);
+            let traffic = Traffic {
+                sent: total(BYTES_ACKED_AT)?,
+                received: total(BYTES_RECEIVED_AT)?,
+            };
             // A socket no process holds any more has no inode to find it by.
-            return (inode != 0).then_some((u64::from(inode), bytes));
+            return (inode != 0).then_some((u64::from(inode), traffic));
         }
         attributes = &attributes[align(length).min(attributes.len())..];
     }
@@ -228,7 +245,13 @@ mod tests {
         data.extend(&message);
         let mut table = HashMap::new();
         assert!(!read_answer(&data, &mut table).unwrap());
-        assert_eq!(table.get(&4242), Some(&1000));
+        assert_eq!(
+            table.get(&4242),
+            Some(&Traffic {
+                sent: 700,
+                received: 300
+            })
+        );
 
         data.extend((HEADER as u32).to_ne_bytes());
         data.extend(NLMSG_DONE.to_ne_bytes());
@@ -264,8 +287,11 @@ mod tests {
             .unwrap();
         assert!(sockets_of(std::process::id()).any(|held| held == inode));
         // Where the kernel won't list connections there is nothing to check the total against.
-        if let Some(bytes) = bytes_by_inode().get(&inode) {
-            assert!(*bytes >= 10_000, "{bytes} bytes for 10,000 received");
+        if let Some(traffic) = bytes_by_inode().get(&inode) {
+            assert!(
+                traffic.received >= 10_000,
+                "{traffic:?} for 10,000 received"
+            );
         }
     }
 }
