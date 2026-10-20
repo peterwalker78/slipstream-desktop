@@ -5,6 +5,8 @@
 //! - **Active** (cyan wave): the agent is working, itself or through its helpers.
 //! - **Idle** (flat amber line): the agent is open but between tasks.
 //!
+//! The agent's process ID sits in the readout's top right corner, so its session can be found.
+//!
 //! Under the trace, each helper the agent has working gets a row: a small wave of its own beside
 //! what it is doing.
 //!
@@ -49,6 +51,8 @@ const MARGIN: i32 = 18;
 const PAD: i32 = 9;
 /// The line the agent's name is written on.
 const LABEL: i32 = 15;
+/// The space kept between the name and the process ID beside it.
+const PID_GAP: i32 = 8;
 /// A trace's height, and the least it is squeezed to before readouts are left off instead.
 const TRACE: i32 = 44;
 const SHORTEST: i32 = 15;
@@ -218,7 +222,7 @@ struct Canvas {
     scale: f64,
     /// The backings and names, which the traces are drawn over afresh each time.
     base: Vec<u8>,
-    names: Vec<(String, Vec<String>)>,
+    names: Vec<(u32, String, Vec<String>)>,
     /// Every trace's colour and amp packed together when last painted, and when that was.
     painted: Vec<u64>,
     painted_at: f64,
@@ -369,8 +373,10 @@ impl Scope {
                 || !canvas
                     .names
                     .iter()
-                    .map(|(name, helpers)| (name, helpers))
-                    .eq(traces.iter().map(|trace| (&trace.name, &trace.helpers)))
+                    .map(|(pid, name, helpers)| (pid, name, helpers))
+                    .eq(traces
+                        .iter()
+                        .map(|trace| (&trace.pid, &trace.name, &trace.helpers)))
         });
         if fresh {
             let base = base(traces, &fit, device, scale)?;
@@ -392,7 +398,7 @@ impl Scope {
                     base,
                     names: traces
                         .iter()
-                        .map(|trace| (trace.name.clone(), trace.helpers.clone()))
+                        .map(|trace| (trace.pid, trace.name.clone(), trace.helpers.clone()))
                         .collect(),
                     painted: Vec::new(),
                     painted_at: f64::NEG_INFINITY,
@@ -447,13 +453,13 @@ fn base(traces: &[Trace], fit: &Fit, device: (i32, i32), scale: f64) -> Option<V
         let top = top as f32;
         let height = fit.height(count) as f32;
         painter.fill(0.0, top, width, height, BACKING_RADIUS, BACKING);
-        let name = text::ellipsize(&trace.name, &style, width - 2.0 * PAD as f32);
-        painter.text(
-            &name,
-            PAD as f32,
-            top + PAD as f32 + LABEL as f32 / 2.0 - 1.0,
-            &style,
-        );
+        let line = top + PAD as f32 + LABEL as f32 / 2.0 - 1.0;
+        let pid = format!("PID: {}", trace.pid);
+        let pid_width = text::width(&pid, &helper_style);
+        painter.text(&pid, width - PAD as f32 - pid_width, line, &helper_style);
+        let room = width - 2.0 * PAD as f32 - pid_width - PID_GAP as f32;
+        let name = text::ellipsize(&trace.name, &style, room);
+        painter.text(&name, PAD as f32, line, &style);
         let left = (PAD + HELPER_WAVE + HELPER_GAP) as f32;
         let first = top + (PAD + LABEL + fit.trace) as f32;
         for (i, (row, _)) in trace.rows().iter().enumerate() {
@@ -641,6 +647,45 @@ mod tests {
         let mut pixels = vec![0u8; width * height * 4];
         plot(&mut pixels, (width, height), &[trace], &fit, 1.0, t);
         (pixels, width, height)
+    }
+
+    #[test]
+    fn the_process_id_sits_in_the_top_right_corner_however_long_the_name() {
+        let fit = Fit::new(SCREEN.into(), &[0]).unwrap();
+        let size = fit.size();
+        let (width, height) = (size.w as usize, size.h as usize);
+        let named = |name: &str| {
+            let readout = Trace {
+                name: name.to_string(),
+                ..trace(1444309, &[], 1.0)
+            };
+            base(&[readout], &fit, (size.w, size.h), 1.0).unwrap()
+        };
+        let unnamed = named("");
+        let backing = unnamed[(height / 2 * width + width / 2) * 4..][..4].to_vec();
+        let band = PAD as usize..(PAD + LABEL) as usize;
+        let lit: Vec<usize> = band
+            .clone()
+            .flat_map(|row| (0..width).map(move |col| (row, col)))
+            .filter(|&(row, col)| unnamed[(row * width + col) * 4..][..4] != backing[..])
+            .map(|(_, col)| col)
+            .collect();
+        assert!(!lit.is_empty(), "the PID is drawn");
+        assert!(lit.iter().all(|&col| col > width / 2), "on the right");
+        assert!(
+            *lit.iter().max().unwrap() <= width - PAD as usize,
+            "inside the padding"
+        );
+        // A name too long to fit gives way to it rather than writing over it.
+        let crowded = named(&"kiln ".repeat(40));
+        let first = *lit.iter().min().unwrap();
+        for row in band {
+            let at = (row * width + first) * 4;
+            assert_eq!(
+                crowded[at..][..(width - first) * 4],
+                unnamed[at..][..(width - first) * 4]
+            );
+        }
     }
 
     /// One trace plotted on its own at `colour`/`amp`, and the rows of the picture that have a dot.
