@@ -64,13 +64,26 @@ enum Source {
     Process(u32),
 }
 
-/// How hard one app is working, 0 to 1, and the three scores behind it.
+/// How hard one app is working, 0 to 1, the three scores behind it, and what was measured.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Reading {
     load: f32,
     cpu: f32,
     memory: f32,
     network: f32,
+    /// None until a second look has something to compare with.
+    figures: Option<Figures>,
+}
+
+/// What an app was last measured using, as figures a person reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Figures {
+    /// Bytes of memory held.
+    pub memory: u64,
+    /// Processor time as a percentage of everything the machine has.
+    pub cpu: f32,
+    /// Bytes sent and received a second, over TCP.
+    pub network: f32,
 }
 
 /// One app's running totals, as the kernel has them now.
@@ -93,6 +106,8 @@ pub struct Meter {
     shared: Option<Arc<Mutex<Reading>>>,
     /// 0 to 1.
     pub load: f32,
+    /// The figures behind it.
+    pub figures: Option<Figures>,
 }
 
 impl Meter {
@@ -100,13 +115,16 @@ impl Meter {
         Self {
             shared: pid.map(|pid| watch(Probe::new(pid))),
             load: 0.0,
+            figures: None,
         }
     }
 
     /// Picks up the latest reading.
     pub fn refresh(&mut self) {
         if let Some(shared) = &self.shared {
-            self.load = shared.lock().unwrap_or_else(PoisonError::into_inner).load;
+            let reading = *shared.lock().unwrap_or_else(PoisonError::into_inner);
+            self.load = reading.load;
+            self.figures = reading.figures;
         }
     }
 }
@@ -175,6 +193,11 @@ impl Probe {
                 APP_NETWORK_MOST * log_share(carried_kb, APP_NETWORK_QUIET_KB, APP_NETWORK_FULL_KB);
             let busiest = reading.cpu.max(reading.memory).max(reading.network);
             reading.load = settle(reading.load, busiest, seconds);
+            reading.figures = Some(Figures {
+                memory,
+                cpu: 100.0 * cores / processors(),
+                network: carried as f32 / seconds,
+            });
         }
         self.last = Some((now, cpu, memory));
     }
@@ -438,6 +461,26 @@ mod tests {
         let mut probe = Probe::new(std::process::id());
         probe.score(at, 0, memory, 0);
         probe
+    }
+
+    #[test]
+    fn the_figures_are_what_was_measured_over_the_last_look() {
+        let start = Instant::now();
+        let mut probe = probe_holding(300 * MB, start);
+        assert_eq!(
+            probe.reading.figures, None,
+            "nothing to compare the first look with"
+        );
+        // Every processor flat out for two seconds, 300 MB held, 1 MB carried.
+        probe.score(start + SECOND * 2, flat_out(2), 300 * MB, 2 * MB);
+        let figures = probe.reading.figures.unwrap();
+        assert_eq!(figures.memory, 300 * MB);
+        assert!((figures.cpu - 100.0).abs() < 0.01, "{}", figures.cpu);
+        assert!(
+            (figures.network - MB as f32).abs() < 1.0,
+            "{}",
+            figures.network
+        );
     }
 
     #[test]

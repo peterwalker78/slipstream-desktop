@@ -94,6 +94,7 @@ mod sound;
 mod state;
 mod status;
 mod streaks;
+mod stream_tip;
 mod switcher;
 mod takeback;
 mod tcp;

@@ -11,6 +11,8 @@
 //!
 //! So every stream paints its own band, at its own speed and in its own colour.
 
+use std::time::Instant;
+
 use crate::motion::REDUCED_FADE;
 use resvg::tiny_skia::Pixmap;
 use smithay::{
@@ -33,6 +35,7 @@ use crate::{
     paint::{self, Painter},
     panel::DESIGN_PX,
     streaks::Streaks,
+    stream_tip::Tip,
     text::{self, Face, Style},
     usage::Meter,
 };
@@ -224,6 +227,8 @@ pub struct Rain {
     name_colour: u32,
     /// The same colour as channels, for the names the rain spells.
     ring_rgb: [f32; 3],
+    /// What the stream the pointer rests on says about its app.
+    tip: Tip<Window>,
 }
 
 impl Rain {
@@ -243,7 +248,13 @@ impl Rain {
             pinned: None,
             name_colour: rgb_colour(ring_rgb),
             ring_rgb,
+            tip: Tip::new(),
         }
+    }
+
+    /// The pointer is on `over`'s stream, or none, `y` logical pixels down the rain's screen.
+    pub fn point(&mut self, over: Option<Window>, y: f64) {
+        self.tip.hover.point(over, y, Instant::now());
     }
 
     /// Writes the names in `ring_rgb` from the next frame, when the ring's colour changes.
@@ -401,6 +412,7 @@ impl Rain {
             for stream in &mut self.streams {
                 stream.stepped_to = now;
             }
+            self.tip.hover.leave();
             return elements;
         }
         let screen = Rect {
@@ -422,6 +434,7 @@ impl Rain {
             effects,
             name_colour,
             ring_rgb,
+            tip,
         } = self;
         let effects = *effects;
         if effects == Effects::Matrix && glyphs.is_none() {
@@ -573,6 +586,29 @@ impl Rain {
                 elements.extend(painted.element_px(renderer, card_at, alpha));
             }
             elements.extend(header.element_px(renderer, button, alpha));
+        }
+
+        // The tip for the stream the pointer rests on, in front of everything else here.
+        if let Some(index) = tip
+            .hover
+            .showing(Instant::now())
+            .and_then(|window| streams.iter().position(|stream| stream.window == *window))
+        {
+            let stream = &streams[index];
+            let column = Self::column(index, screen, top);
+            elements.splice(
+                0..0,
+                tip.element(
+                    renderer,
+                    &stream.name,
+                    stream.meter.figures,
+                    column,
+                    screen,
+                    top,
+                    scale,
+                    ui,
+                ),
+            );
         }
         elements
     }

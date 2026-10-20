@@ -276,6 +276,18 @@ impl Slipstream {
         Some(self.rain.streams[index].window.clone())
     }
 
+    /// The pointer moved to `pos`: the stream it is on, if nothing of Slipstream's own is in the
+    /// way, shows what its app is using once the pointer rests there.
+    pub fn rain_hover(&mut self, pos: Point<f64, Logical>) {
+        let over = if self.pointer_blocked() {
+            None
+        } else {
+            self.rain_window_at(pos)
+        };
+        let top = self.screen_rect(0).map_or(0.0, |screen| screen.y as f64);
+        self.rain.point(over, pos.y - top);
+    }
+
     /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
     /// Its app's meter is read from there (`usage::Meter`).
     pub fn window_pid(&self, window: &Window) -> Option<u32> {

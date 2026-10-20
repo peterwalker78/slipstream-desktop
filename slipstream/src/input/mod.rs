@@ -154,6 +154,7 @@ impl Slipstream {
         self.connect_hover(pos);
         self.battery_hover(pos);
         self.share_hover(pos);
+        self.rain_hover(pos);
         self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
         // A slider held in quick settings.
