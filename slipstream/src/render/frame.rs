@@ -1159,6 +1159,16 @@ fn draw_window(
             .elements
             .extend(surfaces.into_iter().map(OutputElement::Surface));
     }
+    // A floating window casts a soft shadow on what's beneath it.
+    if !docked && home.is_some() && state.workspaces.is_floating(&window) {
+        let zoom = if v.zoomed_out > 0.0 { v.zoom } else { 1.0 };
+        world.elements.extend(
+            chrome
+                .window_shadow(renderer, shown, (world_scale.x, zoom), drawn.alpha)
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
     // And round it, the bar's material carried on down its sides and under its foot, with the
     // shadow the whole piece casts on the desktop.
     if docked {

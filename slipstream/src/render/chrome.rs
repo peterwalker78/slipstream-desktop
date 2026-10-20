@@ -50,6 +50,9 @@ pub struct Chrome {
     pub(super) deck_dim: SolidColorBuffer,
     /// The name under the deck's front pane, and what it says.
     pub(super) deck_label: Option<(String, paint::Painted)>,
+    /// The shadow floating windows cast, painted once round a small square and cut up to fit
+    /// each window (`window_shadow`).
+    pub(super) window_shadow: Option<paint::Painted>,
 }
 
 impl Default for Chrome {
@@ -77,6 +80,7 @@ impl Default for Chrome {
             veil: SolidColorBuffer::new((0, 0), veil_colour()),
             unlock: None,
             unlock_broken: false,
+            window_shadow: None,
         }
     }
 }
@@ -369,6 +373,39 @@ const TIPS_RING_STEP: f32 = 1.6;
 
 const TIPS_GLOW: u32 = panel::MINT;
 
+/// How far a floating window's shadow reaches beyond it, in logical pixels.
+const SHADOW_MARGIN: i32 = 52;
+/// Half the square the shadow is painted round, past the shadow's rounded corners, so the middle
+/// of each side is straight.
+const SHADOW_HALF: i32 = 12;
+/// The shadow's corners, and how far down it falls and how soft it is: CSS's
+/// `box-shadow: 0 16px 64px`.
+const SHADOW_RADIUS: f32 = 8.0;
+const SHADOW_DROP: f32 = 16.0;
+const SHADOW_BLUR: f32 = 64.0;
+const SHADOW_COLOUR: u32 = 0x000000f0;
+
+/// A floating window's shadow round a square `2 * SHADOW_HALF + 1` logical pixels across, with
+/// `SHADOW_MARGIN` of room all round. The square itself is left clear, so a see-through window
+/// isn't darkened.
+fn paint_window_shadow(scale: f64) -> Option<paint::Painted> {
+    let side = 2 * (SHADOW_MARGIN + SHADOW_HALF) + 1;
+    paint::Painted::new(Size::from((side, side)), scale, |p| {
+        let (m, core) = (SHADOW_MARGIN as f32, (2 * SHADOW_HALF + 1) as f32);
+        p.shadow(
+            m,
+            m,
+            core,
+            core,
+            SHADOW_RADIUS,
+            SHADOW_DROP,
+            SHADOW_BLUR,
+            SHADOW_COLOUR,
+        );
+        p.clear(m, m, core, core);
+    })
+}
+
 /// Room around the docked pane for its frame and the shadow, in logical pixels.
 const DOCK_MARGIN: i32 = 64;
 /// How round the frame's two lower corners are.
@@ -396,6 +433,82 @@ fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
 }
 
 impl Chrome {
+    /// The shadow of a floating window drawn at `window`, `zoom` times its size (smaller in bullet
+    /// time's overview): the painted shadow's corners as they are, and a sliver from the middle of
+    /// each side stretched along the window's edges. Each piece starts on the screen pixel where
+    /// the one before it ended, so they meet without a seam at any scale.
+    pub(super) fn window_shadow<R>(
+        &mut self,
+        renderer: &mut R,
+        window: Rectangle<f64, Logical>,
+        (scale, zoom): (f64, f64),
+        alpha: f32,
+    ) -> Vec<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        if self
+            .window_shadow
+            .as_ref()
+            .is_none_or(|painted| painted.scale != scale)
+        {
+            self.window_shadow = paint_window_shadow(scale);
+        }
+        let Some(painted) = self.window_shadow.as_ref() else {
+            return Vec::new();
+        };
+        let reach = SHADOW_MARGIN + SHADOW_HALF;
+        // A corner's size on screen, and the shadow's outer edge.
+        let corner = ((reach as f64 * zoom).round() as i32).max(1);
+        let margin = SHADOW_MARGIN as f64 * zoom;
+        let outer = Rectangle::<f64, Logical>::new(
+            (window.loc.x - margin, window.loc.y - margin).into(),
+            (window.size.w + 2.0 * margin, window.size.h + 2.0 * margin).into(),
+        );
+        // Buffer pixels to a logical one, and the middle sliver: one buffer pixel wide.
+        let k = painted.device.0 as f64 / painted.logical.w as f64;
+        let (cut, far) = ((reach as f64 * k).round(), ((reach + 1) as f64 * k).round());
+        let end = painted.device.0 as f64;
+        // Along one axis: each piece's source span in the buffer and its length on screen.
+        let pieces = |length: f64| {
+            let middle = (length.round() as i32 - 2 * corner).max(0);
+            [
+                (0.0, cut, corner),
+                (cut, far - cut, middle),
+                (far, end - far, corner),
+            ]
+        };
+        let (across, down) = (pieces(outer.size.w), pieces(outer.size.h));
+        let start = outer.loc.to_physical(scale).to_i32_round::<i32>();
+        let mut elements = Vec::with_capacity(8);
+        let mut y = start.y as f64;
+        for (row, &(src_y, src_h, h)) in down.iter().enumerate() {
+            let mut x = start.x as f64;
+            for (column, &(src_x, src_w, w)) in across.iter().enumerate() {
+                // The middle is the window's own: nothing is painted there.
+                if (row, column) != (1, 1) && w > 0 && h > 0 {
+                    let src = Rectangle::new((src_x, src_y).into(), (src_w, src_h).into());
+                    elements.extend(
+                        MemoryRenderBufferRenderElement::from_buffer(
+                            renderer,
+                            (x, y),
+                            &painted.buffer,
+                            Some(alpha),
+                            Some(src),
+                            Some(Size::from((w, h))),
+                            Kind::Unspecified,
+                        )
+                        .ok(),
+                    );
+                }
+                x = (x + w as f64 * scale).round();
+            }
+            y = (y + h as f64 * scale).round();
+        }
+        elements
+    }
+
     /// The frame for a docked pane `size` big whose top left corner is at `at`, painted once for
     /// each size and kept.
     pub(super) fn dock_frame<R>(
