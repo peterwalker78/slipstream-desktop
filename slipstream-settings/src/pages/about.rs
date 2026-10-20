@@ -1,4 +1,4 @@
-//! About: which Slipstream this is, on what.
+//! About: which Slipstream this is, on what, and how much it weighs.
 
 use super::*;
 
@@ -28,6 +28,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         Some("Hand edits apply as soon as they're saved."),
         &file,
     );
+    weight::section(&page);
     page.upcast()
 }
 

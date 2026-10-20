@@ -13,6 +13,7 @@ mod session;
 mod shortcuts;
 mod sound;
 mod wallpaper;
+mod weight;
 mod workspaces;
 
 use std::{

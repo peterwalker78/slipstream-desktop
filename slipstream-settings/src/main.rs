@@ -10,6 +10,7 @@ mod fonts;
 mod pages;
 mod power;
 mod previews;
+mod session_memory;
 
 use std::{
     cell::RefCell,

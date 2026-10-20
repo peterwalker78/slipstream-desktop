@@ -137,6 +137,11 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
     SettingsPage {
         id: "about",
         title: "About",
-        holds: &["Version", "Settings file"],
+        holds: &[
+            "Version",
+            "Settings file",
+            "How much it weighs",
+            "Where its code goes",
+        ],
     },
 ];

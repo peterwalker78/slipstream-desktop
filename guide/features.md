@@ -96,7 +96,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Nothing records your screen without being asked.** A program that asks puts up a card naming it, with "just this once" or "always allow". What has been allowed is listed in Settings → Privacy, where an answer can be taken back.
 - **Dark or light, chosen in Settings**, and every app that asks the desktop follows it the moment you change it: GTK and Qt apps, browsers and anything packaged as a Flatpak. Slipstream's own bar, panels and windows are dark either way.
 - **Screen sharing** through xdg-desktop-portal-wlr, with Slipstream's own picker for a whole screen or a single window, and a red pill on the bar that stops every share. It works end to end in testing, but is still new with real apps.
-- **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`.
+- **Settings** (Super+I): applied the moment you change them, and saved as plain text in `~/.config/slipstream/settings.toml`. Its About page shows how much Slipstream weighs.
 - **A meter of your own** beside quick settings, for any allowance a command can report: a quota, a plan's limits, a disk. [How to set it up](help.md#the-meter-on-the-bar).
 - **Close into the rain:** a closing window drops towards the bottom of the screen as a shower of streaks of light pours down through it faster than it falls, eating it away from the top along a ragged, glowing edge; with the code rain, it's read out into falling code. Both go with the scanlines and flicker of a failing CRT. Settings → Appearance turns it off; off, or with reduced motion, a closing window simply fades.
 - **Every effect has a reduced-motion version**, switched live from Settings.
