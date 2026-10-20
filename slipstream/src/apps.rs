@@ -328,6 +328,9 @@ pub fn search<'a>(apps: &'a [App], query: &str) -> Vec<&'a App> {
     scored.into_iter().map(|(_, _, app)| app).collect()
 }
 
+/// The score of an app whose name has only the query's letters, in order.
+pub const LETTERS_IN_ORDER: u8 = 4;
+
 /// How well `app` matches a lower-case query: 0 for its name's start, 1 for a word in its name,
 /// 2 for its generic name, a keyword or its id, 3 for anywhere in its name, 4 for its letters in
 /// order. `None` when it doesn't.
@@ -362,7 +365,7 @@ pub fn score(app: &App, query: &str) -> Option<u8> {
         query
             .chars()
             .all(|wanted| letters.any(|ch| ch == wanted))
-            .then_some(4)
+            .then_some(LETTERS_IN_ORDER)
     }
 }
 

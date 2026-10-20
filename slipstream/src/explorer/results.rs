@@ -1,5 +1,5 @@
-//! What a query finds: apps for the grid, and the side column's sections, ranked against each
-//! other so that Enter opens the best match wherever it is.
+//! What a query finds: apps for the grid, and the side column's sections. Enter opens the top
+//! app when one matches, and otherwise the best match in the side column.
 
 use slipstream_config::{SETTINGS_PAGES, SettingsPage};
 
@@ -208,10 +208,15 @@ impl Results {
         starts
     }
 
-    /// The best match: the strongest of each kind's first, on the apps' scale (doubled so a Run
-    /// can sit between a keyword and a part of a name). Ties go to the earlier, so an app beats a
-    /// setting or a file of the same name.
+    /// Where Enter lands: the top app when an app matches what is typed, since apps are what the
+    /// explorer is for; Tab reaches the rest. Only an app with nothing but the query's letters
+    /// somewhere in its name in order isn't counted, and then the strongest of each kind's
+    /// first wins, on the apps' scale (doubled so a Run can sit between a keyword and a part of
+    /// a name).
     fn best(&self, app_score: Option<u8>, query: &str) -> usize {
+        if app_score.is_some_and(|score| score < apps::LETTERS_IN_ORDER) {
+            return 0;
+        }
         let mut ranked: Vec<u8> = Vec::new();
         ranked.extend(app_score.map(|score| score * 2));
         ranked.extend(self.apps.iter().skip(1).map(|_| u8::MAX));

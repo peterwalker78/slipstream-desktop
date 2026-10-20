@@ -643,18 +643,19 @@ mod tests {
     }
 
     #[test]
-    fn enter_opens_the_best_match_wherever_it_is() {
+    fn enter_opens_a_matching_app_before_anything_else() {
         let mut explorer = with_apps(&["Budgie Settings", "Notes", "Wallpaper Downloader"]);
         explorer.catalog.lock().unwrap().home = vec![
             index::entry("/home/sam/budget.ods", 0, false),
             index::entry("/home/sam/notes.txt", 0, false),
+            index::entry("/home/sam/downloads", 0, true),
         ];
         explorer.open(0.0);
         let enter = |explorer: &mut Explorer| match explorer.key(Keysym::Return, None, NONE) {
             Outcome::Activate(item, _) => Some(item),
             _ => None,
         };
-        // Its letters are in an app's name, but a file is named for it.
+        // Only its letters are in an app's name, scattered, and a file is named for it.
         typed(&mut explorer, "budget");
         assert_eq!(
             enter(&mut explorer),
@@ -664,6 +665,20 @@ mod tests {
         explorer.key(Keysym::Escape, None, NONE);
         typed(&mut explorer, "notes");
         assert!(matches!(enter(&mut explorer), Some(Item::App(app)) if app.name == "Notes"));
+        // A folder named for it outright, and an app with a word that starts with it: the app,
+        // and Tab reaches the folder.
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "download");
+        assert!(
+            matches!(enter(&mut explorer), Some(Item::App(app)) if app.name == "Wallpaper Downloader")
+        );
+        assert!(
+            explorer
+                .results()
+                .items()
+                .contains(&Item::File("/home/sam/downloads".into())),
+            "the folder is still listed"
+        );
         // A setting held on a page, ahead of running what was typed.
         explorer.key(Keysym::Escape, None, NONE);
         typed(&mut explorer, "night light");
