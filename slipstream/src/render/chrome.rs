@@ -374,16 +374,16 @@ const TIPS_RING_STEP: f32 = 1.6;
 const TIPS_GLOW: u32 = panel::MINT;
 
 /// How far a floating window's shadow reaches beyond it, in logical pixels.
-const SHADOW_MARGIN: i32 = 52;
+const SHADOW_MARGIN: i32 = 36;
 /// Half the square the shadow is painted round, past the shadow's rounded corners, so the middle
 /// of each side is straight.
 const SHADOW_HALF: i32 = 12;
-/// The shadow's corners, and how far down it falls and how soft it is: CSS's
-/// `box-shadow: 0 16px 64px`.
-const SHADOW_RADIUS: f32 = 8.0;
-const SHADOW_DROP: f32 = 16.0;
-const SHADOW_BLUR: f32 = 64.0;
-const SHADOW_COLOUR: u32 = 0x000000f0;
+/// The shadow floating windows and the docked pane cast: its corners, and how far down it falls
+/// and how soft it is, as CSS's `box-shadow: 0 10px 40px`.
+const SHADOW_RADIUS: f32 = 7.0;
+const SHADOW_DROP: f32 = 10.0;
+const SHADOW_BLUR: f32 = 40.0;
+const SHADOW_COLOUR: u32 = 0x00000040;
 
 /// A floating window's shadow round a square `2 * SHADOW_HALF + 1` logical pixels across, with
 /// `SHADOW_MARGIN` of room all round. The square itself is left clear, so a see-through window
@@ -424,7 +424,7 @@ fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
         // Drawn from well above the pane, so the corners rounded off are the lower two.
         let (x, y) = (m - edge, m - 2.0 * DOCK_RADIUS);
         let (wide, tall) = (w + 2.0 * edge, h + edge + 2.0 * DOCK_RADIUS);
-        p.shadow(x, y, wide, tall, DOCK_RADIUS, 10.0, 40.0, 0x00000040);
+        p.shadow(x, y, wide, tall, DOCK_RADIUS, SHADOW_DROP, SHADOW_BLUR, SHADOW_COLOUR);
         p.fill(x, y, wide, tall, DOCK_RADIUS, panel::CHIP | 0xe6);
         p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, panel::DIVIDER);
         p.clear(0.0, 0.0, logical.w as f32, m - edge);
