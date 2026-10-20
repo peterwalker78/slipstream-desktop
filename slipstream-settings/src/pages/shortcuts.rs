@@ -41,7 +41,70 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         row(&styles, style.label(), Some(style.summary()), &pick);
         first.get_or_insert(pick);
     }
+    fill_app_shortcuts(&group(&page, "Apps' own shortcuts"), store);
     page.upcast()
+}
+
+/// Shortcuts apps were allowed to keep, which work whichever window has the keyboard, each of
+/// which can be taken away. Built again from the file whenever one is.
+fn fill_app_shortcuts(card: &gtk::Box, store: &Store) {
+    use slipstream_config::shortcuts;
+
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+    let granted = shortcuts::read(&shortcuts::path());
+    let given: Vec<_> = granted
+        .apps
+        .iter()
+        .flat_map(|app| app.shortcuts.iter().map(move |s| (app, s)))
+        .collect();
+    if given.is_empty() {
+        row(
+            card,
+            "No app has shortcuts of its own",
+            Some(
+                "An app such as a voice chat can ask for keys that work while you're in another \
+                 window. Slipstream asks you first, and what you allow appears here.",
+            ),
+            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+        );
+        return;
+    }
+    let refill = refiller(card, store, fill_app_shortcuts);
+    for (app, shortcut) in given {
+        let what = if shortcut.description.is_empty() {
+            &shortcut.id
+        } else {
+            &shortcut.description
+        };
+        let keys = if shortcut.keys.is_empty() {
+            "Left out"
+        } else {
+            &shortcut.keys
+        };
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        controls.append(&label(keys, "kv"));
+        let delete = gtk::Button::from_icon_name("user-trash-symbolic");
+        delete.set_tooltip_text(Some("Take it away, and ask again next time"));
+        delete.add_css_class("flat");
+        {
+            let refill = refill.clone();
+            let (app, id) = (app.id.clone(), shortcut.id.clone());
+            delete.connect_clicked(move |_| {
+                let path = shortcuts::path();
+                let mut granted = shortcuts::read(&path);
+                if granted.forget(&app, &id)
+                    && let Err(err) = shortcuts::write(&path, &granted)
+                {
+                    eprintln!("slipstream-settings: couldn't take the shortcut away: {err}");
+                }
+                refill();
+            });
+        }
+        controls.append(&delete);
+        row(card, &sentence(what), Some(&app.name), &controls);
+    }
 }
 
 /// The chosen style's own keys, each beside what it does.

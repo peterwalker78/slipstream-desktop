@@ -106,6 +106,9 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
             "Zoom",
             "Magnifier",
             "Accessibility",
+            "Apps' own shortcuts",
+            "Global shortcuts",
+            "Push to talk",
         ],
     },
     SettingsPage {
