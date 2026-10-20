@@ -5,7 +5,10 @@
 //! carrying the key that does the same thing inside it — keyboard first, mouse always optional —
 //! and each returns where it was drawn, so a click can find it again.
 
-use smithay::utils::{Logical, Size};
+use smithay::{
+    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    utils::{Logical, Point, Size},
+};
 
 use crate::{
     icons,
@@ -373,4 +376,129 @@ fn paint_switch(p: &mut Painter, on: bool, x: f32, y: f32, inner: f32, lit: bool
         w: inner,
         h: CHECK_ROW,
     }
+}
+
+/// A card on screen: the button under the pointer and, from its last paint, where it sits, what
+/// can be clicked on it, and the paint itself, kept until what it shows (`K`), the screen or the
+/// scale changes.
+pub struct OnScreen<K = Card> {
+    pub hovered: Option<Button>,
+    /// Where the card's corner settles, which is what a click is measured against: a button
+    /// that moved under the pointer as the card rose into place would be worse than one that
+    /// waits for it.
+    pub at: Point<f64, Logical>,
+    hits: Vec<Hit>,
+    shown: Option<(K, Size<i32, Logical>, f64)>,
+    painted: Option<Painted>,
+}
+
+impl<K> Default for OnScreen<K> {
+    fn default() -> Self {
+        Self {
+            hovered: None,
+            at: Point::from((0.0, 0.0)),
+            hits: Vec::new(),
+            shown: None,
+            painted: None,
+        }
+    }
+}
+
+impl<K: PartialEq> OnScreen<K> {
+    /// Paints its text again next frame: a face for characters it lacked has landed.
+    pub fn forget(&mut self) {
+        self.shown = None;
+    }
+
+    /// Nothing on screen, and nothing kept.
+    pub fn clear(&mut self) {
+        self.shown = None;
+        self.painted = None;
+        self.hits.clear();
+    }
+
+    /// What is under (`x`, `y`), in logical pixels from the screen's corner.
+    pub fn hit(&self, x: f64, y: f64) -> Option<Button> {
+        let px = DESIGN_PX as f64;
+        let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
+        self.hits
+            .iter()
+            .find(|hit| hit.contains(lx, ly))
+            .map(|hit| hit.which)
+    }
+
+    /// The pointer is over `over`. Returns whether that changed, so the caller only redraws when
+    /// the card has something new to show.
+    pub fn hover_over(&mut self, over: Option<Button>) -> bool {
+        let changed = over != self.hovered;
+        self.hovered = over;
+        changed
+    }
+
+    /// The pointer moved to (`x`, `y`). Returns whether what it is over changed.
+    pub fn hover(&mut self, x: f64, y: f64) -> bool {
+        self.hover_over(self.hit(x, y))
+    }
+
+    /// Paints `shows` with `paint` unless it, the screen and the scale are what was last painted.
+    /// Returns the paint's size.
+    pub fn paint(
+        &mut self,
+        shows: K,
+        frame: crate::panel::Frame,
+        paint: impl FnOnce(&K, f64) -> (Option<Painted>, Vec<Hit>),
+    ) -> Option<Size<i32, Logical>> {
+        let fresh = self.shown.as_ref().is_some_and(|(shown, size, scale)| {
+            *shown == shows && *size == frame.size && *scale == frame.scale
+        });
+        if !fresh {
+            (self.painted, self.hits) = paint(&shows, frame.scale);
+            self.shown = Some((shows, frame.size, frame.scale));
+        }
+        self.painted.as_ref().map(|painted| painted.logical)
+    }
+
+    /// The paint with its corner settling at `at`, and `rise` design pixels above it at `alpha`
+    /// while it comes in.
+    pub fn place<R>(
+        &mut self,
+        renderer: &mut R,
+        at: Point<f64, Logical>,
+        (alpha, rise): (f32, f64),
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        self.at = at;
+        let shown = at + Point::from((0.0, rise * DESIGN_PX as f64));
+        self.painted.as_ref()?.element(renderer, shown, alpha)
+    }
+}
+
+impl OnScreen<Card> {
+    /// `card` in the middle of the screen in `frame`, coming in as `opening` says (its opacity,
+    /// and how far above its place it is, in design pixels).
+    pub fn element<R>(
+        &mut self,
+        renderer: &mut R,
+        card: Card,
+        frame: crate::panel::Frame,
+        opening: (f32, f64),
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let size = self.paint(card, frame, paint)?;
+        self.place(renderer, centred(frame.size, size), opening)
+    }
+}
+
+/// Where something `size` big sits in the middle of a `screen`, never above its top.
+pub fn centred(screen: Size<i32, Logical>, size: Size<i32, Logical>) -> Point<f64, Logical> {
+    Point::from((
+        ((screen.w - size.w) / 2) as f64,
+        ((screen.h - size.h) / 2).max(0) as f64,
+    ))
 }

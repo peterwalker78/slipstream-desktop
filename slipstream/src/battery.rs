@@ -14,14 +14,13 @@
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
-    utils::{Logical, Point, Size},
+    utils::{Logical, Point},
 };
 
 use crate::{
     Slipstream,
-    card::{self, Btn, Button, Card, Hit},
-    paint::Painted,
-    panel::{self, DESIGN_PX},
+    card::{self, Btn, Button, Card},
+    panel::{self},
 };
 
 /// Where each step starts, in percent.
@@ -84,11 +83,7 @@ pub struct LowCard {
     percent: u8,
     left: Option<String>,
     pub reduced_motion: bool,
-    hovered: Option<Button>,
-    at: Point<f64, Logical>,
-    hits: Vec<Hit>,
-    shown: Option<(Card, Size<i32, Logical>, f64)>,
-    painted: Option<Painted>,
+    on_screen: card::OnScreen,
 }
 
 impl LowCard {
@@ -98,11 +93,7 @@ impl LowCard {
             percent,
             left,
             reduced_motion,
-            hovered: None,
-            at: Point::from((0.0, 0.0)),
-            hits: Vec::new(),
-            shown: None,
-            painted: None,
+            on_screen: Default::default(),
         }
     }
 
@@ -127,24 +118,15 @@ impl LowCard {
     }
 
     pub fn hover(&mut self, x: f64, y: f64) {
-        self.hovered = self.hit(x, y);
+        self.on_screen.hover(x, y);
     }
 
     pub fn click(&self, x: f64, y: f64) -> Act {
-        match self.hit(x, y) {
+        match self.on_screen.hit(x, y) {
             Some(Button::Go) => Act::SleepNow,
             Some(Button::Stay) => Act::NotYet,
             _ => Act::Nothing,
         }
-    }
-
-    fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = DESIGN_PX as f64;
-        let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
-        self.hits
-            .iter()
-            .find(|hit| hit.contains(lx, ly))
-            .map(|hit| hit.which)
     }
 
     fn card(&self, now: f64) -> Card {
@@ -177,7 +159,7 @@ impl LowCard {
                     primary: true,
                 },
             ],
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: None,
         }
     }
@@ -191,26 +173,10 @@ impl LowCard {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
+        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card(now);
-        let fresh = self
-            .shown
-            .as_ref()
-            .is_some_and(|(shown, size, at)| *shown == card && *size == screen && *at == scale);
-        if !fresh {
-            let (painted, hits) = card::paint(&card, scale);
-            self.hits = hits;
-            self.painted = painted;
-            self.shown = Some((card, screen, scale));
-        }
-        let painted = self.painted.as_ref()?;
-        self.at = Point::from((
-            ((screen.w - painted.logical.w) / 2) as f64,
-            ((screen.h - painted.logical.h) / 2).max(0) as f64,
-        ));
         let (alpha, rise) = panel::opening(now - self.since, self.reduced_motion);
-        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
-        painted.element(renderer, at, alpha)
+        self.on_screen.element(renderer, card, frame, (alpha, rise))
     }
 }
 

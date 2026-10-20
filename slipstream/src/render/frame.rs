@@ -511,7 +511,7 @@ fn overlay_elements(
     let ring = state.panel_ring();
     if let Some(prompt) = state.polkit.prompt.as_mut() {
         if v.first {
-            let card = prompt.element(renderer, v.geo.size, v.scale.x, v.wall, ring);
+            let card = prompt.element(renderer, v.frame(v.wall), ring);
             elements.extend(card.map(OutputElement::Memory));
         }
         let shade = prompt.shade(&v.name, v.geo.size, v.scale.x, v.wall);

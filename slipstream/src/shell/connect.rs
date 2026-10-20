@@ -12,13 +12,11 @@
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
-    utils::{Logical, Point, Size},
 };
 
 use crate::{
-    card::{self, Btn, Button, Card, Hit},
-    paint::Painted,
-    panel::{self, DESIGN_PX},
+    card::{self, Btn, Button, Card},
+    panel::{self},
 };
 
 /// Keys are ignored this long after the card appears.
@@ -48,11 +46,7 @@ pub struct Connect {
     share_label: String,
     since: f64,
     pub reduced_motion: bool,
-    hovered: Option<Button>,
-    at: Point<f64, Logical>,
-    hits: Vec<Hit>,
-    shown: Option<(Card, Size<i32, Logical>, f64)>,
-    painted: Option<Painted>,
+    on_screen: card::OnScreen,
 }
 
 impl Connect {
@@ -76,17 +70,13 @@ impl Connect {
             share_label,
             since: now,
             reduced_motion,
-            hovered: None,
-            at: Point::from((0.0, 0.0)),
-            hits: Vec::new(),
-            shown: None,
-            painted: None,
+            on_screen: Default::default(),
         }
     }
 
     /// Paints its text again next frame: a face for characters it lacked has landed.
     pub fn forget_painted_text(&mut self) {
-        self.shown = None;
+        self.on_screen.forget();
     }
 
     pub fn key(&self, sym: Keysym, now: f64) -> Act {
@@ -105,29 +95,17 @@ impl Connect {
     }
 
     pub fn hover(&mut self, x: f64, y: f64) -> bool {
-        let over = self.hit(x, y);
-        let changed = over != self.hovered;
-        self.hovered = over;
-        changed
+        self.on_screen.hover(x, y)
     }
 
     /// A click on the card. Beside it nothing happens: this is a question, and the answers are the
     /// buttons.
     pub fn click(&self, x: f64, y: f64) -> Act {
-        match self.hit(x, y) {
+        match self.on_screen.hit(x, y) {
             Some(Button::Go) => Act::Own,
             Some(Button::Stay) if self.share.is_some() => Act::Share,
             _ => Act::Nothing,
         }
-    }
-
-    fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = DESIGN_PX as f64;
-        let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
-        self.hits
-            .iter()
-            .find(|hit| hit.contains(lx, ly))
-            .map(|hit| hit.which)
     }
 
     fn card(&self) -> Card {
@@ -175,7 +153,7 @@ impl Connect {
             field: None,
             remember: None,
             buttons,
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: None,
         }
     }
@@ -190,26 +168,10 @@ impl Connect {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
+        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card();
-        let fresh = self
-            .shown
-            .as_ref()
-            .is_some_and(|(shown, size, at)| *shown == card && *size == screen && *at == scale);
-        if !fresh {
-            let (painted, hits) = card::paint(&card, scale);
-            self.hits = hits;
-            self.painted = painted;
-            self.shown = Some((card, screen, scale));
-        }
-        let painted = self.painted.as_ref()?;
-        self.at = Point::from((
-            ((screen.w - painted.logical.w) / 2) as f64,
-            ((screen.h - painted.logical.h) / 2).max(0) as f64,
-        ));
         let (alpha, rise) = panel::opening(now - self.since, self.reduced_motion);
-        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
-        painted.element(renderer, at, alpha)
+        self.on_screen.element(renderer, card, frame, (alpha, rise))
     }
 }
 

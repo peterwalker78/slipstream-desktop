@@ -21,7 +21,7 @@ use smithay::{
 };
 
 use crate::{
-    card::{self, Btn, Button, Card, Hit, Row},
+    card::{self, Btn, Button, Card, Row},
     motion::{HYPR, REDUCED_FADE},
     paint::Painted,
     panel::{self, AMBER, BELOW, DESIGN_PX, MARGIN},
@@ -186,19 +186,14 @@ pub struct Exit<W> {
     pub reduced_motion: bool,
     /// Whether to write the layout down on the way out: the setting, until the switch is turned.
     remember: bool,
-    /// What the pointer is over.
-    hovered: Option<Button>,
-    /// Where the card's corner sits on screen, and what can be clicked on it, from the last paint.
-    at: Point<f64, Logical>,
-    hits: Vec<Hit>,
-    shown: Option<(Shape, Size<i32, Logical>, f64)>,
-    painted: Option<Painted>,
+    /// The card or slim card on screen, and what the pointer is over.
+    on_screen: card::OnScreen<Shape>,
 }
 
 impl<W: Clone + PartialEq> Exit<W> {
     /// Paints its text again next frame: a face for characters it lacked has landed.
     pub fn forget_painted_text(&mut self) {
-        self.shown = None;
+        self.on_screen.forget();
     }
 
     pub fn new(
@@ -241,11 +236,7 @@ impl<W: Clone + PartialEq> Exit<W> {
             since: now,
             reduced_motion,
             remember,
-            hovered: None,
-            at: Point::from((0.0, 0.0)),
-            hits: Vec::new(),
-            shown: None,
-            painted: None,
+            on_screen: Default::default(),
         }
     }
 
@@ -435,10 +426,8 @@ impl<W: Clone + PartialEq> Exit<W> {
     /// The pointer moved, in logical pixels from the output's corner. Returns whether what it is
     /// over changed, so the caller only redraws when the card has something new to show.
     pub fn hover(&mut self, x: f64, y: f64) -> bool {
-        let over = self.modal().then(|| self.hit(x, y)).flatten();
-        let changed = over != self.hovered;
-        self.hovered = over;
-        changed
+        let over = self.modal().then(|| self.on_screen.hit(x, y)).flatten();
+        self.on_screen.hover_over(over)
     }
 
     /// A click on the card. Outside it nothing happens: this is a question, and the answers are
@@ -447,20 +436,10 @@ impl<W: Clone + PartialEq> Exit<W> {
         if !self.modal() {
             return Act::Nothing;
         }
-        match self.hit(x, y) {
+        match self.on_screen.hit(x, y) {
             Some(which) => self.press(which, now),
             None => Act::Nothing,
         }
-    }
-
-    /// What is under (`x`, `y`), in logical pixels from the output's corner.
-    fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = DESIGN_PX as f64;
-        let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
-        self.hits
-            .iter()
-            .find(|hit| hit.contains(lx, ly))
-            .map(|hit| hit.which)
     }
 
     fn start_going(&mut self, now: f64) {
@@ -532,7 +511,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                     primary: true,
                 },
             ],
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: Some((selected, ring)),
         }
     }
@@ -567,7 +546,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                     primary: true,
                 },
             ],
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: None,
         }
     }
@@ -622,7 +601,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                     primary: true,
                 },
             ],
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: None,
         }
     }
@@ -638,38 +617,22 @@ impl<W: Clone + PartialEq> Exit<W> {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
+        let (screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let shape = self.shape(now, ring);
         if shape == Shape::Blank {
-            self.shown = None;
-            self.painted = None;
+            self.on_screen.clear();
             return None;
         }
-        let fresh = self
-            .shown
-            .as_ref()
-            .is_some_and(|(shown, size, at)| *shown == shape && *size == screen && *at == scale);
-        if !fresh {
-            self.hits.clear();
-            self.painted = match &shape {
-                Shape::Card(card) => {
-                    let (painted, hits) = card::paint(card, scale);
-                    self.hits = hits;
-                    painted
-                }
-                Shape::Slim(slim) => paint_slim(slim, scale),
-                Shape::Blank => None,
-            };
-            self.shown = Some((shape, screen, scale));
-        }
-        let painted = self.painted.as_ref()?;
-        // Where it settles, which is what a click is measured against: the opening rise is a
-        // tenth of a second and a button that moved under the pointer would be worse than one
-        // that waits for it.
-        self.at = self.origin(screen, painted.logical);
-        let (alpha, rise) = opening(now - self.since, self.reduced_motion);
-        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
-        painted.element(renderer, at, alpha)
+        let size = self
+            .on_screen
+            .paint(shape, frame, |shape, scale| match shape {
+                Shape::Card(card) => card::paint(card, scale),
+                Shape::Slim(slim) => (paint_slim(slim, scale), Vec::new()),
+                Shape::Blank => (None, Vec::new()),
+            })?;
+        let at = self.origin(screen, size);
+        let opening = opening(now - self.since, self.reduced_motion);
+        self.on_screen.place(renderer, at, opening)
     }
 
     /// Where the painted surface goes: the ask card is centred, the slim one sits where a toast
@@ -878,20 +841,26 @@ mod tests {
         let Shape::Card(card) = exit.shape(0.0, RING) else {
             panic!("the card should be up");
         };
-        let (painted, hits) = card::paint(&card, 1.25);
-        let painted = painted.unwrap();
-        exit.hits = hits;
-        exit.at = exit.origin(screen, painted.logical);
+        let (_, hits) = card::paint(&card, 1.25);
+        let frame = crate::panel::Frame {
+            size: screen,
+            scale: 1.25,
+            time: 0.0,
+        };
+        let size = exit
+            .on_screen
+            .paint(Shape::Card(card), frame, |shape, scale| match shape {
+                Shape::Card(card) => card::paint(card, scale),
+                _ => (None, Vec::new()),
+            })
+            .unwrap();
+        exit.on_screen.at = exit.origin(screen, size);
+        let at = exit.on_screen.at;
         let px = DESIGN_PX as f64;
-        exit.hits
-            .iter()
+        hits.iter()
             .map(|hit| {
                 let (x, y) = hit.centre();
-                (
-                    hit.which,
-                    exit.at.x + x as f64 * px,
-                    exit.at.y + y as f64 * px,
-                )
+                (hit.which, at.x + x as f64 * px, at.y + y as f64 * px)
             })
             .collect()
     }
@@ -1093,11 +1062,11 @@ mod tests {
         let laid = laid_out(&mut exit);
         let (x, y) = centre_of(&laid, Button::Go);
         assert!(exit.hover(x, y));
-        assert_eq!(exit.hovered, Some(Button::Go));
+        assert_eq!(exit.on_screen.hovered, Some(Button::Go));
         // Moving within the same button changes nothing, so the card isn't repainted.
         assert!(!exit.hover(x + 1.0, y));
         assert!(exit.hover(5.0, 5.0));
-        assert_eq!(exit.hovered, None);
+        assert_eq!(exit.on_screen.hovered, None);
     }
 
     #[test]

@@ -17,17 +17,15 @@ use smithay::{
         },
     },
     input::keyboard::{Keysym, ModifiersState},
-    utils::{Logical, Point, Size},
+    utils::{Logical, Size},
 };
 use zeroize::Zeroizing;
 
 use super::{Identity, Request, helper::Verdict};
 use crate::{
-    card::{self, Btn, Button, Card, Field, Hit, Row},
+    card::{self, Btn, Button, Card, Field, Row},
     lock::{self, Password},
     motion::HYPR,
-    paint::Painted,
-    panel::DESIGN_PX,
 };
 
 const OPEN: f64 = 0.18;
@@ -107,11 +105,7 @@ pub struct Prompt {
     deaf_until: f64,
     since: f64,
     pub reduced_motion: bool,
-    hovered: Option<Button>,
-    at: Point<f64, Logical>,
-    hits: Vec<Hit>,
-    shown: Option<(Card, Size<i32, Logical>, f64)>,
-    painted: Option<Painted>,
+    on_screen: card::OnScreen,
     /// The shade on each screen, by name.
     shades: std::collections::HashMap<String, SolidColorBuffer>,
 }
@@ -136,17 +130,13 @@ impl Prompt {
             deaf_until: now + DEAF,
             since: now,
             reduced_motion,
-            hovered: None,
-            at: Point::from((0.0, 0.0)),
-            hits: Vec::new(),
-            shown: None,
-            painted: None,
+            on_screen: Default::default(),
             shades: Default::default(),
         }
     }
 
     pub fn forget_painted_text(&mut self) {
-        self.shown = None;
+        self.on_screen.forget();
     }
 
     /// Who is answering.
@@ -216,10 +206,7 @@ impl Prompt {
     }
 
     pub fn hover(&mut self, x: f64, y: f64) -> bool {
-        let over = self.hit(x, y);
-        let changed = over != self.hovered;
-        self.hovered = over;
-        changed
+        self.on_screen.hover(x, y)
     }
 
     /// A click on Allow sends the password, on Cancel cancels, and on a person chooses them.
@@ -227,21 +214,12 @@ impl Prompt {
         if now < self.deaf_until {
             return Act::Nothing;
         }
-        match self.hit(x, y) {
+        match self.on_screen.hit(x, y) {
             Some(Button::Go) => self.submit(),
             Some(Button::Stay) => Act::Cancel,
             Some(Button::Row(index)) => self.choose(index),
             _ => Act::Nothing,
         }
-    }
-
-    fn hit(&self, x: f64, y: f64) -> Option<Button> {
-        let px = DESIGN_PX as f64;
-        let (lx, ly) = (((x - self.at.x) / px) as f32, ((y - self.at.y) / px) as f32);
-        self.hits
-            .iter()
-            .find(|hit| hit.contains(lx, ly))
-            .map(|hit| hit.which)
     }
 
     /// The password, for the check, once it has asked; the box is wiped as it goes. Before the
@@ -360,7 +338,7 @@ impl Prompt {
                     primary: true,
                 },
             ],
-            hover: self.hovered,
+            hover: self.on_screen.hovered,
             selected: several.then_some((self.chosen, ring)),
         }
     }
@@ -380,9 +358,7 @@ impl Prompt {
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         ring: u32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
@@ -390,24 +366,9 @@ impl Prompt {
         R::TextureId: Send + Clone + 'static,
     {
         let card = self.card(ring);
-        let fresh = self
-            .shown
-            .as_ref()
-            .is_some_and(|(shown, size, at)| *shown == card && *size == screen && *at == scale);
-        if !fresh {
-            let (painted, hits) = card::paint(&card, scale);
-            self.hits = hits;
-            self.painted = painted;
-            self.shown = Some((card, screen, scale));
-        }
+        let now = frame.time;
         let (alpha, rise) = self.arrival(now);
-        let painted = self.painted.as_ref()?;
-        self.at = Point::from((
-            ((screen.w - painted.logical.w) / 2) as f64,
-            ((screen.h - painted.logical.h) / 2).max(0) as f64,
-        ));
-        let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
-        painted.element(renderer, at, alpha)
+        self.on_screen.element(renderer, card, frame, (alpha, rise))
     }
 
     /// The shade over the whole of the screen called `output`: every screen is shaded, not only
