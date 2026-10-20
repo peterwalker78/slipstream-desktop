@@ -487,135 +487,13 @@ impl Slipstream {
                     state.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::Action(Action::Lock)));
                 }
-                // The password card takes every key, before any other card: what is typed there
-                // is a password, and must reach nothing else. So does a card that has just gone
-                // by itself, until typing stops: the rest of a password goes nowhere.
-                if pressed && state.polkit.takes_keys() {
+                // A card, panel or mode that's up takes every key, and its release with it.
+                if pressed
+                    && let Some(taken) =
+                        state.key_for_card(key, handle.modified_sym(), mods, modifiers)
+                {
                     state.suppressed_keys.push(key);
-                    if !state.polkit.is_up() {
-                        return FilterResult::Intercept(Some(KeyUse::PolkitSettling));
-                    }
-                    let typed = crate::polkit::key_for(key, handle.modified_sym(), modifiers);
-                    return FilterResult::Intercept(Some(KeyUse::Polkit(typed)));
-                }
-                // A snip being chosen takes every key: Esc, Enter or a window's letter.
-                if pressed && state.snip.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Snip(handle.modified_sym())));
-                }
-                // The share picker takes every key: an app is waiting on it, and a keypress
-                // meant for a window could otherwise reach the window that's about to be shared.
-                if pressed && state.share.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Share(
-                        handle.modified_sym(),
-                        mods.shift,
-                    )));
-                }
-                // The low battery card takes every key until it's answered.
-                if pressed && state.battery.card.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Battery(handle.modified_sym())));
-                }
-                // The offer at login takes every key until it is answered: the desktop it is
-                // asking about doesn't exist yet.
-                if pressed && state.offer.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Offer(handle.modified_sym())));
-                }
-                // The screen card takes every key until it's answered, and ignores them for
-                // its first moment, so a key already on its way can't answer it.
-                if pressed && state.connect.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Connect(handle.modified_sym())));
-                }
-                // So does the card asking about an app's shortcuts: keys pressed there are the
-                // ones being picked.
-                if pressed && state.shortcuts.ask().is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Shortcuts(key, mods)));
-                }
-                // The way out takes every key while it's asking, and none at all
-                // while the apps are closing: a save prompt needs them more.
-                if pressed && state.exit.as_ref().is_some_and(|exit| exit.modal()) {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Exit(handle.modified_sym())));
-                }
-                // The open explorer takes every key, but bindings still work: its own chord
-                // closes it, and any other closes it and then runs.
-                if pressed && state.explorer.is_open() {
-                    state.suppressed_keys.push(key);
-                    if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        return FilterResult::Intercept(Some(KeyUse::Action(action)));
-                    }
-                    let sym = handle.modified_sym();
-                    return FilterResult::Intercept(Some(KeyUse::Explorer(
-                        sym,
-                        typed_char(sym, mods),
-                        mods,
-                    )));
-                }
-                // The clipboard history takes every key; bindings close it and run.
-                if pressed && state.history.is_open() {
-                    state.suppressed_keys.push(key);
-                    if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        return FilterResult::Intercept(Some(KeyUse::Action(action)));
-                    }
-                    return FilterResult::Intercept(Some(KeyUse::History(handle.modified_sym())));
-                }
-                // The shortcut sheet takes every key as well: typing filters it, and bindings
-                // close it and run.
-                if pressed && state.sheet.is_open() {
-                    state.suppressed_keys.push(key);
-                    if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        return FilterResult::Intercept(Some(KeyUse::Action(action)));
-                    }
-                    let sym = handle.modified_sym();
-                    return FilterResult::Intercept(Some(KeyUse::Sheet(
-                        sym,
-                        typed_char(sym, mods),
-                    )));
-                }
-                // Open quick settings takes every key as well, but bindings still work:
-                // Super+A closes it, and a tapped Super opens the explorer instead.
-                if pressed && state.quick.is_open() {
-                    state.suppressed_keys.push(key);
-                    if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        return FilterResult::Intercept(Some(KeyUse::Action(action)));
-                    }
-                    return FilterResult::Intercept(Some(KeyUse::Quick(key, mods.shift)));
-                }
-                // So does the notification centre.
-                if pressed && state.centre.is_open() {
-                    state.suppressed_keys.push(key);
-                    if let Some(action) = keys::action_for(&state.bindings, mods, key) {
-                        return FilterResult::Intercept(Some(KeyUse::Action(action)));
-                    }
-                    return FilterResult::Intercept(Some(KeyUse::Centre(key, mods.shift)));
-                }
-                // Bullet time takes every key too.
-                if pressed && state.bullet.is_some() {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::Bullet(key, mods)));
-                }
-                // Esc with Alt still held puts Alt+Tab's switcher away, changing nothing.
-                if pressed && state.switcher.is_some() && key == Keysym::Escape {
-                    state.suppressed_keys.push(key);
-                    return FilterResult::Intercept(Some(KeyUse::CancelSwitch));
-                }
-                // With Super still held after Super+T, Esc puts the workspace back and the
-                // arrows move along the arrangements.
-                if pressed && state.arrange.is_some() {
-                    let arrange_key = match key {
-                        Keysym::Escape => Some(KeyUse::CancelArrange),
-                        Keysym::Left => Some(KeyUse::StepArrange(false)),
-                        Keysym::Right => Some(KeyUse::StepArrange(true)),
-                        _ => None,
-                    };
-                    if let Some(arrange_key) = arrange_key {
-                        state.suppressed_keys.push(key);
-                        return FilterResult::Intercept(Some(arrange_key));
-                    }
+                    return FilterResult::Intercept(Some(taken));
                 }
                 // An app holding the shortcuts (a virtual machine, a remote desktop) gets every
                 // key but the one that takes them back. The hardware keys (volume, brightness,
@@ -658,43 +536,23 @@ impl Slipstream {
                 FilterResult::Forward
             },
         );
+        let kept = action.is_some();
         match action {
-            Some(Some(KeyUse::Action(action))) => self.run_bound(action),
-            Some(Some(KeyUse::Explorer(sym, ch, mods))) => self.explorer_key(sym, ch, mods),
-            Some(Some(KeyUse::Bullet(key, mods))) => self.bullet_key(key, mods),
-            Some(Some(KeyUse::Quick(key, shift))) => self.quick_key(key, shift),
-            Some(Some(KeyUse::Centre(key, shift))) => self.centre_key(key, shift),
-            Some(Some(KeyUse::Exit(key))) => self.exit_key(key),
-            Some(Some(KeyUse::Offer(key))) => self.offer_key(key),
-            Some(Some(KeyUse::Connect(key))) => self.connect_key(key),
-            Some(Some(KeyUse::Shortcuts(key, mods))) => self.shortcuts_key(key, mods),
-            Some(Some(KeyUse::Battery(key))) => self.battery_key(key),
-            Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
-            Some(Some(KeyUse::Lock(key))) => self.lock_key(key),
-            Some(Some(KeyUse::Polkit(key))) => self.polkit_key(key),
-            Some(Some(KeyUse::PolkitSettling)) => self.polkit_settling_key(),
-            Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),
-            Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
-            Some(Some(KeyUse::CancelArrange)) => self.cancel_arrangement(),
-            Some(Some(KeyUse::StepArrange(forward))) => self.step_arrangement(forward),
-            Some(Some(KeyUse::Sheet(sym, ch))) => self.sheet_key(sym, ch),
-            Some(Some(KeyUse::Snip(sym))) => self.snip_key(sym),
-            Some(Some(KeyUse::History(sym))) => self.history_key(sym),
-            Some(Some(KeyUse::Zoom(step))) => self.zoom_step(step),
             // Smithay tells the next focus which forwarded keys are still held. A key held as the
             // lock went up and let go under it would be announced as held at unlock, and the app
             // would repeat it, so the release is recorded here, with no focus to send it to.
-            Some(Some(KeyUse::LockRelease))
-                if keyboard.current_focus().is_none() && !keyboard.is_grabbed() =>
-            {
-                keyboard.input_forward(self, keycode, KeyState::Released, serial, time, false);
+            Some(Some(KeyUse::LockRelease)) => {
+                if keyboard.current_focus().is_none() && !keyboard.is_grabbed() {
+                    keyboard.input_forward(self, keycode, KeyState::Released, serial, time, false);
+                }
             }
+            Some(Some(used)) => self.use_key(used),
             _ => {}
         }
         // A press the filter passed on reached the focused app. One Slipstream kept for itself
         // (the explorer, Alt+Tab, a binding) is talking to the desktop, which ends any typing.
         if let Some(shortcut) = typed_shortcut {
-            if action.is_some() {
+            if kept {
                 self.concentration.end();
                 self.concentration.input(std::time::Instant::now());
             } else if keyboard.current_focus().is_some() {
@@ -722,6 +580,126 @@ impl Slipstream {
         if self.arrange.is_some() && !Mods::from_state(&keyboard.modifier_state(), self.nested).logo
         {
             self.finish_arrangement();
+        }
+    }
+
+    /// What the card, panel or mode that's up makes of a press of `key` (`sym` with the
+    /// modifiers applied), when one takes every key. Bindings still work over the explorer, the
+    /// clipboard history, the key list and the panels: they close it and run.
+    fn key_for_card(
+        &mut self,
+        key: Keysym,
+        sym: Keysym,
+        mods: Mods,
+        modifiers: &smithay::input::keyboard::ModifiersState,
+    ) -> Option<KeyUse> {
+        let bound = || keys::action_for(&self.bindings, mods, key).map(KeyUse::Action);
+        // The password card takes every key, before any other card: what is typed there is a
+        // password, and must reach nothing else. So does a card that has just gone by itself,
+        // until typing stops: the rest of a password goes nowhere.
+        if self.polkit.takes_keys() {
+            if !self.polkit.is_up() {
+                return Some(KeyUse::PolkitSettling);
+            }
+            return Some(KeyUse::Polkit(crate::polkit::key_for(key, sym, modifiers)));
+        }
+        // A snip being chosen takes every key: Esc, Enter or a window's letter.
+        if self.snip.is_some() {
+            return Some(KeyUse::Snip(sym));
+        }
+        // The share picker takes every key: an app is waiting on it, and a keypress meant for a
+        // window could otherwise reach the window that's about to be shared.
+        if self.share.is_some() {
+            return Some(KeyUse::Share(sym, mods.shift));
+        }
+        // The low battery card takes every key until it's answered.
+        if self.battery.card.is_some() {
+            return Some(KeyUse::Battery(sym));
+        }
+        // The offer at login takes every key until it is answered: the desktop it is asking
+        // about doesn't exist yet.
+        if self.offer.is_some() {
+            return Some(KeyUse::Offer(sym));
+        }
+        // The screen card takes every key until it's answered, and ignores them for its first
+        // moment, so a key already on its way can't answer it.
+        if self.connect.is_some() {
+            return Some(KeyUse::Connect(sym));
+        }
+        // So does the card asking about an app's shortcuts: keys pressed there are the ones
+        // being picked.
+        if self.shortcuts.ask().is_some() {
+            return Some(KeyUse::Shortcuts(key, mods));
+        }
+        // The way out takes every key while it's asking, and none at all while the apps are
+        // closing: a save prompt needs them more.
+        if self.exit.as_ref().is_some_and(|exit| exit.modal()) {
+            return Some(KeyUse::Exit(sym));
+        }
+        // The explorer's own chord closes it, and any other closes it and then runs.
+        if self.explorer.is_open() {
+            return bound().or(Some(KeyUse::Explorer(sym, typed_char(sym, mods), mods)));
+        }
+        if self.history.is_open() {
+            return bound().or(Some(KeyUse::History(sym)));
+        }
+        // Typing filters the key list.
+        if self.sheet.is_open() {
+            return bound().or(Some(KeyUse::Sheet(sym, typed_char(sym, mods))));
+        }
+        // Super+A closes quick settings, and a tapped Super opens the explorer instead.
+        if self.quick.is_open() {
+            return bound().or(Some(KeyUse::Quick(key, mods.shift)));
+        }
+        if self.centre.is_open() {
+            return bound().or(Some(KeyUse::Centre(key, mods.shift)));
+        }
+        if self.bullet.is_some() {
+            return Some(KeyUse::Bullet(key, mods));
+        }
+        // Esc with Alt still held puts Alt+Tab's switcher away, changing nothing.
+        if self.switcher.is_some() && key == Keysym::Escape {
+            return Some(KeyUse::CancelSwitch);
+        }
+        // With Super still held after Super+T, Esc puts the workspace back and the arrows move
+        // along the arrangements.
+        if self.arrange.is_some() {
+            return match key {
+                Keysym::Escape => Some(KeyUse::CancelArrange),
+                Keysym::Left => Some(KeyUse::StepArrange(false)),
+                Keysym::Right => Some(KeyUse::StepArrange(true)),
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// Does what a key Slipstream kept for itself is for.
+    fn use_key(&mut self, used: KeyUse) {
+        match used {
+            KeyUse::Action(action) => self.run_bound(action),
+            KeyUse::Explorer(sym, ch, mods) => self.explorer_key(sym, ch, mods),
+            KeyUse::Bullet(key, mods) => self.bullet_key(key, mods),
+            KeyUse::Quick(key, shift) => self.quick_key(key, shift),
+            KeyUse::Centre(key, shift) => self.centre_key(key, shift),
+            KeyUse::Exit(key) => self.exit_key(key),
+            KeyUse::Offer(key) => self.offer_key(key),
+            KeyUse::Connect(key) => self.connect_key(key),
+            KeyUse::Shortcuts(key, mods) => self.shortcuts_key(key, mods),
+            KeyUse::Battery(key) => self.battery_key(key),
+            KeyUse::Share(key, shift) => self.share_key(key, shift),
+            KeyUse::Lock(key) => self.lock_key(key),
+            KeyUse::Polkit(key) => self.polkit_key(key),
+            KeyUse::PolkitSettling => self.polkit_settling_key(),
+            KeyUse::CancelDrag => self.cancel_drag(),
+            KeyUse::CancelSwitch => self.cancel_cycle(),
+            KeyUse::CancelArrange => self.cancel_arrangement(),
+            KeyUse::StepArrange(forward) => self.step_arrangement(forward),
+            KeyUse::Sheet(sym, ch) => self.sheet_key(sym, ch),
+            KeyUse::Snip(sym) => self.snip_key(sym),
+            KeyUse::History(sym) => self.history_key(sym),
+            KeyUse::Zoom(step) => self.zoom_step(step),
+            KeyUse::LockRelease => {}
         }
     }
 

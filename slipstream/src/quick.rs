@@ -525,31 +525,10 @@ impl QuickSettings {
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
         let facts = &look.facts;
-        let status = &facts.status;
-        let mut sliders = vec![(
-            Control::Volume,
-            if status.muted {
-                icons::VOLUME_MUTED
-            } else {
-                icons::VOLUME
-            },
-            status.volume,
-        )];
-        if let Some(level) = status.brightness {
-            sliders.push((Control::Brightness, icons::SUN, level));
-        }
+        let sliders = sliders(&facts.status);
         let menu_h = if look.power_menu { MENU_H + GAP } else { 0.0 };
-        let sections: &[meter::Section] = facts
-            .meter
-            .as_ref()
-            .map_or(&[], |reading| reading.sections.as_slice());
-        let shown: Vec<&meter::Section> = sections
-            .iter()
-            .filter(|section| !facts.meter_hidden.contains(&section.name))
-            .collect();
-        // The block grows or shrinks with the slide, from the gauges' height to the list's.
-        let block_h = gauges_height(&shown)
-            + (choice_height(sections.len()) - gauges_height(&shown)) * look.turned;
+        let (sections, shown) = meter_sections(facts);
+        let block_h = meter_block_height(look, sections, &shown);
         let meter_h = if sections.is_empty() {
             0.0
         } else {
@@ -566,25 +545,18 @@ impl QuickSettings {
             + meter_h
             + FOOT_H
             + PADDING;
-        let (fx, fy) = (panel::MARGIN, panel::MARGIN);
-        // The card's left edge on screen, in design pixels.
-        let left = look.width as f32 / DESIGN_PX - panel::RIGHT - WIDTH;
-        let on_screen = |x: f32, y: f32, w: f32, h: f32| {
-            Rectangle::<f64, Logical>::new(
-                (
-                    ((left + x - fx) * DESIGN_PX) as f64,
-                    ((panel::TOP + y - fy) * DESIGN_PX) as f64,
-                )
-                    .into(),
-                ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
-            )
+        let place = panel::Place {
+            x: panel::MARGIN,
+            y: panel::MARGIN,
+            width: WIDTH,
+            left: look.width as f32 / DESIGN_PX - panel::RIGHT - WIDTH,
+            top: panel::TOP,
         };
         let logical = Size::<i32, Logical>::from((
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
             ((height + 2.0 * panel::MARGIN + panel::BELOW) * DESIGN_PX).ceil() as i32,
         ));
-        let mut targets = Vec::new();
-        let mut tracks = Vec::new();
+        let mut hits = Hits::default();
         let f = look.scale as f32 * DESIGN_PX;
         let mut strip = if sections.is_empty() {
             None
@@ -597,237 +569,328 @@ impl QuickSettings {
             )?)
         };
 
-        let painted =
-            Painted::new(logical, look.scale, |p| {
-                p.f *= DESIGN_PX;
-                panel::glass(p, fx, fy, WIDTH, height);
-                let x0 = fx + PADDING;
-                let inner = WIDTH - 2.0 * PADDING;
-                let mut y = fy + PADDING;
-                // Each control's box (x, y, w, h and corner radius), for the keyboard's ring.
-                let mut shapes: Vec<(Control, [f32; 5])> = Vec::new();
-
-                // The battery, its icon showing the charger, and quietly beneath it who is logged in;
-                // then the lock and power buttons. The battery and name together open the Power page.
-                let power_x = x0 + inner - 40.0;
-                let lock_x = power_x - 8.0 - 40.0;
-                let room = lock_x - 12.0 - x0;
-                let battery = Style::new(Face::Body, 16.0, INK);
-                let mut text_x = x0;
-                if let Some((percent, plugged)) = status.battery {
-                    p.icon(
-                        &icons::battery(percent, plugged),
-                        x0,
-                        y + 3.0,
-                        18.0,
-                        Some(INK),
-                    );
-                    text_x += 26.0;
+        let painted = Painted::new(logical, look.scale, |p| {
+            p.f *= DESIGN_PX;
+            panel::glass(p, place.x, place.y, WIDTH, height);
+            let x0 = place.x + PADDING;
+            let mut y = place.y + PADDING;
+            paint_header(p, look, x0, y, &mut hits);
+            y += HEAD_H + GAP;
+            if look.power_menu {
+                paint_power_menu(p, x0, y, &mut hits);
+                y += MENU_H + GAP;
+            }
+            paint_tiles(p, facts, x0, y, &mut hits);
+            y += 3.0 * TILE_H + 2.0 * TILE_GAP + GAP;
+            for &slider in &sliders {
+                paint_slider(p, &facts.status, slider, place, y, &mut hits);
+                y += SLIDER_H + GAP;
+            }
+            if let Some(strip) = strip.as_mut() {
+                paint_meter(p, look, strip, x0, y, &mut hits);
+                y += METER_TOP + block_h;
+            }
+            paint_footer(p, look, x0, y, &mut hits);
+            for (control, [x, y, w, h, radius]) in &hits.shapes {
+                if *control == look.selected {
+                    panel::focus_ring(p, *x, *y, *w, *h, *radius, look.facts.ring);
                 }
-                let battery_w = p.text(
-                    &text::ellipsize(&battery_line(status), &battery, room - (text_x - x0)),
-                    text_x,
-                    y + 12.0,
-                    &battery,
-                );
-                let small = Style::new(Face::Body, 13.0, panel::HINT);
-                let name_w = p.text(
-                    &text::ellipsize(&facts.user, &small, room - (text_x - x0)),
-                    text_x,
-                    y + 31.0,
-                    &small,
-                );
-                let header_w = text_x - x0 + battery_w.max(name_w);
-                shapes.push((
-                    Control::Battery,
-                    [x0 - 6.0, y + 1.0, header_w + 12.0, 40.0, 8.0],
-                ));
-                panel::quiet_button(p, lock_x, y + 1.0, 40.0, 40.0, 20.0, false);
-                p.icon(icons::LOCK, lock_x + 11.0, y + 12.0, 18.0, Some(INK));
-                shapes.push((Control::Lock, [lock_x, y + 1.0, 40.0, 40.0, 20.0]));
-                panel::quiet_button(p, power_x, y + 1.0, 40.0, 40.0, 20.0, look.power_menu);
-                p.icon(icons::POWER, power_x + 11.0, y + 12.0, 18.0, Some(INK));
-                shapes.push((Control::Power, [power_x, y + 1.0, 40.0, 40.0, 20.0]));
-                y += HEAD_H + GAP;
-
-                if look.power_menu {
-                    let label = Style::new(Face::Body, 14.0, INK);
-                    let w = (inner - 3.0 * 8.0) / 4.0;
-                    for (i, control) in POWER_MENU.into_iter().enumerate() {
-                        let x = x0 + i as f32 * (w + 8.0);
-                        panel::quiet_button(p, x, y, w, MENU_H, panel::ROW_RADIUS, false);
-                        let label_w = text::width(control.label(), &label);
-                        p.text(
-                            control.label(),
-                            x + (w - label_w) / 2.0,
-                            y + MENU_H / 2.0,
-                            &label,
-                        );
-                        shapes.push((control, [x, y, w, MENU_H, panel::ROW_RADIUS]));
-                    }
-                    y += MENU_H + GAP;
+                if !matches!(control, Control::Volume | Control::Brightness) {
+                    hits.targets
+                        .push((*control, place.on_screen(*x, *y, *w, *h)));
                 }
+            }
+        })?;
 
-                // The tiles, two by three: amber when on.
-                let tile_w = (inner - TILE_GAP) / 2.0;
-                for (i, control) in TILES.into_iter().enumerate() {
-                    let x = x0 + (i % 2) as f32 * (tile_w + TILE_GAP);
-                    let top = y + (i / 2) as f32 * (TILE_H + TILE_GAP);
-                    let (on, detail) = tile(control, facts);
-                    let fill = if on { panel::AMBER } else { panel::TILE };
-                    p.fill(x, top, tile_w, TILE_H, panel::TILE_RADIUS, fill);
-                    let ink = if on { DARK } else { INK };
-                    let icon = match control {
-                        Control::WiFi if !status.wifi => icons::WIFI_OFF,
-                        Control::WiFi => icons::WIFI,
-                        Control::Bluetooth => icons::BLUETOOTH,
-                        Control::DoNotDisturb => icons::DND,
-                        Control::NightLight => icons::MOON,
-                        Control::ReducedMotion => icons::RUN,
-                        _ => icons::GAUGE,
-                    };
-                    p.icon(icon, x + 14.0, top + (TILE_H - 22.0) / 2.0, 22.0, Some(ink));
-                    let page = control.page();
-                    let room = tile_w - 48.0 - 10.0 - if page.is_some() { CHEVRON_W } else { 0.0 };
-                    let title = Style::new(Face::BodyBold, 15.0, ink);
-                    p.text(
-                        &text::ellipsize(control.label(), &title, room),
-                        x + 48.0,
-                        top + 22.0,
-                        &title,
-                    );
-                    let detail_ink = if on { 0x5a3f10ff } else { panel::TERTIARY };
-                    let detail_style = Style::new(Face::Body, 12.5, detail_ink);
-                    p.text(
-                        &text::ellipsize(&detail, &detail_style, room),
-                        x + 48.0,
-                        top + 40.0,
-                        &detail_style,
-                    );
-                    // The chevron's zone, listed before its tile so a click there finds it first.
-                    if let Some(page) = page {
-                        let zone = x + tile_w - CHEVRON_W;
-                        p.fill(zone, top + 14.0, 1.0, TILE_H - 28.0, 0.0, panel::DIVIDER);
-                        p.icon(
-                            icons::CHEVRON,
-                            zone + (CHEVRON_W - 16.0) / 2.0,
-                            top + (TILE_H - 16.0) / 2.0,
-                            16.0,
-                            Some(detail_ink),
-                        );
-                        shapes.push((page, [zone, top, CHEVRON_W, TILE_H, panel::TILE_RADIUS]));
-                    }
-                    shapes.push((control, [x, top, tile_w, TILE_H, panel::TILE_RADIUS]));
-                }
-                y += 3.0 * TILE_H + 2.0 * TILE_GAP + GAP;
-
-                // The sliders: an icon, the track with its knob, and the level.
-                for &(control, icon, level) in &sliders {
-                    let centre = y + SLIDER_H / 2.0;
-                    p.icon(icon, x0 + 6.0, centre - 9.0, 18.0, Some(INK));
-                    let track_x = x0 + 38.0;
-                    let track_w = x0 + inner - 6.0 - 46.0 - 14.0 - track_x;
-                    let filled = track_w * level.min(100) as f32 / 100.0;
-                    p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, 0x3a3f4bff);
-                    let muted = control == Control::Volume && status.muted;
-                    let bar_ink = if muted { panel::HINT } else { panel::AMBER };
-                    p.fill(track_x, centre - 3.0, filled, 6.0, 3.0, bar_ink);
-                    let knob = track_x + filled;
-                    p.shadow(
-                        knob - 8.0,
-                        centre - 8.0,
-                        16.0,
-                        16.0,
-                        8.0,
-                        1.0,
-                        3.0,
-                        0x00000088,
-                    );
-                    p.fill(knob - 8.0, centre - 8.0, 16.0, 16.0, 8.0, 0xffffffff);
-                    let value = if muted {
-                        "Muted".to_string()
-                    } else {
-                        format!("{level}%")
-                    };
-                    let value_style = Style::new(Face::Mono, 13.0, panel::SECONDARY);
-                    let value_w = text::width(&value, &value_style);
-                    p.text(&value, x0 + inner - 6.0 - value_w, centre, &value_style);
-                    targets.push((control, on_screen(x0, y, 36.0, SLIDER_H)));
-                    let line = on_screen(track_x, y, track_w, SLIDER_H);
-                    tracks.push(Track {
-                        control,
-                        hit: on_screen(track_x - 10.0, y, track_w + 20.0, SLIDER_H),
-                        left: line.loc.x,
-                        width: line.size.w,
-                    });
-                    shapes.push((control, [x0, y, inner, SLIDER_H, 8.0]));
-                    y += SLIDER_H + GAP;
-                }
-
-                // The meter's report, and its list of sections beside it: drawn on a strip of their
-                // own so that sliding from one to the other is cut off at the card's padding.
-                if let Some(strip) = strip.as_mut() {
-                    p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
-                    y += METER_TOP;
-                    let travel = inner + PADDING;
-                    let mut meter_shapes = Vec::new();
-                    if look.turned < 1.0 {
-                        paint_gauges(
-                            strip,
-                            -travel * look.turned,
-                            inner,
-                            &shown,
-                            &mut meter_shapes,
-                        );
-                    }
-                    if look.turned > 0.0 {
-                        paint_choice(
-                            strip,
-                            travel * (1.0 - look.turned),
-                            inner,
-                            sections,
-                            &facts.meter_hidden,
-                            &mut meter_shapes,
-                        );
-                    }
-                    p.image(&strip.pixmap, x0, y);
-                    // Nothing in the block can be pressed while it's moving.
-                    if look.turned == 0.0 || look.turned == 1.0 {
-                        shapes.extend(meter_shapes.into_iter().map(
-                            |(control, [x, top, w, h, r])| (control, [x0 + x, y + top, w, h, r]),
-                        ));
-                    }
-                    y += block_h;
-                }
-
-                // The footer: the way into the Settings app, and the keys that close the panel.
-                p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
-                let centre = y + FOOT_H - 9.0;
-                let link = Style::new(Face::Body, 14.0, 0xffd08aff);
-                let link_w = p.text("All settings", x0, centre, &link);
-                shapes.push((
-                    Control::AllSettings,
-                    [x0 - 6.0, centre - 13.0, link_w + 12.0, 26.0, 6.0],
-                ));
-                panel::key_hint(p, x0 + inner, centre, &[&look.facts.key, "Esc"], "close");
-
-                for (control, [x, y, w, h, radius]) in &shapes {
-                    if *control == look.selected {
-                        panel::focus_ring(p, *x, *y, *w, *h, *radius, look.facts.ring);
-                    }
-                    if !matches!(control, Control::Volume | Control::Brightness) {
-                        targets.push((*control, on_screen(*x, *y, *w, *h)));
-                    }
-                }
-            })?;
-
-        self.origin = on_screen(0.0, 0.0, 0.0, 0.0).loc;
-        self.frame = on_screen(fx, fy, WIDTH, height);
-        self.targets = targets;
-        self.tracks = tracks;
+        self.origin = place.on_screen(0.0, 0.0, 0.0, 0.0).loc;
+        self.frame = place.on_screen(place.x, place.y, WIDTH, height);
+        self.targets = hits.targets;
+        self.tracks = hits.tracks;
         self.painted = Some(painted);
         Some(())
     }
+}
+
+/// What a repaint finds out besides the pixels: where the pointer can act, the sliders' tracks,
+/// and each control's box (x, y, w, h and corner radius) for the keyboard's ring.
+#[derive(Default)]
+struct Hits {
+    targets: Vec<(Control, Rectangle<f64, Logical>)>,
+    tracks: Vec<Track>,
+    shapes: Vec<(Control, [f32; 5])>,
+}
+
+/// The sliders shown: volume, and brightness when the screen has a backlight.
+fn sliders(status: &Reading) -> Vec<(Control, &'static str, u8)> {
+    let volume = if status.muted {
+        icons::VOLUME_MUTED
+    } else {
+        icons::VOLUME
+    };
+    let mut sliders = vec![(Control::Volume, volume, status.volume)];
+    if let Some(level) = status.brightness {
+        sliders.push((Control::Brightness, icons::SUN, level));
+    }
+    sliders
+}
+
+/// The meter's sections, and the ones not hidden in its settings.
+fn meter_sections(facts: &Facts) -> (&[meter::Section], Vec<&meter::Section>) {
+    let sections: &[meter::Section] = facts
+        .meter
+        .as_ref()
+        .map_or(&[], |reading| reading.sections.as_slice());
+    let shown = sections
+        .iter()
+        .filter(|section| !facts.meter_hidden.contains(&section.name))
+        .collect();
+    (sections, shown)
+}
+
+/// The meter block's height: it grows or shrinks with the slide, from the gauges' height to the
+/// list's.
+fn meter_block_height(look: &Look, sections: &[meter::Section], shown: &[&meter::Section]) -> f32 {
+    gauges_height(shown) + (choice_height(sections.len()) - gauges_height(shown)) * look.turned
+}
+
+/// The battery, its icon showing the charger, and quietly beneath it who is logged in; then the
+/// lock and power buttons. The battery and name together open the Power page.
+fn paint_header(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) {
+    let (facts, status) = (&look.facts, &look.facts.status);
+    let inner = WIDTH - 2.0 * PADDING;
+    let power_x = x0 + inner - 40.0;
+    let lock_x = power_x - 8.0 - 40.0;
+    let room = lock_x - 12.0 - x0;
+    let battery = Style::new(Face::Body, 16.0, INK);
+    let mut text_x = x0;
+    if let Some((percent, plugged)) = status.battery {
+        p.icon(
+            &icons::battery(percent, plugged),
+            x0,
+            y + 3.0,
+            18.0,
+            Some(INK),
+        );
+        text_x += 26.0;
+    }
+    let battery_w = p.text(
+        &text::ellipsize(&battery_line(status), &battery, room - (text_x - x0)),
+        text_x,
+        y + 12.0,
+        &battery,
+    );
+    let small = Style::new(Face::Body, 13.0, panel::HINT);
+    let name_w = p.text(
+        &text::ellipsize(&facts.user, &small, room - (text_x - x0)),
+        text_x,
+        y + 31.0,
+        &small,
+    );
+    let header_w = text_x - x0 + battery_w.max(name_w);
+    hits.shapes.push((
+        Control::Battery,
+        [x0 - 6.0, y + 1.0, header_w + 12.0, 40.0, 8.0],
+    ));
+    panel::quiet_button(p, lock_x, y + 1.0, 40.0, 40.0, 20.0, false);
+    p.icon(icons::LOCK, lock_x + 11.0, y + 12.0, 18.0, Some(INK));
+    hits.shapes
+        .push((Control::Lock, [lock_x, y + 1.0, 40.0, 40.0, 20.0]));
+    panel::quiet_button(p, power_x, y + 1.0, 40.0, 40.0, 20.0, look.power_menu);
+    p.icon(icons::POWER, power_x + 11.0, y + 12.0, 18.0, Some(INK));
+    hits.shapes
+        .push((Control::Power, [power_x, y + 1.0, 40.0, 40.0, 20.0]));
+}
+
+/// The power menu, opened from its button: a row of the ways out.
+fn paint_power_menu(p: &mut Painter, x0: f32, y: f32, hits: &mut Hits) {
+    let inner = WIDTH - 2.0 * PADDING;
+    let label = Style::new(Face::Body, 14.0, INK);
+    let w = (inner - 3.0 * 8.0) / 4.0;
+    for (i, control) in POWER_MENU.into_iter().enumerate() {
+        let x = x0 + i as f32 * (w + 8.0);
+        panel::quiet_button(p, x, y, w, MENU_H, panel::ROW_RADIUS, false);
+        let label_w = text::width(control.label(), &label);
+        p.text(
+            control.label(),
+            x + (w - label_w) / 2.0,
+            y + MENU_H / 2.0,
+            &label,
+        );
+        hits.shapes
+            .push((control, [x, y, w, MENU_H, panel::ROW_RADIUS]));
+    }
+}
+
+/// The tiles, two by three: amber when on.
+fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits) {
+    let status = &facts.status;
+    let inner = WIDTH - 2.0 * PADDING;
+    let tile_w = (inner - TILE_GAP) / 2.0;
+    for (i, control) in TILES.into_iter().enumerate() {
+        let x = x0 + (i % 2) as f32 * (tile_w + TILE_GAP);
+        let top = y + (i / 2) as f32 * (TILE_H + TILE_GAP);
+        let (on, detail) = tile(control, facts);
+        let fill = if on { panel::AMBER } else { panel::TILE };
+        p.fill(x, top, tile_w, TILE_H, panel::TILE_RADIUS, fill);
+        let ink = if on { DARK } else { INK };
+        let icon = match control {
+            Control::WiFi if !status.wifi => icons::WIFI_OFF,
+            Control::WiFi => icons::WIFI,
+            Control::Bluetooth => icons::BLUETOOTH,
+            Control::DoNotDisturb => icons::DND,
+            Control::NightLight => icons::MOON,
+            Control::ReducedMotion => icons::RUN,
+            _ => icons::GAUGE,
+        };
+        p.icon(icon, x + 14.0, top + (TILE_H - 22.0) / 2.0, 22.0, Some(ink));
+        let page = control.page();
+        let room = tile_w - 48.0 - 10.0 - if page.is_some() { CHEVRON_W } else { 0.0 };
+        let title = Style::new(Face::BodyBold, 15.0, ink);
+        p.text(
+            &text::ellipsize(control.label(), &title, room),
+            x + 48.0,
+            top + 22.0,
+            &title,
+        );
+        let detail_ink = if on { 0x5a3f10ff } else { panel::TERTIARY };
+        let detail_style = Style::new(Face::Body, 12.5, detail_ink);
+        p.text(
+            &text::ellipsize(&detail, &detail_style, room),
+            x + 48.0,
+            top + 40.0,
+            &detail_style,
+        );
+        // The chevron's zone, listed before its tile so a click there finds it first.
+        if let Some(page) = page {
+            let zone = x + tile_w - CHEVRON_W;
+            p.fill(zone, top + 14.0, 1.0, TILE_H - 28.0, 0.0, panel::DIVIDER);
+            p.icon(
+                icons::CHEVRON,
+                zone + (CHEVRON_W - 16.0) / 2.0,
+                top + (TILE_H - 16.0) / 2.0,
+                16.0,
+                Some(detail_ink),
+            );
+            hits.shapes
+                .push((page, [zone, top, CHEVRON_W, TILE_H, panel::TILE_RADIUS]));
+        }
+        hits.shapes
+            .push((control, [x, top, tile_w, TILE_H, panel::TILE_RADIUS]));
+    }
+}
+
+/// A slider: an icon, the track with its knob, and the level.
+fn paint_slider(
+    p: &mut Painter,
+    status: &Reading,
+    (control, icon, level): (Control, &str, u8),
+    place: panel::Place,
+    y: f32,
+    hits: &mut Hits,
+) {
+    let x0 = place.x + PADDING;
+    let inner = WIDTH - 2.0 * PADDING;
+    let centre = y + SLIDER_H / 2.0;
+    p.icon(icon, x0 + 6.0, centre - 9.0, 18.0, Some(INK));
+    let track_x = x0 + 38.0;
+    let track_w = x0 + inner - 6.0 - 46.0 - 14.0 - track_x;
+    let filled = track_w * level.min(100) as f32 / 100.0;
+    p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, 0x3a3f4bff);
+    let muted = control == Control::Volume && status.muted;
+    let bar_ink = if muted { panel::HINT } else { panel::AMBER };
+    p.fill(track_x, centre - 3.0, filled, 6.0, 3.0, bar_ink);
+    let knob = track_x + filled;
+    p.shadow(
+        knob - 8.0,
+        centre - 8.0,
+        16.0,
+        16.0,
+        8.0,
+        1.0,
+        3.0,
+        0x00000088,
+    );
+    p.fill(knob - 8.0, centre - 8.0, 16.0, 16.0, 8.0, 0xffffffff);
+    let value = if muted {
+        "Muted".to_string()
+    } else {
+        format!("{level}%")
+    };
+    let value_style = Style::new(Face::Mono, 13.0, panel::SECONDARY);
+    let value_w = text::width(&value, &value_style);
+    p.text(&value, x0 + inner - 6.0 - value_w, centre, &value_style);
+    hits.targets
+        .push((control, place.on_screen(x0, y, 36.0, SLIDER_H)));
+    let line = place.on_screen(track_x, y, track_w, SLIDER_H);
+    hits.tracks.push(Track {
+        control,
+        hit: place.on_screen(track_x - 10.0, y, track_w + 20.0, SLIDER_H),
+        left: line.loc.x,
+        width: line.size.w,
+    });
+    hits.shapes.push((control, [x0, y, inner, SLIDER_H, 8.0]));
+}
+
+/// The meter's report, and its list of sections beside it: drawn on a strip of their own so that
+/// sliding from one to the other is cut off at the card's padding.
+fn paint_meter(
+    p: &mut Painter,
+    look: &Look,
+    strip: &mut Painter,
+    x0: f32,
+    y: f32,
+    hits: &mut Hits,
+) {
+    let facts = &look.facts;
+    let (sections, shown) = meter_sections(facts);
+    let inner = WIDTH - 2.0 * PADDING;
+    let mut y = y;
+    p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
+    y += METER_TOP;
+    let travel = inner + PADDING;
+    let mut meter_shapes = Vec::new();
+    if look.turned < 1.0 {
+        paint_gauges(
+            strip,
+            -travel * look.turned,
+            inner,
+            &shown,
+            &mut meter_shapes,
+        );
+    }
+    if look.turned > 0.0 {
+        paint_choice(
+            strip,
+            travel * (1.0 - look.turned),
+            inner,
+            sections,
+            &facts.meter_hidden,
+            &mut meter_shapes,
+        );
+    }
+    p.image(&strip.pixmap, x0, y);
+    // Nothing in the block can be pressed while it's moving.
+    if look.turned == 0.0 || look.turned == 1.0 {
+        hits.shapes.extend(
+            meter_shapes
+                .into_iter()
+                .map(|(control, [x, top, w, h, r])| (control, [x0 + x, y + top, w, h, r])),
+        );
+    }
+}
+
+/// The footer: the way into the Settings app, and the keys that close the panel.
+fn paint_footer(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) {
+    let inner = WIDTH - 2.0 * PADDING;
+    p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
+    let centre = y + FOOT_H - 9.0;
+    let link = Style::new(Face::Body, 14.0, 0xffd08aff);
+    let link_w = p.text("All settings", x0, centre, &link);
+    hits.shapes.push((
+        Control::AllSettings,
+        [x0 - 6.0, centre - 13.0, link_w + 12.0, 26.0, 6.0],
+    ));
+    panel::key_hint(p, x0 + inner, centre, &[&look.facts.key, "Esc"], "close");
 }
 
 /// The meter block's height while it shows the gauges of `sections`: a heading row for the cog

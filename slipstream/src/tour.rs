@@ -618,388 +618,416 @@ pub fn scene(step: usize, t: f32) -> Scene {
     let beats = LESSONS.get(step).map_or(1, |lesson| lesson.beats);
     let b = beat(t, beats);
     match step {
-        // The explorer opening on the chosen style's key, which the miniature names.
-        CHOOSE_KEYS => {
-            let (left, right) = split_x(FULL, 0.5);
-            let windows = vec![win(Kind::Terminal, left), win(Kind::Browser, right)];
-            let mut scene = Scene::desk(windows, Some(1));
+        CHOOSE_KEYS => choose_keys(&b),
+        1 => opening(&b),
+        2 => exploring(&b),
+        3 => moving_focus(&b),
+        4 => swapping(&b),
+        5 => resizing(&b),
+        6 => gravity(&b),
+        7 => workspaces_sliding(&b),
+        8 => bullet_time(&b),
+        9 => floating(&b),
+        10 => minimising(&b),
+        11 => docking(&b),
+        12 => concentration(&b, t, beats),
+        _ => key_list(&b),
+    }
+}
+
+/// The explorer opening on the chosen style's key, which the miniature names.
+fn choose_keys(b: &Beat) -> Scene {
+    let (left, right) = split_x(FULL, 0.5);
+    let windows = vec![win(Kind::Terminal, left), win(Kind::Browser, right)];
+    let mut scene = Scene::desk(windows, Some(1));
+    scene.explorer = Some(Typed {
+        chars: 0,
+        alpha: if b.pressed { b.moved.max(0.15) } else { 0.0 },
+    });
+    scene.key = press("Super", b);
+    scene
+}
+
+/// Windows open one after another, each taking a share and the others making room.
+fn opening(b: &Beat) -> Scene {
+    let kinds = [Kind::Terminal, Kind::Browser, Kind::Editor, Kind::Files];
+    let (before, after) = (dwindle(b.index), dwindle(b.index + 1));
+    let windows = (0..=b.index)
+        .map(|i| match before.get(i) {
+            Some(from) => win(kinds[i], tween(*from, after[i], b.moved)),
+            None => Win {
+                alpha: b.moved,
+                ..win(kinds[i], shrunk(after[i], 0.08 * (1.0 - b.moved)))
+            },
+        })
+        .collect();
+    let focus = match (b.pressed, b.index) {
+        (true, i) => Some(i),
+        (false, 0) => None,
+        (false, i) => Some(i - 1),
+    };
+    let mut scene = Scene::desk(windows, focus);
+    if !b.pressed && b.index == 0 {
+        scene.windows[0].alpha = 0.0;
+    }
+    scene.key = press("Super+⏎", b);
+    scene
+}
+
+/// The explorer: tap Super, type, Enter, and the app opens beside what you were doing.
+fn exploring(b: &Beat) -> Scene {
+    let (left, right) = split_x(FULL, 0.5);
+    let (top, bottom) = split_y(right, 0.5);
+    let mut windows = vec![win(Kind::Terminal, left), win(Kind::Browser, right)];
+    let mut scene;
+    match b.index {
+        0 => {
+            scene = Scene::desk(windows, Some(1));
             scene.explorer = Some(Typed {
                 chars: 0,
                 alpha: if b.pressed { b.moved.max(0.15) } else { 0.0 },
             });
-            scene.key = press("Super", &b);
-            scene
+            scene.key = press("Super", b);
         }
-        // Windows open one after another, each taking a share and the others making room.
         1 => {
-            let kinds = [Kind::Terminal, Kind::Browser, Kind::Editor, Kind::Files];
-            let (before, after) = (dwindle(b.index), dwindle(b.index + 1));
-            let windows = (0..=b.index)
-                .map(|i| match before.get(i) {
-                    Some(from) => win(kinds[i], tween(*from, after[i], b.moved)),
-                    None => Win {
-                        alpha: b.moved,
-                        ..win(kinds[i], shrunk(after[i], 0.08 * (1.0 - b.moved)))
-                    },
-                })
-                .collect();
-            let focus = match (b.pressed, b.index) {
-                (true, i) => Some(i),
-                (false, 0) => None,
-                (false, i) => Some(i - 1),
-            };
-            let mut scene = Scene::desk(windows, focus);
-            if !b.pressed && b.index == 0 {
-                scene.windows[0].alpha = 0.0;
-            }
-            scene.key = press("Super+⏎", &b);
-            scene
-        }
-        // The explorer: tap Super, type, Enter, and the app opens beside what you were doing.
-        2 => {
-            let (left, right) = split_x(FULL, 0.5);
-            let (top, bottom) = split_y(right, 0.5);
-            let mut windows = vec![win(Kind::Terminal, left), win(Kind::Browser, right)];
-            let mut scene;
-            match b.index {
-                0 => {
-                    scene = Scene::desk(windows, Some(1));
-                    scene.explorer = Some(Typed {
-                        chars: 0,
-                        alpha: if b.pressed { b.moved.max(0.15) } else { 0.0 },
-                    });
-                    scene.key = press("Super", &b);
-                }
-                1 => {
-                    scene = Scene::desk(windows, Some(1));
-                    scene.explorer = Some(Typed {
-                        chars: (b.moved * 5.0).ceil() as usize,
-                        alpha: 1.0,
-                    });
-                    scene.caption = Some("typing");
-                }
-                _ => {
-                    windows[1].at = tween(right, top, b.moved);
-                    windows.push(Win {
-                        alpha: b.moved,
-                        ..win(Kind::Music, shrunk(bottom, 0.08 * (1.0 - b.moved)))
-                    });
-                    scene = Scene::desk(windows, Some(if b.pressed { 2 } else { 1 }));
-                    scene.explorer = Some(Typed {
-                        chars: 5,
-                        alpha: if b.pressed { 1.0 - b.moved } else { 1.0 },
-                    });
-                    scene.key = press("⏎", &b);
-                }
-            }
-            scene
-        }
-        // The ring goes right, down, then back left.
-        3 => {
-            let path = [(0, 1, "Super+→"), (1, 2, "Super+↓"), (2, 0, "Super+←")];
-            let (from, to, keys) = path[b.index.min(2)];
-            let mut scene = Scene::desk(three(), Some(if b.pressed { to } else { from }));
-            scene.key = press(keys, &b);
-            scene
-        }
-        // The terminal swaps its way right, down, then back left.
-        4 => {
-            let p = dwindle(3);
-            let places = [
-                [p[0], p[1], p[2]],
-                [p[1], p[0], p[2]],
-                [p[2], p[0], p[1]],
-                [p[0], p[2], p[1]],
-            ];
-            let i = b.index.min(2);
-            let mut windows = three();
-            for (n, window) in windows.iter_mut().enumerate() {
-                window.at = tween(places[i][n], places[i + 1][n], b.moved);
-            }
-            let mut scene = Scene::desk(windows, Some(0));
-            scene.key = press(["Super+Alt+→", "Super+Alt+↓", "Super+Alt+←"][i], &b);
-            scene
-        }
-        // Three presses widen the terminal, the last one catching on two thirds.
-        5 => {
-            let ratios = [0.5, 0.55, 0.6, 2.0 / 3.0];
-            let i = b.index.min(2);
-            let ratio = between(ratios[i], ratios[i + 1], b.moved);
-            let (left, right) = split_x(FULL, ratio);
-            let mut scene = Scene::desk(
-                vec![win(Kind::Terminal, left), win(Kind::Browser, right)],
-                Some(0),
-            );
-            scene.key = press("Super+]", &b);
-            scene
-        }
-        // Super+T turns gravity on round the editor and, with Super still down, shows the
-        // arrangements; each further T takes the next one; letting go of Super keeps it.
-        6 => {
-            let all = arrangements();
-            let (from, to) = match b.index {
-                0 => (0, 2),
-                1 => (2, 3),
-                2 => (3, 4),
-                _ => (4, 4),
-            };
-            let kinds = [Kind::Terminal, Kind::Browser, Kind::Editor, Kind::Files];
-            let windows = (0..4)
-                .map(|n| win(kinds[n], tween(all[from][n], all[to][n], b.moved)))
-                .collect();
-            let mut scene = Scene::desk(windows, Some(2));
-            // The strip comes up a moment after the first press, and goes as Super is let go.
-            let alpha = match (b.index, b.pressed) {
-                (0, false) => 0.0,
-                (0, true) => (b.moved * 2.0).min(1.0),
-                (3, true) => 1.0 - b.moved,
-                _ => 1.0,
-            };
-            scene.choosing = Some(Choosing {
-                selected: if b.pressed { to } else { from },
-                alpha,
+            scene = Scene::desk(windows, Some(1));
+            scene.explorer = Some(Typed {
+                chars: (b.moved * 5.0).ceil() as usize,
+                alpha: 1.0,
             });
-            match b.index {
-                0 => scene.key = press("Super+T", &b),
-                1 | 2 => scene.key = press("T", &b),
-                _ => scene.caption = Some("let go of Super"),
-            }
-            scene
+            scene.caption = Some("typing");
         }
-        // Workspace 1 to 2 to 3 and home again, the screens sliding past.
-        7 => {
-            let path = [(0u8, 1u8, "Super+2"), (1, 2, "Super+3"), (2, 0, "Super+1")];
-            let (from, to, keys) = path[b.index.min(2)];
-            let now = if b.pressed { to } else { from };
-            let mut scene = Scene::desk(workspaces(), Some(focused_on(now)));
-            scene.camera = between(from as f32, to as f32, b.moved);
-            scene.bar_workspace = now;
-            scene.key = press(keys, &b);
-            scene
-        }
-        // Bullet time opens, F goes to the browser on 2, and Super+1 comes home.
-        8 => {
-            let mut scene = Scene::desk(workspaces(), Some(focused_on(0)));
-            match b.index {
-                0 => {
-                    scene.zoom = if b.pressed { b.moved } else { 0.0 };
-                    scene.key = press("Super+Tab", &b);
-                }
-                1 => {
-                    scene.zoom = 1.0 - b.moved;
-                    scene.camera = b.moved;
-                    if b.pressed {
-                        scene.focus = Some(3);
-                        scene.bar_workspace = 1;
-                    }
-                    scene.key = press("F", &b);
-                }
-                _ => {
-                    scene.camera = 1.0 - b.moved;
-                    scene.focus = Some(if b.pressed { focused_on(0) } else { 3 });
-                    scene.bar_workspace = if b.pressed { 0 } else { 1 };
-                    scene.key = press("Super+1", &b);
-                }
-            }
-            scene
-        }
-        // The browser lifts off its tile and the editor takes the room; it is nudged across and
-        // made wider; then the keyboard goes down to the tiles under it.
-        9 => {
-            let tiled = dwindle(3);
-            let (_, right) = split_x(FULL, 0.5);
-            let lifted = Rect {
-                x: 0.46,
-                y: 0.12,
-                ..tiled[1]
-            };
-            let nudged = Rect { x: 0.22, ..lifted };
-            let wider = Rect {
-                w: nudged.w + 0.14,
-                ..nudged
-            };
-            let (from, to, keys) = match b.index {
-                0 => (tiled[1], lifted, "Super+Shift+V"),
-                1 => (lifted, nudged, "Super+Alt+←"),
-                2 => (nudged, wider, "Super+]"),
-                _ => (wider, wider, "Super+Ctrl+V"),
-            };
-            let mut windows = three();
-            windows[1].at = tween(from, to, b.moved);
-            windows[1].floating = b.index > 0 || b.pressed;
-            windows[2].at = match b.index {
-                0 => tween(tiled[2], right, b.moved),
-                _ => right,
-            };
-            let below = b.index == 3 && b.pressed;
-            let mut scene = Scene::desk(windows, Some(if below { 2 } else { 1 }));
-            scene.key = press(keys, &b);
-            scene
-        }
-        // The busy terminal pours into the rain, then the idle browser, then the browser comes back.
-        10 => {
-            let (top, bottom) = split_y(FULL, 0.5);
-            let mut windows = three();
-            let gone = |from: Rect| Rect {
-                x: 1.0,
-                w: 0.02,
-                ..from
-            };
-            let mut streams = vec![Stream {
-                kind: Kind::Terminal,
-                busy: 1.0,
-                open: 1.0,
-            }];
-            let idle = Stream {
-                kind: Kind::Browser,
-                busy: 0.05,
-                open: 1.0,
-            };
-            let (focus, keys) = match b.index {
-                0 => {
-                    windows[0].at = tween(windows[0].at, gone(windows[0].at), b.moved);
-                    windows[0].alpha = 1.0 - b.moved;
-                    windows[1].at = tween(windows[1].at, top, b.moved);
-                    windows[2].at = tween(windows[2].at, bottom, b.moved);
-                    streams[0].open = b.moved;
-                    (if b.pressed { 1 } else { 0 }, "Super+M")
-                }
-                1 => {
-                    windows[0].alpha = 0.0;
-                    windows[1].at = tween(top, gone(top), b.moved);
-                    windows[1].alpha = 1.0 - b.moved;
-                    windows[2].at = tween(bottom, FULL, b.moved);
-                    streams.push(Stream {
-                        open: b.moved,
-                        ..idle
-                    });
-                    (if b.pressed { 2 } else { 1 }, "Super+M")
-                }
-                _ => {
-                    windows[0].alpha = 0.0;
-                    windows[1].at = tween(gone(top), top, b.moved);
-                    windows[1].alpha = b.moved;
-                    windows[2].at = tween(FULL, bottom, b.moved);
-                    streams.push(Stream {
-                        open: 1.0 - b.moved,
-                        ..idle
-                    });
-                    (if b.pressed { 1 } else { 2 }, "Super+Shift+M")
-                }
-            };
-            let mut scene = Scene::desk(windows, Some(focus));
-            scene.streams = streams;
-            scene.key = press(keys, &b);
-            scene
-        }
-        // The terminal goes up to the bar and the others take its room; it grows a size; the
-        // workspace changes behind it; and it comes down among the windows it finds there.
-        11 => {
-            let tiled = dwindle(3);
-            let (top, bottom) = split_y(FULL, 0.5);
-            let (chat, music) = split_x(FULL, 0.42);
-            let (music_top, music_bottom) = split_y(music, 0.5);
-            let (small, medium) = (hung(0.26, 0.3), hung(0.36, 0.42));
-            let on_two = |mut w: Win| {
-                w.workspace = 1;
-                w
-            };
-            // The pane is last, in front of everything.
-            let mut windows = vec![
-                win(Kind::Browser, top),
-                win(Kind::Editor, bottom),
-                on_two(win(Kind::Chat, chat)),
-                on_two(win(Kind::Music, music)),
-                win(Kind::Terminal, medium),
-            ];
-            windows[4].dock = 1.0;
-            let mut scene;
-            match b.index {
-                0 => {
-                    windows[0].at = tween(tiled[1], top, b.moved);
-                    windows[1].at = tween(tiled[2], bottom, b.moved);
-                    windows[4].at = tween(tiled[0], small, b.moved);
-                    windows[4].dock = b.moved;
-                    scene = Scene::desk(windows, Some(4));
-                    scene.key = press("Super+W", &b);
-                }
-                1 => {
-                    windows[4].at = tween(small, medium, b.moved);
-                    scene = Scene::desk(windows, Some(4));
-                    scene.key = press("Super+W", &b);
-                }
-                2 => {
-                    scene = Scene::desk(windows, Some(if b.pressed { 3 } else { 4 }));
-                    scene.camera = b.moved;
-                    scene.bar_workspace = b.pressed as u8;
-                    scene.key = press("Super+2", &b);
-                }
-                _ => {
-                    windows[3].at = tween(music, music_top, b.moved);
-                    windows[4].at = tween(medium, music_bottom, b.moved);
-                    windows[4].dock = 1.0 - b.moved;
-                    windows[4].workspace = 1;
-                    scene = Scene::desk(windows, Some(if b.pressed { 4 } else { 3 }));
-                    scene.camera = 1.0;
-                    scene.bar_workspace = 1;
-                    scene.key = press("Super+Shift+W", &b);
-                }
-            }
-            let strip = scene.windows[4].dock;
-            scene.slot = (strip > 0.0).then_some(Stream {
-                kind: Kind::Terminal,
-                busy: 1.0,
-                open: strip,
-            });
-            scene
-        }
-        // Typing, while three notifications arrive and only the bell counts them; then a pause, and
-        // they come as one card.
-        12 => {
-            let (left, right) = split_x(FULL, 0.55);
-            let mut scene = Scene::desk(
-                vec![win(Kind::Terminal, left), win(Kind::Browser, right)],
-                Some(0),
-            );
-            let typed = t * beats as f32 / 3.0;
-            scene.typing = Some(typed.min(1.0));
-            let arrivals = [0.5, 1.3, 2.1];
-            let at = t * beats as f32;
-            scene.bell = arrivals.iter().filter(|arrival| at >= **arrival).count() as u8;
-            if b.index < 3 {
-                scene.caption = Some("typing");
-            } else {
-                scene.caption = Some("a pause");
-                scene.digest = b.moved;
-            }
-            scene
-        }
-        // The key list opens over the windows, and typing narrows it.
         _ => {
-            let (left, right) = split_x(FULL, 0.5);
-            let mut scene = Scene::desk(
-                vec![win(Kind::Editor, left), win(Kind::Browser, right)],
-                Some(0),
-            );
-            match b.index {
-                0 => {
-                    scene.sheet = Some(Typed {
-                        chars: 0,
-                        alpha: if b.pressed { b.moved.max(0.15) } else { 0.0 },
-                    });
-                    scene.key = press("Super+/", &b);
-                }
-                _ => {
-                    scene.sheet = Some(Typed {
-                        chars: (b.moved * 4.0).ceil() as usize,
-                        alpha: 1.0,
-                    });
-                    scene.caption = Some("typing");
-                }
-            }
-            scene
+            windows[1].at = tween(right, top, b.moved);
+            windows.push(Win {
+                alpha: b.moved,
+                ..win(Kind::Music, shrunk(bottom, 0.08 * (1.0 - b.moved)))
+            });
+            scene = Scene::desk(windows, Some(if b.pressed { 2 } else { 1 }));
+            scene.explorer = Some(Typed {
+                chars: 5,
+                alpha: if b.pressed { 1.0 - b.moved } else { 1.0 },
+            });
+            scene.key = press("⏎", b);
         }
     }
+    scene
+}
+
+/// The ring goes right, down, then back left.
+fn moving_focus(b: &Beat) -> Scene {
+    let path = [(0, 1, "Super+→"), (1, 2, "Super+↓"), (2, 0, "Super+←")];
+    let (from, to, keys) = path[b.index.min(2)];
+    let mut scene = Scene::desk(three(), Some(if b.pressed { to } else { from }));
+    scene.key = press(keys, b);
+    scene
+}
+
+/// The terminal swaps its way right, down, then back left.
+fn swapping(b: &Beat) -> Scene {
+    let p = dwindle(3);
+    let places = [
+        [p[0], p[1], p[2]],
+        [p[1], p[0], p[2]],
+        [p[2], p[0], p[1]],
+        [p[0], p[2], p[1]],
+    ];
+    let i = b.index.min(2);
+    let mut windows = three();
+    for (n, window) in windows.iter_mut().enumerate() {
+        window.at = tween(places[i][n], places[i + 1][n], b.moved);
+    }
+    let mut scene = Scene::desk(windows, Some(0));
+    scene.key = press(["Super+Alt+→", "Super+Alt+↓", "Super+Alt+←"][i], b);
+    scene
+}
+
+/// Three presses widen the terminal, the last one catching on two thirds.
+fn resizing(b: &Beat) -> Scene {
+    let ratios = [0.5, 0.55, 0.6, 2.0 / 3.0];
+    let i = b.index.min(2);
+    let ratio = between(ratios[i], ratios[i + 1], b.moved);
+    let (left, right) = split_x(FULL, ratio);
+    let mut scene = Scene::desk(
+        vec![win(Kind::Terminal, left), win(Kind::Browser, right)],
+        Some(0),
+    );
+    scene.key = press("Super+]", b);
+    scene
+}
+
+/// Super+T turns gravity on round the editor and, with Super still down, shows the
+/// arrangements; each further T takes the next one; letting go of Super keeps it.
+fn gravity(b: &Beat) -> Scene {
+    let all = arrangements();
+    let (from, to) = match b.index {
+        0 => (0, 2),
+        1 => (2, 3),
+        2 => (3, 4),
+        _ => (4, 4),
+    };
+    let kinds = [Kind::Terminal, Kind::Browser, Kind::Editor, Kind::Files];
+    let windows = (0..4)
+        .map(|n| win(kinds[n], tween(all[from][n], all[to][n], b.moved)))
+        .collect();
+    let mut scene = Scene::desk(windows, Some(2));
+    // The strip comes up a moment after the first press, and goes as Super is let go.
+    let alpha = match (b.index, b.pressed) {
+        (0, false) => 0.0,
+        (0, true) => (b.moved * 2.0).min(1.0),
+        (3, true) => 1.0 - b.moved,
+        _ => 1.0,
+    };
+    scene.choosing = Some(Choosing {
+        selected: if b.pressed { to } else { from },
+        alpha,
+    });
+    match b.index {
+        0 => scene.key = press("Super+T", b),
+        1 | 2 => scene.key = press("T", b),
+        _ => scene.caption = Some("let go of Super"),
+    }
+    scene
+}
+
+/// Workspace 1 to 2 to 3 and home again, the screens sliding past.
+fn workspaces_sliding(b: &Beat) -> Scene {
+    let path = [(0u8, 1u8, "Super+2"), (1, 2, "Super+3"), (2, 0, "Super+1")];
+    let (from, to, keys) = path[b.index.min(2)];
+    let now = if b.pressed { to } else { from };
+    let mut scene = Scene::desk(workspaces(), Some(focused_on(now)));
+    scene.camera = between(from as f32, to as f32, b.moved);
+    scene.bar_workspace = now;
+    scene.key = press(keys, b);
+    scene
+}
+
+/// Bullet time opens, F goes to the browser on 2, and Super+1 comes home.
+fn bullet_time(b: &Beat) -> Scene {
+    let mut scene = Scene::desk(workspaces(), Some(focused_on(0)));
+    match b.index {
+        0 => {
+            scene.zoom = if b.pressed { b.moved } else { 0.0 };
+            scene.key = press("Super+Tab", b);
+        }
+        1 => {
+            scene.zoom = 1.0 - b.moved;
+            scene.camera = b.moved;
+            if b.pressed {
+                scene.focus = Some(3);
+                scene.bar_workspace = 1;
+            }
+            scene.key = press("F", b);
+        }
+        _ => {
+            scene.camera = 1.0 - b.moved;
+            scene.focus = Some(if b.pressed { focused_on(0) } else { 3 });
+            scene.bar_workspace = if b.pressed { 0 } else { 1 };
+            scene.key = press("Super+1", b);
+        }
+    }
+    scene
+}
+
+/// The browser lifts off its tile and the editor takes the room; it is nudged across and
+/// made wider; then the keyboard goes down to the tiles under it.
+fn floating(b: &Beat) -> Scene {
+    let tiled = dwindle(3);
+    let (_, right) = split_x(FULL, 0.5);
+    let lifted = Rect {
+        x: 0.46,
+        y: 0.12,
+        ..tiled[1]
+    };
+    let nudged = Rect { x: 0.22, ..lifted };
+    let wider = Rect {
+        w: nudged.w + 0.14,
+        ..nudged
+    };
+    let (from, to, keys) = match b.index {
+        0 => (tiled[1], lifted, "Super+Shift+V"),
+        1 => (lifted, nudged, "Super+Alt+←"),
+        2 => (nudged, wider, "Super+]"),
+        _ => (wider, wider, "Super+Ctrl+V"),
+    };
+    let mut windows = three();
+    windows[1].at = tween(from, to, b.moved);
+    windows[1].floating = b.index > 0 || b.pressed;
+    windows[2].at = match b.index {
+        0 => tween(tiled[2], right, b.moved),
+        _ => right,
+    };
+    let below = b.index == 3 && b.pressed;
+    let mut scene = Scene::desk(windows, Some(if below { 2 } else { 1 }));
+    scene.key = press(keys, b);
+    scene
+}
+
+/// The busy terminal pours into the rain, then the idle browser, then the browser comes back.
+fn minimising(b: &Beat) -> Scene {
+    let (top, bottom) = split_y(FULL, 0.5);
+    let mut windows = three();
+    let gone = |from: Rect| Rect {
+        x: 1.0,
+        w: 0.02,
+        ..from
+    };
+    let mut streams = vec![Stream {
+        kind: Kind::Terminal,
+        busy: 1.0,
+        open: 1.0,
+    }];
+    let idle = Stream {
+        kind: Kind::Browser,
+        busy: 0.05,
+        open: 1.0,
+    };
+    let (focus, keys) = match b.index {
+        0 => {
+            windows[0].at = tween(windows[0].at, gone(windows[0].at), b.moved);
+            windows[0].alpha = 1.0 - b.moved;
+            windows[1].at = tween(windows[1].at, top, b.moved);
+            windows[2].at = tween(windows[2].at, bottom, b.moved);
+            streams[0].open = b.moved;
+            (if b.pressed { 1 } else { 0 }, "Super+M")
+        }
+        1 => {
+            windows[0].alpha = 0.0;
+            windows[1].at = tween(top, gone(top), b.moved);
+            windows[1].alpha = 1.0 - b.moved;
+            windows[2].at = tween(bottom, FULL, b.moved);
+            streams.push(Stream {
+                open: b.moved,
+                ..idle
+            });
+            (if b.pressed { 2 } else { 1 }, "Super+M")
+        }
+        _ => {
+            windows[0].alpha = 0.0;
+            windows[1].at = tween(gone(top), top, b.moved);
+            windows[1].alpha = b.moved;
+            windows[2].at = tween(FULL, bottom, b.moved);
+            streams.push(Stream {
+                open: 1.0 - b.moved,
+                ..idle
+            });
+            (if b.pressed { 1 } else { 2 }, "Super+Shift+M")
+        }
+    };
+    let mut scene = Scene::desk(windows, Some(focus));
+    scene.streams = streams;
+    scene.key = press(keys, b);
+    scene
+}
+
+/// The terminal goes up to the bar and the others take its room; it grows a size; the
+/// workspace changes behind it; and it comes down among the windows it finds there.
+fn docking(b: &Beat) -> Scene {
+    let tiled = dwindle(3);
+    let (top, bottom) = split_y(FULL, 0.5);
+    let (chat, music) = split_x(FULL, 0.42);
+    let (music_top, music_bottom) = split_y(music, 0.5);
+    let (small, medium) = (hung(0.26, 0.3), hung(0.36, 0.42));
+    let on_two = |mut w: Win| {
+        w.workspace = 1;
+        w
+    };
+    // The pane is last, in front of everything.
+    let mut windows = vec![
+        win(Kind::Browser, top),
+        win(Kind::Editor, bottom),
+        on_two(win(Kind::Chat, chat)),
+        on_two(win(Kind::Music, music)),
+        win(Kind::Terminal, medium),
+    ];
+    windows[4].dock = 1.0;
+    let mut scene;
+    match b.index {
+        0 => {
+            windows[0].at = tween(tiled[1], top, b.moved);
+            windows[1].at = tween(tiled[2], bottom, b.moved);
+            windows[4].at = tween(tiled[0], small, b.moved);
+            windows[4].dock = b.moved;
+            scene = Scene::desk(windows, Some(4));
+            scene.key = press("Super+W", b);
+        }
+        1 => {
+            windows[4].at = tween(small, medium, b.moved);
+            scene = Scene::desk(windows, Some(4));
+            scene.key = press("Super+W", b);
+        }
+        2 => {
+            scene = Scene::desk(windows, Some(if b.pressed { 3 } else { 4 }));
+            scene.camera = b.moved;
+            scene.bar_workspace = b.pressed as u8;
+            scene.key = press("Super+2", b);
+        }
+        _ => {
+            windows[3].at = tween(music, music_top, b.moved);
+            windows[4].at = tween(medium, music_bottom, b.moved);
+            windows[4].dock = 1.0 - b.moved;
+            windows[4].workspace = 1;
+            scene = Scene::desk(windows, Some(if b.pressed { 4 } else { 3 }));
+            scene.camera = 1.0;
+            scene.bar_workspace = 1;
+            scene.key = press("Super+Shift+W", b);
+        }
+    }
+    let strip = scene.windows[4].dock;
+    scene.slot = (strip > 0.0).then_some(Stream {
+        kind: Kind::Terminal,
+        busy: 1.0,
+        open: strip,
+    });
+    scene
+}
+
+/// Typing, while three notifications arrive and only the bell counts them; then a pause, and
+/// they come as one card.
+fn concentration(b: &Beat, t: f32, beats: usize) -> Scene {
+    let (left, right) = split_x(FULL, 0.55);
+    let mut scene = Scene::desk(
+        vec![win(Kind::Terminal, left), win(Kind::Browser, right)],
+        Some(0),
+    );
+    let typed = t * beats as f32 / 3.0;
+    scene.typing = Some(typed.min(1.0));
+    let arrivals = [0.5, 1.3, 2.1];
+    let at = t * beats as f32;
+    scene.bell = arrivals.iter().filter(|arrival| at >= **arrival).count() as u8;
+    if b.index < 3 {
+        scene.caption = Some("typing");
+    } else {
+        scene.caption = Some("a pause");
+        scene.digest = b.moved;
+    }
+    scene
+}
+
+/// The key list opens over the windows, and typing narrows it.
+fn key_list(b: &Beat) -> Scene {
+    let (left, right) = split_x(FULL, 0.5);
+    let mut scene = Scene::desk(
+        vec![win(Kind::Editor, left), win(Kind::Browser, right)],
+        Some(0),
+    );
+    match b.index {
+        0 => {
+            scene.sheet = Some(Typed {
+                chars: 0,
+                alpha: if b.pressed { b.moved.max(0.15) } else { 0.0 },
+            });
+            scene.key = press("Super+/", b);
+        }
+        _ => {
+            scene.sheet = Some(Typed {
+                chars: (b.moved * 4.0).ceil() as usize,
+                alpha: 1.0,
+            });
+            scene.caption = Some("typing");
+        }
+    }
+    scene
 }
 
 /// The beat a key that steps through a lesson plays next, pressed `t` of the way through its

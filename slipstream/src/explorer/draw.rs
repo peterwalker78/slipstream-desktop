@@ -158,36 +158,57 @@ impl Explorer {
         );
         let f = look.scale as f32 * DESIGN_PX;
         let mut p = Painter::new(device.0 as u32, device.1 as u32, f)?;
-
-        // The frame's corner inside the pixmap, and its left edge on screen.
-        let (fx, fy) = (MARGIN, MARGIN);
-        let left = (screen_w - width) / 2.0;
-        let on_screen = |x: f32, y: f32, w: f32, h: f32| {
-            Rectangle::<f64, Logical>::new(
-                (
-                    ((left + x - fx) * DESIGN_PX) as f64,
-                    ((TOP + y - fy) * DESIGN_PX) as f64,
-                )
-                    .into(),
-                ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
-            )
+        let card = panel::Place {
+            x: MARGIN,
+            y: MARGIN,
+            width,
+            left: (screen_w - width) / 2.0,
+            top: TOP,
         };
         let mut targets = Vec::new();
 
         // Glass, nearly solid: with no blur behind it, text under a more see-through pane
         // would show through.
-        panel::glass(&mut p, fx, fy, width, HEIGHT);
+        panel::glass(&mut p, card.x, card.y, width, HEIGHT);
+        self.paint_search(&mut p, look, card);
+        let body_y = card.y + SEARCH_H + 1.0;
+        let apps_w = width * 1.6 / 2.6;
+        self.paint_apps(&mut p, look, &results, card, apps_w, &mut targets);
 
-        // The search row.
-        let centre = fy + SEARCH_H / 2.0;
+        // The side column: answer, emoji, settings, files, run, system.
+        let side_x = card.x + apps_w;
+        p.fill(side_x, body_y, 1.0, BODY_H, 0.0, panel::DIVIDER);
+        let mut side = Side {
+            p: &mut p,
+            look,
+            card,
+            x: side_x + 17.0,
+            y: body_y + 14.0,
+            w: width - apps_w - 33.0,
+            index: results.apps.len(),
+            targets: &mut targets,
+        };
+        let run_opens = self.paint_side(&mut side, &results);
+
+        paint_footer(&mut p, look, &results, card, run_opens);
+        self.origin = card.on_screen(0.0, 0.0, 0.0, 0.0).loc;
+        self.frame = card.on_screen(card.x, card.y, width, HEIGHT);
+        self.targets = targets;
+        self.buffer = Some((paint::buffer(&p.pixmap), logical, device));
+        Some(())
+    }
+
+    /// The search row: what's typed, with the caret placed after it, or what can be.
+    fn paint_search(&mut self, p: &mut Painter, look: &Look, card: panel::Place) {
+        let centre = card.y + SEARCH_H / 2.0;
         p.icon(
             icons::SEARCH,
-            fx + panel::HEAD_INSET,
+            card.x + panel::HEAD_INSET,
             centre - 14.0,
             28.0,
             Some(panel::HINT),
         );
-        let mut x = fx + panel::HEAD_INSET + 28.0 + 16.0;
+        let mut x = card.x + panel::HEAD_INSET + 28.0 + 16.0;
         x += p.text(
             &look.query,
             x,
@@ -208,20 +229,36 @@ impl Explorer {
             );
         }
         panel::key_hint(
-            &mut p,
-            fx + width - panel::HEAD_INSET,
+            p,
+            card.x + card.width - panel::HEAD_INSET,
             centre,
             &[&look.keys.explorer],
             "",
         );
-        p.fill(fx, fy + SEARCH_H, width, 1.0, 0.0, panel::DIVIDER);
+        p.fill(
+            card.x,
+            card.y + SEARCH_H,
+            card.width,
+            1.0,
+            0.0,
+            panel::DIVIDER,
+        );
+    }
 
-        // The apps grid.
-        let body_y = fy + SEARCH_H + 1.0;
-        let apps_w = width * 1.6 / 2.6;
+    /// The apps grid, `apps_w` wide, scrolled to its row, with its scrollbar when it has more
+    /// rows than fit.
+    fn paint_apps(
+        &mut self,
+        p: &mut Painter,
+        look: &Look,
+        results: &Results,
+        card: panel::Place,
+        apps_w: f32,
+        targets: &mut Vec<(Item, Rectangle<f64, Logical>)>,
+    ) {
+        let body_y = card.y + SEARCH_H + 1.0;
         let tile_w = (apps_w - 40.0 - TILE_GAP * (COLUMNS - 1) as f32) / COLUMNS as f32;
-        let answering = results.answer.is_some() || look.query.trim_start().starts_with(':');
-        if results.apps.is_empty() && !answering {
+        if results.apps.is_empty() && !answering(look, results) {
             let message = if look.query.trim().is_empty() {
                 "Looking for apps…".to_string()
             } else {
@@ -229,12 +266,12 @@ impl Explorer {
             };
             p.text(
                 &message,
-                fx + 30.0,
+                card.x + 30.0,
                 body_y + 62.0,
                 &Style::new(Face::Body, 16.0, panel::HINT),
             );
         }
-        let icon_px = (ICON * f).round() as u32;
+        let icon_px = (ICON * p.f).round() as u32;
         let first = look.scroll * COLUMNS;
         for (index, app) in results
             .apps
@@ -244,7 +281,7 @@ impl Explorer {
             .take(ROWS * COLUMNS)
         {
             let (row, column) = ((index - first) / COLUMNS, index % COLUMNS);
-            let x = fx + 20.0 + column as f32 * (tile_w + TILE_GAP);
+            let x = card.x + 20.0 + column as f32 * (tile_w + TILE_GAP);
             let y = body_y + 20.0 + row as f32 * (TILE_H + TILE_GAP);
             let selected = index == look.selected;
             if selected {
@@ -261,7 +298,7 @@ impl Explorer {
             let icon_x = x + (tile_w - ICON) / 2.0;
             match self.tile_icon(app, icon_px) {
                 Some(Some(icon)) => p.image(&icon, icon_x, y + 16.0),
-                Some(None) => placeholder(&mut p, &app.name, icon_x, y + 16.0),
+                Some(None) => placeholder(p, &app.name, icon_x, y + 16.0),
                 // Still being rasterised: the tile repaints when it lands.
                 None => {}
             }
@@ -292,89 +329,53 @@ impl Explorer {
                     0x7fe3ffff,
                 );
             }
-            targets.push((Item::App(app.clone()), on_screen(x, y, tile_w, TILE_H)));
+            targets.push((Item::App(app.clone()), card.on_screen(x, y, tile_w, TILE_H)));
         }
         let rows = results.apps.len().div_ceil(COLUMNS);
         if rows > ROWS {
             let track = ROWS as f32 * (TILE_H + TILE_GAP) - TILE_GAP;
             let thumb = track * ROWS as f32 / rows as f32;
             let top = body_y + 20.0 + track * look.scroll as f32 / rows as f32;
-            p.fill(fx + apps_w - 9.0, top, 3.0, thumb, 1.5, 0xffffff26);
+            p.fill(card.x + apps_w - 9.0, top, 3.0, thumb, 1.5, 0xffffff26);
         }
+    }
 
-        // The side column: answer, emoji, settings, files, run, system.
-        let side_x = fx + apps_w;
-        p.fill(side_x, body_y, 1.0, BODY_H, 0.0, panel::DIVIDER);
-        let (row_x, row_w) = (side_x + 17.0, width - apps_w - 33.0);
-        let mut y = body_y + 14.0;
-        let mut index = results.apps.len();
+    /// The side column's sections, each under its header. Returns whether the Run row opens
+    /// what's typed rather than running it.
+    fn paint_side(&mut self, side: &mut Side, results: &Results) -> bool {
+        let look = side.look;
         if let Some(answer) = &results.answer {
-            y += header(&mut p, row_x, y, "Answer");
-            let selected = index == look.selected;
-            answer_row(
-                &mut p,
-                (row_x, y, row_w),
-                answer,
-                selected,
-                look.ring,
-                look.decode_step.map(|_| self.answer_age),
-            );
-            targets.push((
-                Item::Answer(answer.clone()),
-                on_screen(row_x, y, row_w, ROW_H),
-            ));
-            y += ROW_STEP;
-            index += 1;
+            side.header("Answer");
+            let selected = side.selected();
+            let decoding = look.decode_step.map(|_| self.answer_age);
+            let at = (side.x, side.y, side.w);
+            answer_row(side.p, at, answer, selected, look.ring, decoding);
+            side.advance(Item::Answer(answer.clone()));
         }
         if !results.emoji.is_empty() {
-            y += header(&mut p, row_x, y, "Emoji");
+            side.header("Emoji");
         } else if look.query.trim_start().starts_with(':') {
-            y += header(&mut p, row_x, y, "Emoji");
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: icons::SEARCH,
-                    label: if look.query.trim().len() > 1 {
-                        "No emoji match".into()
-                    } else {
-                        "Type a word: :fire, :thumbs, :party".into()
-                    },
-                    trailing: None,
-                    keycap: false,
-                    selected: false,
-                    dim: true,
-                    glyph: None,
+            side.header("Emoji");
+            side.note(
+                icons::SEARCH,
+                if look.query.trim().len() > 1 {
+                    "No emoji match"
+                } else {
+                    "Type a word: :fire, :thumbs, :party"
                 },
-                look.ring,
             );
-            y += ROW_STEP;
         }
         for (emoji, name) in &results.emoji {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: "",
-                    label: name.to_string(),
-                    trailing: (index == look.selected).then(|| "⏎".to_string()),
-                    keycap: true,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: Some(emoji),
-                },
-                look.ring,
-            );
-            targets.push((Item::Emoji(emoji, name), on_screen(row_x, y, row_w, ROW_H)));
-            y += ROW_STEP;
-            index += 1;
+            let row = Row {
+                trailing: side.selected().then(|| "⏎".to_string()),
+                keycap: true,
+                glyph: Some(emoji),
+                ..Row::new("", name.to_string())
+            };
+            side.row(Item::Emoji(emoji, name), row);
         }
         if !results.settings.is_empty() {
-            y += header(&mut p, row_x, y, "Settings");
+            side.header("Settings");
         }
         for found in &results.settings {
             // A setting found on a page says which page it's on.
@@ -382,175 +383,153 @@ impl Explorer {
                 Some(setting) => (setting, Some(found.page.title.to_string())),
                 None => (found.page.title, None),
             };
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: icons::COG,
-                    label: label.to_string(),
-                    trailing,
-                    keycap: false,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((
-                Item::Setting(found.page.id),
-                on_screen(row_x, y, row_w, ROW_H),
-            ));
-            y += ROW_STEP;
-            index += 1;
+            let row = Row {
+                trailing,
+                ..Row::new(icons::COG, label.to_string())
+            };
+            side.row(Item::Setting(found.page.id), row);
         }
-        let files_title = if look.query.trim().is_empty() {
-            "Recent files"
-        } else {
-            "Files"
-        };
         // A sum or an emoji search has no use for an empty files list.
-        let files_shown = !results.files.is_empty() || !answering;
-        if files_shown {
-            y += header(&mut p, row_x, y, files_title);
-        }
-        if results.files.is_empty() && files_shown {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: icons::FILE,
-                    label: if look.query.trim().is_empty() {
-                        "No recent files".into()
-                    } else {
-                        "No files match".into()
-                    },
-                    trailing: None,
-                    keycap: false,
-                    selected: false,
-                    dim: true,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            y += ROW_STEP;
+        if !results.files.is_empty() || !answering(look, results) {
+            let browsing = look.query.trim().is_empty();
+            side.header(if browsing { "Recent files" } else { "Files" });
+            if results.files.is_empty() {
+                let none = if browsing {
+                    "No recent files"
+                } else {
+                    "No files match"
+                };
+                side.note(icons::FILE, none);
+            }
         }
         let home = std::env::var_os("HOME").map(PathBuf::from);
         for found in &results.files {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: if found.folder {
-                        icons::FOLDER
-                    } else {
-                        icons::FILE
-                    },
-                    label: file_name(&found.path),
-                    trailing: folder_name(&found.path, home.as_deref()),
-                    keycap: false,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((
-                Item::File(found.path.clone()),
-                on_screen(row_x, y, row_w, ROW_H),
-            ));
-            y += ROW_STEP;
-            index += 1;
+            let icon = if found.folder {
+                icons::FOLDER
+            } else {
+                icons::FILE
+            };
+            let row = Row {
+                trailing: folder_name(&found.path, home.as_deref()),
+                ..Row::new(icon, file_name(&found.path))
+            };
+            side.row(Item::File(found.path.clone()), row);
         }
         let mut run_opens = false;
         if let Some(command) = &results.run {
-            y += header(&mut p, row_x, y, "Run");
+            side.header("Run");
             let (opens, label) = run_label(command, self.run_is_program(command));
             run_opens = opens;
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: if opens { icons::FILE } else { icons::RUN },
-                    label,
-                    // Enter's key, as on an emoji, only while Enter would run it.
-                    trailing: (index == look.selected).then(|| "⏎".to_string()),
-                    keycap: true,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((
-                Item::Run(command.clone()),
-                on_screen(row_x, y, row_w, ROW_H),
-            ));
-            y += ROW_STEP;
-            index += 1;
+            let row = Row {
+                // Enter's key, as on an emoji, only while Enter would run it.
+                trailing: side.selected().then(|| "⏎".to_string()),
+                keycap: true,
+                ..Row::new(if opens { icons::FILE } else { icons::RUN }, label)
+            };
+            side.row(Item::Run(command.clone()), row);
         }
         if !results.system.is_empty() {
-            y += header(&mut p, row_x, y, "System");
+            side.header("System");
         }
         for action in &results.system {
-            side_row(
-                &mut p,
-                row_x,
-                y,
-                row_w,
-                &Row {
-                    icon: action.icon(),
-                    label: action.label().into(),
-                    trailing: action.key(&look.keys),
-                    keycap: true,
-                    selected: index == look.selected,
-                    dim: false,
-                    glyph: None,
-                },
-                look.ring,
-            );
-            targets.push((Item::System(*action), on_screen(row_x, y, row_w, ROW_H)));
-            y += ROW_STEP;
-            index += 1;
+            let row = Row {
+                trailing: action.key(&look.keys),
+                keycap: true,
+                ..Row::new(action.icon(), action.label().into())
+            };
+            side.row(Item::System(*action), row);
         }
+        run_opens
+    }
+}
 
-        // The footer: what the keys do, with Enter's word for what's chosen.
-        let foot_y = body_y + BODY_H;
-        p.fill(fx, foot_y, width, 1.0, 0.0, panel::DIVIDER);
-        let mut right = fx + width - 22.0;
-        let chosen = results.items().into_iter().nth(look.selected);
-        let enter = match &chosen {
-            Some(Item::Answer(_)) => "copy",
-            Some(Item::Emoji(..)) => "type",
-            Some(Item::Run(_)) if !run_opens => "run",
-            _ => "open",
+/// Whether what's typed is a sum or an emoji search, which the apps grid and files list give way
+/// to.
+fn answering(look: &Look, results: &Results) -> bool {
+    results.answer.is_some() || look.query.trim_start().starts_with(':')
+}
+
+/// The footer: what the keys do, with Enter's word for what's chosen.
+fn paint_footer(
+    p: &mut Painter,
+    look: &Look,
+    results: &Results,
+    card: panel::Place,
+    run_opens: bool,
+) {
+    let foot_y = card.y + SEARCH_H + 1.0 + BODY_H;
+    p.fill(card.x, foot_y, card.width, 1.0, 0.0, panel::DIVIDER);
+    let mut right = card.x + card.width - 22.0;
+    let chosen = results.items().into_iter().nth(look.selected);
+    let enter = match &chosen {
+        Some(Item::Answer(_)) => "copy",
+        Some(Item::Emoji(..)) => "type",
+        Some(Item::Run(_)) if !run_opens => "run",
+        _ => "open",
+    };
+    let mut keys: Vec<(&[&str], &str)> = vec![(&["Esc"], "clear, close")];
+    if matches!(chosen, Some(Item::App(_))) {
+        keys.push((&["Shift+⏎"], "new window"));
+    }
+    keys.extend([
+        (&["⏎"][..], enter),
+        (&["Tab"], "next section"),
+        (&["← → ↑ ↓"], "choose"),
+    ]);
+    for (keys, label) in keys {
+        right = panel::key_hint(p, right, foot_y + FOOT_H / 2.0, keys, label) - panel::HINT_GAP;
+    }
+}
+
+/// The side column as it is painted down: where the next row goes, which result it is, and the
+/// rows the pointer can pick.
+struct Side<'a> {
+    p: &'a mut Painter,
+    look: &'a Look,
+    card: panel::Place,
+    x: f32,
+    y: f32,
+    w: f32,
+    index: usize,
+    targets: &'a mut Vec<(Item, Rectangle<f64, Logical>)>,
+}
+
+impl Side<'_> {
+    fn header(&mut self, title: &str) {
+        self.y += header(self.p, self.x, self.y, title);
+    }
+
+    /// Whether the next result is the one chosen.
+    fn selected(&self) -> bool {
+        self.index == self.look.selected
+    }
+
+    /// `row` for result `item`, picked out when it's the one chosen.
+    fn row(&mut self, item: Item, row: Row) {
+        let row = Row {
+            selected: self.selected(),
+            ..row
         };
-        let mut keys: Vec<(&[&str], &str)> = vec![(&["Esc"], "clear, close")];
-        if matches!(chosen, Some(Item::App(_))) {
-            keys.push((&["Shift+⏎"], "new window"));
-        }
-        keys.extend([
-            (&["⏎"][..], enter),
-            (&["Tab"], "next section"),
-            (&["← → ↑ ↓"], "choose"),
-        ]);
-        for (keys, label) in keys {
-            right = panel::key_hint(&mut p, right, foot_y + FOOT_H / 2.0, keys, label)
-                - panel::HINT_GAP;
-        }
+        side_row(self.p, self.x, self.y, self.w, &row, self.look.ring);
+        self.advance(item);
+    }
 
-        self.origin = on_screen(0.0, 0.0, 0.0, 0.0).loc;
-        self.frame = on_screen(fx, fy, width, HEIGHT);
-        self.targets = targets;
-        self.buffer = Some((paint::buffer(&p.pixmap), logical, device));
-        Some(())
+    /// Past a row painted for result `item`, which the pointer can pick.
+    fn advance(&mut self, item: Item) {
+        let at = self.card.on_screen(self.x, self.y, self.w, ROW_H);
+        self.targets.push((item, at));
+        self.y += ROW_STEP;
+        self.index += 1;
+    }
+
+    /// A dim row saying a section has nothing, which can't be chosen.
+    fn note(&mut self, icon: &str, label: &str) {
+        let row = Row {
+            dim: true,
+            ..Row::new(icon, label.into())
+        };
+        side_row(self.p, self.x, self.y, self.w, &row, self.look.ring);
+        self.y += ROW_STEP;
     }
 }
 
@@ -632,6 +611,21 @@ pub(super) struct Row<'a> {
     pub(super) dim: bool,
     /// Text drawn in the icon's place: an emoji.
     pub(super) glyph: Option<&'a str>,
+}
+
+impl<'a> Row<'a> {
+    /// A plain row: an icon and a label, nothing after it.
+    pub(super) fn new(icon: &'a str, label: String) -> Self {
+        Self {
+            icon,
+            label,
+            trailing: None,
+            keycap: false,
+            selected: false,
+            dim: false,
+            glyph: None,
+        }
+    }
 }
 
 /// The answer to a sum or a conversion, in a row `w` wide at (`x`, `y`): what was understood, then

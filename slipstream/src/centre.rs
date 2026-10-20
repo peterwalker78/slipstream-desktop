@@ -15,7 +15,7 @@ use crate::{
     Slipstream, bar,
     calendar::{self, Date},
     notices::{self, Notices},
-    paint::Painted,
+    paint::{Painted, Painter},
     panel::{self, AMBER, DARK, DESIGN_PX, GAP, INK, PADDING},
     text::{self, Face, Style},
 };
@@ -414,346 +414,44 @@ impl Centre {
         let screen_w = look.size.w as f32 / DESIGN_PX;
         let screen_h = look.size.h as f32 / DESIGN_PX;
         let height = (screen_h - panel::TOP - BOTTOM).max(420.0);
-        let (fx, fy) = (panel::MARGIN, panel::MARGIN);
-        // The card's left edge on screen, in design pixels.
-        let left = screen_w - panel::RIGHT - WIDTH;
-        let on_screen = |x: f32, y: f32, w: f32, h: f32| {
-            Rectangle::<f64, Logical>::new(
-                (
-                    ((left + x - fx) * DESIGN_PX) as f64,
-                    ((panel::TOP + y - fy) * DESIGN_PX) as f64,
-                )
-                    .into(),
-                ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
-            )
+        let place = panel::Place {
+            x: panel::MARGIN,
+            y: panel::MARGIN,
+            width: WIDTH,
+            left: screen_w - panel::RIGHT - WIDTH,
+            top: panel::TOP,
         };
         let logical = Size::<i32, Logical>::from((
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
             ((height + 2.0 * panel::MARGIN + panel::BELOW) * DESIGN_PX).ceil() as i32,
         ));
         let listed: Vec<&notices::Notice> = notices.listed().collect();
-        let mut targets = Vec::new();
-        let mut buttons = std::collections::HashMap::new();
-        let mut button_ring: Option<[f32; 4]> = None;
-        let mut scroll = look.scroll;
-        // Extracted before the closure so the borrow is on the field, not all of self.
-        let bg_data = &self.background_icon_data;
+        let mut hits = Hits {
+            scroll: look.scroll,
+            ..Hits::default()
+        };
 
         let painted = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
-            panel::glass(p, fx, fy, WIDTH, height);
-            let x0 = fx + PADDING;
-            let inner = WIDTH - 2.0 * PADDING;
-            let mut y = fy + PADDING;
-            // Each stop's box (x, y, w, h and corner radius), for the keyboard's ring.
-            let mut shapes: Vec<(Item, [f32; 5])> = Vec::new();
-
-            // The calendar: the month shown, with today marked when it's this month.
-            let shown = look
-                .today
-                .map(|today| (today, calendar::shift(today.year, today.month, look.month)));
-            let weeks = shown.map_or(5, |(_, (year, month))| {
-                calendar::grid(year, month).len() / 7
-            });
-            let card_h = 2.0 * CAL_PAD_Y + CAL_HEAD + DOW_H + weeks as f32 * (CELL_H + CELL_GAP);
-            p.fill(x0, y, inner, card_h, panel::TILE_RADIUS, panel::TILE);
-            if let Some((today, (year, month))) = shown {
-                let head_centre = y + CAL_PAD_Y + 10.0;
-                let title = Style::new(Face::BodyBold, 16.0, INK);
-                let month_name = calendar::MONTHS[month as usize - 1];
-                p.text(
-                    &format!("{month_name} {year}"),
-                    x0 + CAL_PAD_X,
-                    head_centre,
-                    &title,
-                );
-                let weekday = calendar::WEEKDAYS[calendar::weekday(today) as usize];
-                let note = if look.month == 0 {
-                    format!("Today is {weekday} {}", today.day)
-                } else {
-                    let this_month = calendar::MONTHS[today.month as usize - 1];
-                    format!("Today is {weekday} {} {this_month}", today.day)
-                };
-                let note_style = Style::new(Face::Body, 14.0, panel::HINT);
-                let note_w = text::width(&note, &note_style);
-                p.text(
-                    &note,
-                    x0 + inner - CAL_PAD_X - note_w,
-                    head_centre,
-                    &note_style,
-                );
-
-                let grid_x = x0 + CAL_PAD_X;
-                let grid_y = y + CAL_PAD_Y + CAL_HEAD;
-                let cell_w = (inner - 2.0 * CAL_PAD_X - 6.0 * CELL_GAP) / 7.0;
-                let initial = Style::new(Face::Body, 12.0, panel::PLACEHOLDER);
-                for (column, letter) in ["M", "T", "W", "T", "F", "S", "S"].iter().enumerate() {
-                    let cell_x = grid_x + column as f32 * (cell_w + CELL_GAP);
-                    let w = text::width(letter, &initial);
-                    p.text(
-                        letter,
-                        cell_x + (cell_w - w) / 2.0,
-                        grid_y + DOW_H / 2.0,
-                        &initial,
-                    );
-                }
-                for (i, cell) in calendar::grid(year, month).iter().enumerate() {
-                    let cell_x = grid_x + (i % 7) as f32 * (cell_w + CELL_GAP);
-                    let cell_y = grid_y + DOW_H + CELL_GAP + (i / 7) as f32 * (CELL_H + CELL_GAP);
-                    let is_today = look.month == 0 && cell.in_month && cell.day == today.day;
-                    let style = if is_today {
-                        p.fill(cell_x, cell_y, cell_w, CELL_H, 8.0, AMBER);
-                        Style::new(Face::BodyBold, 14.0, DARK)
-                    } else if cell.in_month {
-                        Style::new(Face::Body, 14.0, 0xd5dae3ff)
-                    } else {
-                        Style::new(Face::Body, 14.0, 0x6f7888ff)
-                    };
-                    let style = Style {
-                        tabular: true,
-                        ..style
-                    };
-                    let label = cell.day.to_string();
-                    let w = text::width(&label, &style);
-                    p.text(
-                        &label,
-                        cell_x + (cell_w - w) / 2.0,
-                        cell_y + CELL_H / 2.0,
-                        &style,
-                    );
-                }
-            }
-            y += card_h + GAP * 2.0;
-
+            panel::glass(p, place.x, place.y, WIDTH, height);
+            let x0 = place.x + PADDING;
+            let mut y = place.y + PADDING;
+            y += paint_calendar(p, look, x0, y);
             // Apps running with no visible window.
             if !look.background_apps.is_empty() {
                 let heading = Style::new(Face::BodyBold, 16.0, INK);
                 p.text("Background Apps", x0, y + HEAD_H / 2.0, &heading);
                 y += HEAD_H + GAP;
-
-                // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
-                // ICON_SZ must match the px loaded in load_background_app_icons (22 dp).
-                const ICON_SZ: f32 = 22.0;
-                const ICON_R: f32 = 5.0;
-                const CHIP_PAD_H: f32 = 14.0;
-                const CHIP_PAD_TOP: f32 = 14.0;
-                const CHIP_PAD_BOT: f32 = 12.0;
-                const NAME_GAP: f32 = 5.0;
-                const NAME_H: f32 = 13.0;
-                const CHIP_RADIUS: f32 = panel::ROW_RADIUS;
-                const CHIP_GAP: f32 = 8.0;
-                const CHIP_H: f32 = CHIP_PAD_TOP + ICON_SZ + NAME_GAP + NAME_H + CHIP_PAD_BOT;
-
-                let name_style = Style::new(Face::Body, 11.0, panel::HINT);
-                let chip_ws: Vec<f32> = bg_data
-                    .iter()
-                    .map(|(_, name, _)| {
-                        (ICON_SZ + CHIP_PAD_H * 2.0)
-                            .max(text::width(name, &name_style) + CHIP_PAD_H * 2.0)
-                    })
-                    .collect();
-
-                // As many chips as fit on one row.
-                let mut used = 0.0_f32;
-                let mut count = 0usize;
-                for (i, &w) in chip_ws.iter().enumerate() {
-                    let needed = if i == 0 { w } else { CHIP_GAP + w };
-                    if used + needed > inner + 0.5 {
-                        break;
-                    }
-                    used += needed;
-                    count += 1;
-                }
-
-                let row_x = x0;
-                let icon_y = y + CHIP_PAD_TOP;
-                let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
-                let mut cx = row_x;
-                for i in 0..count {
-                    let (app_id, name, icon) = &bg_data[i];
-                    let cw = chip_ws[i];
-                    // Launch animation: the clicked chip brightens and glows in the focus colour.
-                    let is_launching =
-                        look.launch_frac > 0 && self.launch_app.as_deref() == Some(app_id.as_str());
-                    let is_selected = look.selected == Item::BackgroundApp(i);
-                    if is_launching {
-                        let t = look.launch_frac as f32 / 255.0;
-                        let pulse = (t * std::f32::consts::PI).sin();
-                        // Fill brightens toward QUIET_LIT.
-                        let fill_a = 0x12u32 + (pulse * (0x26u32 - 0x12u32) as f32) as u32;
-                        p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, 0xffffff00 | fill_a);
-                        p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
-                        // Outer glow ring in the focus colour (skip for reduced motion).
-                        if !self.reduced_motion {
-                            let ring_a = (pulse * 0xcc as f32) as u32;
-                            let ring = (panel::FOCUS & 0xffffff00) | ring_a;
-                            p.border(
-                                cx - 3.0,
-                                y - 3.0,
-                                cw + 6.0,
-                                CHIP_H + 6.0,
-                                CHIP_RADIUS + 3.0,
-                                2.0,
-                                ring,
-                            );
-                        }
-                    } else {
-                        p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
-                        p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
-                    }
-                    // Keyboard focus ring (drawn after the chip fill so it sits on top).
-                    if is_selected {
-                        panel::focus_ring(p, cx, y, cw, CHIP_H, CHIP_RADIUS, look.ring);
-                    }
-                    let icon_x = cx + (cw - ICON_SZ) / 2.0;
-                    match icon {
-                        Some(px) => p.image(px, icon_x, icon_y),
-                        None => {
-                            panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 12.0)
-                        }
-                    }
-                    let nw = text::width(name, &name_style);
-                    p.text(name, cx + (cw - nw) / 2.0, name_y, &name_style);
-                    cx += cw + CHIP_GAP;
-                }
-
-                // Click targets span each full chip.
-                let mut tx = row_x;
-                for i in 0..count {
-                    let (app_id, _, _) = &bg_data[i];
-                    let cw = chip_ws[i];
-                    targets.push((
-                        Target::ActivateBackground(app_id.clone()),
-                        on_screen(tx, y, cw, CHIP_H),
-                    ));
-                    tx += cw + CHIP_GAP;
-                }
-
-                y += CHIP_H + GAP * 2.0;
+                y += self.paint_background_apps(p, look, place, y, &mut hits);
             }
-
-            // "Notifications", and the Do not disturb switch.
-            let heading = Style::new(Face::BodyBold, 16.0, INK);
-            p.text("Notifications", x0, y + HEAD_H / 2.0, &heading);
-            let switch_x = x0 + inner - 42.0;
-            let (track, knob, knob_x) = if look.do_not_disturb {
-                (AMBER, DARK, switch_x + 21.0)
-            } else {
-                (0x3a3f4bff, INK, switch_x + 3.0)
-            };
-            p.fill(switch_x, y, 42.0, 24.0, 12.0, track);
-            p.fill(knob_x, y + 3.0, 18.0, 18.0, 9.0, knob);
-            let label = Style::new(Face::Body, 14.0, panel::TERTIARY);
-            let label_x = switch_x - 10.0 - text::width("Do not disturb", &label);
-            p.text("Do not disturb", label_x, y + HEAD_H / 2.0, &label);
-            let dnd_x = label_x - 8.0;
-            shapes.push((
-                Item::DoNotDisturb,
-                [
-                    dnd_x,
-                    y - 4.0,
-                    x0 + inner + 4.0 - dnd_x,
-                    HEAD_H + 8.0,
-                    panel::ROW_RADIUS,
-                ],
-            ));
-            y += HEAD_H + GAP;
-
-            // The footer, along the bottom: the keys, and Clear all.
-            let foot_y = fy + height - PADDING - FOOT_H;
-            let foot_centre = foot_y + FOOT_H / 2.0;
-            let keys = Style::new(Face::Mono, 12.0, panel::HINT);
-            let mut x = x0;
-            for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "close")] {
-                x += panel::key_hint_width(keys, label);
-                panel::key_hint(p, x, foot_centre, keys, label);
-                x += panel::HINT_GAP;
-            }
-            let clear_ink = if listed.is_empty() { panel::HINT } else { INK };
-            let clear = Style::new(Face::Body, 14.0, clear_ink);
-            let clear_w = text::width("Clear all", &clear) + 28.0;
-            let clear_x = x0 + inner - clear_w;
-            panel::quiet_button(
-                p,
-                clear_x,
-                foot_y,
-                clear_w,
-                FOOT_H,
-                panel::ROW_RADIUS,
-                false,
-            );
-            p.text("Clear all", clear_x + 14.0, foot_centre, &clear);
-            if !listed.is_empty() {
-                shapes.push((
-                    Item::ClearAll,
-                    [clear_x, foot_y, clear_w, FOOT_H, panel::ROW_RADIUS],
-                ));
-            }
-
-            // The notifications, newest first, from the first one scrolled to.
-            let bottom = foot_y - GAP;
-            if listed.is_empty() {
-                scroll = 0;
-                let empty = Style::new(Face::Body, 16.0, panel::HINT);
-                let message = "You’re all caught up.";
-                let w = text::width(message, &empty);
-                p.text(message, x0 + (inner - w) / 2.0, y + 49.0, &empty);
-            } else {
-                let heights: Vec<f32> = listed
-                    .iter()
-                    .map(|notice| notices::card_height(notice, inner, CARD_LINES))
-                    .collect();
-                // Keep the chosen notification in view.
-                scroll = scroll.min(listed.len() - 1);
-                let chosen = listed
-                    .iter()
-                    .position(|notice| Item::Notice(notice.id) == look.selected);
-                if let Some(at) = chosen {
-                    scroll = scroll.min(at);
-                    let span = |from: usize| {
-                        heights[from..=at].iter().sum::<f32>() + (at - from) as f32 * CARD_GAP
-                    };
-                    while scroll < at && span(scroll) > bottom - y {
-                        scroll += 1;
-                    }
-                }
-                let mut top = y;
-                let mut drawn = 0;
-                for (notice, h) in listed.iter().zip(&heights).skip(scroll) {
-                    if top + h > bottom {
-                        break;
-                    }
-                    p.fill(x0, top, inner, *h, panel::TILE_RADIUS, panel::TILE);
-                    let hits = notices::paint_card(p, notice, x0, top, inner, CARD_LINES);
-                    let [cx, cy, cw, ch] = hits.cross;
-                    targets.push((Target::Dismiss(notice.id), on_screen(cx, cy, cw, ch)));
-                    buttons.insert(notice.id, hits.buttons.len());
-                    for (index, [x, y, w, h]) in hits.buttons.iter().copied().enumerate() {
-                        targets.push((Target::Action(notice.id, index), on_screen(x, y, w, h)));
-                        if look.selected == Item::Notice(notice.id) && look.action == Some(index) {
-                            button_ring = Some([x, y, w, h]);
-                        }
-                    }
-                    targets.push((Target::Open(notice.id), on_screen(x0, top, inner, *h)));
-                    shapes.push((
-                        Item::Notice(notice.id),
-                        [x0, top, inner, *h, panel::TILE_RADIUS],
-                    ));
-                    top += h + CARD_GAP;
-                    drawn += 1;
-                }
-                let hidden = listed.len() - drawn;
-                if hidden > 0 {
-                    let more = format!("{hidden} MORE");
-                    let w = text::width(&more, &keys);
-                    p.text(&more, x0 + (inner - w) / 2.0, foot_centre, &keys);
-                }
-            }
-
-            if let Some([x, y, w, h]) = button_ring {
+            y += paint_heading(p, look, x0, y, &mut hits);
+            let foot_y = place.y + height - PADDING - FOOT_H;
+            paint_footer(p, x0, foot_y, listed.is_empty(), &mut hits);
+            paint_notices(p, look, place, &listed, (y, foot_y), &mut hits);
+            if let Some([x, y, w, h]) = hits.button_ring {
                 panel::focus_ring(p, x, y, w, h, panel::ROW_RADIUS, look.ring);
             }
-            for (item, [x, y, w, h, radius]) in &shapes {
+            for (item, [x, y, w, h, radius]) in &hits.shapes {
                 if *item == look.selected && look.action.is_none() {
                     panel::focus_ring(p, *x, *y, *w, *h, *radius, look.ring);
                 }
@@ -762,17 +460,364 @@ impl Centre {
                     Item::ClearAll => Target::ClearAll,
                     Item::Notice(_) | Item::BackgroundApp(_) => continue,
                 };
-                targets.push((target, on_screen(*x, *y, *w, *h)));
+                hits.targets.push((target, place.on_screen(*x, *y, *w, *h)));
             }
         })?;
 
-        self.scroll = scroll;
-        self.buttons = buttons;
-        self.origin = on_screen(0.0, 0.0, 0.0, 0.0).loc;
-        self.frame = on_screen(fx, fy, WIDTH, height);
-        self.targets = targets;
+        self.scroll = hits.scroll;
+        self.buttons = hits.buttons;
+        self.origin = place.on_screen(0.0, 0.0, 0.0, 0.0).loc;
+        self.frame = place.on_screen(place.x, place.y, WIDTH, height);
+        self.targets = hits.targets;
         self.painted = Some(painted);
         Some(())
+    }
+
+    /// One chip for each app running with no window, as many as fit on a row at `y`. Returns
+    /// the height they take.
+    fn paint_background_apps(
+        &self,
+        p: &mut Painter,
+        look: &Look,
+        place: panel::Place,
+        y: f32,
+        hits: &mut Hits,
+    ) -> f32 {
+        let x0 = place.x + PADDING;
+        let inner = WIDTH - 2.0 * PADDING;
+        let bg_data = &self.background_icon_data;
+        // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
+        // ICON_SZ must match the px loaded in load_background_app_icons (22 dp).
+        const ICON_SZ: f32 = 22.0;
+        const ICON_R: f32 = 5.0;
+        const CHIP_PAD_H: f32 = 14.0;
+        const CHIP_PAD_TOP: f32 = 14.0;
+        const CHIP_PAD_BOT: f32 = 12.0;
+        const NAME_GAP: f32 = 5.0;
+        const NAME_H: f32 = 13.0;
+        const CHIP_RADIUS: f32 = panel::ROW_RADIUS;
+        const CHIP_GAP: f32 = 8.0;
+        const CHIP_H: f32 = CHIP_PAD_TOP + ICON_SZ + NAME_GAP + NAME_H + CHIP_PAD_BOT;
+
+        let name_style = Style::new(Face::Body, 11.0, panel::HINT);
+        let chip_ws: Vec<f32> = bg_data
+            .iter()
+            .map(|(_, name, _)| {
+                (ICON_SZ + CHIP_PAD_H * 2.0).max(text::width(name, &name_style) + CHIP_PAD_H * 2.0)
+            })
+            .collect();
+
+        // As many chips as fit on one row.
+        let mut used = 0.0_f32;
+        let mut count = 0usize;
+        for (i, &w) in chip_ws.iter().enumerate() {
+            let needed = if i == 0 { w } else { CHIP_GAP + w };
+            if used + needed > inner + 0.5 {
+                break;
+            }
+            used += needed;
+            count += 1;
+        }
+
+        let row_x = x0;
+        let icon_y = y + CHIP_PAD_TOP;
+        let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
+        let mut cx = row_x;
+        for i in 0..count {
+            let (app_id, name, icon) = &bg_data[i];
+            let cw = chip_ws[i];
+            // Launch animation: the clicked chip brightens and glows in the focus colour.
+            let is_launching =
+                look.launch_frac > 0 && self.launch_app.as_deref() == Some(app_id.as_str());
+            let is_selected = look.selected == Item::BackgroundApp(i);
+            if is_launching {
+                let t = look.launch_frac as f32 / 255.0;
+                let pulse = (t * std::f32::consts::PI).sin();
+                // Fill brightens toward QUIET_LIT.
+                let fill_a = 0x12u32 + (pulse * (0x26u32 - 0x12u32) as f32) as u32;
+                p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, 0xffffff00 | fill_a);
+                p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
+                // Outer glow ring in the focus colour (skip for reduced motion).
+                if !self.reduced_motion {
+                    let ring_a = (pulse * 0xcc as f32) as u32;
+                    let ring = (panel::FOCUS & 0xffffff00) | ring_a;
+                    p.border(
+                        cx - 3.0,
+                        y - 3.0,
+                        cw + 6.0,
+                        CHIP_H + 6.0,
+                        CHIP_RADIUS + 3.0,
+                        2.0,
+                        ring,
+                    );
+                }
+            } else {
+                p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
+                p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
+            }
+            // Keyboard focus ring (drawn after the chip fill so it sits on top).
+            if is_selected {
+                panel::focus_ring(p, cx, y, cw, CHIP_H, CHIP_RADIUS, look.ring);
+            }
+            let icon_x = cx + (cw - ICON_SZ) / 2.0;
+            match icon {
+                Some(px) => p.image(px, icon_x, icon_y),
+                None => panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 12.0),
+            }
+            let nw = text::width(name, &name_style);
+            p.text(name, cx + (cw - nw) / 2.0, name_y, &name_style);
+            cx += cw + CHIP_GAP;
+        }
+
+        // Click targets span each full chip.
+        let mut tx = row_x;
+        for i in 0..count {
+            let (app_id, _, _) = &bg_data[i];
+            let cw = chip_ws[i];
+            hits.targets.push((
+                Target::ActivateBackground(app_id.clone()),
+                place.on_screen(tx, y, cw, CHIP_H),
+            ));
+            tx += cw + CHIP_GAP;
+        }
+
+        CHIP_H + GAP * 2.0
+    }
+}
+
+/// What a repaint finds out besides the pixels: where the pointer can act, how many buttons each
+/// notification has, the stops the keyboard's ring can rest on, and how far the list scrolled.
+#[derive(Default)]
+struct Hits {
+    targets: Vec<(Target, Rectangle<f64, Logical>)>,
+    buttons: std::collections::HashMap<u32, usize>,
+    /// The notification button the keyboard's ring is on.
+    button_ring: Option<[f32; 4]>,
+    /// Each stop's box (x, y, w, h and corner radius), for the keyboard's ring.
+    shapes: Vec<(Item, [f32; 5])>,
+    scroll: usize,
+}
+
+/// The calendar, at `y`: the month shown, with today marked when it's this month. Returns the
+/// height it takes, with the gap below it.
+fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
+    let inner = WIDTH - 2.0 * PADDING;
+    let shown = look
+        .today
+        .map(|today| (today, calendar::shift(today.year, today.month, look.month)));
+    let weeks = shown.map_or(5, |(_, (year, month))| {
+        calendar::grid(year, month).len() / 7
+    });
+    let card_h = 2.0 * CAL_PAD_Y + CAL_HEAD + DOW_H + weeks as f32 * (CELL_H + CELL_GAP);
+    p.fill(x0, y, inner, card_h, panel::TILE_RADIUS, panel::TILE);
+    if let Some((today, (year, month))) = shown {
+        let head_centre = y + CAL_PAD_Y + 10.0;
+        let title = Style::new(Face::BodyBold, 16.0, INK);
+        let month_name = calendar::MONTHS[month as usize - 1];
+        p.text(
+            &format!("{month_name} {year}"),
+            x0 + CAL_PAD_X,
+            head_centre,
+            &title,
+        );
+        let weekday = calendar::WEEKDAYS[calendar::weekday(today) as usize];
+        let note = if look.month == 0 {
+            format!("Today is {weekday} {}", today.day)
+        } else {
+            let this_month = calendar::MONTHS[today.month as usize - 1];
+            format!("Today is {weekday} {} {this_month}", today.day)
+        };
+        let note_style = Style::new(Face::Body, 14.0, panel::HINT);
+        let note_w = text::width(&note, &note_style);
+        p.text(
+            &note,
+            x0 + inner - CAL_PAD_X - note_w,
+            head_centre,
+            &note_style,
+        );
+
+        let grid_x = x0 + CAL_PAD_X;
+        let grid_y = y + CAL_PAD_Y + CAL_HEAD;
+        let cell_w = (inner - 2.0 * CAL_PAD_X - 6.0 * CELL_GAP) / 7.0;
+        let initial = Style::new(Face::Body, 12.0, panel::PLACEHOLDER);
+        for (column, letter) in ["M", "T", "W", "T", "F", "S", "S"].iter().enumerate() {
+            let cell_x = grid_x + column as f32 * (cell_w + CELL_GAP);
+            let w = text::width(letter, &initial);
+            p.text(
+                letter,
+                cell_x + (cell_w - w) / 2.0,
+                grid_y + DOW_H / 2.0,
+                &initial,
+            );
+        }
+        for (i, cell) in calendar::grid(year, month).iter().enumerate() {
+            let cell_x = grid_x + (i % 7) as f32 * (cell_w + CELL_GAP);
+            let cell_y = grid_y + DOW_H + CELL_GAP + (i / 7) as f32 * (CELL_H + CELL_GAP);
+            let is_today = look.month == 0 && cell.in_month && cell.day == today.day;
+            let style = if is_today {
+                p.fill(cell_x, cell_y, cell_w, CELL_H, 8.0, AMBER);
+                Style::new(Face::BodyBold, 14.0, DARK)
+            } else if cell.in_month {
+                Style::new(Face::Body, 14.0, 0xd5dae3ff)
+            } else {
+                Style::new(Face::Body, 14.0, 0x6f7888ff)
+            };
+            let style = Style {
+                tabular: true,
+                ..style
+            };
+            let label = cell.day.to_string();
+            let w = text::width(&label, &style);
+            p.text(
+                &label,
+                cell_x + (cell_w - w) / 2.0,
+                cell_y + CELL_H / 2.0,
+                &style,
+            );
+        }
+    }
+    card_h + GAP * 2.0
+}
+
+/// "Notifications", and the Do not disturb switch, at `y`. Returns the height they take.
+fn paint_heading(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) -> f32 {
+    let inner = WIDTH - 2.0 * PADDING;
+    let heading = Style::new(Face::BodyBold, 16.0, INK);
+    p.text("Notifications", x0, y + HEAD_H / 2.0, &heading);
+    let switch_x = x0 + inner - 42.0;
+    let (track, knob, knob_x) = if look.do_not_disturb {
+        (AMBER, DARK, switch_x + 21.0)
+    } else {
+        (0x3a3f4bff, INK, switch_x + 3.0)
+    };
+    p.fill(switch_x, y, 42.0, 24.0, 12.0, track);
+    p.fill(knob_x, y + 3.0, 18.0, 18.0, 9.0, knob);
+    let label = Style::new(Face::Body, 14.0, panel::TERTIARY);
+    let label_x = switch_x - 10.0 - text::width("Do not disturb", &label);
+    p.text("Do not disturb", label_x, y + HEAD_H / 2.0, &label);
+    let dnd_x = label_x - 8.0;
+    hits.shapes.push((
+        Item::DoNotDisturb,
+        [
+            dnd_x,
+            y - 4.0,
+            x0 + inner + 4.0 - dnd_x,
+            HEAD_H + 8.0,
+            panel::ROW_RADIUS,
+        ],
+    ));
+    HEAD_H + GAP
+}
+
+/// The footer along the bottom at `foot_y`: the keys, and Clear all, which only works with
+/// something to clear.
+fn paint_footer(p: &mut Painter, x0: f32, foot_y: f32, empty: bool, hits: &mut Hits) {
+    let inner = WIDTH - 2.0 * PADDING;
+    let foot_centre = foot_y + FOOT_H / 2.0;
+    let mut x = x0;
+    for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "close")] {
+        x += panel::key_hint_width(keys, label);
+        panel::key_hint(p, x, foot_centre, keys, label);
+        x += panel::HINT_GAP;
+    }
+    let clear_ink = if empty { panel::HINT } else { INK };
+    let clear = Style::new(Face::Body, 14.0, clear_ink);
+    let clear_w = text::width("Clear all", &clear) + 28.0;
+    let clear_x = x0 + inner - clear_w;
+    panel::quiet_button(
+        p,
+        clear_x,
+        foot_y,
+        clear_w,
+        FOOT_H,
+        panel::ROW_RADIUS,
+        false,
+    );
+    p.text("Clear all", clear_x + 14.0, foot_centre, &clear);
+    if !empty {
+        hits.shapes.push((
+            Item::ClearAll,
+            [clear_x, foot_y, clear_w, FOOT_H, panel::ROW_RADIUS],
+        ));
+    }
+}
+
+/// The notifications between `top` and `bottom`, newest first, from the first one scrolled to,
+/// scrolled so the chosen one is in view.
+fn paint_notices(
+    p: &mut Painter,
+    look: &Look,
+    place: panel::Place,
+    listed: &[&notices::Notice],
+    (y, foot_y): (f32, f32),
+    hits: &mut Hits,
+) {
+    let x0 = place.x + PADDING;
+    let inner = WIDTH - 2.0 * PADDING;
+    let foot_centre = foot_y + FOOT_H / 2.0;
+    let keys = Style::new(Face::Mono, 12.0, panel::HINT);
+    let bottom = foot_y - GAP;
+    if listed.is_empty() {
+        hits.scroll = 0;
+        let empty = Style::new(Face::Body, 16.0, panel::HINT);
+        let message = "You’re all caught up.";
+        let w = text::width(message, &empty);
+        p.text(message, x0 + (inner - w) / 2.0, y + 49.0, &empty);
+    } else {
+        let heights: Vec<f32> = listed
+            .iter()
+            .map(|notice| notices::card_height(notice, inner, CARD_LINES))
+            .collect();
+        // Keep the chosen notification in view.
+        hits.scroll = hits.scroll.min(listed.len() - 1);
+        let chosen = listed
+            .iter()
+            .position(|notice| Item::Notice(notice.id) == look.selected);
+        if let Some(at) = chosen {
+            hits.scroll = hits.scroll.min(at);
+            let span = |from: usize| {
+                heights[from..=at].iter().sum::<f32>() + (at - from) as f32 * CARD_GAP
+            };
+            while hits.scroll < at && span(hits.scroll) > bottom - y {
+                hits.scroll += 1;
+            }
+        }
+        let mut top = y;
+        let mut drawn = 0;
+        for (notice, h) in listed.iter().zip(&heights).skip(hits.scroll) {
+            if top + h > bottom {
+                break;
+            }
+            p.fill(x0, top, inner, *h, panel::TILE_RADIUS, panel::TILE);
+            let card = notices::paint_card(p, notice, x0, top, inner, CARD_LINES);
+            let [cx, cy, cw, ch] = card.cross;
+            hits.targets
+                .push((Target::Dismiss(notice.id), place.on_screen(cx, cy, cw, ch)));
+            hits.buttons.insert(notice.id, card.buttons.len());
+            for (index, [x, y, w, h]) in card.buttons.iter().copied().enumerate() {
+                hits.targets.push((
+                    Target::Action(notice.id, index),
+                    place.on_screen(x, y, w, h),
+                ));
+                if look.selected == Item::Notice(notice.id) && look.action == Some(index) {
+                    hits.button_ring = Some([x, y, w, h]);
+                }
+            }
+            hits.targets
+                .push((Target::Open(notice.id), place.on_screen(x0, top, inner, *h)));
+            hits.shapes.push((
+                Item::Notice(notice.id),
+                [x0, top, inner, *h, panel::TILE_RADIUS],
+            ));
+            top += h + CARD_GAP;
+            drawn += 1;
+        }
+        let hidden = listed.len() - drawn;
+        if hidden > 0 {
+            let more = format!("{hidden} MORE");
+            let w = text::width(&more, &keys);
+            p.text(&more, x0 + (inner - w) / 2.0, foot_centre, &keys);
+        }
     }
 }
 

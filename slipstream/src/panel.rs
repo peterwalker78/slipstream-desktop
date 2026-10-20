@@ -14,6 +14,37 @@ pub struct Frame {
     pub time: f64,
 }
 
+/// Where a card is painted, in design pixels: its corner (`x`, `y`) inside the painted area, its
+/// width, and that corner's place on the screen (`left`, `top`).
+#[derive(Debug, Clone, Copy)]
+pub struct Place {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub left: f32,
+    pub top: f32,
+}
+
+impl Place {
+    /// A box in the painted area, in logical pixels on the screen.
+    pub fn on_screen(
+        self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> smithay::utils::Rectangle<f64, smithay::utils::Logical> {
+        smithay::utils::Rectangle::new(
+            (
+                ((self.left + x - self.x) * DESIGN_PX) as f64,
+                ((self.top + y - self.y) * DESIGN_PX) as f64,
+            )
+                .into(),
+            ((w * DESIGN_PX) as f64, (h * DESIGN_PX) as f64).into(),
+        )
+    }
+}
+
 /// Logical pixels per design pixel. Every surface is laid out in design pixels, sized for a 1.25×
 /// screen: each is 0.8 logical pixels, which there is exactly one physical pixel.
 pub const DESIGN_PX: f32 = 0.8;
