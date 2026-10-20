@@ -14,7 +14,7 @@
 use crate::motion::REDUCED_FADE;
 use std::time::{Duration, Instant};
 
-use smithay::{reexports::wayland_server::protocol::wl_surface::WlSurface, utils::IsAlive};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::anim::{Easing, Tween};
 
@@ -38,6 +38,8 @@ pub struct Idle {
     pub reduced_motion: bool,
     /// Surfaces whose apps asked for the screen to stay awake.
     pub inhibitors: Vec<WlSurface>,
+    /// Whether any of `inhibitors` is on a screen: only those count.
+    pub inhibitors_shown: bool,
     /// How many holds apps have on the session bus's `org.freedesktop.ScreenSaver`, which count
     /// the same as an inhibitor: X11 and Electron apps ask there.
     pub bus_holds: usize,
@@ -66,6 +68,7 @@ impl Idle {
             opacity: Tween::at_rest([1.0]),
             reduced_motion,
             inhibitors: Vec::new(),
+            inhibitors_shown: false,
             bus_holds: 0,
             lock_idle_since: Instant::now(),
             lock_after: None,
@@ -118,11 +121,10 @@ impl Idle {
         after.is_some_and(|after| now.saturating_duration_since(self.screen_idle_since) >= after)
     }
 
-    /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor or the
-    /// session bus. Inhibitors whose surfaces have gone are forgotten on the way.
-    pub fn apps_hold(&mut self) -> bool {
-        self.inhibitors.retain(|surface| surface.alive());
-        !self.inhibitors.is_empty() || self.bus_holds > 0
+    /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor on a
+    /// screen or the session bus.
+    pub fn apps_hold(&self) -> bool {
+        self.inhibitors_shown || self.bus_holds > 0
     }
 
     /// Starts the wait before locking again, as input does.

@@ -39,10 +39,36 @@ impl Slipstream {
     }
 
     /// Keeps `ext-idle-notify` in step with the idle inhibitors an app holds: while one is held
-    /// nothing may be told the seat has gone quiet, which is what the inhibitor is for.
+    /// nothing may be told the seat has gone quiet, which is what the inhibitor is for. Only an
+    /// inhibitor on a screen holds: a video paused in a minimised browser, or one on a workspace
+    /// no screen is showing, doesn't keep the screens on. Inhibitors whose surfaces have gone are
+    /// forgotten on the way.
     pub fn follow_idle_inhibitors(&mut self) {
+        self.idle.inhibitors.retain(|surface| surface.alive());
+        self.idle.inhibitors_shown = self
+            .idle
+            .inhibitors
+            .iter()
+            .any(|surface| self.surface_on_screen(surface));
         let inhibited = self.awake || self.idle.apps_hold();
         self.idle_notifier_state.set_is_inhibited(inhibited);
+    }
+
+    /// Whether `surface` can be seen: a window's only while it is in the space, so not minimised
+    /// to a stream or on a workspace no screen is showing; anything else, such as a layer
+    /// surface, whenever it exists.
+    fn surface_on_screen(&self, surface: &WlSurface) -> bool {
+        use smithay::wayland::{
+            compositor::get_role, shell::xdg::XDG_TOPLEVEL_ROLE,
+            xwayland_shell::XWAYLAND_SHELL_ROLE,
+        };
+        let root = crate::takeback::root_of(surface);
+        let window = matches!(get_role(&root), Some(XDG_TOPLEVEL_ROLE | XWAYLAND_SHELL_ROLE));
+        !window
+            || self
+                .space
+                .elements()
+                .any(|window| window.wl_surface().as_deref() == Some(&root))
     }
 
     /// Faces for characters the embedded fonts lack have landed: everything painted with text
