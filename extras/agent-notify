@@ -26,7 +26,8 @@
 #
 #   agent-notify setup [AGENT...]   wire up the agents in the config (naming some saves them there)
 #   agent-notify setup --remove     take every hook back out
-#   agent-notify status             what's configured, wired and listening
+#   agent-notify status             what's configured, wired and listening, and where each session
+#                                   the desktop shows is running
 #   agent-notify test [--long]      send a sample notification
 #   agent-notify usage [--refresh]  plan limits used, as JSON for a desktop meter (see Usage limits)
 #   agent-notify keep claude [ARGS] start a session in the background, attached to this terminal;
@@ -271,17 +272,21 @@ task() {
     printf '%s' "$task_title" | tr '\n' ' ' | tr -d '\000-\037\177' | cut -c1-60
 }
 
-# The record Claude Code keeps of a background session, from the hook's JSON in $payload: its
-# name, whether it is busy, and the subagents it has running. Nothing for any other session.
-job_record() {
+# job_id AGENT PID: the background session Claude Code runs as process PID, from the entry it
+# keeps for each running session. A resumed session has a new session ID but keeps its job's.
+job_id() {
     [ "$1" = claude ] || return 1
-    job_session=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null |
-        tr -cd 'A-Za-z0-9-')
-    job_file=$HOME/.claude/jobs/${job_session%%-*}/state.json
-    [ -n "$job_session" ] && [ -r "$job_file" ] || return 1
-    # The folder is named for the start of the session's ID: check the record is this session's.
-    jq -e --arg s "$job_session" '.sessionId == $s' "$job_file" >/dev/null 2>&1 || return 1
-    printf '%s' "$job_file"
+    job_id=$(jq -r '.jobId // empty' "$HOME/.claude/sessions/$2.json" 2>/dev/null |
+        tr -cd 'A-Za-z0-9_-')
+    [ -n "$job_id" ] && printf '%s' "$job_id"
+}
+
+# job_record AGENT PID: the record Claude Code keeps of that background session: its name, whether
+# it is busy, and the subagents it has running. Nothing for any other session.
+job_record() {
+    job_record_id=$(job_id "$1" "$2") || return 1
+    job_file=$HOME/.claude/jobs/$job_record_id/state.json
+    [ -r "$job_file" ] && printf '%s' "$job_file"
 }
 
 # working_note AGENT active|idle [new]: writes the note that tells the desktop what the agent is
@@ -302,7 +307,7 @@ working_note() {
         return 0
     fi
     note_name='' note_helpers=''
-    if note_job=$(job_record "$1"); then
+    if note_job=$(job_record "$1" "$note_pid"); then
         note_name=$(jq -r '.name // "" | gsub("\\s+"; " ")' "$note_job" 2>/dev/null)
         note_helpers=$(jq -r '.fan[]? | select(.kind == "agent" and .doneAt == null)
             | .label // "" | gsub("\\s+"; " ")' "$note_job" 2>/dev/null |
@@ -486,7 +491,8 @@ plugins purge respawn rm setup-token stop ultrareview update upgrade"
 # session's window for its notifications, and as the note that attaches the window again at the
 # next login: the layout record looks for notes under the window's shell, which the session isn't.
 #
-# Closing the window or logging out hangs this process up with it, and the session carries on.
+# Closing the window or logging out hangs this process up with it, and a session still working
+# carries on.
 # Leaving the session in the window (detaching, or quitting the agent view) stops it, as quitting
 # the agent does anywhere else: its conversation is kept, and attaching opens it again.
 keep_attach() {
@@ -513,12 +519,11 @@ keep_attach() {
     exit 0
 }
 
-# keep_hung_up AGENT ID: the terminal has gone, and a session given something to do carries on. One
-# never given a prompt has nothing to carry on with: it would sit in memory with no terminal to
-# reach it by, so it is stopped. Attaching opens it again.
+# keep_hung_up AGENT ID: the terminal has gone, and a session still working carries on. One with
+# nothing under way would sit in memory with no terminal to reach it by, so it is stopped. Its
+# conversation is kept, and attaching opens it again.
 keep_hung_up() {
-    if jq -e '.name == null and .tokens == null' "$HOME/.claude/jobs/$2/state.json" >/dev/null 2>&1
-    then
+    if ! jq -e '.state == "working"' "$HOME/.claude/jobs/$2/state.json" >/dev/null 2>&1; then
         "$1" stop "$2" >/dev/null 2>&1
     fi
     exit 0
@@ -791,6 +796,65 @@ status() {
             GetCapabilities 2>/dev/null | tr -d '"' | cut -d' ' -f3-)
         echo "notification server: ${server:-none answering}${caps:+ ($caps)}"
     fi
+    sessions
+}
+
+# terminal_of PID: the terminal that process is running in, by name and PID: the nearest process
+# above it that isn't itself reading from one.
+terminal_of() {
+    terminal_pid=$(sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | cut -d' ' -f2)
+    while [ "${terminal_pid:-0}" -gt 1 ]; do
+        case $(readlink "/proc/$terminal_pid/fd/0" 2>/dev/null) in
+            /dev/pts/*) ;;
+            *)
+                printf '%s (PID %s)' "$(cat "/proc/$terminal_pid/comm" 2>/dev/null)" "$terminal_pid"
+                return 0
+                ;;
+        esac
+        terminal_pid=$(sed 's/.*) //' "/proc/$terminal_pid/stat" 2>/dev/null | cut -d' ' -f2)
+    done
+    return 1
+}
+
+# The sessions the desktop shows a trace for, and where each one is: the terminal it is in, or how
+# to reach or stop one Claude Code keeps running with no terminal attached.
+sessions() {
+    sessions_dir=${XDG_RUNTIME_DIR:-}/slipstream/working
+    [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$sessions_dir" ] || return 0
+    echo "sessions on the desktop:"
+    sessions_any=
+    for sessions_note in "$sessions_dir"/*; do
+        sessions_pid=${sessions_note##*/}
+        is_number "$sessions_pid" && [ -d "/proc/$sessions_pid" ] || continue
+        sessions_any=1
+        sessions_agent=
+        for agent in $KNOWN_AGENTS; do
+            if is_agent "$agent" "$sessions_pid"; then
+                sessions_agent=$agent
+                break
+            fi
+        done
+        sessions_state=working
+        [ "$(sed -n 2p "$sessions_note")" = idle ] && sessions_state=idle
+        printf '  %-8s %-7s %s\n' "$sessions_pid" "$sessions_state" "$(head -n 1 "$sessions_note")"
+        if sessions_job=$(job_id "$sessions_agent" "$sessions_pid"); then
+            sessions_window=
+            read -r sessions_window 2>/dev/null <"$STATE/$sessions_agent-$sessions_job.window"
+            if is_number "$sessions_window" &&
+                [ "$(cat "/proc/$sessions_window/comm" 2>/dev/null)" = agent-notify ] &&
+                sessions_where=$(terminal_of "$sessions_window"); then
+                printf '           in %s\n' "$sessions_where"
+            else
+                printf '           no terminal: "claude attach %s" opens it, "claude stop %s" ends it\n' \
+                    "$sessions_job" "$sessions_job"
+            fi
+        elif sessions_where=$(terminal_of "$sessions_pid"); then
+            printf '           in %s\n' "$sessions_where"
+        else
+            printf '           no terminal\n'
+        fi
+    done
+    [ -n "$sessions_any" ] || echo "  none"
 }
 
 sample() {
