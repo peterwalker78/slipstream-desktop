@@ -659,8 +659,11 @@ impl Slipstream {
         if self.centre.is_open() {
             return bound().or(Some(KeyUse::Centre(key, mods.shift)));
         }
+        // Bullet time takes every key but the screenshot's, so it can be captured as it is.
         if self.bullet.is_some() {
-            return Some(KeyUse::Bullet(key, mods));
+            let screenshot =
+                bound().filter(|bound| matches!(bound, KeyUse::Action(Action::Screenshot { .. })));
+            return screenshot.or(Some(KeyUse::Bullet(key, mods)));
         }
         // Esc with Alt still held puts Alt+Tab's switcher away, changing nothing.
         if self.switcher.is_some() && key == Keysym::Escape {
