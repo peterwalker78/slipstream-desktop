@@ -9,9 +9,10 @@
 //! `$XDG_RUNTIME_DIR/slipstream/working/`, kept there while the session is open. The first line
 //! is what to call the agent on screen: its own name and what it is working on, say. An empty
 //! first line falls back to the folder the agent is working in. The second line says what the
-//! agent is doing: `waiting` means it dispatched a subagent and is blocked waiting for it; `idle`
-//! means it is between tasks. No second line means the agent is actively working. Only the agent
-//! itself leaves a note, so the helpers it starts for a task don't each get a readout.
+//! agent is doing: `idle` means it is between tasks, and anything else, or no second line, that
+//! it is working. Each line after that is a helper the agent has working for it, by its task.
+//! Only the agent itself leaves a note, so its helpers are listed on its readout rather than each
+//! getting one of their own.
 
 use std::{
     fs,
@@ -28,14 +29,14 @@ const MOST_NOTES: usize = 64;
 /// A note longer than this isn't a name, and a name is cut to this many characters.
 const LONGEST_NOTE: u64 = 1024;
 const LONGEST_NAME: usize = 80;
+/// More helpers than this are more than one readout has room to list.
+const MOST_HELPERS: usize = 8;
 
 /// What a note's second line says the agent is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentStatus {
-    /// Working: note has no second line.
+    /// Working, itself or through its helpers: any second line but `idle`.
     Active,
-    /// Dispatched a subagent and is waiting for it: second line `waiting`.
-    Subagents,
     /// Open between tasks: second line `idle`.
     Idle,
 }
@@ -47,6 +48,8 @@ pub struct Agent {
     /// What to call it: what its note says, or the folder it is working in.
     pub name: String,
     pub status: AgentStatus,
+    /// What each helper it has working is doing.
+    pub helpers: Vec<String>,
 }
 
 /// Where agents leave these notes, if there is a runtime folder to keep them in.
@@ -118,9 +121,14 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             if written.as_secs() + 2 < resume::started(proc, pid, ticks)? {
                 return None;
             }
-            let (note_name, status) = parse_note(&entry.path(), meta.len());
+            let (note_name, status, helpers) = parse_note(&entry.path(), meta.len());
             let name = note_name.unwrap_or_else(|| folder(proc, pid));
-            Some(Agent { pid, name, status })
+            Some(Agent {
+                pid,
+                name,
+                status,
+                helpers,
+            })
         })
         .collect();
     agents.sort_by_key(|agent| agent.pid);
@@ -128,28 +136,30 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
 }
 
 /// What the note at `path`, `len` bytes long, says about its agent: what to call it (its first
-/// line, if that is plain text) and what the agent is doing (from the second line).
-fn parse_note(path: &Path, len: u64) -> (Option<String>, AgentStatus) {
+/// line, if that is plain text), what the agent is doing (from the second line) and what its
+/// helpers are doing (the plain lines after).
+fn parse_note(path: &Path, len: u64) -> (Option<String>, AgentStatus, Vec<String>) {
     if len == 0 || len > LONGEST_NOTE {
-        return (None, AgentStatus::Active);
+        return (None, AgentStatus::Active, Vec::new());
     }
     // Read without blocking and only if still a small regular file: the note can be swapped for
     // a FIFO between the look and the read, and this runs on the event loop.
     let Some(text) = crate::files::read_small_text(path, LONGEST_NOTE) else {
-        return (None, AgentStatus::Active);
+        return (None, AgentStatus::Active, Vec::new());
     };
-    let mut lines = text.lines();
-    let name = lines.next().and_then(|line| {
+    let plain = |line: &str| {
         let line = line.trim();
         (!line.is_empty() && !line.chars().any(char::is_control))
-            .then(|| line.chars().take(LONGEST_NAME).collect())
-    });
+            .then(|| line.chars().take(LONGEST_NAME).collect::<String>())
+    };
+    let mut lines = text.lines();
+    let name = lines.next().and_then(plain);
     let status = match lines.next().map(|l| l.trim()) {
-        Some("waiting") => AgentStatus::Subagents,
         Some("idle") => AgentStatus::Idle,
         _ => AgentStatus::Active,
     };
-    (name, status)
+    let helpers = lines.filter_map(plain).take(MOST_HELPERS).collect();
+    (name, status, helpers)
 }
 
 /// The name of the folder `pid` is working in, or nothing where it can't be read.
@@ -263,13 +273,40 @@ mod tests {
         assert_eq!(agents[0].name, "robin: fixing the kiln");
         assert_eq!(
             agents[0].status,
-            AgentStatus::Subagents,
-            "second line 'waiting'"
+            AgentStatus::Active,
+            "any second line but 'idle'"
         );
         assert_eq!(agents[1].name, "robin: counting the ledger");
         assert_eq!(agents[1].status, AgentStatus::Idle, "second line 'idle'");
         assert_eq!(agents[2].name, "robin: growing the orchard");
         assert_eq!(agents[2].status, AgentStatus::Active, "no second line");
+    }
+
+    #[test]
+    fn the_lines_after_the_second_are_the_agent_s_helpers() {
+        let machine = Machine::new("working-helpers");
+        machine.process(300, "/home/sam/projects/kiln");
+        machine.process(301, "/home/sam/projects/ledger");
+        machine.note_saying(
+            300,
+            "robin: firing the kiln\n\nglazing the pots\n\n  stacking\u{7} wood\nsweeping up\n",
+            150,
+        );
+        let many: String = (0..12).map(|i| format!("helper {i}\n")).collect();
+        machine.note_saying(301, &format!("robin: the ledger\nidle\n{many}"), 160);
+        let agents = machine.read();
+        assert_eq!(
+            agents[0].status,
+            AgentStatus::Active,
+            "an empty second line"
+        );
+        assert_eq!(
+            agents[0].helpers,
+            ["glazing the pots", "sweeping up"],
+            "plain lines only"
+        );
+        assert_eq!(agents[1].status, AgentStatus::Idle);
+        assert_eq!(agents[1].helpers.len(), MOST_HELPERS);
     }
 
     #[test]

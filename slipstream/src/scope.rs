@@ -1,18 +1,20 @@
 //! The readouts the faded desktop shows for AI agent sessions: one small oscilloscope for each,
 //! stacked down the right edge of the wallpaper.
 //!
-//! Three states, each with its own look:
-//! - **Active** (cyan wave): the agent is working, possibly alongside subagents.
-//! - **Subagents** (dim cyan flat, pulsing): the agent has dispatched subagents and is waiting.
+//! Two states, each with its own look:
+//! - **Active** (cyan wave): the agent is working, itself or through its helpers.
 //! - **Idle** (flat amber line): the agent is open but between tasks.
+//!
+//! Under the trace, each helper the agent has working gets a row: a small wave of its own beside
+//! what it is doing.
 //!
 //! A readout appears for every open session, not only ones that are currently working. When a
 //! session's process exits its readout settles amber and clears at the next key or pointer input.
 //! Which sessions are open comes from the notes they leave (`working.rs`); with none, nothing
 //! here draws.
 //!
-//! Reduced motion keeps the same picture without the movement: a standing wave for an active
-//! agent, a dim flat line for one waiting on subagents, and a flat line for idle or stopped.
+//! Reduced motion keeps the same picture without the movement: standing waves for an active
+//! agent and its helpers, and a flat line for idle or stopped.
 
 use std::collections::HashMap;
 
@@ -51,6 +53,12 @@ const LABEL: i32 = 15;
 const TRACE: i32 = 44;
 const SHORTEST: i32 = 15;
 const GAP: i32 = 8;
+/// A helper's row under the trace, the small wave at its start, and the space after that wave.
+const HELPER: i32 = 14;
+const HELPER_WAVE: i32 = 24;
+const HELPER_GAP: i32 = 6;
+/// The most rows listed under a readout; past this the last row says how many more there are.
+const MOST_ROWS: usize = 4;
 /// A trace is drawn as dots this big, this far apart.
 const DOT: f64 = 2.0;
 const PITCH: f64 = 3.0;
@@ -59,7 +67,8 @@ const PITCH: f64 = 3.0;
 const BACKING: u32 = 0x0b0e13b8;
 const BACKING_RADIUS: f32 = 7.0;
 const NAME: u32 = 0xaab2c0ff;
-/// At work, waiting, and stopped.
+const HELPER_NAME: u32 = 0x7f8898ff;
+/// At work and stopped.
 const CYAN: [f32; 3] = [51.0, 204.0, 255.0];
 const AMBER: [f32; 3] = [255.0, 181.0, 71.0];
 
@@ -70,31 +79,26 @@ const APPEAR: f64 = 0.6;
 const LEAVE: f64 = 0.15;
 /// Traces are redrawn 30 times a second when a wave is moving.
 const STEP: f64 = 1.0 / 30.0;
-/// Waiting traces (pulse only, no wave) redraw at 10fps — enough for a 1Hz pulse.
-const WAITING_STEP: f64 = 1.0 / 10.0;
 /// How many times a second the bright spot crosses a trace.
 const SWEEP: f64 = 0.6;
-/// How bright a flat line is, a wave where the spot passed longest ago, and a waiting flat line.
+/// How bright a flat line is, a wave where the spot passed longest ago, and a helper's wave.
 const FLAT: f32 = 0.85;
 const DIMMEST: f32 = 0.25;
-const WAITING: f32 = 0.22;
-/// How much the waiting line brightens at the peak of its pulse, and how many pulses a second.
-const PULSE_SWING: f32 = 0.35;
-const PULSE_RATE: f64 = 1.0;
-/// Wave amplitude for a waiting trace: enough to carry the sweep along it, not enough to look active.
-const WAITING_AMP: f32 = 0.15;
+const HELPER_LIT: f32 = 0.7;
 
 /// One agent's readout.
 #[derive(Debug, Clone, PartialEq)]
 struct Trace {
     pid: u32,
     name: String,
+    /// What each of its helpers is doing.
+    helpers: Vec<String>,
     /// The agent's session is still open (its note file exists and its process is running).
     alive: bool,
     status: AgentStatus,
     /// Session has ended and the desk has been touched since: clears once out of sight.
     seen: bool,
-    /// Colour level, animating 0 (amber) to 1 (cyan): cyan while active or waiting on subagents.
+    /// Colour level, animating 0 (amber) to 1 (cyan): cyan while active.
     colour: f32,
     /// Wave amplitude, animating 0 (flat) to 1 (full wave): wave only while active.
     amp: f32,
@@ -119,42 +123,90 @@ impl Trace {
         0.6 * (turn * slow + t * 1.4 + phase).sin()
             + 0.4 * (turn * quick - t * 1.9 + phase * 2.0).sin()
     }
+
+    /// The `nth` helper's small wave, -1 to 1: a slice of the agent's own, offset so that no two
+    /// helpers move together.
+    fn helper_wave(&self, nth: usize, across: f32, t: f32) -> f32 {
+        self.wave(
+            0.35 * across + 0.29 * nth as f32,
+            1.3 * t + 1.7 * nth as f32,
+        )
+    }
+
+    /// The rows listed under the trace: what each helper is doing, and whether it is a helper
+    /// rather than the row saying how many more there are.
+    fn rows(&self) -> Vec<(String, bool)> {
+        rows(&self.helpers)
+    }
+}
+
+/// The rows listed under a readout for `helpers`, as `Trace::rows`.
+fn rows(helpers: &[String]) -> Vec<(String, bool)> {
+    if helpers.len() <= MOST_ROWS {
+        return helpers.iter().map(|h| (h.clone(), true)).collect();
+    }
+    let mut rows: Vec<_> = helpers[..MOST_ROWS - 1]
+        .iter()
+        .map(|h| (h.clone(), true))
+        .collect();
+    rows.push((format!("+{} more", helpers.len() - rows.len()), false));
+    rows
 }
 
 /// How the readouts are laid out on a screen, in logical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Fit {
     width: i32,
     /// The height of each trace.
     trace: i32,
-    /// How many readouts there is room for.
-    count: usize,
+    /// The top of each readout there is room for, and how many helper rows it lists.
+    readouts: Vec<(i32, usize)>,
 }
 
 impl Fit {
-    /// Room for `agents` readouts down a `screen`: traces shrink before any is left off.
-    fn new(screen: Size<i32, Logical>, agents: usize) -> Option<Self> {
+    /// Room down a `screen` for readouts listing `rows` helper rows each: traces shrink before
+    /// any readout is left off.
+    fn new(screen: Size<i32, Logical>, rows: &[usize]) -> Option<Self> {
         let width = ((screen.w as f32 * WIDTH_OF_SCREEN) as i32).clamp(NARROWEST, WIDEST);
         let room = screen.h - 2 * MARGIN + GAP;
-        let fixed = 2 * PAD + LABEL + GAP;
-        if agents == 0 || width + 2 * MARGIN > screen.w || room < fixed + SHORTEST {
+        let fixed = |rows: usize| 2 * PAD + LABEL + rows as i32 * HELPER + GAP;
+        let all: i32 = rows.iter().map(|&r| fixed(r)).sum();
+        if rows.is_empty() || width + 2 * MARGIN > screen.w || room < fixed(rows[0]) + SHORTEST {
             return None;
         }
-        let trace = (room / agents as i32 - fixed).clamp(SHORTEST, TRACE);
-        let count = agents.min((room / (fixed + trace)) as usize);
+        let trace = ((room - all) / rows.len() as i32).clamp(SHORTEST, TRACE);
+        let mut readouts = Vec::new();
+        let mut top = 0;
+        for &r in rows {
+            let next = top + fixed(r) + trace;
+            if next > room {
+                break;
+            }
+            readouts.push((top, r));
+            top = next;
+        }
         Some(Self {
             width,
             trace,
-            count,
+            readouts,
         })
     }
 
-    fn pitch(&self) -> i32 {
-        2 * PAD + LABEL + self.trace + GAP
+    fn count(&self) -> usize {
+        self.readouts.len()
+    }
+
+    /// How tall the readout listing `rows` helper rows is.
+    fn height(&self, rows: usize) -> i32 {
+        2 * PAD + LABEL + self.trace + rows as i32 * HELPER
     }
 
     fn size(&self) -> Size<i32, Logical> {
-        (self.width, self.pitch() * self.count as i32 - GAP).into()
+        let bottom = self
+            .readouts
+            .last()
+            .map_or(0, |&(top, rows)| top + self.height(rows));
+        (self.width, bottom).into()
     }
 }
 
@@ -166,7 +218,7 @@ struct Canvas {
     scale: f64,
     /// The backings and names, which the traces are drawn over afresh each time.
     base: Vec<u8>,
-    names: Vec<String>,
+    names: Vec<(String, Vec<String>)>,
     /// Every trace's colour and amp packed together when last painted, and when that was.
     painted: Vec<u64>,
     painted_at: f64,
@@ -198,32 +250,32 @@ impl Scope {
         for trace in &mut self.traces {
             let agent = at_work.iter().find(|agent| agent.pid == trace.pid);
             trace.alive = agent.is_some();
-            if let Some(agent) = agent {
-                trace.seen = false;
-                trace.status = agent.status;
-                // Keep the name from before a wait or idle; only refresh while actively working.
-                if agent.status == AgentStatus::Active {
-                    trace.name.clone_from(&agent.name);
+            match agent {
+                Some(agent) => {
+                    trace.seen = false;
+                    trace.status = agent.status;
+                    trace.helpers.clone_from(&agent.helpers);
+                    // Keep the name from before going idle; only refresh while working.
+                    if agent.status == AgentStatus::Active {
+                        trace.name.clone_from(&agent.name);
+                    }
                 }
+                // An agent that has gone has no helpers working for it either.
+                None => trace.helpers.clear(),
             }
         }
         for agent in at_work {
             if !self.traces.iter().any(|trace| trace.pid == agent.pid) {
+                let active = agent.status == AgentStatus::Active;
                 self.traces.push(Trace {
                     pid: agent.pid,
                     name: agent.name.clone(),
+                    helpers: agent.helpers.clone(),
                     alive: true,
                     status: agent.status,
                     seen: false,
-                    colour: match agent.status {
-                        AgentStatus::Active | AgentStatus::Subagents => 1.0,
-                        AgentStatus::Idle => 0.0,
-                    },
-                    amp: if agent.status == AgentStatus::Active {
-                        1.0
-                    } else {
-                        0.0
-                    },
+                    colour: if active { 1.0 } else { 0.0 },
+                    amp: if active { 1.0 } else { 0.0 },
                 });
             }
         }
@@ -259,19 +311,12 @@ impl Scope {
             self.shown = (self.shown - (dt / LEAVE) as f32).max(0.0);
         }
         for trace in &mut self.traces {
-            let colour_target = if trace.alive {
-                match trace.status {
-                    AgentStatus::Active | AgentStatus::Subagents => 1.0,
-                    AgentStatus::Idle => 0.0,
-                }
+            let target = if trace.alive && trace.status == AgentStatus::Active {
+                1.0
             } else {
                 0.0
             };
-            let amp_target = match trace.status {
-                AgentStatus::Active if trace.alive => 1.0,
-                AgentStatus::Subagents if trace.alive => WAITING_AMP,
-                _ => 0.0,
-            };
+            let (colour_target, amp_target) = (target, target);
             if self.reduced_motion {
                 trace.colour = colour_target;
                 trace.amp = amp_target;
@@ -309,8 +354,9 @@ impl Scope {
         if shown <= 0.0 {
             return None;
         }
-        let fit = Fit::new(screen, self.traces.len())?;
-        let traces = &self.traces[..fit.count];
+        let rows: Vec<usize> = self.traces.iter().map(|t| t.rows().len()).collect();
+        let fit = Fit::new(screen, &rows)?;
+        let traces = &self.traces[..fit.count()];
         let logical = fit.size();
         let device = (
             (logical.w as f64 * scale).round().max(1.0) as i32,
@@ -323,10 +369,11 @@ impl Scope {
                 || !canvas
                     .names
                     .iter()
-                    .eq(traces.iter().map(|trace| &trace.name))
+                    .map(|(name, helpers)| (name, helpers))
+                    .eq(traces.iter().map(|trace| (&trace.name, &trace.helpers)))
         });
         if fresh {
-            let base = base(traces, fit, device, scale)?;
+            let base = base(traces, &fit, device, scale)?;
             let buffer = MemoryRenderBuffer::from_slice(
                 &base,
                 Fourcc::Abgr8888,
@@ -340,10 +387,13 @@ impl Scope {
                 Canvas {
                     buffer,
                     device,
-                    fit,
+                    fit: fit.clone(),
                     scale,
                     base,
-                    names: traces.iter().map(|trace| trace.name.clone()).collect(),
+                    names: traces
+                        .iter()
+                        .map(|trace| (trace.name.clone(), trace.helpers.clone()))
+                        .collect(),
                     painted: Vec::new(),
                     painted_at: f64::NEG_INFINITY,
                 },
@@ -354,22 +404,16 @@ impl Scope {
             .iter()
             .map(|t| ((t.colour.to_bits() as u64) << 32) | t.amp.to_bits() as u64)
             .collect();
-        // A full wave needs 30 fps; a change of colour repaints through `levels`.
-        let waving =
-            !self.reduced_motion && traces.iter().any(|trace| trace.amp > WAITING_AMP + 0.01);
-        // A waiting trace only pulses, and 10 fps is enough for a 1 Hz pulse.
-        let pulsing = !self.reduced_motion && !waving && traces.iter().any(|trace| trace.amp > 0.0);
-        if levels != canvas.painted
-            || (waving && now - canvas.painted_at >= STEP)
-            || (pulsing && now - canvas.painted_at >= WAITING_STEP)
-        {
+        // A wave needs 30 fps; a change of colour repaints through `levels`.
+        let waving = !self.reduced_motion && traces.iter().any(|trace| trace.amp > 0.0);
+        if levels != canvas.painted || (waving && now - canvas.painted_at >= STEP) {
             let Canvas { buffer, base, .. } = canvas;
             let size = (device.0 as usize, device.1 as usize);
             let t = (!self.reduced_motion).then_some(now);
             let mut context = buffer.render();
             let _ = context.draw(|pixels| {
                 pixels.copy_from_slice(base);
-                plot(pixels, size, traces, fit, scale, t);
+                plot(pixels, size, traces, &fit, scale, t);
                 Ok::<_, ()>(vec![Rectangle::<i32, Buffer>::from_size(device.into())])
             });
             drop(context);
@@ -393,13 +437,15 @@ impl Scope {
     }
 }
 
-/// The readouts' backings and names, as premultiplied pixels `device` big.
-fn base(traces: &[Trace], fit: Fit, device: (i32, i32), scale: f64) -> Option<Vec<u8>> {
+/// The readouts' backings, names and helper rows, as premultiplied pixels `device` big.
+fn base(traces: &[Trace], fit: &Fit, device: (i32, i32), scale: f64) -> Option<Vec<u8>> {
     let mut painter = Painter::new(device.0 as u32, device.1 as u32, scale as f32)?;
     let style = Style::new(Face::Mono, 11.0, NAME);
-    let (width, height) = (fit.width as f32, (fit.pitch() - GAP) as f32);
-    for (i, trace) in traces.iter().enumerate() {
-        let top = (i as i32 * fit.pitch()) as f32;
+    let helper_style = Style::new(Face::Mono, 10.0, HELPER_NAME);
+    let width = fit.width as f32;
+    for (trace, &(top, count)) in traces.iter().zip(&fit.readouts) {
+        let top = top as f32;
+        let height = fit.height(count) as f32;
         painter.fill(0.0, top, width, height, BACKING_RADIUS, BACKING);
         let name = text::ellipsize(&trace.name, &style, width - 2.0 * PAD as f32);
         painter.text(
@@ -408,6 +454,13 @@ fn base(traces: &[Trace], fit: Fit, device: (i32, i32), scale: f64) -> Option<Ve
             top + PAD as f32 + LABEL as f32 / 2.0 - 1.0,
             &style,
         );
+        let left = (PAD + HELPER_WAVE + HELPER_GAP) as f32;
+        let first = top + (PAD + LABEL + fit.trace) as f32;
+        for (i, (row, _)) in trace.rows().iter().enumerate() {
+            let row = text::ellipsize(row, &helper_style, width - left - PAD as f32);
+            let middle = first + (i as i32 * HELPER) as f32 + HELPER as f32 / 2.0 - 1.0;
+            painter.text(&row, left, middle, &helper_style);
+        }
     }
     Some(painter.pixmap.data().to_vec())
 }
@@ -418,56 +471,94 @@ fn plot(
     pixels: &mut [u8],
     (width, height): (usize, usize),
     traces: &[Trace],
-    fit: Fit,
+    fit: &Fit,
     scale: f64,
     t: Option<f64>,
 ) {
     let px = |logical: i32| (logical as f64 * scale).round() as i32;
     let pitch = (PITCH * scale).round().max(2.0) as i32;
     let dot = (DOT * scale).round().max(1.0) as i32;
+    let size = (width, height);
     let (left, right) = (px(PAD), width as i32 - px(PAD) - dot);
-    let span = (right - left).max(1) as f32;
-    for (i, trace) in traces.iter().enumerate() {
-        let top = px(i as i32 * fit.pitch() + PAD + LABEL);
-        let middle = top + px(fit.trace) / 2;
-        let swing = (px(fit.trace) / 2 - pitch).max(0) as f32;
+    let time = t.unwrap_or(0.0);
+    for (trace, &(top, _)) in traces.iter().zip(&fit.readouts) {
         let rgb: [f32; 3] = std::array::from_fn(|c| AMBER[c] + (CYAN[c] - AMBER[c]) * trace.colour);
-        let time = t.unwrap_or(0.0);
         let spot = (time * SWEEP + trace.pid as f64 * 0.37).fract() as f32;
-        // Pulse: a slow brightness breath on the waiting flat line. Fades in as the wave
-        // settles (amp drops) and out again as the trace goes amber (colour drops). Each
-        // agent has its own phase so multiple waiting traces don't breathe in lock-step.
-        let pulse_strength = (trace.colour - trace.amp).max(0.0);
-        let pulse = if pulse_strength > 0.0 && t.is_some() {
-            let phase = (trace.pid as f64 * 0.53) % std::f64::consts::TAU;
-            let beat = (time * std::f64::consts::TAU * PULSE_RATE + phase).sin() as f32 * 0.5 + 0.5;
-            PULSE_SWING * beat * pulse_strength
-        } else {
-            0.0
-        };
+        let trace_top = top + PAD + LABEL;
+        let pen = Pen { pitch, dot, rgb };
+        pen.line(
+            pixels,
+            size,
+            (left, right),
+            (px(trace_top) + px(fit.trace) / 2, px(fit.trace)),
+            |across| {
+                let lift = trace.wave(across, time as f32) * trace.amp;
+                // Brightest where the spot is, fading back along the way it came.
+                let lit = match t {
+                    Some(_) => {
+                        let behind = (spot - across).rem_euclid(1.0);
+                        DIMMEST + (1.0 - DIMMEST) * (-behind * 3.5).exp()
+                    }
+                    None => 0.85,
+                };
+                // Stopped: a steady amber line. Working: the swept cyan wave. Blends between.
+                (lift, FLAT + (lit - FLAT) * trace.amp)
+            },
+        );
+        let first = trace_top + fit.trace;
+        let wave_right = left + px(HELPER_WAVE) - dot;
+        for (i, _) in trace
+            .rows()
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, helper))| *helper)
+        {
+            pen.line(
+                pixels,
+                size,
+                (left, wave_right),
+                (px(first + i as i32 * HELPER) + px(HELPER) / 2, px(HELPER)),
+                |across| {
+                    let lift = trace.helper_wave(i, across, time as f32) * trace.amp;
+                    (lift, HELPER_LIT)
+                },
+            );
+        }
+    }
+}
+
+/// How a line of dots is drawn: their spacing, size and colour.
+struct Pen {
+    pitch: i32,
+    dot: i32,
+    rgb: [f32; 3],
+}
+
+impl Pen {
+    /// A line of dots across `from` to `to`, about the row at `middle` in a band `band` pixels
+    /// high. `shape` gives the line's lift, -1 to 1 of the band, and its brightness at each point
+    /// `across` the line from 0 to 1.
+    fn line(
+        &self,
+        pixels: &mut [u8],
+        size: (usize, usize),
+        (from, to): (i32, i32),
+        (middle, band): (i32, i32),
+        shape: impl Fn(f32) -> (f32, f32),
+    ) {
+        let Self { pitch, dot, rgb } = *self;
+        let span = (to - from).max(1) as f32;
+        let swing = (band / 2 - pitch).max(0) as f32;
         let mut before = None;
-        let mut x = left;
-        while x <= right {
-            let across = (x - left) as f32 / span;
-            let lift = trace.wave(across, time as f32) * trace.amp * swing;
-            let y = middle + (lift / pitch as f32).round() as i32 * pitch;
-            // Brightest where the spot is, fading back along the way it came.
-            let lit = match t {
-                Some(_) => {
-                    let behind = (spot - across).rem_euclid(1.0);
-                    DIMMEST + (1.0 - DIMMEST) * (-behind * 3.5).exp()
-                }
-                None => 0.85,
-            };
-            // Waiting: dim cyan flat (WAITING alpha) with a slow pulse. Stopped: amber flat
-            // (FLAT alpha). Working: normal cyan wave with sweep. Blends continuously.
-            let base_flat = FLAT + (WAITING - FLAT) * trace.colour;
-            let alpha = base_flat + (lit - base_flat) * trace.amp + pulse;
+        let mut x = from;
+        while x <= to {
+            let (lift, alpha) = shape((x - from) as f32 / span);
+            let y = middle + (lift * swing / pitch as f32).round() as i32 * pitch;
             // Dots fill the climb from the last column, so a steep wave stays one line.
-            let from = before.unwrap_or(y);
-            let mut at = from.min(y);
-            while at <= from.max(y) {
-                put(pixels, (width, height), (x, at), dot, rgb, alpha);
+            let last = before.unwrap_or(y);
+            let mut at = last.min(y);
+            while at <= last.max(y) {
+                put(pixels, size, (x, at), dot, rgb, alpha);
                 at += pitch;
             }
             before = Some(y);
@@ -511,45 +602,55 @@ mod tests {
             pid,
             name: name.to_string(),
             status: AgentStatus::Active,
+            helpers: Vec::new(),
         }
     }
 
     fn idle_agent(pid: u32, name: &str) -> Agent {
         Agent {
-            pid,
-            name: name.to_string(),
             status: AgentStatus::Idle,
+            ..agent(pid, name)
         }
     }
 
-    fn subagent_agent(pid: u32, name: &str) -> Agent {
+    fn helped_agent(pid: u32, name: &str, helpers: &[&str]) -> Agent {
         Agent {
-            pid,
-            name: name.to_string(),
-            status: AgentStatus::Subagents,
+            helpers: helpers.iter().map(|h| h.to_string()).collect(),
+            ..agent(pid, name)
         }
+    }
+
+    fn trace(pid: u32, helpers: &[&str], level: f32) -> Trace {
+        Trace {
+            pid,
+            name: String::new(),
+            helpers: helpers.iter().map(|h| h.to_string()).collect(),
+            alive: true,
+            status: AgentStatus::Active,
+            seen: false,
+            colour: level,
+            amp: level,
+        }
+    }
+
+    /// `trace` plotted on its own, and the picture's width and height.
+    fn plotted(trace: Trace, t: Option<f64>) -> (Vec<u8>, usize, usize) {
+        let fit = Fit::new(SCREEN.into(), &[trace.rows().len()]).unwrap();
+        let size = fit.size();
+        let (width, height) = (size.w as usize, size.h as usize);
+        let mut pixels = vec![0u8; width * height * 4];
+        plot(&mut pixels, (width, height), &[trace], &fit, 1.0, t);
+        (pixels, width, height)
     }
 
     /// One trace plotted on its own at `colour`/`amp`, and the rows of the picture that have a dot.
     fn rows(colour: f32, amp: f32, t: Option<f64>) -> (Vec<u8>, Vec<usize>) {
-        let fit = Fit::new(SCREEN.into(), 1).unwrap();
-        let size = fit.size();
-        let (width, height) = (size.w as usize, size.h as usize);
         let trace = Trace {
-            pid: 300,
-            name: String::new(),
-            alive: colour > 0.0 || amp == 0.0,
-            status: if colour > 0.0 && amp == 0.0 {
-                AgentStatus::Subagents
-            } else {
-                AgentStatus::Active
-            },
-            seen: false,
             colour,
             amp,
+            ..trace(300, &[], 0.0)
         };
-        let mut pixels = vec![0u8; width * height * 4];
-        plot(&mut pixels, (width, height), &[trace], fit, 1.0, t);
+        let (pixels, width, height) = plotted(trace, t);
         let lit = (0..height)
             .filter(|row| {
                 pixels[row * width * 4..(row + 1) * width * 4]
@@ -573,25 +674,51 @@ mod tests {
     }
 
     #[test]
-    fn a_waiting_agent_s_trace_is_a_dim_flat_cyan_line() {
-        let (wait_px, wait_rows) = rows(1.0, 0.0, Some(0.0));
-        let (wait_px2, _) = rows(1.0, 0.0, Some(0.5));
+    fn each_helper_gets_a_moving_wave_of_its_own_under_the_trace() {
+        let below = |pixels: &[u8], width: usize, from: usize| {
+            pixels[from * width * 4..]
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 0)
+                .count()
+        };
+        let under = (PAD + LABEL + TRACE) as usize;
+        let (alone, width, _) = plotted(trace(300, &[], 1.0), Some(0.0));
+        assert_eq!(below(&alone, width, under), 0, "no helpers, nothing under");
+        let (early, width, height) = plotted(trace(300, &["glazing", "sweeping"], 1.0), Some(0.0));
+        let (later, ..) = plotted(trace(300, &["glazing", "sweeping"], 1.0), Some(0.5));
+        assert_eq!(height, under + (PAD + 2 * HELPER) as usize);
+        let second = under + HELPER as usize;
         assert!(
-            wait_rows.len() <= DOT as usize * 3,
-            "waiting has only a slight wave"
+            below(&early, width, under) > below(&early, width, second),
+            "a row each"
         );
-        assert_ne!(wait_px, wait_px2, "waiting line moves");
-        // Dimmer than the stopped amber line even at the pulse's peak.
-        let stop_alpha = rows(0.0, 0.0, Some(0.0))
-            .0
-            .chunks_exact(4)
-            .find(|p| p[3] > 0)
-            .unwrap()[3];
-        let wait_alpha = wait_px.chunks_exact(4).find(|p| p[3] > 0).unwrap()[3];
-        assert!(wait_alpha < stop_alpha, "waiting is dimmer than stopped");
-        // But still cyan in hue (blue channel dominates).
-        let pixel = wait_px.chunks_exact(4).find(|p| p[3] > 0).unwrap();
-        assert!(pixel[2] > pixel[0], "waiting trace is cyan, not amber");
+        assert!(below(&early, width, second) > 0);
+        assert_ne!(
+            early[under * width * 4..],
+            later[under * width * 4..],
+            "and they move"
+        );
+    }
+
+    #[test]
+    fn past_the_room_for_rows_the_last_says_how_many_more() {
+        let few = trace(300, &["a", "b"], 1.0);
+        assert_eq!(few.rows(), [("a".into(), true), ("b".into(), true)]);
+        let many = trace(300, &["a", "b", "c", "d", "e", "f"], 1.0);
+        let rows = many.rows();
+        assert_eq!(rows.len(), MOST_ROWS);
+        assert_eq!(rows[MOST_ROWS - 1], ("+3 more".to_string(), false));
+    }
+
+    #[test]
+    fn a_trace_lists_its_agent_s_helpers_until_the_agent_goes() {
+        let mut scope = Scope::new(false);
+        scope.follow(&[helped_agent(300, "kiln", &["glazing"])]);
+        assert_eq!(scope.traces[0].helpers, ["glazing"]);
+        scope.follow(&[helped_agent(300, "kiln", &["glazing", "sweeping"])]);
+        assert_eq!(scope.traces[0].helpers, ["glazing", "sweeping"]);
+        scope.follow(&[]);
+        assert!(scope.traces[0].helpers.is_empty());
     }
 
     #[test]
@@ -602,11 +729,6 @@ mod tests {
         };
         assert_eq!(colour(&rows(0.0, 0.0, Some(0.0)).0), (true, false));
         assert_eq!(colour(&rows(1.0, 1.0, Some(0.0)).0), (false, true));
-        assert_eq!(
-            colour(&rows(1.0, 0.0, Some(0.0)).0),
-            (false, true),
-            "waiting is also cyan"
-        );
     }
 
     #[test]
@@ -729,12 +851,6 @@ mod tests {
     fn a_non_active_trace_keeps_its_name() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "robin: mending the kiln door")]);
-        // Subagents: keeps name from before.
-        scope.follow(&[subagent_agent(300, "robin: dispatched a helper")]);
-        assert_eq!(
-            scope.traces[0].name, "robin: mending the kiln door",
-            "name stays frozen while waiting on subagents"
-        );
         // Idle: keeps name from before.
         scope.follow(&[idle_agent(300, "robin: done")]);
         assert_eq!(
@@ -752,25 +868,20 @@ mod tests {
     #[test]
     fn however_many_agents_the_readouts_stay_on_the_screen() {
         for agents in 1..40 {
-            let fit = Fit::new(SCREEN.into(), agents).unwrap();
-            assert!(fit.size().h <= SCREEN.1 - 2 * MARGIN, "{agents} agents");
-            assert!(fit.count >= agents.min(12), "{agents} agents");
+            for helpers in [0, 1, MOST_ROWS] {
+                let fit = Fit::new(SCREEN.into(), &vec![helpers; agents]).unwrap();
+                let said = format!("{agents} agents with {helpers} rows each");
+                assert!(fit.size().h <= SCREEN.1 - 2 * MARGIN, "{said}");
+                assert!(fit.count() >= agents.min(6), "{said}");
+                assert!(fit.trace >= SHORTEST, "{said}");
+            }
         }
-        assert_eq!(Fit::new(SCREEN.into(), 0), None);
+        assert_eq!(Fit::new(SCREEN.into(), &[]), None);
     }
 
     #[test]
     fn each_agent_has_a_wave_of_its_own() {
-        let trace = |pid| Trace {
-            pid,
-            name: String::new(),
-            alive: true,
-            status: AgentStatus::Active,
-            seen: false,
-            colour: 1.0,
-            amp: 1.0,
-        };
-        assert_ne!(trace(300).shape(), trace(301).shape());
-        assert_eq!(trace(300).shape(), trace(300).shape());
+        assert_ne!(trace(300, &[], 1.0).shape(), trace(301, &[], 1.0).shape());
+        assert_eq!(trace(300, &[], 1.0).shape(), trace(300, &[], 1.0).shape());
     }
 }

@@ -104,13 +104,11 @@ A session working in the background has no window above it, so to have its notif
 
 Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, every open agent session has a small oscilloscope trace at the top right, under whatever the agent says to call it. There is one trace for each open session, however many are running.
 
-Three states, each with its own look:
-
-- **Cyan wave:** the agent is actively working.
-- **Dim cyan flat line, pulsing slowly:** the agent has dispatched subagents and is waiting for them.
+- **Cyan wave:** the agent is working, itself or through subagents.
 - **Flat amber line:** the agent is open but between tasks, or the session has ended.
+- **A row under the trace for each subagent** it has working: a small wave of its own and what that subagent is doing.
 
-**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing — `waiting` for subagents dispatched, `idle` between tasks, or nothing for active work. Most agents can run a command of yours at the right moments:
+**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing: `idle` between tasks, or nothing while it works. Each line after that is a subagent it has working, by what that subagent is doing. Most agents can run a command of yours at the right moments:
 
 ```sh
 # Session opens: leave an idle note (first line empty falls back to the working folder).
@@ -119,8 +117,8 @@ printf '\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
 # Task starts:
 echo "my-agent: $TASK" > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
 
-# Subagents dispatched:
-printf 'my-agent: the task\nwaiting\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
+# Subagents working for it:
+printf 'my-agent: the task\n\nreading the tests\nfixing the docs\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
 
 # Task ends, or agent is waiting on you: mark idle.
 printf 'my-agent: the task\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
@@ -132,6 +130,6 @@ A ready-made hook package for Claude Code, Codex, Gemini CLI and Antigravity CLI
 
 - **Only while the desktop is faded.** Nothing is drawn over your windows; the traces come in after the wallpaper has taken the screen and go as the desktop comes back.
 - **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its amber line until you touch a key or the mouse.
-- **The agent itself, not its helpers.** A note is named for one process, so the helpers an agent starts for a task don't each get a trace unless they leave notes of their own.
-- **Reduced motion** keeps the picture and drops the movement: a standing wave for an agent at work, a dim flat line for one waiting on subagents, and a flat line for one that is idle or has stopped.
+- **One trace for each session, not each subagent.** Subagents are listed under the trace of the session that started them, up to four rows, the last saying how many more there are.
+- **Reduced motion** keeps the picture and drops the movement: standing waves for an agent at work and its subagents, and a flat line for one that is idle or has stopped.
 - **The name is the agent's to give.** Write the note again to change it. An empty first line falls back to the folder the agent is working in.
