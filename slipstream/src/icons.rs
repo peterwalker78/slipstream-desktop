@@ -41,6 +41,8 @@ pub const CAPS_LOCK: &str = r#"<path d="M12 3.5l7.5 7.5H15v4.5H9V11H4.5z"/><path
 /// Awake: an open eye.
 pub const EYE: &str = r#"<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>"#;
 pub const KEYBOARD: &str = r#"<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.5M9 10h.5M12 10h.5M15 10h.5M18 10h.5M8 14h8"/>"#;
+/// A circled "i": about Slipstream.
+pub const INFO: &str = r#"<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".9" fill="currentColor"/>"#;
 
 /// Two overlapping frames: bullet time's overview, on the bar.
 pub const OVERVIEW: &str = r#"<rect x="3" y="7" width="13" height="10" rx="1.5"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h10A1.5 1.5 0 0 1 21 5.5V13a1.5 1.5 0 0 1-1.5 1.5H16"/>"#;
@@ -189,6 +191,7 @@ mod tests {
             CLOSE,
             MIC,
             MIC_MUTED,
+            INFO,
         ] {
             assert!(coverage(body, Some(0xdfe4ecff)) > 20, "{body}");
         }

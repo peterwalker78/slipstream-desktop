@@ -28,16 +28,19 @@ pub enum System {
     ShutDown,
     /// The shortcut sheet.
     Shortcuts,
+    /// Settings' About page: the version, and how much Slipstream weighs.
+    About,
 }
 
 impl System {
-    const ALL: [System; 6] = [
+    const ALL: [System; 7] = [
         System::Lock,
         System::QuickSettings,
         System::LogOut,
         System::Restart,
         System::ShutDown,
         System::Shortcuts,
+        System::About,
     ];
 
     pub(super) fn label(self) -> &'static str {
@@ -48,6 +51,7 @@ impl System {
             System::Restart => "Restart",
             System::ShutDown => "Shut down",
             System::Shortcuts => "Keyboard shortcuts",
+            System::About => "About Slipstream",
         }
     }
 
@@ -60,6 +64,7 @@ impl System {
             System::Restart => &["reboot"],
             System::ShutDown => &["shutdown", "power off", "turn off"],
             System::Shortcuts => &["keys", "help", "shortcuts"],
+            System::About => &["version", "bloat", "weight"],
         }
     }
 
@@ -74,6 +79,7 @@ impl System {
             System::Lock => icons::LOCK,
             System::QuickSettings => icons::GAUGE,
             System::Shortcuts => icons::KEYBOARD,
+            System::About => icons::INFO,
             System::LogOut | System::Restart | System::ShutDown => icons::POWER,
         }
     }
@@ -86,7 +92,7 @@ impl System {
             // The way out's key opens the card that logs out, restarts and shuts down.
             System::LogOut => &keys.way_out,
             System::Shortcuts => &keys.sheet,
-            System::Restart | System::ShutDown => return None,
+            System::Restart | System::ShutDown | System::About => return None,
         };
         (!key.is_empty()).then(|| key.clone())
     }
@@ -382,6 +388,9 @@ mod tests {
         assert_eq!(found("shut"), [System::ShutDown]);
         assert_eq!(found("reboot"), [System::Restart]);
         assert_eq!(found("help"), [System::Shortcuts]);
+        for query in ["about", "version", "bloat", "weight"] {
+            assert_eq!(found(query), [System::About], "{query}");
+        }
         assert!(found("ock").is_empty(), "only the start of a word");
     }
 }

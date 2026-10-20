@@ -456,6 +456,7 @@ impl Slipstream {
                     System::Restart => self.begin_exit(Intent::Restart),
                     System::ShutDown => self.begin_exit(Intent::ShutDown),
                     System::Shortcuts => self.toggle_sheet(),
+                    System::About => self.open_slipstream_settings("about"),
                 }
             }
         }
