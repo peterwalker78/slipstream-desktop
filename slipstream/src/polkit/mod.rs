@@ -191,6 +191,8 @@ pub enum Event {
     Cancel(String),
     /// polkit has gone from the bus, and every question with it.
     Gone,
+    /// polkit came back, and its questions can't be answered here any more.
+    Unanswered,
     /// The helper said something during check number `attempt`.
     Helper {
         attempt: u64,
@@ -487,7 +489,10 @@ fn follow_polkit(connection: &zbus::blocking::Connection, session: &str, events:
         }
         match register(connection, session) {
             Ok(()) => tracing::info!("polkit restarted; answering its password requests again"),
-            Err(err) => tracing::warn!("polkit restarted, and couldn't register again: {err}"),
+            Err(err) => {
+                tracing::warn!("polkit restarted, and couldn't register again: {err}");
+                let _ = events.send(Event::Unanswered);
+            }
         }
     }
 }
@@ -537,12 +542,12 @@ impl Settle {
     }
 }
 
-/// How long a dismissed question is refused if the same process asks it again.
+/// How long a dismissed question is refused if it is asked again.
 const REPEAT_QUIET: f64 = 10.0;
 
-/// The questions dismissed lately, by action and asking process: a program that puts the same
-/// question straight back up each time it is dismissed is refused for a while, rather than
-/// keeping the card in front of everything.
+/// The questions dismissed lately, by action: a program that puts the same question straight
+/// back up each time it is dismissed is refused for a while, rather than keeping the card in
+/// front of everything. Any process asking it counts, since each new `pkexec` is a new one.
 #[derive(Debug, Default)]
 struct Repeats {
     dismissed: Vec<(Source, f64)>,
@@ -550,7 +555,7 @@ struct Repeats {
 
 impl Repeats {
     fn dismissed(&mut self, source: &Source, now: f64) {
-        self.dismissed.retain(|(known, _)| known != source);
+        self.dismissed.retain(|(known, _)| known.0 != source.0);
         if self.dismissed.len() == 32 {
             self.dismissed.remove(0);
         }
@@ -559,7 +564,7 @@ impl Repeats {
 
     fn refuses(&mut self, source: &Source, now: f64) -> bool {
         self.dismissed.retain(|(_, at)| now - at < REPEAT_QUIET);
-        self.dismissed.iter().any(|(known, _)| known == source)
+        self.dismissed.iter().any(|(known, _)| known.0 == source.0)
     }
 }
 
@@ -627,6 +632,11 @@ impl Slipstream {
                 self.polkit.waiting.clear();
                 self.close_polkit(Answer::Cancelled, false);
             }
+            // Something else may be answering them now, so it is said where it is seen.
+            Event::Unanswered => self.show_toast(
+                "Password requests aren't shown",
+                "Programs that need an administrator's password can't ask here until you log in again",
+            ),
             Event::Helper { attempt, said } => self.polkit_said(attempt, said),
         }
     }
@@ -669,14 +679,12 @@ impl Slipstream {
         }
         // A grab would keep a client's pointer, and its cursor, over the card: a menu's grab, or
         // a button held down in a window. Ended as the lock ends them.
+        // The keyboard's grab is left alone: keys reach the card before any grab sees them, and
+        // an input method's grab, once ended, is never given back.
         let pointer = self.seat.get_pointer().unwrap();
-        let keyboard = self.seat.get_keyboard().unwrap();
         if pointer.is_grabbed() {
             let serial = smithay::utils::SERIAL_COUNTER.next_serial();
             pointer.unset_grab(self, serial, smithay::backend::input::InputTime::now());
-        }
-        if keyboard.is_grabbed() {
-            keyboard.unset_grab(self);
         }
         self.clear_focus();
         // A cursor a client drew is its pixels, which could be drawn over the card. The pointer
@@ -1024,12 +1032,17 @@ mod tests {
         let mut repeats = Repeats::default();
         let install = ("org.example.install".to_string(), "4242".to_string());
         let other_process = ("org.example.install".to_string(), "4343".to_string());
+        let other_action = ("org.example.remove".to_string(), "4242".to_string());
         assert!(!repeats.refuses(&install, 0.0));
         repeats.dismissed(&install, 0.0);
         assert!(repeats.refuses(&install, 1.0));
         assert!(
-            !repeats.refuses(&other_process, 1.0),
-            "only from the same process"
+            repeats.refuses(&other_process, 1.0),
+            "whichever process asks it"
+        );
+        assert!(
+            !repeats.refuses(&other_action, 1.0),
+            "only the same question"
         );
         assert!(
             !repeats.refuses(&install, REPEAT_QUIET),
