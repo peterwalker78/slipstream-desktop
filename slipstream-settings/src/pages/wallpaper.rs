@@ -9,10 +9,8 @@ pub(super) const FADE_CHOICES: [u64; 7] = [30, 60, 120, 300, 600, 1800, 0];
 /// How long a variation holds before the next one takes over, in minutes; 0 never changes.
 pub(super) const CHANGE_CHOICES: [u64; 8] = [1, 2, 5, 10, 15, 30, 60, 0];
 
-/// How tall the list of variations is, and the room above and below its rows that lets the
-/// first and last of them scroll to its middle.
-const LIST_HEIGHT: i32 = 320;
-const LIST_PAD: i32 = LIST_HEIGHT / 2 - 26;
+/// How tall the list of variations is: about five rows.
+const LIST_HEIGHT: i32 = 260;
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
@@ -77,12 +75,10 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     let all = gtk::CheckButton::new();
     let all_sub = row(&turns, "All of them", Some(""), &all);
 
-    // The variations, family by family, beside one preview of the row in the list's middle.
+    // One preview, and beneath it the variations family by family.
     let list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Single)
         .activate_on_single_click(false)
-        .margin_top(LIST_PAD)
-        .margin_bottom(LIST_PAD)
         .css_classes(["variations"])
         .build();
     let mut listed: Vec<&'static slipstream_config::Variation> = Vec::new();
@@ -105,9 +101,9 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         let heading = headings
             .iter()
             .find(|(at, _)| *at == row.index() as usize)
-            .map(|(_, family)| {
+            .map(|(at, family)| {
                 let heading = label(&family.to_uppercase(), "group-title");
-                heading.set_margin_top(12);
+                heading.set_margin_top(if *at == 0 { 2 } else { 12 });
                 heading.set_margin_bottom(4);
                 heading.set_margin_start(10);
                 heading
@@ -126,8 +122,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         .child(&viewport)
         .build();
     let picture = previews::picture();
-    // Held at its own size: in the row it would otherwise grow to the list's height and crowd
-    // the list out.
+    // Held at its own size: given the card's width it would grow to fill it.
     let (width, height) = previews::SHOWN;
     let holder = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::External)
@@ -136,29 +131,34 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         .max_content_width(width)
         .min_content_height(height)
         .max_content_height(height)
-        .valign(gtk::Align::Center)
+        .halign(gtk::Align::Center)
         .child(&picture)
         .build();
-    let preview = previews::Preview::new(
-        &picture,
-        listed.iter().map(|variation| variation.id).collect(),
-        listed[0].id,
-        store.get().motion.reduced,
-    );
-    let shelf = gtk::Box::builder().spacing(16).css_classes(["row"]).build();
+    let preview = previews::Preview::new(&picture, store.get().motion.reduced);
+    let shelf = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .css_classes(["row"])
+        .build();
     shelf.append(&holder);
     shelf.append(&scroller);
     turns.append(&shelf);
 
-    // Scrolling picks the row that comes to the middle; picking a row with the keys or the
-    // pointer brings it to the middle. Either way the preview shows it.
+    // How far the list is scrolled says which row is picked: the first at the top, the last at
+    // the bottom, the rest in between. Picking a row with the keys or the pointer scrolls the
+    // list to match. Either way the preview shows it.
+    let count = listed.len();
     let scrolling = Rc::new(Cell::new(false));
     let adjustment = scroller.vadjustment();
     {
         let (list, scrolling) = (list.clone(), Rc::clone(&scrolling));
         adjustment.connect_value_changed(move |adjustment| {
-            let middle = adjustment.value() + adjustment.page_size() / 2.0 - f64::from(LIST_PAD);
-            if let Some(row) = list.row_at_y(middle as i32)
+            let span = adjustment.upper() - adjustment.page_size();
+            if span <= 0.0 || count < 2 {
+                return;
+            }
+            let index = (adjustment.value() / span * (count - 1) as f64).round() as i32;
+            if let Some(row) = list.row_at_index(index)
                 && !row.is_selected()
             {
                 scrolling.set(true);
@@ -167,7 +167,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
             }
         });
     }
-    list.connect_row_selected(move |list, row| {
+    list.connect_row_selected(move |_, row| {
         let Some(row) = row else {
             return;
         };
@@ -179,11 +179,9 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
             "Preview of {}",
             variation.title
         ))]);
-        if !scrolling.get()
-            && let Some(bounds) = row.compute_bounds(list)
-        {
-            let middle = f64::from(LIST_PAD + bounds.y() as i32) + f64::from(bounds.height()) / 2.0;
-            adjustment.set_value(middle - adjustment.page_size() / 2.0);
+        let span = adjustment.upper() - adjustment.page_size();
+        if !scrolling.get() && span > 0.0 && count > 1 {
+            adjustment.set_value(span * f64::from(row.index()) / (count - 1) as f64);
         }
     });
     list.select_row(list.row_at_index(0).as_ref());

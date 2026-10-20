@@ -184,7 +184,7 @@ picture.preview {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-/* The list of variations: the row in its middle, which the preview shows, is lit. */
+/* The list of variations: the picked row, which the preview shows, is lit. */
 .variations {
   background: none;
 }

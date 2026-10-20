@@ -1,34 +1,36 @@
-//! Frames of one variation drawn off screen, with no display and no GPU, for the Settings app's
-//! previews: `slipstream --wallpaper-preview ID --size WxH --frames N --out DIR`.
+//! One variation drawn off screen, with no display and no GPU, for the Settings app's preview:
+//! `slipstream --wallpaper-preview ID --size WxH [--still]`.
+//!
+//! Frames go to standard output as they would show on screen, each one `W × H` pixels of RGBA,
+//! until whoever reads them stops. With `--still` there is one frame, the picture reduced motion
+//! shows. A variation slower than 20 steps a second fades from one step to the next, as on the
+//! desktop.
 //!
 //! The picture is composed on a grid laid out for a screen several times the size asked for, as
 //! the saver lays one out for a real screen, so the logo and the cells have their proper
 //! proportions; each frame is then shrunk to the size asked for by averaging blocks of pixels.
 
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::time::{Duration, Instant};
 
 use super::{
-    BACKGROUND, BLANK, Frame, GlyphCache, Grid, Layout, Readings, TWEEN_LEVELS, epoch_now, layout,
-    make, paint_cell, step_hz,
+    BACKGROUND, BLANK, Frame, GlyphCache, Grid, Layout, Look, Readings, TWEEN_LEVELS, epoch_now,
+    layout, make, paint_cell, step_hz,
 };
 
 /// The width a preview is drawn at before it is shrunk: about a laptop screen's worth of cells,
 /// small enough that each frame paints in a few milliseconds.
 const DRAWN_WIDTH: usize = 1100;
 
-/// Seconds between frames when the caller doesn't say.
-const EVERY: f64 = 0.2;
+/// How often a frame is sent while the picture is changing.
+const FRAME: Duration = Duration::from_micros(33_333);
 
-/// What to draw: which variation, how big, how many frames from when, and where to put them.
+/// What to draw: which variation, how big, and whether only its still picture.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
     pub id: String,
     pub size: (usize, usize),
-    pub frames: usize,
-    /// Seconds into the variation of the first frame; the variation's own choice when `None`.
-    pub from: Option<f64>,
-    pub every: f64,
-    pub out: PathBuf,
+    pub still: bool,
 }
 
 impl Request {
@@ -39,23 +41,17 @@ impl Request {
         let mut request = Request {
             id,
             size: (192, 120),
-            frames: 16,
-            from: None,
-            every: EVERY,
-            out: PathBuf::from("."),
+            still: false,
         };
         while let Some(flag) = args.next() {
-            let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
-            let bad = || format!("{flag} {value} isn't understood");
             match flag.as_str() {
+                "--still" => request.still = true,
                 "--size" => {
+                    let value = args.next().ok_or("--size needs a value")?;
+                    let bad = || format!("--size {value} isn't understood");
                     let (w, h) = value.split_once('x').ok_or_else(bad)?;
                     request.size = (w.parse().map_err(|_| bad())?, h.parse().map_err(|_| bad())?);
                 }
-                "--frames" => request.frames = value.parse().map_err(|_| bad())?,
-                "--from" => request.from = Some(value.parse().map_err(|_| bad())?),
-                "--every" => request.every = value.parse().map_err(|_| bad())?,
-                "--out" => request.out = PathBuf::from(value),
                 _ => return Err(format!("{flag} isn't an option")),
             }
         }
@@ -66,16 +62,13 @@ impl Request {
         {
             return Err("the size must be between 16x10 and 3840x2160".into());
         }
-        if request.frames > 240 || !(0.0..=10.0).contains(&request.every) {
-            return Err("at most 240 frames, at most 10 s apart".into());
-        }
         Ok(request)
     }
 }
 
-/// Draws the frames the request asks for, `frame-00.png` onwards, and `still.png`, the picture
-/// reduced motion shows.
-pub fn run(request: &Request) -> Result<(), String> {
+/// Sends the frames the request asks for to `out`. Returns once the still picture is sent, or
+/// when `out` stops taking frames.
+pub fn run(request: &Request, out: &mut impl Write) -> Result<(), String> {
     let Some(mut variation) = make(&request.id) else {
         return Err(format!("{} isn't a variation", request.id));
     };
@@ -83,17 +76,16 @@ pub fn run(request: &Request) -> Result<(), String> {
     let factor = DRAWN_WIDTH.div_ceil(w).max(1);
     let device = (w * factor, h * factor);
     let layout = layout(device.0, device.1).ok_or("that size is too small to lay out")?;
-    std::fs::create_dir_all(&request.out).map_err(|err| err.to_string())?;
 
     let readings = local_readings();
     let offset = readings.utc_offset(epoch_now());
     let started = epoch_now();
     let mut canvas = Canvas::new(device, factor);
-    let mut grid = Grid::new(layout.cols, layout.rows);
+    let mut before = Grid::new(layout.cols, layout.rows);
+    let mut latest = Grid::new(layout.cols, layout.rows);
 
-    // The still picture, from a variation of its own so it starts from nothing.
-    if let Some(mut still) = make(&request.id) {
-        still.reset(&layout, 1);
+    variation.reset(&layout, 1);
+    if request.still {
         let frame = Frame {
             layout: &layout,
             elapsed: 0.0,
@@ -102,16 +94,17 @@ pub fn run(request: &Request) -> Result<(), String> {
             readings: &readings,
             local: None,
         };
-        compose(&mut *still, &mut grid, frame);
-        canvas.save(&layout, &grid, &request.out.join("still.png"))?;
+        compose(&mut *variation, &mut latest, frame);
+        canvas.paint(&layout, &latest, &latest, 1.0);
+        return send(out, &canvas.small);
     }
 
-    variation.reset(&layout, 1);
-    let from = request.from.unwrap_or_else(|| variation.preview_at());
-    let mut elapsed = 0.0;
-    let mut dt = 0.0;
-    let mut frame = 0;
-    while frame < request.frames {
+    let step = 1.0 / step_hz(variation.step_hz(), &layout);
+    let fades = step > 1.0 / 20.0;
+    // The preview opens on the moment the variation chooses, so it is run on to there unseen.
+    let from = variation.preview_at();
+    let mut stepped_to = 0.0;
+    let mut step_to = |grid: &mut Grid, elapsed: f64, dt: f64| {
         let local = offset.map(|minutes| started + elapsed + minutes as f64 * 60.0);
         let moment = Frame {
             layout: &layout,
@@ -121,21 +114,51 @@ pub fn run(request: &Request) -> Result<(), String> {
             readings: &readings,
             local,
         };
-        compose(&mut *variation, &mut grid, moment);
-        let step = 1.0 / step_hz(variation.step_hz(), &layout);
-        // Every frame due before the next step shows this one, as the screen would.
-        while frame < request.frames && from + frame as f64 * request.every < elapsed + step {
-            canvas.save(
-                &layout,
-                &grid,
-                &request.out.join(format!("frame-{frame:02}.png")),
-            )?;
-            frame += 1;
+        compose(&mut *variation, grid, moment);
+    };
+    step_to(&mut latest, 0.0, 0.0);
+    let clock = Instant::now();
+    let mut sent: Option<(u64, u8)> = None;
+    let mut steps = 0u64;
+    let mut due = clock;
+    loop {
+        let now = from + clock.elapsed().as_secs_f64();
+        while stepped_to + step <= now {
+            std::mem::swap(&mut before, &mut latest);
+            stepped_to += step;
+            step_to(&mut latest, stepped_to, step);
+            steps += 1;
         }
-        elapsed += step;
-        dt = step;
+        let along = if fades {
+            ((now - stepped_to) / step).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        // Nothing is sent while the picture hasn't changed.
+        let key = (steps, (along * TWEEN_LEVELS as f64).round() as u8);
+        if sent != Some(key) {
+            canvas.paint(&layout, &before, &latest, along);
+            if send(out, &canvas.small).is_err() {
+                return Ok(());
+            }
+            sent = Some(key);
+        }
+        // Frames keep to their times however long each takes to paint, and one that runs late
+        // doesn't make the next hurry.
+        due += FRAME;
+        let now = Instant::now();
+        if due > now {
+            std::thread::sleep(due - now);
+        } else {
+            due = now;
+        }
     }
-    Ok(())
+}
+
+fn send(out: &mut impl Write, pixels: &[u8]) -> Result<(), String> {
+    out.write_all(pixels)
+        .and_then(|()| out.flush())
+        .map_err(|err| err.to_string())
 }
 
 fn compose(variation: &mut dyn super::Variation, grid: &mut Grid, frame: Frame) {
@@ -179,6 +202,8 @@ struct Canvas {
     pixels: Vec<u8>,
     small: Vec<u8>,
     glyphs: GlyphCache,
+    /// How each cell was last painted.
+    shown: Vec<Look>,
 }
 
 impl Canvas {
@@ -189,18 +214,37 @@ impl Canvas {
             pixels: vec![0; device.0 * device.1 * 4],
             small: vec![0; (device.0 / factor) * (device.1 / factor) * 4],
             glyphs: GlyphCache::default(),
+            shown: Vec::new(),
         }
     }
 
-    fn save(&mut self, layout: &Layout, grid: &Grid, path: &Path) -> Result<(), String> {
+    /// Paints `along` the way from `before` to `latest`, as the saver does between steps, and
+    /// shrinks it into `small`. Only the cells whose look changed since the last frame are
+    /// painted again.
+    fn paint(&mut self, layout: &Layout, before: &Grid, latest: &Grid, along: f64) {
         let (width, _) = self.device;
-        for pixel in self.pixels.chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[BACKGROUND[0], BACKGROUND[1], BACKGROUND[2], 255]);
+        let full = self.shown.len() != latest.cells.len();
+        if full {
+            for pixel in self.pixels.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&[BACKGROUND[0], BACKGROUND[1], BACKGROUND[2], 255]);
+            }
+            self.shown = vec![(BLANK, BLANK, TWEEN_LEVELS); latest.cells.len()];
         }
-        for row in 0..layout.rows.min(grid.rows) {
-            for col in 0..layout.cols.min(grid.cols) {
-                let cell = grid.cells[(row * grid.cols + col) as usize];
-                if cell != BLANK {
+        let level = (along * TWEEN_LEVELS as f64).round() as u8;
+        for row in 0..layout.rows.min(latest.rows) {
+            for col in 0..layout.cols.min(latest.cols) {
+                let i = (row * latest.cols + col) as usize;
+                let target = latest.cells[i];
+                let start = before.cells.get(i).copied().unwrap_or(target);
+                let look = if start == target || level >= TWEEN_LEVELS {
+                    (target, target, TWEEN_LEVELS)
+                } else if level == 0 {
+                    (start, start, TWEEN_LEVELS)
+                } else {
+                    (start, target, level)
+                };
+                if look != self.shown[i] {
+                    self.shown[i] = look;
                     paint_cell(
                         &mut self.pixels,
                         width,
@@ -208,22 +252,13 @@ impl Canvas {
                         &mut self.glyphs,
                         col,
                         row,
-                        (cell, cell, TWEEN_LEVELS),
+                        look,
                     );
                 }
             }
         }
         let (w, h) = (self.device.0 / self.factor, self.device.1 / self.factor);
         shrink(&self.pixels, width, self.factor, &mut self.small, w, h);
-        let file =
-            std::fs::File::create(path).map_err(|err| format!("{}: {err}", path.display()))?;
-        crate::render::encode_png(
-            std::io::BufWriter::new(file),
-            &self.small,
-            w as u32,
-            h as u32,
-        )
-        .map_err(|err| err.to_string())
     }
 }
 
@@ -263,18 +298,15 @@ mod tests {
 
     #[test]
     fn the_arguments_are_read_and_checked() {
-        let request = Request::parse(&args(
-            "tide --size 160x100 --frames 12 --out /x/y --every 0.25",
-        ))
-        .unwrap();
+        let request = Request::parse(&args("tide --size 160x100 --still")).unwrap();
         assert_eq!(request.id, "tide");
         assert_eq!(request.size, (160, 100));
-        assert_eq!(request.frames, 12);
-        assert_eq!(request.every, 0.25);
-        assert_eq!(request.out, PathBuf::from("/x/y"));
+        assert!(request.still);
+        assert!(!Request::parse(&args("tide")).unwrap().still);
         assert!(Request::parse(&args("tide --size 160")).is_err());
-        assert!(Request::parse(&args("tide --frames")).is_err());
+        assert!(Request::parse(&args("tide --size")).is_err());
         assert!(Request::parse(&args("tide --size 4x4")).is_err());
+        assert!(Request::parse(&args("tide --frames 3")).is_err());
         assert!(Request::parse(&args("")).is_err());
     }
 
@@ -289,28 +321,63 @@ mod tests {
         assert_eq!(small, [100, 90, 80, 255]);
     }
 
+    /// Takes `limit` bytes, then refuses more, as a reader that has gone away does.
+    struct Taker {
+        taken: Vec<u8>,
+        limit: usize,
+    }
+
+    impl Write for Taker {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.taken.len() >= self.limit {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            self.taken.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
-    fn frames_and_a_still_are_written_for_a_variation() {
-        let out = crate::files::test_scratch("wallpaper-preview");
+    fn frames_are_sent_until_the_reader_goes_and_a_still_is_one_frame() {
+        let frame = 64 * 40 * 4;
+        let mut still = Taker {
+            taken: Vec::new(),
+            limit: usize::MAX,
+        };
         let request = Request {
             id: "sonar".into(),
             size: (64, 40),
-            frames: 3,
-            from: Some(5.0),
-            every: 0.5,
-            out: out.clone(),
+            still: true,
         };
-        run(&request).unwrap();
-        for name in ["still.png", "frame-00.png", "frame-02.png"] {
-            let data = std::fs::read(out.join(name)).unwrap();
-            assert_eq!(&data[1..4], b"PNG", "{name}");
-        }
-        let _ = std::fs::remove_dir_all(&out);
+        run(&request, &mut still).unwrap();
+        assert_eq!(still.taken.len(), frame, "one still frame");
+
+        let mut moving = Taker {
+            taken: Vec::new(),
+            limit: frame * 2,
+        };
+        let request = Request {
+            still: false,
+            ..request
+        };
+        run(&request, &mut moving).unwrap();
+        assert_eq!(
+            moving.taken.len(),
+            frame * 2,
+            "it stops when they're refused"
+        );
         assert!(
-            run(&Request {
-                id: "nope".into(),
-                ..request
-            })
+            run(
+                &Request {
+                    id: "nope".into(),
+                    ..request
+                },
+                &mut moving
+            )
             .is_err()
         );
     }

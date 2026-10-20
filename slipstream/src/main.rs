@@ -275,15 +275,15 @@ fn run_one_off(args: &[String]) {
         print!("{}", sheet::listing(style));
         std::process::exit(0);
     }
-    // A living-wallpaper variation drawn off screen for the Settings app's previews: no display,
+    // A living-wallpaper variation drawn off screen for the Settings app's preview: no display,
     // no GPU, and nothing else started.
     if args.first().map(String::as_str) == Some("--wallpaper-preview") {
         let done = saver::preview::Request::parse(&args[1..])
-            .and_then(|request| saver::preview::run(&request));
+            .and_then(|request| saver::preview::run(&request, &mut std::io::stdout().lock()));
         if let Err(err) = done {
             eprintln!(
                 "slipstream --wallpaper-preview: {err}\nusage: slipstream --wallpaper-preview ID \
-                 [--size WxH] [--frames N] [--from SECS] [--every SECS] [--out DIR]"
+                 [--size WxH] [--still]"
             );
             std::process::exit(2);
         }
