@@ -88,6 +88,11 @@ impl CompositorHandler for Slipstream {
                 window.on_commit();
                 self.retile_if_min_changed(&window);
                 self.retile_if_floating_resized(&window);
+            } else if let Some(window) = self.hidden_window(&root) {
+                // A window on a workspace no screen is showing, or in the rain, keeps its size up
+                // to date too: bullet time draws it, and a window whose size reads as nothing is
+                // drawn unscaled, far bigger than its frame.
+                window.on_commit();
             }
         }
 
@@ -114,6 +119,26 @@ impl CompositorHandler for Slipstream {
             self.clear_focus();
             self.focus_window(&window);
         }
+    }
+}
+
+impl Slipstream {
+    /// The window whose own surface is `root` among those the space doesn't hold: on a workspace
+    /// no screen is showing, or minimised into the rain.
+    fn hidden_window(&self, root: &WlSurface) -> Option<smithay::desktop::Window> {
+        let is_root =
+            |window: &smithay::desktop::Window| window.wl_surface().as_deref() == Some(root);
+        self.workspaces
+            .all_windows()
+            .into_iter()
+            .find(is_root)
+            .or_else(|| {
+                self.rain
+                    .streams
+                    .iter()
+                    .map(|stream| stream.window.clone())
+                    .find(is_root)
+            })
     }
 }
 
