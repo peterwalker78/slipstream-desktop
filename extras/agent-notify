@@ -19,8 +19,10 @@
 #
 # The same hooks say whether the agent is working, for a desktop that shows it: Slipstream draws a
 # trace on its faded wallpaper for each agent with a note in $XDG_RUNTIME_DIR/slipstream/working.
-# The note is there from a start to a finish, and not while the agent is waiting on you. It says
-# what to call the trace: the agent, and what it is working on.
+# The note is there while the session is open. It says what to call the trace (the agent, and what
+# it is working on), whether the agent is working or idle, and what its subagents are doing. Each
+# hook writes it afresh from what the agent itself records, where it keeps a record, so one hook
+# missed or run out of order is put right by the next.
 #
 #   agent-notify setup [AGENT...]   wire up the agents in the config (naming some saves them there)
 #   agent-notify setup --remove     take every hook back out
@@ -30,10 +32,8 @@
 #   agent-notify keep claude [ARGS] start a session in the background, attached to this terminal;
 #                                   alias claude='agent-notify keep claude' makes it the default
 #   agent-notify hook AGENT EVENT   what the hooks run; EVENT is session_start, start, finish,
-#                                   attention, working (the agent has carried on after waiting on
-#                                   you), waiting (the agent has dispatched a subagent and is
-#                                   waiting), subagent_done (a subagent has handed back), or step
-#                                   (the agent is calling its model: a start if it was idle)
+#                                   attention, working (the agent or a subagent has used a tool),
+#                                   or step (the agent is calling its model: a start if it was idle)
 #
 # Agents: claude (Claude Code), gemini (Gemini CLI), codex (Codex CLI), agy (Antigravity CLI).
 #
@@ -271,101 +271,64 @@ task() {
     printf '%s' "$task_title" | tr '\n' ' ' | tr -d '\000-\037\177' | cut -c1-60
 }
 
-# working_note AGENT on|on-clear|on-sub|wait|off|idle: leaves, updates, or marks idle the note that
-# says what the agent is doing. Only where a desktop has made the folder for them. The first line
-# names the agent; a second line of "waiting" or "idle" says what it is doing; no second line
-# means active. The note stays while the session is open; "off" writes idle and the desktop cleans
-# up dead PIDs.
+# The record Claude Code keeps of a background session, from the hook's JSON in $payload: its
+# name, whether it is busy, and the subagents it has running. Nothing for any other session.
+job_record() {
+    [ "$1" = claude ] || return 1
+    job_session=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null |
+        tr -cd 'A-Za-z0-9-')
+    job_file=$HOME/.claude/jobs/${job_session%%-*}/state.json
+    [ -n "$job_session" ] && [ -r "$job_file" ] || return 1
+    # The folder is named for the start of the session's ID: check the record is this session's.
+    jq -e --arg s "$job_session" '.sessionId == $s' "$job_file" >/dev/null 2>&1 || return 1
+    printf '%s' "$job_file"
+}
+
+# working_note AGENT active|idle [new]: writes the note that tells the desktop what the agent is
+# doing, only where a desktop has made the folder for them, and with "new" only if there's no note
+# yet. The first line names the agent; the second says "idle", or nothing while it works; each line
+# after is a subagent it has running, by its task. An agent idle with subagents still running is
+# working through them. The note stays while the session is open; the desktop cleans up dead PIDs.
 #
-# Parallel subagents: "wait" increments a counter alongside the note. "on-sub" (SubagentHandback)
-# decrements it and clears the waiting state only when the counter reaches zero. "on" (PostToolUse
-# for any other tool) leaves the counter alone: if subagents are still running the trace stays in
-# the waiting state. "on-clear" (a new prompt) resets the counter outright.
+# The whole note is written each time from what the agent records, so nothing here keeps count.
 working_note() {
     note_dir=${XDG_RUNTIME_DIR:-}/slipstream/working
     if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$note_dir" ]; then
         return 0
     fi
     note_pid=$(agent_pid "$1") || return 0
-    counter="$note_dir/$note_pid.n"
-    lock="$note_dir/$note_pid.n.lock"
-    if [ "$2" = off ] || [ "$2" = idle ]; then
-        # Keep the note (so the desktop shows the session is open), but mark it idle.
-        # If subagents are still running the agent will return active when they finish;
-        # don't overwrite their waiting state or discard the counter.
-        if [ -f "$counter" ]; then
-            n=$(cat "$counter" 2>/dev/null || printf '0')
-            if [ "${n:-0}" -gt 0 ]; then
-                return 0
-            fi
-        fi
-        rm -f "$counter" "$lock"
-        note_name=
-        if [ -f "$note_dir/$note_pid" ]; then
-            note_name=$(head -n 1 "$note_dir/$note_pid" 2>/dev/null)
-        fi
-        printf '%s\nidle\n' "${note_name:-}" >"$note_dir/$note_pid"
+    note_file=$note_dir/$note_pid
+    if [ "${3:-}" = new ] && [ -e "$note_file" ]; then
         return 0
     fi
-    if [ "$2" = wait ]; then
-        # Increment the running-subagents counter, then write waiting.
-        (flock -x 9
-         n=$(cat "$counter" 2>/dev/null || printf '0')
-         printf '%s\n' "$((n + 1))" >"$counter"
-        ) 9>"$lock"
-        note_name=
-        if [ -f "$note_dir/$note_pid" ]; then
-            note_name=$(head -n 1 "$note_dir/$note_pid" 2>/dev/null)
-        fi
-        printf '%s\nwaiting\n' "${note_name:-}" >"$note_dir/$note_pid"
-        return 0
+    note_name='' note_helpers=''
+    if note_job=$(job_record "$1"); then
+        note_name=$(jq -r '.name // "" | gsub("\\s+"; " ")' "$note_job" 2>/dev/null)
+        note_helpers=$(jq -r '.fan[]? | select(.kind == "agent" and .doneAt == null)
+            | .label // "" | gsub("\\s+"; " ")' "$note_job" 2>/dev/null |
+            tr -d '\000-\011\013-\037\177' | cut -c1-60 | sed '/^ *$/d' | head -n 8)
+    elif ! printf '%s' "$payload" | jq -e '.agent_id' >/dev/null 2>&1; then
+        # A subagent's hooks name its own task, not the session's.
+        note_name=$(task)
     fi
-    if [ "$2" = on-clear ]; then
-        # New prompt: clear the counter regardless and fall through to write active.
-        rm -f "$counter" "$lock"
-    elif [ "$2" = on-sub ]; then
-        # SubagentHandback: one parallel subagent has finished. Decrement and keep
-        # waiting until the last one is done.
-        if [ -f "$counter" ]; then
-            remaining=$(
-                (flock -x 9
-                 n=$(cat "$counter" 2>/dev/null || printf '0')
-                 n=$((n - 1))
-                 if [ "$n" -le 0 ]; then
-                     rm -f "$counter"
-                     printf '0'
-                 else
-                     printf '%s\n' "$n" >"$counter"
-                     printf '%s' "$n"
-                 fi
-                ) 9>"$lock"
-            )
-            if [ "${remaining:-0}" -gt 0 ]; then
-                return 0
-            fi
-        fi
+    note_name=$(printf '%s' "$note_name" | tr -d '\000-\037\177' | cut -c1-60)
+    if [ -n "$note_name" ]; then
+        note_name="$(agent_label "$1"): $note_name"
     else
-        # PostToolUse for a non-Agent tool: if subagents are still running, don't
-        # change the state; only clear the waiting line once all subagents are done.
-        if [ -f "$counter" ]; then
-            return 0
-        fi
+        note_name=$(head -n 1 "$note_file" 2>/dev/null)
     fi
-    # Write or refresh the active state, clearing any waiting/idle line.
-    note_task=$(task)
-    if [ -n "$note_task" ]; then
-        printf '%s: %s\n' "$(agent_label "$1")" "$note_task" >"$note_dir/$note_pid"
-    elif [ -s "$note_dir/$note_pid" ]; then
-        # Keep the name but strip any status line by rewriting with just the first line.
-        note_name=$(head -n 1 "$note_dir/$note_pid" 2>/dev/null)
-        if [ -n "$note_name" ]; then
-            printf '%s\n' "$note_name" >"$note_dir/$note_pid"
-        else
-            : >"$note_dir/$note_pid"
-        fi
-    else
-        : >"$note_dir/$note_pid"
+    if [ -z "$note_name" ]; then
+        note_name=$(printf '%s' "$payload" | jq -r '.cwd // .workspacePaths[0] // empty' 2>/dev/null)
+        note_name="$(agent_label "$1")${note_name:+: ${note_name##*/}}"
     fi
+    note_status=
+    if [ "$2" = idle ] && [ -z "$note_helpers" ]; then
+        note_status=idle
+    fi
+    # Written whole and moved into place, so the desktop never reads half a note, and a subagent's
+    # hook running alongside writes its own whole note rather than into this one.
+    printf '%s\n%s\n%s' "$note_name" "$note_status" "${note_helpers:+$note_helpers
+}" >"$note_dir/.$note_pid.$$" && mv -f "$note_dir/.$note_pid.$$" "$note_file"
 }
 
 # Reads a value from the hook's JSON, by jq path, as a single line of at most 160 characters, with
@@ -384,45 +347,17 @@ hook() {
     exec >/dev/null 2>&1
     payload=$(cat)
     # Run after every tool, so it does as little as it can.
+    have jq || exit 0
     if [ "$event" = session_start ]; then
         # A new session has opened: leave an idle note if there isn't one yet, named for the agent
         # and its folder until a task gives it a better name.
-        note_dir=${XDG_RUNTIME_DIR:-}/slipstream/working
-        if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$note_dir" ]; then
-            session_pid=$(agent_pid "$agent") || true
-            if [ -n "$session_pid" ] && [ ! -f "$note_dir/$session_pid" ]; then
-                session_name=$(agent_label "$agent")
-                session_dir=$(field '.cwd // .workspacePaths[0]')
-                if [ -n "$session_dir" ]; then
-                    session_name="$session_name: ${session_dir##*/}"
-                fi
-                printf '%s\nidle\n' "$session_name" >"$note_dir/$session_pid"
-            fi
-        fi
+        working_note "$agent" idle new
         exit 0
     fi
     if [ "$event" = working ]; then
-        have jq || exit 0
-        # PostToolUse for Agent fires before the subagent actually runs (same tick as PreToolUse),
-        # and SubagentHandback is handled by subagent_done below. Updating the note for either
-        # would undo the waiting state written by the waiting event.
-        tool_name=$(printf '%s' "$payload" | jq -r '.tool_name // ""' 2>/dev/null)
-        case "$tool_name" in Agent|SubagentHandback) exit 0 ;; esac
-        working_note "$agent" on
+        working_note "$agent" active
         exit 0
     fi
-    # Fired when a subagent delivers its result back to the parent (PreToolUse/SubagentHandback).
-    # Each parallel subagent fires this once; the counter tracks how many are still running.
-    if [ "$event" = subagent_done ]; then
-        have jq && working_note "$agent" on-sub
-        exit 0
-    fi
-    # Fired before the agent dispatches a subagent (PreToolUse/Agent).
-    if [ "$event" = waiting ]; then
-        have jq && working_note "$agent" wait
-        exit 0
-    fi
-    have jq || exit 0
     # Not what an agent sends: nothing to say.
     printf '%s' "$payload" | jq -e 'type == "object"' >/dev/null 2>&1 || exit 0
 
@@ -455,7 +390,7 @@ hook() {
     # first of those since the last finish is the start.
     if [ "$event" = step ]; then
         if [ -r "$started_file" ]; then
-            working_note "$agent" on
+            working_note "$agent" active
             exit 0
         fi
         event=start
@@ -464,7 +399,7 @@ hook() {
     case $event in
         start)
             printf '%s\n' "$now" >"$started_file"
-            working_note "$agent" on-clear
+            working_note "$agent" active
             # You're back and typing: the last word from this session has done its job.
             if [ -n "$previous" ]; then
                 close_notification "$previous"
@@ -474,14 +409,14 @@ hook() {
             ;;
         finish)
             rm -f "$started_file"
-            working_note "$agent" off
+            working_note "$agent" idle
             summary="$notify_app finished"
             detail=$(field .last_assistant_message)
             [ -n "$detail" ] || detail=$(field .prompt_response)
             sound=$(conf sound-finished complete)
             ;;
         attention)
-            working_note "$agent" off
+            working_note "$agent" idle
             summary="$notify_app needs you"
             detail=$(field .message)
             if [ -z "$detail" ]; then
@@ -562,7 +497,10 @@ keep_attach() {
         printf '%s keep %s attach %s\n' "$(shell_quote "$self")" "$1" "$2" \
             >"$XDG_RUNTIME_DIR/slipstream/resume/$$"
     fi
-    trap 'exit 0' HUP TERM
+    # Expanded now, while they are this function's: both are plain words, the agent's name and an
+    # ID already checked to be letters and digits.
+    # shellcheck disable=SC2064
+    trap "keep_hung_up $1 $2" HUP TERM
     "$1" attach "$2"
     # A hung-up terminal can still be closing round us: only stop for one that's still there.
     if ! stty size >/dev/null 2>&1; then
@@ -572,6 +510,17 @@ keep_attach() {
     trap '' INT
     "$1" stop "$2" >/dev/null 2>&1
     rm -f "$STATE/$1-$2.window" "${XDG_RUNTIME_DIR:-}/slipstream/resume/$$"
+    exit 0
+}
+
+# keep_hung_up AGENT ID: the terminal has gone, and a session given something to do carries on. One
+# never given a prompt has nothing to carry on with: it would sit in memory with no terminal to
+# reach it by, so it is stopped. Attaching opens it again.
+keep_hung_up() {
+    if jq -e '.name == null and .tokens == null' "$HOME/.claude/jobs/$2/state.json" >/dev/null 2>&1
+    then
+        "$1" stop "$2" >/dev/null 2>&1
+    fi
     exit 0
 }
 
@@ -667,16 +616,11 @@ setup_claude() {
     groups=$(jq -n --arg ss "$(hook_command 'claude session_start')" \
         --arg s "$(hook_command 'claude start')" \
         --arg f "$(hook_command 'claude finish')" --arg a "$(hook_command 'claude attention')" \
-        --arg w "$(hook_command 'claude working')" --arg wt "$(hook_command 'claude waiting')" \
-        --arg sd "$(hook_command 'claude subagent_done')" '{
+        --arg w "$(hook_command 'claude working')" '{
         SessionStart: {hooks: [{type: "command", command: $ss, timeout: 10}]},
         UserPromptSubmit: {hooks: [{type: "command", command: $s, timeout: 10}]},
         Stop: {hooks: [{type: "command", command: $f, timeout: 10}]},
         PostToolUse: {hooks: [{type: "command", command: $w, timeout: 5}]},
-        PreToolUse: [
-            {matcher: "Agent", hooks: [{type: "command", command: $wt, timeout: 5}]},
-            {matcher: "SubagentHandback", hooks: [{type: "command", command: $sd, timeout: 5}]}
-        ],
         Notification: {matcher: "permission_prompt|elicitation_dialog",
                        hooks: [{type: "command", command: $a, timeout: 10}]}}')
     if [ "$remove" = 1 ]; then
