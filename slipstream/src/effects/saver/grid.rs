@@ -2,8 +2,9 @@
 
 use super::*;
 
-pub(super) static LOGO: &str = include_str!("../../../assets/slipstream-logo.txt");
-pub(super) static LOGO_STACKED: &str = include_str!("../../../assets/slipstream-logo-stacked.txt");
+pub(super) static LOGO: &str = include_str!("../../../../assets/slipstream-logo.txt");
+pub(super) static LOGO_STACKED: &str =
+    include_str!("../../../../assets/slipstream-logo-stacked.txt");
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Cell {

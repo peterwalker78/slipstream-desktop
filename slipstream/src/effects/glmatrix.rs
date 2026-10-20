@@ -47,7 +47,7 @@ const MAX_TICKS: usize = 600;
 /// The rain's glyphs: Noto Sans CJK JP DemiLight, cut down to ASCII and half-width katakana (see
 /// `assets/fonts/rain-font.md`). GLMatrix's atlas has CRT scanlines and a phosphor glow drawn in,
 /// which at stream size blur and fatten the glyphs, so they're drawn sharply from a font instead.
-static RAIN_FONT: &[u8] = include_bytes!("../../assets/fonts/NotoSansCJKjp-DemiLight-Rain.otf");
+static RAIN_FONT: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-DemiLight-Rain.otf");
 /// GLMatrix's 16 kana (atlas glyphs 160–175), as half-width katakana.
 const KANA: [char; 16] = [
     'ﾊ', 'ﾐ', 'ﾋ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ', 'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ',

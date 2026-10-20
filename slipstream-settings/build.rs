@@ -10,17 +10,19 @@ use std::{
 
 /// The parts, each with the compositor modules it holds. A module is named by its path under
 /// `slipstream/src` without `.rs`; a file in a folder is placed by its own path if that's listed,
-/// otherwise by its folder's.
+/// otherwise by the nearest folder it's in that is.
 const PARTS: &[(&str, &[&str])] = &[
     (
         "Windows and tiling",
         &[
             "main",
+            "shell",
+            "effects",
             "layout",
             "floating",
             "focus",
             "grabs",
-            "arrange",
+            "shell/arrange",
             "gravity",
             "motion",
             "layers",
@@ -28,9 +30,9 @@ const PARTS: &[(&str, &[&str])] = &[
             "xwayland",
             "workspace",
             "dock",
-            "slot",
-            "ghost",
-            "fx",
+            "shell/slot",
+            "effects/ghost",
+            "effects/fx",
             "live",
             "debug",
             "state",
@@ -41,21 +43,21 @@ const PARTS: &[(&str, &[&str])] = &[
         // The faded desktop's traces count with the wallpaper they're drawn on.
         "Living wallpaper and screensaver",
         &[
-            "saver",
-            "glmatrix",
-            "glass",
+            "effects/saver",
+            "effects/glmatrix",
+            "effects/glass",
             "idle",
             "screensaver",
-            "scope",
+            "effects/scope",
             "working",
         ],
     ),
     (
         "Streams and rain",
         &[
-            "rain",
-            "streaks",
-            "stream_tip",
+            "effects/rain",
+            "effects/streaks",
+            "shell/stream_tip",
             "usage",
             "tcp",
             "state/streams",
@@ -64,13 +66,13 @@ const PARTS: &[(&str, &[&str])] = &[
     (
         "Bullet time and Alt+Tab",
         &[
-            "bullet",
-            "overview",
-            "tilt",
+            "effects/bullet",
+            "effects/overview",
+            "effects/tilt",
             "sound",
-            "deck",
-            "switcher",
-            "pane",
+            "effects/deck",
+            "shell/switcher",
+            "effects/pane",
             "state/bullet_time",
             "render/deck",
         ],
@@ -83,31 +85,31 @@ const PARTS: &[(&str, &[&str])] = &[
             "fallback",
             "icons",
             "anim",
-            "panel",
-            "card",
+            "shell/panel",
+            "shell/card",
             "render/chrome",
             "state/ui",
         ],
     ),
     (
         "App explorer",
-        &["explorer", "apps", "calc", "emoji", "launch", "watch"],
+        &["shell/explorer", "apps", "calc", "emoji", "launch", "watch"],
     ),
     (
         "Bar, quick settings and notifications",
         &[
-            "bar",
-            "quick",
+            "shell/bar",
+            "shell/quick",
             "status",
-            "centre",
-            "calendar",
+            "shell/centre",
+            "shell/calendar",
             "notify",
-            "notices",
+            "shell/notices",
             "alert",
             "meter",
-            "osd",
-            "toast",
-            "history",
+            "shell/osd",
+            "shell/toast",
+            "shell/history",
             "clipboard",
             "edit",
             "media",
@@ -121,8 +123,8 @@ const PARTS: &[(&str, &[&str])] = &[
         &[
             "lock",
             "auth",
-            "exit",
-            "offer",
+            "shell/exit",
+            "shell/offer",
             "power",
             "logind",
             "session",
@@ -138,9 +140,9 @@ const PARTS: &[(&str, &[&str])] = &[
         &[
             "keys",
             "keynames",
-            "tour",
-            "miniature",
-            "sheet",
+            "shell/tour",
+            "shell/miniature",
+            "shell/sheet",
             "awake",
             "shortcuts",
             "takeback",
@@ -151,10 +153,10 @@ const PARTS: &[(&str, &[&str])] = &[
         "Screens, sharing and screenshots",
         &[
             "screen",
-            "connect",
+            "shell/connect",
             "known",
             "capture",
-            "share",
+            "shell/share",
             "screencopy",
             "screenshot",
             "snip",
@@ -210,8 +212,11 @@ fn main() {
             .with_extension("")
             .to_string_lossy()
             .into_owned();
-        let folder = module.split('/').next().unwrap_or_default();
-        let found = [module.as_str(), folder].into_iter().find_map(|name| {
+        // The module's own path, then each folder it's in, nearest first.
+        let paths = std::iter::successors(Some(module.as_str()), |path| {
+            path.rsplit_once('/').map(|(folder, _)| folder)
+        });
+        let found = paths.into_iter().find_map(|name| {
             PARTS
                 .iter()
                 .flat_map(|(_, modules)| modules.iter())
