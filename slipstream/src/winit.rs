@@ -86,6 +86,7 @@ pub fn init_winit(
 
                     let size = backend.window_size();
                     let damage = Rectangle::from_size(size);
+                    let view = state.zoom_view(&output);
 
                     let drawn = match backend.bind() {
                         Ok((renderer, mut framebuffer)) => {
@@ -95,7 +96,7 @@ pub fn init_winit(
                                     renderer,
                                     &mut framebuffer,
                                     0,
-                                    &elements,
+                                    &render::zoomed(&elements, view),
                                     render::BACKGROUND,
                                 )
                                 .map(|result| result.states)
@@ -144,8 +145,10 @@ pub fn init_winit(
                     let scale = output.current_scale().fractional_scale();
                     state.serve_captures(backend.renderer(), &output, &elements, size, scale);
                     state.serve_screenshots(backend.renderer(), &output, &elements, size, scale);
+                    // Debug frames are what the screen showed, zoom and all.
+                    let shown = render::zoomed(&elements, view);
                     for path in screenshots {
-                        match render::save_png(backend.renderer(), &elements, size, scale, &path) {
+                        match render::save_png(backend.renderer(), &shown, size, scale, &path) {
                             Ok(()) => tracing::info!(path, "saved screenshot"),
                             Err(err) => tracing::warn!(path, "screenshot failed: {err}"),
                         }

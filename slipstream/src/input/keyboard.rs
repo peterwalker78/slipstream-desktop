@@ -54,6 +54,8 @@ enum KeyUse {
     Snip(Keysym),
     /// A key for the clipboard history.
     History(Keysym),
+    /// A zoom key, whatever holds the keyboard.
+    Zoom(crate::zoom::Step),
 }
 
 /// The character `sym` types into a panel's search: none with Super, Ctrl or Alt held, since
@@ -149,6 +151,7 @@ impl Slipstream {
             Action::ClipboardHistory => self.toggle_history(),
             Action::ToggleFloating => self.toggle_floating(),
             Action::SwitchFloatingFocus => self.switch_floating_focus(),
+            Action::Zoom(step) => self.zoom_step(step),
         }
     }
 
@@ -429,6 +432,15 @@ impl Slipstream {
                     state.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(KeyUse::CancelDrag));
                 }
+                // The zoom keys work whatever holds the keyboard, the lock, the cards and an app
+                // holding the shortcuts included: anyone who needs the zoom to read the screen
+                // needs it there too. They only change how the screen is drawn.
+                if pressed
+                    && let Some(Action::Zoom(step)) = keys::action_for(&state.bindings, mods, key)
+                {
+                    state.suppressed_keys.push(key);
+                    return FilterResult::Intercept(Some(KeyUse::Zoom(step)));
+                }
                 // While locked every key is the lock's: the pill takes characters, the media
                 // keys still act, and nothing else runs or reaches an app, press or release.
                 if state.lock.is_some() {
@@ -613,6 +625,7 @@ impl Slipstream {
             Some(Some(KeyUse::Sheet(sym, ch))) => self.sheet_key(sym, ch),
             Some(Some(KeyUse::Snip(sym))) => self.snip_key(sym),
             Some(Some(KeyUse::History(sym))) => self.history_key(sym),
+            Some(Some(KeyUse::Zoom(step))) => self.zoom_step(step),
             // Smithay tells the next focus which forwarded keys are still held. A key held as the
             // lock went up and let go under it would be announced as held at unlock, and the app
             // would repeat it, so the release is recorded here, with no focus to send it to.

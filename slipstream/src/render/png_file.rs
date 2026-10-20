@@ -4,9 +4,9 @@ use super::*;
 
 /// Draws `elements` into an offscreen texture and saves it as a PNG, for `shot:` debug steps.
 /// `scale` must be the output's: client surfaces size themselves by it when drawn.
-pub fn save_png(
+pub fn save_png<E: smithay::backend::renderer::element::RenderElement<GlesRenderer>>(
     renderer: &mut GlesRenderer,
-    elements: &[OutputElement],
+    elements: &[E],
     size: Size<i32, Physical>,
     scale: f64,
     path: &str,

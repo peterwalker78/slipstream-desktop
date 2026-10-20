@@ -113,6 +113,19 @@ impl std::fmt::Debug for OutputElement {
     }
 }
 
+/// A finished frame's element as the screen shows it, magnified by the zoom.
+pub type ZoomedElement<'a> = RescaleRenderElement<&'a OutputElement>;
+
+/// `elements` as the screen shows them: each magnified about the zoom's centre, so the whole
+/// frame is, whoever drew it. Without zoom the scale is 1 and nothing moves. Screenshots and
+/// screen sharing take `elements` themselves, so they get the unmagnified screen.
+pub fn zoomed(elements: &[OutputElement], view: crate::zoom::View) -> Vec<ZoomedElement<'_>> {
+    elements
+        .iter()
+        .map(|element| RescaleRenderElement::from_element(element, view.centre, view.level))
+        .collect()
+}
+
 /// Everything on `output`, front to back. `cursor` is `None` when a host desktop draws the
 /// pointer (nested).
 pub fn output_elements(

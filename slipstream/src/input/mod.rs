@@ -324,6 +324,23 @@ impl Slipstream {
                         .amount(axis)
                         .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.)
                 };
+                // Super with the wheel zooms the screen, whatever the pointer is over.
+                let held = self.seat.get_keyboard().map(|kb| kb.modifier_state());
+                if let Some(held) = held
+                    && crate::keys::zooms_with_wheel(crate::keys::Mods::from_state(
+                        &held,
+                        self.nested,
+                    ))
+                {
+                    let notch = if event.source() == AxisSource::Finger {
+                        30.0
+                    } else {
+                        15.0
+                    };
+                    let now = self.clock.wall();
+                    self.zoom.wheel(amount(Axis::Vertical) / notch, now);
+                    return;
+                }
                 // The wheel over an overlay would otherwise scroll the window hidden under it. In
                 // the explorer and the notification centre it moves through the list instead.
                 if self.pointer_blocked() || self.over_chrome(self.pointer_location()) {

@@ -824,6 +824,7 @@ impl Slipstream {
         let screenshots = self.take_screenshots();
         let elements =
             render::output_elements(self, &mut gpu.renderer, &output, Some(&mut udev.cursor));
+        let shown = render::zoomed(&elements, self.zoom_view(&output));
         let mut drew = false;
         let fullscreen = self.fullscreen_on_output(&output);
         screen.set_vrr(self.settings.display.variable_refresh, fullscreen.is_some());
@@ -835,12 +836,10 @@ impl Slipstream {
         } else {
             FrameFlags::DEFAULT
         };
-        match screen.drm_output.render_frame(
-            &mut gpu.renderer,
-            &elements,
-            render::BACKGROUND,
-            flags,
-        ) {
+        match screen
+            .drm_output
+            .render_frame(&mut gpu.renderer, &shown, render::BACKGROUND, flags)
+        {
             Ok(frame) => {
                 self.update_scanout_outputs(&output, &frame.states);
                 screen.scanned_out = fullscreen
@@ -877,8 +876,9 @@ impl Slipstream {
             // from, so what a client gets is what was on the screen.
             self.serve_captures(&mut gpu.renderer, &output, &elements, size, scale);
             self.serve_screenshots(&mut gpu.renderer, &output, &elements, size, scale);
+            // Debug frames are what the screen showed, zoom and all.
             for path in screenshots {
-                match render::save_png(&mut gpu.renderer, &elements, size, scale, &path) {
+                match render::save_png(&mut gpu.renderer, &shown, size, scale, &path) {
                     Ok(()) => tracing::info!(path, "saved screenshot"),
                     Err(err) => tracing::warn!(path, "screenshot failed: {err}"),
                 }

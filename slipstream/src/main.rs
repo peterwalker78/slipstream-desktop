@@ -114,6 +114,7 @@ mod winit;
 mod working;
 mod workspace;
 mod xwayland;
+mod zoom;
 
 use std::{
     io::IsTerminal,

@@ -9,6 +9,7 @@ use smithay::input::keyboard::{Keysym, ModifiersState, xkb};
 use slipstream_config::KeyStyle;
 
 use crate::layout::{Direction, Resize};
+use crate::zoom::Step;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -93,6 +94,8 @@ pub enum Action {
     Media(crate::media::Transport),
     /// Take the pointer and the keyboard shortcuts back from the app holding them.
     TakeBack,
+    /// Magnify the screen about the pointer, step by step, or stop.
+    Zoom(Step),
     /// Open or close the clipboard history.
     ClipboardHistory,
     /// Float the focused window, or put it back into the tiling.
@@ -185,6 +188,8 @@ impl Action {
             Action::Lock => "lock the screen",
             Action::Media(_) => "play, pause, next, previous",
             Action::TakeBack => "take the mouse and keys back from an app",
+            Action::Zoom(Step::In | Step::Out) => "zoom the screen out, in",
+            Action::Zoom(Step::Off) => "stop zooming",
             Action::ClipboardHistory => "clipboard history",
             Action::ToggleFloating => "float the window, or tile it",
             Action::SwitchFloatingFocus => "keyboard between floating and tiled",
@@ -234,6 +239,7 @@ impl Action {
             | Action::Lock
             | Action::Media(_)
             | Action::TakeBack
+            | Action::Zoom(_)
             | Action::ClipboardHistory => Group::PanelsAndSystem,
         }
     }
@@ -373,6 +379,7 @@ const MOD_SHIFT: Mods = mods(true, false, false, true);
 const MOD_CTRL: Mods = mods(true, true, false, false);
 const MOD_ALT: Mods = mods(true, false, true, false);
 const MOD_ALT_SHIFT: Mods = mods(true, false, true, true);
+const MOD_CTRL_ALT: Mods = mods(true, true, true, false);
 
 fn bind(mods: Mods, key: Keysym, action: Action) -> Binding {
     Binding { mods, key, action }
@@ -528,6 +535,21 @@ fn workspace_numbers(go: Mods, send: Mods) -> impl Iterator<Item = Binding> {
     })
 }
 
+/// Zooming out and in on `mods` with - and =. Plus is bound as well as =, for the layouts that
+/// give it a key of its own.
+fn zoom(mods: Mods) -> [Binding; 3] {
+    [
+        bind(mods, Keysym::minus, Action::Zoom(Step::Out)),
+        bind(mods, Keysym::equal, Action::Zoom(Step::In)),
+        bind(mods, Keysym::plus, Action::Zoom(Step::In)),
+    ]
+}
+
+/// Super with the wheel zooms the screen, in every style: up closer, down back out.
+pub fn zooms_with_wheel(mods: Mods) -> bool {
+    mods == MOD
+}
+
 /// Windows' keys, wherever Windows has one for the job.
 fn windows() -> Vec<Binding> {
     let mut bindings = vec![
@@ -605,7 +627,12 @@ fn windows() -> Vec<Binding> {
         // method relies on.
         bind(MOD, Keysym::w, Action::Dock),
         bind(MOD_SHIFT, Keysym::w, Action::Undock),
+        // Windows' Magnifier stops on Win+Esc, which takes the keys back here, so 0 stops
+        // zooming, as Ctrl+0 puts an app's own zoom back to its actual size.
+        bind(MOD, Keysym::_0, Action::Zoom(Step::Off)),
     ]);
+    // Magnifier's Win+Plus and Win+Minus.
+    bindings.extend(zoom(MOD));
     bindings.extend(hardware());
     bindings.extend(workspace_numbers(MOD, MOD_SHIFT));
     bindings
@@ -679,7 +706,12 @@ fn mac() -> Vec<Binding> {
         bind(MOD, Keysym::t, Action::ToggleGravity),
         bind(MOD, Keysym::r, Action::Rotate { clockwise: true }),
         bind(MOD_SHIFT, Keysym::r, Action::Rotate { clockwise: false }),
+        // A Mac turns zoom off on ⌥⌘8, which sends a window to workspace 8 here, so ⌥⌘0 does:
+        // ⌘0 puts an app back to its actual size.
+        bind(MOD_ALT, Keysym::_0, Action::Zoom(Step::Off)),
     ];
+    // ⌥⌘= and ⌥⌘-, a Mac's zoom keys.
+    bindings.extend(zoom(MOD_ALT));
     bindings.extend(move_tile(MOD_ALT));
     bindings.extend(resize(
         [Keysym::bracketleft, Keysym::braceleft],
@@ -739,7 +771,12 @@ fn omarchy() -> Vec<Binding> {
         bind(MOD_SHIFT, Keysym::m, Action::Restore),
         bind(MOD, Keysym::h, Action::HideAll),
         bind(MOD, Keysym::d, Action::ShowDesktop),
+        // Its zoom key, and the one that puts the zoom back.
+        bind(MOD_CTRL, Keysym::z, Action::Zoom(Step::In)),
+        bind(MOD_CTRL_ALT, Keysym::z, Action::Zoom(Step::Off)),
     ];
+    // Super with = and - resizes, so zooming out, which Omarchy has no key for, takes Ctrl too.
+    bindings.extend(zoom(MOD_CTRL));
     // Shift and an arrow swaps the tile with its neighbour.
     bindings.extend(move_tile(MOD_SHIFT));
     bindings.extend(resize(
@@ -1186,6 +1223,47 @@ mod tests {
         assert_eq!(at(SUPER, Keysym::c), Some(Action::Edit(Edit::Copy)));
         assert_eq!(at(SUPER, Keysym::v), Some(Action::Edit(Edit::Paste)));
         assert_eq!(at(SUPER, Keysym::x), Some(Action::Edit(Edit::Cut)));
+    }
+
+    #[test]
+    fn every_style_zooms_in_out_and_off() {
+        let zoom_in = Some(Action::Zoom(Step::In));
+        let zoom_out = Some(Action::Zoom(Step::Out));
+        let off = Some(Action::Zoom(Step::Off));
+        // Windows' Win+Plus and Win+Minus; Win+Esc stays the key that takes the keys back.
+        let windows = checked(defaults(), KeyStyle::Windows);
+        let at = |mods, key| action_for(&windows, mods, key);
+        assert_eq!(at(SUPER, Keysym::equal), zoom_in);
+        assert_eq!(at(SUPER, Keysym::plus), zoom_in);
+        assert_eq!(at(SUPER, Keysym::minus), zoom_out);
+        assert_eq!(at(SUPER, Keysym::_0), off);
+        assert_eq!(at(SUPER, Keysym::Escape), Some(Action::TakeBack));
+        // A Mac's ⌥⌘= and ⌥⌘-; ⌥⌘8 still sends a window to workspace 8.
+        let mac = checked(super::defaults(KeyStyle::Mac), KeyStyle::Mac);
+        let at = |mods, key| action_for(&mac, mods, key);
+        assert_eq!(at(MOD_ALT, Keysym::equal), zoom_in);
+        assert_eq!(at(MOD_ALT, Keysym::minus), zoom_out);
+        assert_eq!(at(MOD_ALT, Keysym::_0), off);
+        assert_eq!(at(MOD_ALT, Keysym::_8), Some(Action::MoveToWorkspace(8)));
+        // Omarchy's Super+Ctrl+Z, with Super+= and Super+- still resizing.
+        let omarchy = checked(super::defaults(KeyStyle::Omarchy), KeyStyle::Omarchy);
+        let at = |mods, key| action_for(&omarchy, mods, key);
+        assert_eq!(at(MOD_CTRL, Keysym::z), zoom_in);
+        assert_eq!(at(MOD_CTRL, Keysym::equal), zoom_in);
+        assert_eq!(at(MOD_CTRL, Keysym::minus), zoom_out);
+        assert_eq!(at(MOD_CTRL_ALT, Keysym::z), off);
+        assert_eq!(
+            at(SUPER, Keysym::equal),
+            Some(Action::Resize(Resize::Wider))
+        );
+    }
+
+    #[test]
+    fn super_alone_with_the_wheel_zooms() {
+        assert!(zooms_with_wheel(SUPER));
+        assert!(!zooms_with_wheel(NONE));
+        assert!(!zooms_with_wheel(MOD_CTRL));
+        assert!(!zooms_with_wheel(MOD_SHIFT));
     }
 
     #[test]

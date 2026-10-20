@@ -261,6 +261,8 @@ pub struct Slipstream {
     pub screenshots: Vec<String>,
     /// Super+Shift+S while it's being chosen (`snip.rs`).
     pub snip: Option<crate::snip::Snip>,
+    /// The screen zoom, for the session.
+    pub zoom: crate::zoom::Zoom,
     /// Snips breaking up and flying into their toast.
     pub snip_flights: Vec<crate::snip::Flight>,
     /// Print and Super+Shift+S, waiting for their screen's next frame (`screenshot.rs`).
@@ -677,6 +679,7 @@ impl Slipstream {
             screenshots: Vec::new(),
             screenshot_requests: Vec::new(),
             snip: None,
+            zoom: Default::default(),
             history: Default::default(),
             battery: Default::default(),
             night: Default::default(),
@@ -984,6 +987,28 @@ impl Slipstream {
 
     pub fn pointer_location(&self) -> Point<f64, Logical> {
         self.seat.get_pointer().unwrap().current_location()
+    }
+
+    /// How `output` is magnified now. Only the screen with the pointer on it is: the zoom is
+    /// centred on the pointer, and goes with it from screen to screen.
+    pub fn zoom_view(&self, output: &Output) -> crate::zoom::View {
+        let level = self.zoom.level(self.clock.wall());
+        let pointer = self.pointer_location();
+        match self.space.output_geometry(output) {
+            Some(geo) if level > 1.0 && geo.to_f64().contains(pointer) => crate::zoom::View::about(
+                pointer,
+                geo.loc,
+                output.current_scale().fractional_scale(),
+                level,
+            ),
+            _ => crate::zoom::View::NONE,
+        }
+    }
+
+    /// A zoom key pressed.
+    pub fn zoom_step(&mut self, step: crate::zoom::Step) {
+        let now = self.clock.wall();
+        self.zoom.step(step, now, self.clock.reduced_motion);
     }
 
     /// The workspace the keyboard is on: the one the focused screen is showing.
