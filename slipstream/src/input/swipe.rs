@@ -185,9 +185,11 @@ impl Slipstream {
             }
         }
         match self.swipe.as_ref().and_then(|s| s.carry.clone()) {
-            Some(Carry::View(drag)) => self
-                .motion
-                .hold_camera(&drag.screen, drag.position(progress)),
+            Some(Carry::View(drag)) => {
+                let wall = self.wall();
+                self.motion
+                    .hold_camera(&drag.screen, drag.position(progress), wall)
+            }
             Some(Carry::Zoom(from)) => self.overview = Tween::at_rest([zoom_at(from, progress)]),
             None => {}
         }
@@ -209,8 +211,10 @@ impl Slipstream {
             (progress, speed)
         };
         match carry {
-            Carry::View(drag) => self.let_go_of_view(&drag, drag.settle(progress, speed)),
-            Carry::Zoom(from) => self.let_go_of_zoom(zoom_settles_open(from, progress, speed)),
+            Carry::View(drag) => self.let_go_of_view(&drag, drag.settle(progress, speed), speed),
+            Carry::Zoom(from) => {
+                self.let_go_of_zoom(zoom_settles_open(from, progress, speed), speed)
+            }
         }
     }
 
@@ -255,47 +259,50 @@ impl Slipstream {
         })
     }
 
-    /// A sideways swipe let go, to settle on workspace `to`. Something else may have moved
-    /// things on while the fingers were down, or the keyboard to another screen: then the view
-    /// goes back to what its screen is showing.
-    fn let_go_of_view(&mut self, drag: &Drag, to: usize) {
-        tracing::info!(workspace = to + 1, "three-finger swipe let go");
-        let wall = self.wall();
+    /// A sideways swipe let go going `speed`, to settle on workspace `to`. Something else may
+    /// have moved things on while the fingers were down, or the keyboard to another screen: then
+    /// the view goes back to what its screen is showing. Either way it finishes from where the
+    /// fingers left it, at their pace, rather than as a keypress's slide would.
+    fn let_go_of_view(&mut self, drag: &Drag, to: usize, speed: f64) {
+        tracing::info!(workspace = to + 1, speed, "three-finger swipe let go");
         let still = self.focused_screen_name() == drag.screen;
         let showing = self
             .screens
             .iter()
             .find(|screen| screen.output.name() == drag.screen)
             .map(|screen| screen.workspace);
-        match self.bullet.as_ref().map(|mode| mode.view) {
-            Some(view) if still && view == drag.from => self.bullet_pan(to, to != drag.from),
-            Some(view) => self.motion.slide_to(&drag.screen, view, wall),
+        let settle = match self.bullet.as_ref().map(|mode| mode.view) {
+            Some(view) if still && view == drag.from => {
+                self.bullet_pan(to, to != drag.from);
+                Some(to)
+            }
+            Some(view) => Some(view),
             None if still && showing == Some(drag.from) && to != drag.from => {
-                self.switch_workspace(to)
+                self.switch_workspace(to);
+                Some(to)
             }
-            None => {
-                if let Some(shown) = showing {
-                    self.motion.slide_to(&drag.screen, shown, wall);
-                }
-            }
+            None => showing,
+        };
+        if let Some(index) = settle {
+            let wall = self.wall();
+            self.motion.let_go_camera(&drag.screen, index, wall, speed);
         }
     }
 
-    /// An upright swipe let go, with bullet time to end up `open` or not.
-    fn let_go_of_zoom(&mut self, open: bool) {
-        tracing::info!(open, "three-finger swipe let go");
+    /// An upright swipe let go going `speed`, with bullet time to end up `open` or not. Opening
+    /// or leaving happens as Super+Tab or Esc would, but the zoom finishes from where the fingers
+    /// left it, at their pace.
+    fn let_go_of_zoom(&mut self, open: bool, speed: f64) {
+        tracing::info!(open, speed, "three-finger swipe let go");
         match (open, self.bullet.is_some()) {
             (true, false) => self.enter_bullet_time(),
             (false, true) => self.bullet_back(),
-            // Back to where it was: the zoom settles there, taking only the time the rest needs.
-            (open, _) => {
-                let (wall, target) = (self.wall(), if open { 1.0 } else { 0.0 });
-                let left = (target - self.overview.value(wall)[0]).abs();
-                let duration = self.overview_duration() * left.max(motion::SHORTEST_SLIDE);
-                self.overview
-                    .retarget([target], wall, duration, motion::HYPR);
-            }
+            _ => {}
         }
+        let wall = self.wall();
+        let at = self.overview.value(wall)[0];
+        let to = if open { 1.0 } else { 0.0 };
+        self.overview = motion::let_go(at, to, wall, speed, self.clock.reduced_motion);
     }
 
     /// A whole three-finger swipe at once, as a debug step makes it.

@@ -25,9 +25,14 @@ pub const REDUCED_FADE: f64 = 0.08;
 /// rather than as a ghost crossing whatever is behind it.
 const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
-/// The least share of a whole slide's time a short one takes, so the last part of a swipe let go
-/// near its end still settles rather than snapping.
-pub const SHORTEST_SLIDE: f64 = 0.4;
+/// How long a view carried by a swipe takes to catch up with the fingers: long enough to have a
+/// speed of its own, which bullet time's floor turns with, and short enough not to be felt.
+const FOLLOW: f64 = 1.0 / 30.0;
+/// The slowest a swipe let go sets off to finish, a second, and the quickest and slowest it
+/// takes about it. The rest of the way, with no overshoot to look like a turn back.
+const LET_GO_SPEED: f64 = 1.0;
+const LET_GO_QUICKEST: f64 = 0.12;
+const LET_GO_SLOWEST: f64 = 0.45;
 /// Space between workspaces as they slide past, in logical pixels: 160 design pixels.
 pub const WORKSPACE_GAP: i32 = 128;
 
@@ -209,19 +214,25 @@ impl<T: Clone + PartialEq> Motion<T> {
     }
 
     /// Slides `screen`'s view to workspace `index` (0-based). Higher numbers sit to the right.
-    /// A view already part of the way there, as one let go mid-swipe is, takes less time over
-    /// the rest.
     pub fn slide_to(&mut self, screen: &str, index: usize, now: f64) {
-        let camera = self.camera_mut(screen);
-        let left = (index as f64 - camera.value(now)[0]).abs();
-        let duration = self.move_duration() * left.clamp(SHORTEST_SLIDE, 1.0);
+        let duration = self.move_duration();
         self.camera_mut(screen)
             .retarget([index as f64], now, duration, HYPR);
     }
 
-    /// Holds `screen`'s view at `at` workspaces, between two while a swipe carries it.
-    pub fn hold_camera(&mut self, screen: &str, at: f64) {
-        *self.camera_mut(screen) = Tween::at_rest([at]);
+    /// Carries `screen`'s view to `at` workspaces, between two while a swipe holds it.
+    pub fn hold_camera(&mut self, screen: &str, at: f64, now: f64) {
+        let duration = if self.reduced_motion { 0.0 } else { FOLLOW };
+        self.camera_mut(screen)
+            .retarget([at], now, duration, Easing::Linear);
+    }
+
+    /// Settles `screen`'s view on workspace `index` from wherever a swipe let it go, setting off
+    /// at about the swipe's `speed` in workspaces a second.
+    pub fn let_go_camera(&mut self, screen: &str, index: usize, now: f64, speed: f64) {
+        let reduced = self.reduced_motion;
+        let camera = self.camera_mut(screen);
+        *camera = let_go(camera.value(now)[0], index as f64, now, speed, reduced);
     }
 
     /// Where `id` is headed, x, y, w and h.
@@ -258,6 +269,27 @@ impl<T: Clone + PartialEq> Motion<T> {
         self.cameras
             .push((screen.to_string(), Tween::at_rest([0.0])));
         &mut self.cameras.last_mut().unwrap().1
+    }
+}
+
+/// A swipe let go at `at`, going `speed` a second, settling on `to` from `now`: on an ease-out
+/// that sets off at about that speed, never slower than `LET_GO_SPEED`, and doesn't overshoot.
+/// Reduced motion puts it there at once.
+pub fn let_go(at: f64, to: f64, now: f64, speed: f64, reduced: bool) -> Tween<1> {
+    let left = to - at;
+    // An ease-out cubic sets off at three times its average speed.
+    let onwards = (speed * left.signum()).max(LET_GO_SPEED);
+    let duration = if reduced || left == 0.0 {
+        0.0
+    } else {
+        (3.0 * left.abs() / onwards).clamp(LET_GO_QUICKEST, LET_GO_SLOWEST)
+    };
+    Tween {
+        from: [at],
+        to: [to],
+        start: now,
+        duration,
+        easing: Easing::OutCubic,
     }
 }
 
@@ -393,6 +425,47 @@ mod tests {
         let mid = motion.camera("eDP-1", 1.0 + MOVE / 2.0);
         assert!(mid > 0.0 && mid < 2.2, "part way there, allowing overshoot");
         assert_eq!(motion.camera("eDP-1", 1.0 + MOVE), 2.0);
+    }
+
+    #[test]
+    fn a_swipe_let_go_sets_off_at_the_fingers_speed_and_never_turns_back() {
+        let speed =
+            |tween: &Tween<1>, at: f64| (tween.value(at + 1e-4)[0] - tween.value(at)[0]) / 1e-4;
+        // Let go slowly past halfway: it sets off gently rather than leaping.
+        let slow = let_go(0.6, 1.0, 1.0, 0.1, false);
+        assert!(speed(&slow, 1.0) <= 3.0 * 0.4 / LET_GO_SLOWEST + 1e-3);
+        // Flicked: it carries on at about the speed it was going.
+        let flicked = let_go(0.6, 1.0, 1.0, 4.0, false);
+        assert!((speed(&flicked, 1.0) - 4.0).abs() < 0.1);
+        for tween in [slow, flicked] {
+            let mut last = 0.6;
+            for step in 1..=60 {
+                let at = tween.value(1.0 + step as f64 / 100.0)[0];
+                assert!(at >= last && at <= 1.0, "only ever onwards, never past");
+                last = at;
+            }
+            assert_eq!(last, 1.0);
+        }
+        assert_eq!(
+            let_go(0.6, 1.0, 1.0, 4.0, true).value(1.0),
+            [1.0],
+            "reduced motion"
+        );
+    }
+
+    #[test]
+    fn a_held_view_has_a_speed_of_its_own() {
+        let mut motion: Motion<&str> = Motion::new(false);
+        motion.hold_camera("eDP-1", 0.1, 1.0);
+        motion.hold_camera("eDP-1", 0.2, 1.0 + FOLLOW);
+        let moved =
+            motion.camera("eDP-1", 1.0 + 1.5 * FOLLOW) - motion.camera("eDP-1", 1.0 + FOLLOW);
+        assert!(moved > 0.04, "moving on towards the fingers: {moved}");
+        assert_eq!(
+            motion.camera("eDP-1", 1.0 + 3.0 * FOLLOW),
+            0.2,
+            "and catches up"
+        );
     }
 
     #[test]
