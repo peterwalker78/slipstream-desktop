@@ -21,6 +21,9 @@ pub struct Display {
     /// does. Held off by the same things that hold off the lock: Awake, a fullscreen window, or an
     /// app asking for the screen to stay awake. The lock screen turns them off after a minute.
     pub screen_off_mins: u64,
+    /// When a screen that can vary its refresh rate does, so a game's frames are shown as soon
+    /// as they're ready rather than on the screen's fixed beat.
+    pub variable_refresh: VariableRefresh,
     /// Where each screen sits, for the ones that shouldn't simply follow the one before. A screen
     /// with no entry goes to the right of the one before it, tops level.
     #[serde(rename = "screen", skip_serializing_if = "Vec::is_empty")]
@@ -177,7 +180,39 @@ impl Default for Display {
             night_light_from: "21:00".into(),
             night_light_to: "07:00".into(),
             screen_off_mins: 15,
+            variable_refresh: VariableRefresh::Games,
             screens: Vec::new(),
+        }
+    }
+}
+
+/// When a screen that can vary its refresh rate (FreeSync, Adaptive-Sync) does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VariableRefresh {
+    /// Every screen keeps its fixed rate.
+    Off,
+    /// While a fullscreen game is drawn straight to the screen. Elsewhere the rate stays fixed,
+    /// so the pointer and animations move evenly.
+    #[default]
+    Games,
+    /// Whenever the screen can.
+    Always,
+}
+
+impl VariableRefresh {
+    pub const ALL: [VariableRefresh; 3] = [
+        VariableRefresh::Off,
+        VariableRefresh::Games,
+        VariableRefresh::Always,
+    ];
+
+    /// What it's called in the Settings app.
+    pub fn label(self) -> &'static str {
+        match self {
+            VariableRefresh::Off => "Off",
+            VariableRefresh::Games => "For fullscreen games",
+            VariableRefresh::Always => "Always",
         }
     }
 }

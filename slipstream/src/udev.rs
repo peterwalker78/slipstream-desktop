@@ -12,7 +12,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode,
+            DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, VrrSupport,
             compositor::FrameFlags,
             exporter::gbm::GbmFramebufferExporter,
             output::{DrmOutput, DrmOutputManager, DrmOutputRenderElements},
@@ -107,6 +107,41 @@ struct Screen {
     empty_run: u32,
     /// The frame waiting for its vblank was drawn with the lock up.
     lock_frame_queued: bool,
+    /// The connector reports variable refresh, and it can be switched without a modeset.
+    vrr_capable: bool,
+    vrr: crate::vrr::Adaptive,
+    /// The last frame put a fullscreen window's buffer straight on the screen.
+    scanned_out: bool,
+}
+
+impl Screen {
+    /// Switches variable refresh on or off for the next frame, as the setting and what is on the
+    /// screen call for.
+    fn set_vrr(&mut self, setting: slipstream_config::VariableRefresh, fullscreen: bool) {
+        let on = self
+            .vrr
+            .next(setting, self.vrr_capable, fullscreen, self.scanned_out);
+        if on
+            == self
+                .drm_output
+                .with_compositor(|compositor| compositor.vrr_enabled())
+        {
+            return;
+        }
+        let name = self.output.name();
+        match self
+            .drm_output
+            .with_compositor(|compositor| compositor.use_vrr(on))
+        {
+            Ok(()) if on => tracing::info!(output = name, ?setting, "variable refresh on"),
+            Ok(()) => tracing::info!(output = name, ?setting, "variable refresh off"),
+            Err(err) => {
+                // Stop asking: a screen that refused once will refuse every frame.
+                tracing::warn!(output = name, "couldn't switch variable refresh: {err:?}");
+                self.vrr_capable = false;
+            }
+        }
+    }
 }
 
 /// Takes the seat, opens every GPU and input device, and hooks them into the event loop.
@@ -467,6 +502,28 @@ impl Slipstream {
                 return;
             }
         };
+        let vrr_capable = match drm_output
+            .with_compositor(|compositor| compositor.vrr_supported(connector.handle()))
+        {
+            Ok(VrrSupport::Supported) => {
+                tracing::info!(output = name, "variable refresh: this screen supports it");
+                true
+            }
+            Ok(VrrSupport::RequiresModeset) => {
+                tracing::info!(
+                    output = name,
+                    "variable refresh: not used, switching it would blank this screen"
+                );
+                false
+            }
+            Ok(VrrSupport::NotSupported) | Err(_) => {
+                tracing::info!(
+                    output = name,
+                    "variable refresh: this screen doesn't support it"
+                );
+                false
+            }
+        };
         let global = output.create_global::<Slipstream>(&self.display_handle);
         self.space.map_output(&output, (x, 0));
         tracing::info!(
@@ -490,6 +547,9 @@ impl Slipstream {
                 retry: None,
                 empty_run: 0,
                 lock_frame_queued: false,
+                vrr_capable,
+                vrr: Default::default(),
+                scanned_out: false,
             },
         );
         self.screen_connected(&screen_output, x);
@@ -738,6 +798,8 @@ impl Slipstream {
         let elements =
             render::output_elements(self, &mut gpu.renderer, &output, Some(&mut udev.cursor));
         let mut drew = false;
+        let fullscreen = self.fullscreen_on_output(&output);
+        screen.set_vrr(self.settings.display.variable_refresh, fullscreen.is_some());
         // Direct scanout places surface buffers on DRM planes without importing them into the GL
         // context, so draw_offscreen cannot texture them — they appear transparent in the capture.
         // While anything is recording, keep all content in the GL pipeline.
@@ -754,6 +816,9 @@ impl Slipstream {
         ) {
             Ok(frame) => {
                 self.update_scanout_outputs(&output, &frame.states);
+                screen.scanned_out = fullscreen
+                    .as_ref()
+                    .is_some_and(|window| crate::vrr::scanned_out(window, &frame.states));
                 drew = !frame.is_empty;
                 if !frame.is_empty {
                     let feedback = self.presentation_feedback(&output, &frame.states);

@@ -44,7 +44,14 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
     SettingsPage {
         id: "screens",
         title: "Screens",
-        holds: &["Display", "Monitors", "Resolution", "Scale", "Arrangement"],
+        holds: &[
+            "Display",
+            "Monitors",
+            "Resolution",
+            "Scale",
+            "Arrangement",
+            "Variable refresh rate",
+        ],
     },
     SettingsPage {
         id: "sound",

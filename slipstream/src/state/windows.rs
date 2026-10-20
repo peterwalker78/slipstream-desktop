@@ -647,6 +647,14 @@ impl Slipstream {
             .cloned()
     }
 
+    /// The window filling `output`, if one is.
+    pub fn fullscreen_on_output(&self, output: &Output) -> Option<Window> {
+        self.screens
+            .index_of(output)
+            .and_then(|index| self.screens.get(index))
+            .and_then(|screen| self.fullscreen_at(screen.workspace))
+    }
+
     /// Whether `window` is filling its screen.
     pub fn is_fullscreen(&self, window: &Window) -> bool {
         self.fullscreen.contains(window)

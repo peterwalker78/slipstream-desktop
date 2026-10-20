@@ -107,6 +107,7 @@ mod toast;
 mod tour;
 mod udev;
 mod usage;
+mod vrr;
 mod watch;
 mod winit;
 mod working;

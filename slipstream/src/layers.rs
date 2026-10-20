@@ -291,7 +291,7 @@ impl Slipstream {
         if !self.layers_shown() {
             return None;
         }
-        let covered = self.fullscreen_on_output(&output);
+        let covered = self.fullscreen_on_output(&output).is_some();
         let map = layer_map_for_output(&output);
         let local = pos - origin.to_f64();
         layers
@@ -321,13 +321,6 @@ impl Slipstream {
         self.lock.is_none() && self.bullet.is_none() && !self.idle.is_faded()
     }
 
-    fn fullscreen_on_output(&self, output: &Output) -> bool {
-        self.screens
-            .index_of(output)
-            .and_then(|index| self.screens.get(index))
-            .is_some_and(|screen| self.fullscreen_on(screen.workspace))
-    }
-
     /// What `layers` draw on `output`, front to back, at `alpha`.
     pub fn layer_elements(
         &self,
@@ -337,7 +330,7 @@ impl Slipstream {
         scale: Scale<f64>,
         alpha: f32,
     ) -> Vec<OutputElement> {
-        let covered = self.fullscreen_on_output(output);
+        let covered = self.fullscreen_on_output(output).is_some();
         let map = layer_map_for_output(output);
         let mut elements = Vec::new();
         for layer in layers {

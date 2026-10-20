@@ -22,6 +22,7 @@
 //! night-light-from = "21:00"
 //! night-light-to = "07:00"
 //! screen-off-mins = 15
+//! variable-refresh = "games"
 //!
 //! [notifications]
 //! do-not-disturb = false
@@ -108,6 +109,7 @@ use serde::{Deserialize, Serialize};
 
 pub use display::{
     Align, Display, NIGHT_FADE_MINS, NightSchedule, Position, SCALE_RANGE, ScreenPlace,
+    VariableRefresh,
 };
 pub use file::{
     FILE_NAME, civil, move_aside, path, read, replace, replace_private, write, xdg_home,
@@ -673,6 +675,7 @@ mod tests {
                 night_light_from: "22:15".into(),
                 night_light_to: "06:45".into(),
                 screen_off_mins: 30,
+                variable_refresh: VariableRefresh::Always,
                 screens: vec![ScreenPlace {
                     monitor: "Made Up MU27 0001".into(),
                     position: Position::Above,

@@ -12,6 +12,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
          are really arranged on your desk.",
     );
     displays(&page, store);
+    refresh(&page, store);
     let card = group(&page, "Arrangement");
     fill_screens(&card, store);
     let note = group(&page, "About this list");
@@ -137,6 +138,43 @@ fn displays(page: &gtk::Box, store: &Store) {
         };
         row(&card, "Scale", Some(&running), &scale_pick);
     }
+}
+
+/// Variable refresh, for every screen that supports it.
+fn refresh(page: &gtk::Box, store: &Store) {
+    use slipstream_config::VariableRefresh;
+    let card = group(page, "Refresh rate");
+    let names: Vec<&str> = VariableRefresh::ALL
+        .iter()
+        .map(|which| which.label())
+        .collect();
+    let pick = gtk::DropDown::from_strings(&names);
+    let current = store.get().display.variable_refresh;
+    pick.set_selected(
+        VariableRefresh::ALL
+            .iter()
+            .position(|which| *which == current)
+            .unwrap_or(0) as u32,
+    );
+    {
+        let store = store.clone();
+        pick.connect_selected_notify(move |pick| {
+            let which = VariableRefresh::ALL
+                .get(pick.selected() as usize)
+                .copied()
+                .unwrap_or_default();
+            store.change(move |settings| settings.display.variable_refresh = which);
+        });
+    }
+    row(
+        &card,
+        "Variable refresh rate",
+        Some(
+            "On a screen that supports it, each frame is shown as soon as it's ready, so a game \
+             that can't keep up still moves smoothly.",
+        ),
+        &pick,
+    );
 }
 
 /// The rows, rebuilt whenever the shape changes. Reads the screens the compositor says are lit
