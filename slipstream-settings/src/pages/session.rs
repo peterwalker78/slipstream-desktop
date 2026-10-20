@@ -16,10 +16,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &restore,
         "Remember the layout",
         Some(
-            "Writes which apps were open, on which workspace and in which tiling place, to \
-             ~/.local/state/slipstream/session.toml. With this off nothing is written at all, and \
-             any record already there is deleted. The card that asks whether to log out carries \
-             the same switch.",
+            "Saves which apps were open and where, to reopen them at your next login. Turning \
+             this off deletes what was saved.",
         ),
         &remember,
     );
@@ -30,7 +28,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &restore,
         "Reopen without asking",
-        Some("Skips the card at login that offers the layout back, and puts it straight back."),
+        Some("Reopens them at login without asking first."),
         &straight,
     );
 
@@ -65,7 +63,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &lock,
         "Lock after",
         Some(
-            "Time with no keyboard or mouse input. A fullscreen window, a playing video or Awake (hold Caps Lock) holds it off. The lock key or the lock in quick settings locks at any time, and ends Awake.",
+            "Time with no keyboard or mouse input. A fullscreen window, a playing video or \
+             Awake (hold Caps Lock) holds it off.",
         ),
         &after,
     );
@@ -84,9 +83,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &lock,
         "Turn the screen off after",
-        Some(
-            "Time with no keyboard or mouse input, held off by the same things as the lock. Any key or movement lights it again. The lock screen turns it off after a minute.",
-        ),
+        Some("Held off by the same things as the lock."),
         &off_after,
     );
     let before_sleep = gtk::Switch::new();
@@ -99,7 +96,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &lock,
         "Lock before sleep",
-        Some("Closing the lid or choosing Sleep locks first, so the laptop wakes up locked."),
+        Some("The laptop wakes up locked."),
         &before_sleep,
     );
 
@@ -115,9 +112,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &clipboard,
         "Clipboard history",
         Some(
-            "Keeps the last 25 things you copied, text and pictures, to paste any of \
-             them again. Kept in memory only and forgotten when you log out; anything a password \
-             manager marks as secret is never kept. Turning this off forgets them all.",
+            "Keeps the last 25 things you copied, to paste again. Forgotten when you log out; \
+             passwords are never kept.",
         ),
         &history,
     );
@@ -129,11 +125,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &note,
         "Your apps, not your work",
         Some(
-            "Each app is started again the way the app explorer starts it, so it comes back on \
-             the workspace and in the place it had. What it had open is up to the app: a browser \
-             restores its own tabs, a terminal comes back to a fresh shell in your home folder, \
-             and an unsaved buffer is only as safe as the editor's own recovery. Window titles \
-             are never written down.",
+            "Apps reopen where they were, but what they had open is up to each app: a browser \
+             restores its tabs, a terminal starts afresh.",
         ),
         &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );

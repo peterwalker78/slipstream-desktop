@@ -9,7 +9,7 @@ const LONGEST_WAIT_CHOICES: [u64; 6] = [1, 5, 10, 15, 30, 60];
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Notifications",
-        "Pop-ups that wait for a natural break instead of cutting into what you're doing",
+        "Pop-ups that wait for a pause instead of interrupting you.",
     );
     let typing = group(&page, "While you type");
 
@@ -19,10 +19,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &typing,
         "Wait until I pause",
         Some(
-            "Pop-ups that arrive while you're typing wait until you stop typing for 15 seconds, then show \
-             as one card. The bell counts them straight away, and the notification centre has them \
-             at any time. Critical notifications never wait. Only the timing of key presses is \
-             used, never which keys.",
+            "Pop-ups wait until you've stopped typing for 15 seconds, then show together. \
+             Critical ones never wait. Only the timing of key presses is used, never the keys.",
         ),
         &wait,
     );
@@ -44,10 +42,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &typing,
         "Longest wait",
-        Some(
-            "However long you keep typing, waiting pop-ups show after this. Anything truly urgent \
-             usually reaches your phone first.",
-        ),
+        Some("Waiting pop-ups show after this, even if you're still typing."),
         &longest,
     );
 
@@ -63,9 +58,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &typing,
         "Windows don't take the keyboard",
         Some(
-            "A window that opens while you're typing in another app waits beside you instead of \
-             catching your next words. Alt+Tab goes to it. Windows you open yourself, and dialogs \
-             of the app you're in, still come straight to you.",
+            "A window that opens while you're typing waits beside you, so your next words don't \
+             land in it. Windows you open yourself still come straight to you.",
         ),
         &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );
@@ -82,9 +76,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &heard,
         "Play notification sounds",
         Some(
-            "The sound an app asks for, from your sound theme. Never while you're working in the \
-             window it came from, and under do not disturb only for critical notifications, \
-             which also bring the desktop back from the wallpaper.",
+            "Not while you're in the app it came from. Under do not disturb, only critical \
+             notifications make a sound.",
         ),
         &sounds,
     );
@@ -100,10 +93,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &quiet,
         "Do not disturb",
-        Some(
-            "Nothing pops up, except critical notifications; everything still reaches the \
-             notification centre. Quick settings has the same switch.",
-        ),
+        Some("Only critical notifications pop up. The rest still go to the notification centre."),
         &dnd,
     );
     page.upcast()
