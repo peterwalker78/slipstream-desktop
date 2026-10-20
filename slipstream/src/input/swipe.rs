@@ -191,9 +191,8 @@ impl Slipstream {
         }
         match self.swipe.as_ref().and_then(|s| s.carry.clone()) {
             Some(Carry::View(drag)) => {
-                let wall = self.wall();
                 self.motion
-                    .hold_camera(&drag.screen, drag.position(progress), wall);
+                    .hold_camera(&drag.screen, drag.position(progress));
                 // In bullet time the workspace it would land on is the one looked at, framed and
                 // with a window chosen, from the moment it's past halfway: the frame and the
                 // ring go with the swipe instead of sliding away against it.

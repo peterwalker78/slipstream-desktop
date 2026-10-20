@@ -25,9 +25,6 @@ pub const REDUCED_FADE: f64 = 0.08;
 /// rather than as a ghost crossing whatever is behind it.
 const HOLD_THEN_GO: Easing = Easing::Bezier(0.8, 0.0, 1.0, 1.0);
 const ARRIVE_THEN_STAY: Easing = Easing::Bezier(0.0, 0.0, 0.2, 1.0);
-/// How long a view carried by a swipe takes to catch up with the fingers: long enough to have a
-/// speed of its own, which bullet time's floor turns with, and short enough not to be felt.
-const FOLLOW: f64 = 1.0 / 30.0;
 /// The slowest a swipe let go sets off to finish, a second, and the quickest and slowest it
 /// takes about it. The rest of the way, with no overshoot to look like a turn back.
 const LET_GO_SPEED: f64 = 1.0;
@@ -79,6 +76,8 @@ pub struct Motion<T> {
     /// The workspace each screen is looking at, fractional while it slides, kept by the screen's
     /// name so that unplugging one doesn't shuffle the others' slides.
     cameras: Vec<(String, Tween<1>)>,
+    /// The screens whose view a swipe moved last, rather than a slide.
+    swiped: Vec<String>,
     pub reduced_motion: bool,
 }
 
@@ -87,6 +86,7 @@ impl<T: Clone + PartialEq> Motion<T> {
         Self {
             entries: Vec::new(),
             cameras: Vec::new(),
+            swiped: Vec::new(),
             reduced_motion,
         }
     }
@@ -215,21 +215,22 @@ impl<T: Clone + PartialEq> Motion<T> {
 
     /// Slides `screen`'s view to workspace `index` (0-based). Higher numbers sit to the right.
     pub fn slide_to(&mut self, screen: &str, index: usize, now: f64) {
+        self.swiped.retain(|name| name != screen);
         let duration = self.move_duration();
         self.camera_mut(screen)
             .retarget([index as f64], now, duration, HYPR);
     }
 
-    /// Carries `screen`'s view to `at` workspaces, between two while a swipe holds it.
-    pub fn hold_camera(&mut self, screen: &str, at: f64, now: f64) {
-        let duration = if self.reduced_motion { 0.0 } else { FOLLOW };
-        self.camera_mut(screen)
-            .retarget([at], now, duration, Easing::Linear);
+    /// Holds `screen`'s view at `at` workspaces, between two while a swipe carries it.
+    pub fn hold_camera(&mut self, screen: &str, at: f64) {
+        self.mark_swiped(screen);
+        *self.camera_mut(screen) = Tween::at_rest([at]);
     }
 
     /// Settles `screen`'s view on workspace `index` from wherever a swipe let it go, setting off
     /// at about the swipe's `speed` in workspaces a second.
     pub fn let_go_camera(&mut self, screen: &str, index: usize, now: f64, speed: f64) {
+        self.mark_swiped(screen);
         let reduced = self.reduced_motion;
         let camera = self.camera_mut(screen);
         *camera = let_go(camera.value(now)[0], index as f64, now, speed, reduced);
@@ -255,11 +256,26 @@ impl<T: Clone + PartialEq> Motion<T> {
     /// Puts `screen`'s view on `index` with no slide: a screen coming on, or one taking over a
     /// workspace from a screen that has gone out.
     pub fn jump_camera(&mut self, screen: &str, index: usize) {
+        self.swiped.retain(|name| name != screen);
         *self.camera_mut(screen) = Tween::at_rest([index as f64]);
     }
 
     pub fn forget_camera(&mut self, screen: &str) {
+        self.swiped.retain(|name| name != screen);
         self.cameras.retain(|(name, _)| name != screen);
+    }
+
+    /// Whether bullet time's floor turns as `screen`'s view moves. It does while a slide glides
+    /// it, but not while fingers carry it or it finishes from where they let go: there the turn
+    /// would come and go with the lift of the fingers, and reads as a bump.
+    pub fn turns(&self, screen: &str) -> bool {
+        !self.swiped.iter().any(|name| name == screen)
+    }
+
+    fn mark_swiped(&mut self, screen: &str) {
+        if self.turns(screen) {
+            self.swiped.push(screen.to_string());
+        }
     }
 
     fn camera_mut(&mut self, screen: &str) -> &mut Tween<1> {
@@ -454,18 +470,16 @@ mod tests {
     }
 
     #[test]
-    fn a_held_view_has_a_speed_of_its_own() {
+    fn the_floor_turns_for_a_slide_but_not_for_a_swipe() {
         let mut motion: Motion<&str> = Motion::new(false);
-        motion.hold_camera("eDP-1", 0.1, 1.0);
-        motion.hold_camera("eDP-1", 0.2, 1.0 + FOLLOW);
-        let moved =
-            motion.camera("eDP-1", 1.0 + 1.5 * FOLLOW) - motion.camera("eDP-1", 1.0 + FOLLOW);
-        assert!(moved > 0.04, "moving on towards the fingers: {moved}");
-        assert_eq!(
-            motion.camera("eDP-1", 1.0 + 3.0 * FOLLOW),
-            0.2,
-            "and catches up"
-        );
+        assert!(motion.turns("eDP-1"));
+        motion.hold_camera("eDP-1", 0.4);
+        assert!(!motion.turns("eDP-1"), "carried");
+        motion.let_go_camera("eDP-1", 1, 1.1, 0.0);
+        assert!(!motion.turns("eDP-1"), "finishing from the fingers");
+        assert!(motion.turns("DP-2"), "another screen is its own");
+        motion.slide_to("eDP-1", 2, 2.0);
+        assert!(motion.turns("eDP-1"), "a keypress's slide");
     }
 
     #[test]

@@ -334,8 +334,8 @@ pub fn output_elements(
     }
 
     // Bullet time leans the overview back like a floor, in a near perspective, and turns it a
-    // little while gliding between workspaces.
-    let velocity = if state.clock.reduced_motion {
+    // little while gliding between workspaces, unless fingers are moving it.
+    let velocity = if state.clock.reduced_motion || !state.motion.turns(&name) {
         0.0
     } else {
         (camera - state.motion.camera(&name, wall - 1.0 / 60.0)) * 60.0
