@@ -39,6 +39,26 @@
 //! [keys]
 //! style = "windows"
 //!
+//! [mouse]
+//! speed = 0.0
+//! natural-scrolling = false
+//! acceleration = "adaptive"
+//!
+//! [touchpad]
+//! tap-to-click = true
+//! natural-scrolling = true
+//! speed = 0.0
+//! disable-while-typing = true
+//! scrolling = "two-finger"
+//!
+//! [keyboard]
+//! repeat-delay-ms = 200
+//! repeat-rate = 25
+//!
+//! [[keyboard.layouts]]
+//! layout = "gb"
+//! variant = ""
+//!
 //! [lock]
 //! after-idle-mins = 0
 //! before-sleep = true
@@ -74,6 +94,7 @@
 pub mod battery;
 mod display;
 mod file;
+mod input;
 pub mod meter;
 mod pages;
 pub mod screens;
@@ -92,6 +113,11 @@ pub use file::{
     FILE_NAME, civil, move_aside, path, read, replace, replace_private, write, xdg_home,
 };
 pub use pages::{SETTINGS_PAGES, SettingsPage};
+pub use input::{
+    Acceleration, Keyboard, KeyboardLayout, LAYOUT_LISTS, LayoutChoice, Mouse, Scrolling, Touchpad,
+    layout_catalogue, layout_label, options_switch_layouts, system_layouts,
+    system_layouts_from_env,
+};
 pub use wallpaper::{VARIATIONS, Variation, Wallpaper, current_id};
 pub use workspaces::{MAX_WORKSPACES, WorkspaceEntry, Workspaces, unused_id, workspace_label};
 
@@ -112,6 +138,9 @@ pub struct Settings {
     pub meter: Meter,
     pub workspaces: Workspaces,
     pub keys: Keys,
+    pub mouse: Mouse,
+    pub touchpad: Touchpad,
+    pub keyboard: Keyboard,
 }
 
 /// The keyboard shortcuts.
@@ -688,10 +717,24 @@ mod tests {
             keys: Keys {
                 style: KeyStyle::Omarchy,
             },
+            mouse: Mouse {
+                speed: 0.5,
+                ..Mouse::default()
+            },
+            touchpad: Touchpad {
+                tap_to_click: false,
+                ..Touchpad::default()
+            },
+            keyboard: Keyboard {
+                layouts: vec![KeyboardLayout::new("gb", "dvorak")],
+                ..Keyboard::default()
+            },
         };
         let text = toml::to_string(&settings).unwrap();
         assert!(text.contains("fade-after-secs = 300"), "{text}");
         assert!(text.contains(r#"style = "omarchy""#), "{text}");
+        assert!(text.contains("tap-to-click = false"), "{text}");
+        assert!(text.contains(r#"variant = "dvorak""#), "{text}");
         assert!(
             text.contains(r#"variations = ["vortex", "slipstream"]"#),
             "{text}"
