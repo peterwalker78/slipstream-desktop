@@ -102,6 +102,7 @@ pub mod screens;
 pub mod shortcuts;
 pub mod sun;
 mod wallpaper;
+pub mod weight;
 mod workspaces;
 
 use std::time::Duration;
