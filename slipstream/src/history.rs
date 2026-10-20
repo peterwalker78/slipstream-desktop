@@ -398,9 +398,7 @@ impl History {
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         ring: u32,
         key: String,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
@@ -408,6 +406,7 @@ impl History {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
             return None;
         }

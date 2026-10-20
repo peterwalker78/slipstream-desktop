@@ -368,6 +368,15 @@ pub struct Sheet {
     names: KeyNames,
 }
 
+/// What the key list lists: the bindings in force, written in a keyboard style, with the screen
+/// keys only when there is more than one screen.
+#[derive(Clone, Copy)]
+pub struct Listing<'a> {
+    pub bindings: &'a [Binding],
+    pub style: KeyStyle,
+    pub screens: usize,
+}
+
 impl Sheet {
     pub fn is_open(&self) -> bool {
         self.open
@@ -502,23 +511,24 @@ impl Sheet {
         self.frame.contains(pos)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
-        bindings: &[Binding],
-        style: KeyStyle,
+        frame: crate::panel::Frame,
+        listing: Listing,
         ring: u32,
         effects: Effects,
-        screens: usize,
     ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let Listing {
+            bindings,
+            style,
+            screens,
+        } = listing;
+        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
             return Vec::new();
         }

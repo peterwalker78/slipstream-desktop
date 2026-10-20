@@ -131,13 +131,10 @@ impl<W> Arrange<W> {
 
     /// The strip, centred near the bottom of a screen `screen` big, with a picture of each
     /// arrangement in `pictures`, in the order of `CHOICES`.
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         ring: u32,
         pictures: Vec<Vec<Pane>>,
         key: String,
@@ -146,6 +143,7 @@ impl<W> Arrange<W> {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         let look = Look {
             pictures,
             selected: self.selected,

@@ -186,7 +186,6 @@ impl Painter {
     }
 
     /// A border `width` thick inside the box, as CSS draws one.
-    #[allow(clippy::too_many_arguments)]
     pub fn border(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, width: f32, rgba: u32) {
         let half = width / 2.0;
         if let Some(path) = rounded(x + half, y + half, w - width, h - width, radius - half) {
@@ -217,7 +216,6 @@ impl Painter {
 
     /// A soft drop shadow, like CSS `box-shadow: 0 dy blur`, built from stacked translucent
     /// rounded rectangles, since tiny-skia can't blur.
-    #[allow(clippy::too_many_arguments)]
     pub fn shadow(
         &mut self,
         x: f32,
@@ -246,7 +244,6 @@ impl Painter {
 
     /// A glass card with its shadow: the shadow, a fill with a faint edge inside it, and a dark
     /// line just outside.
-    #[allow(clippy::too_many_arguments)]
     pub fn card(
         &mut self,
         x: f32,

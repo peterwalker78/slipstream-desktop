@@ -5,6 +5,15 @@
 use crate::motion::REDUCED_FADE;
 use crate::{Slipstream, motion::HYPR, paint::Painter};
 
+/// What a card is drawn for: the screen's logical size and scale, and the time on whichever clock
+/// the card animates by.
+#[derive(Debug, Clone, Copy)]
+pub struct Frame {
+    pub size: smithay::utils::Size<i32, smithay::utils::Logical>,
+    pub scale: f64,
+    pub time: f64,
+}
+
 /// Logical pixels per design pixel. Every surface is laid out in design pixels, sized for a 1.25×
 /// screen: each is 0.8 logical pixels, which there is exactly one physical pixel.
 pub const DESIGN_PX: f32 = 0.8;

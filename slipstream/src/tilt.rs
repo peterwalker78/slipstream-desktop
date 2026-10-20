@@ -263,14 +263,11 @@ impl Stage {
 
     /// `elements`, drawn flat `dense` times the screen's own resolution, then shown turned by
     /// `tilt`. The caller builds `elements` at `scale * dense` to match (see `supersample`).
-    #[allow(clippy::too_many_arguments)]
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         elements: &[OutputElement],
-        logical: Size<i32, Logical>,
-        physical: Size<i32, Physical>,
-        scale: f64,
+        screen: Sizes,
         dense: f64,
         tilt: &Tilt,
         look: &Look,
@@ -278,18 +275,25 @@ impl Stage {
         if !self.ready(renderer) {
             return None;
         }
-        let sampled = Size::<i32, Physical>::from((
-            (physical.w as f64 * dense).round() as i32,
-            (physical.h as f64 * dense).round() as i32,
-        ));
+        let Sizes {
+            logical,
+            physical,
+            scale,
+        } = screen;
+        let sampled = Sizes {
+            logical,
+            physical: Size::from((
+                (physical.w as f64 * dense).round() as i32,
+                (physical.h as f64 * dense).round() as i32,
+            )),
+            scale: scale * dense,
+        };
         let inner = draw_offscreen(
             renderer,
             &mut self.texture,
             &mut self.broken,
             elements,
-            logical,
             sampled,
-            scale * dense,
             "bullet time's 3D",
         )?;
         // GLSL takes matrices column by column.
@@ -339,6 +343,15 @@ pub fn supersample(physical: Size<i32, Physical>) -> f64 {
     }
 }
 
+/// A screen's size in logical and physical pixels, and the scale between them: what a picture
+/// drawn off screen is drawn at.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sizes {
+    pub logical: Size<i32, Logical>,
+    pub physical: Size<i32, Physical>,
+    pub scale: f64,
+}
+
 /// A picture an effect draws off screen, kept from frame to frame with the damage tracker that drew
 /// it, so the next frame redraws only what changed in it rather than all of it. Bullet time draws
 /// the desktop at twice its density this way; the glass fade, Alt+Tab's panes, a closing window
@@ -353,45 +366,33 @@ pub struct Canvas {
 /// Draws `elements` into `texture` (made, or made again at a new size, as needed) and returns it
 /// as an element covering the screen, for a shader to show. A texture that can't be made sets
 /// `broken`, so the effect gives way to plain drawing. `what` names the effect in the log.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_offscreen(
     renderer: &mut GlesRenderer,
     texture: &mut Option<Canvas>,
     broken: &mut bool,
     elements: &[OutputElement],
-    logical: Size<i32, Logical>,
-    physical: Size<i32, Physical>,
-    scale: f64,
+    sizes: Sizes,
     what: &str,
 ) -> Option<TextureRenderElement<GlesTexture>> {
-    draw_offscreen_over(
-        renderer,
-        texture,
-        broken,
-        elements,
-        logical,
-        physical,
-        scale,
-        what,
-        Color32F::new(0.0, 0.0, 0.0, 0.0),
-        None,
-    )
+    let clear = Color32F::new(0.0, 0.0, 0.0, 0.0);
+    draw_offscreen_over(renderer, texture, broken, elements, sizes, what, clear)
 }
 
-/// `draw_offscreen` onto `clear` rather than nothing, the result shown at `alpha`.
-#[allow(clippy::too_many_arguments)]
+/// `draw_offscreen` onto `clear` rather than nothing.
 pub fn draw_offscreen_over(
     renderer: &mut GlesRenderer,
     texture: &mut Option<Canvas>,
     broken: &mut bool,
     elements: &[OutputElement],
-    logical: Size<i32, Logical>,
-    physical: Size<i32, Physical>,
-    scale: f64,
+    sizes: Sizes,
     what: &str,
     clear: Color32F,
-    alpha: Option<f32>,
 ) -> Option<TextureRenderElement<GlesTexture>> {
+    let Sizes {
+        logical,
+        physical,
+        scale,
+    } = sizes;
     if texture
         .as_ref()
         .is_none_or(|kept| kept.size != physical || kept.scale != scale)
@@ -436,7 +437,7 @@ pub fn draw_offscreen_over(
         texture.clone(),
         1,
         Transform::Normal,
-        alpha,
+        None,
         // The whole texture, which is drawn at the output's scale.
         Some(Rectangle::from_size(
             (physical.w as f64, physical.h as f64).into(),

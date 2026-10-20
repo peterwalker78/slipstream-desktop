@@ -246,18 +246,17 @@ impl Panes {
             .retain(|kept| kept.used && kept.window.alive());
     }
 
-    /// `window` as a pane at `pose`, for a screen `screen` big at `scale`.
-    #[allow(clippy::too_many_arguments)]
+    /// `window` as a pane at `pose`, seen by `camera` on `screen`.
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         window: &Window,
         pose: &Pose,
         camera: &Camera,
-        screen: Size<i32, Logical>,
-        scale: f64,
+        screen: crate::tilt::Sizes,
         look: &Look,
     ) -> Option<TextureShaderElement> {
+        let (scale, screen) = (screen.scale, screen.logical);
         if !self.ready(renderer) || look.alpha <= 0.0 {
             return None;
         }
@@ -309,9 +308,11 @@ impl Panes {
             texture,
             &mut self.broken,
             &surfaces,
-            own.size,
-            physical,
-            scale,
+            crate::tilt::Sizes {
+                logical: own.size,
+                physical,
+                scale,
+            },
             "a glass pane",
         )?;
         let texture = &texture.as_ref()?.texture;

@@ -153,7 +153,6 @@ impl Overview {
 
     /// A letter hint centred on `centre`, with the target's name beneath. Without a name it's the
     /// smaller hint the code rain's streams get.
-    #[allow(clippy::too_many_arguments)]
     pub fn hint<R>(
         &mut self,
         renderer: &mut R,
@@ -184,13 +183,11 @@ impl Overview {
 
     /// A workspace's name or number and a caption ("3 windows", "empty"), with its top-left at
     /// `at`.
-    #[allow(clippy::too_many_arguments)]
     pub fn workspace_label<R>(
         &mut self,
         renderer: &mut R,
-        label: &str,
+        (label, caption): (&str, &str),
         viewed: bool,
-        caption: &str,
         at: Point<f64, Logical>,
         scale: f64,
         alpha: f32,

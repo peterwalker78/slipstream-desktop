@@ -345,13 +345,10 @@ impl Centre {
 
     /// The panel for a screen `size` logical pixels big at `scale`, repainted when what it shows
     /// changes.
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        size: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         facts: Facts,
         notices: &Notices,
         background_apps: &[crate::state::BackgroundApp],
@@ -360,6 +357,7 @@ impl Centre {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (size, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
             return None;
         }

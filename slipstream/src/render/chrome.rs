@@ -194,19 +194,15 @@ impl Chrome {
             .collect()
     }
 
-    /// The keyboard-tips prompt, floating in the lower third of an empty workspace, which is `dx`
-    /// from the screen while sliding. `drifting` is wall time, to float and breathe by, and
+    /// The keyboard-tips prompt, floating in the lower third of `view`'s empty workspace, which
+    /// slides with it. `drifting` is wall time, to float and breathe by, and
     /// `None` under reduced motion, which holds it still at full strength: it drifts a few pixels
     /// up and down and its glow breathes, so it reads as hovering rather than stuck to the
     /// wallpaper. Painted again whenever the scale changes.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn tips<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        dx: f64,
-        scale: Scale<f64>,
-        alpha: f32,
+        view: &View,
         drifting: Option<f64>,
         key: &str,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
@@ -214,6 +210,7 @@ impl Chrome {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (screen, dx, scale, alpha) = (view.geo.size, view.active_dx, view.scale, view.ui_alpha);
         let stale = self
             .tips
             .as_ref()

@@ -87,17 +87,15 @@ impl<K: PartialEq> Tip<K> {
         }
     }
 
-    /// The card for `name`'s stream in `column`, below `top` on `screen`. It is painted again
-    /// only when what it says changes, which is at most once a second.
-    #[allow(clippy::too_many_arguments)]
+    /// The card for `name`'s stream in `column`, saying what `figures` it is using, below `top`
+    /// on `screen`. It is painted again only when what it says changes, which is at most once a
+    /// second.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        name: &str,
-        figures: Option<Figures>,
+        (name, figures): (&str, Option<Figures>),
         column: Rect,
-        screen: Rect,
-        top: i32,
+        (screen, top): (Rect, i32),
         scale: f64,
         alpha: f32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>

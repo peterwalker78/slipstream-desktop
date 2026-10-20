@@ -33,13 +33,10 @@ impl Explorer {
     /// The explorer's elements, front first (the caret, then the painted explorer), for a screen
     /// `width` logical pixels wide at `scale`, repainted only when what it shows changes.
     /// `running` holds the app IDs and X11 classes of open windows, lowercased.
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        width: i32,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         running: Vec<String>,
         ring: u32,
         keys: Keys,
@@ -48,6 +45,7 @@ impl Explorer {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (width, scale, now) = (frame.size.w, frame.scale, frame.time);
         if !self.open {
             return Vec::new();
         }
@@ -640,7 +638,6 @@ pub(super) struct Row<'a> {
 
 /// The answer to a sum or a conversion: what was understood, then the value, which decodes out of
 /// rain glyphs for `decoding` seconds after it changes. Enter copies it.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn answer_row(
     p: &mut Painter,
     x: f32,

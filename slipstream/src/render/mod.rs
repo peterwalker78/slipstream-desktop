@@ -219,6 +219,7 @@ fn card_elements(
     wall: f64,
     deck_shown: bool,
 ) -> Vec<OutputElement> {
+    let frame = |time| crate::panel::Frame { size, scale, time };
     let mut elements = Vec::new();
     if state.explorer.is_open() {
         let running = state.running_apps();
@@ -227,7 +228,7 @@ fn card_elements(
         elements.extend(
             state
                 .explorer
-                .element(renderer, size.w, scale, now, running, ring, keys)
+                .element(renderer, frame(now), running, ring, keys)
                 .into_iter()
                 .map(OutputElement::Memory),
         );
@@ -237,7 +238,7 @@ fn card_elements(
         elements.extend(
             state
                 .quick
-                .element(renderer, size.w, scale, now, facts)
+                .element(renderer, frame(now), facts)
                 .map(OutputElement::Memory),
         );
     }
@@ -249,9 +250,7 @@ fn card_elements(
                 .centre
                 .element(
                     renderer,
-                    size,
-                    scale,
-                    now,
+                    frame(now),
                     facts,
                     &state.notices,
                     &state.background_apps,
@@ -269,7 +268,7 @@ fn card_elements(
         elements.extend(
             state
                 .history
-                .element(renderer, size, scale, now, ring, key)
+                .element(renderer, frame(now), ring, key)
                 .map(OutputElement::Memory),
         );
     }
@@ -281,14 +280,14 @@ fn card_elements(
                 .sheet
                 .element(
                     renderer,
-                    size,
-                    scale,
-                    now,
-                    &state.bindings,
-                    state.settings.keys.style,
+                    frame(now),
+                    crate::sheet::Listing {
+                        bindings: &state.bindings,
+                        style: state.settings.keys.style,
+                        screens: state.space.outputs().count(),
+                    },
                     ring,
                     effects,
-                    state.space.outputs().count(),
                 )
                 .into_iter()
                 .map(OutputElement::Memory),
@@ -313,7 +312,7 @@ fn card_elements(
     // The low battery card, above everything but the lock.
     if let Some(card) = state.battery.card.as_mut() {
         elements.extend(
-            card.element(renderer, size, scale, wall)
+            card.element(renderer, frame(wall))
                 .map(OutputElement::Memory),
         );
     }
@@ -322,7 +321,7 @@ fn card_elements(
     if let Some(connect) = state.connect.as_mut() {
         elements.extend(
             connect
-                .element(renderer, size, scale, wall)
+                .element(renderer, frame(wall))
                 .map(OutputElement::Memory),
         );
     }
@@ -330,7 +329,7 @@ fn card_elements(
     if let Some(offer) = state.offer.as_mut() {
         elements.extend(
             offer
-                .element(renderer, size, scale, wall)
+                .element(renderer, frame(wall))
                 .map(OutputElement::Memory),
         );
     }
@@ -340,14 +339,14 @@ fn card_elements(
     if let Some(share) = state.share.as_mut() {
         elements.extend(
             share
-                .element(renderer, size, scale, wall, ring)
+                .element(renderer, frame(wall), ring)
                 .map(OutputElement::Memory),
         );
     }
     // The card asking about an app's shortcuts, where the keyboard is.
     if let Some(ask) = state.shortcuts.ask_mut() {
         elements.extend(
-            ask.element(renderer, size, scale, wall, ring)
+            ask.element(renderer, frame(wall), ring)
                 .map(OutputElement::Memory),
         );
     }
@@ -356,7 +355,7 @@ fn card_elements(
     let ring = state.panel_ring();
     if let Some(exit) = state.exit.as_mut() {
         elements.extend(
-            exit.element(renderer, size, scale, wall, ring)
+            exit.element(renderer, frame(wall), ring)
                 .map(OutputElement::Memory),
         );
     }

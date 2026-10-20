@@ -202,6 +202,24 @@ impl View {
         })
     }
 
+    /// This screen's sizes, for what is drawn off screen.
+    pub(super) fn sizes(&self) -> tilt::Sizes {
+        tilt::Sizes {
+            logical: self.geo.size,
+            physical: self.physical,
+            scale: self.scale.x,
+        }
+    }
+
+    /// This screen, for a card drawn at `time`.
+    fn frame(&self, time: f64) -> crate::panel::Frame {
+        crate::panel::Frame {
+            size: self.geo.size,
+            scale: self.scale.x,
+            time,
+        }
+    }
+
     /// How strongly bullet time's own marks show: with the overview, and with the UI.
     fn bullet_fade(&self) -> f32 {
         self.zoomed_out.min(1.0) as f32 * self.ui_alpha
@@ -397,9 +415,7 @@ pub fn output_elements(
         chrome.stage.element(
             renderer,
             &world.elements,
-            geo.size,
-            v.physical,
-            v.scale.x,
+            v.sizes(),
             v.dense,
             &v.tilt,
             &look,
@@ -424,10 +440,7 @@ pub fn output_elements(
             chrome
                 .tips(
                     renderer,
-                    geo.size,
-                    v.active_dx,
-                    v.scale,
-                    v.ui_alpha,
+                    &v,
                     (!state.clock.reduced_motion).then_some(v.wall),
                     &state.key_label(crate::keys::Action::ShortcutSheet),
                 )
@@ -1438,14 +1451,14 @@ fn passing_elements(
         band: edge_at.map(|at| (axis, at, 150.0, 0.34 * deep)),
         ..Default::default()
     };
-    let (size, scale) = (v.geo.size, v.scale.x);
+    let screen = v.sizes();
     let pieces: Vec<OutputElement> = [
         chrome
             .panes
-            .element(renderer, front_window, &front, &camera, size, scale, &front_look),
+            .element(renderer, front_window, &front, &camera, screen, &front_look),
         chrome
             .panes
-            .element(renderer, back_window, &back, &camera, size, scale, &back_look),
+            .element(renderer, back_window, &back, &camera, screen, &back_look),
     ]
     .into_iter()
     .flatten()
@@ -1514,7 +1527,7 @@ fn dock_flight_elements(
             pieces.extend(
                 chrome
                     .panes
-                    .element(renderer, &window, &pose, &local, v.geo.size, v.scale.x, &look)
+                    .element(renderer, &window, &pose, &local, v.sizes(), &look)
                     .map(OutputElement::Shaded),
             );
             // Behind the pane, the bay in the bar's material that it is heading for or has
@@ -1606,7 +1619,7 @@ fn workspace_frame_elements(
         world.elements.extend(
             chrome
                 .overview
-                .workspace_label(renderer, &label, viewed, &caption, at, v.world_scale.x, fade)
+                .workspace_label(renderer, (&label, &caption), viewed, at, v.world_scale.x, fade)
                 .map(OutputElement::Memory),
         );
         if count == 0 {
@@ -1720,10 +1733,10 @@ fn fade_into_glass(
 ) -> Fallen {
     let mut fallen = Fallen::default();
     let pane: Vec<OutputElement> = elements.drain(pane_start..).collect();
-    let (size, physical, scale) = (v.geo.size, v.physical, v.scale.x);
+    let screen = v.sizes();
     let Some(element) = chrome
         .glass
-        .element(renderer, &pane, size, physical, scale, 1.0 - v.ui, 0.0)
+        .element(renderer, &pane, screen, 1.0 - v.ui, 0.0)
     else {
         // Drawn plainly this once; a glass that's broken stays off from now on.
         elements.append(&mut bar_pane);
@@ -1736,9 +1749,7 @@ fn fade_into_glass(
         match chrome.glass_bar.element(
             renderer,
             &bar_pane,
-            size,
-            physical,
-            scale,
+            screen,
             gone,
             crate::glass::NEARER,
         ) {
@@ -1805,7 +1816,7 @@ fn wallpaper_elements(
     elements: &mut Vec<OutputElement>,
     fallen: Fallen,
 ) {
-    let (size, physical, scale, ui) = (v.geo.size, v.physical, v.scale.x, v.ui);
+    let (size, scale, ui) = (v.geo.size, v.scale.x, v.ui);
     let paused = state.fullscreen_on(v.active) && ui >= 1.0;
     let glow = 0.45 + 0.55 * (1.0 - ui);
     // Slowed for bullet time, a wallpaper step lasts many frames, so it tweens between them.
@@ -1820,7 +1831,7 @@ fn wallpaper_elements(
     );
     elements.extend(
         saver
-            .element(renderer, size, scale, v.now, glow, paused, tween)
+            .element(renderer, v.frame(v.now), glow, paused, tween)
             .map(OutputElement::Memory),
     );
     let Some(at) = fallen.windows else {
@@ -1830,9 +1841,7 @@ fn wallpaper_elements(
         chrome.glass.through(
             renderer,
             wallpaper,
-            size,
-            physical,
-            scale,
+            v.sizes(),
             (1.0 - ui, 0.0),
             None,
             BACKGROUND,
@@ -1844,15 +1853,13 @@ fn wallpaper_elements(
     // The bar's pane goes behind the wallpaper after the windows' has, so where it is behind, the
     // order is the wallpaper, the bar's pane, then the windows'.
     if let Some(bar_at) = fallen.bar {
-        let windows = chrome.glass.shown(renderer, size, physical, 1.0 - ui, 0.0);
+        let windows = chrome.glass.shown(renderer, v.sizes(), 1.0 - ui, 0.0);
         let gone = crate::glass::nearer(1.0 - ui);
         let through = saver.again(renderer, size, glow).and_then(|wallpaper| {
             chrome.glass_bar.through(
                 renderer,
                 wallpaper,
-                size,
-                physical,
-                scale,
+                v.sizes(),
                 (gone, crate::glass::NEARER),
                 windows,
                 BACKGROUND,

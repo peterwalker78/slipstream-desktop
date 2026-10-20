@@ -314,14 +314,11 @@ impl Glass {
 
     /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.
     /// `nearer` is how much nearer the eye this pane starts than the windows' does.
-    #[allow(clippy::too_many_arguments)]
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         elements: &[OutputElement],
-        logical: Size<i32, Logical>,
-        physical: Size<i32, Physical>,
-        scale: f64,
+        screen: tilt::Sizes,
         progress: f32,
         nearer: f32,
     ) -> Option<TextureShaderElement> {
@@ -333,20 +330,17 @@ impl Glass {
             &mut self.texture,
             &mut self.broken,
             elements,
-            logical,
-            physical,
-            scale,
+            screen,
             "the glass fade",
         )?;
-        self.shown(renderer, logical, physical, progress, nearer)
+        self.shown(renderer, screen, progress, nearer)
     }
 
     /// The pane last drawn by `element`, again, as it is `progress` of the way gone.
     pub fn shown(
         &self,
         renderer: &GlesRenderer,
-        logical: Size<i32, Logical>,
-        physical: Size<i32, Physical>,
+        screen: tilt::Sizes,
         progress: f32,
         nearer: f32,
     ) -> Option<TextureShaderElement> {
@@ -355,9 +349,9 @@ impl Glass {
         }
         let texture = &self.texture.as_ref()?.texture;
         Some(TextureShaderElement::new(
-            whole_screen(renderer, texture, logical, physical),
+            whole_screen(renderer, texture, screen.logical, screen.physical),
             self.program.clone()?,
-            uniforms(logical, progress, nearer),
+            uniforms(screen.logical, progress, nearer),
         ))
     }
 
@@ -367,19 +361,16 @@ impl Glass {
     /// The pane is `progress` of the way gone and started `nearer` the eye. `beneath` is a pane
     /// further gone than this one, which lies under it wherever this one is behind the
     /// wallpaper. `None` if it can't be drawn.
-    #[allow(clippy::too_many_arguments)]
     pub fn through(
         &mut self,
         renderer: &mut GlesRenderer,
         wallpaper: MemoryRenderBufferRenderElement<GlesRenderer>,
-        logical: Size<i32, Logical>,
-        physical: Size<i32, Physical>,
-        scale: f64,
+        screen: tilt::Sizes,
         (progress, nearer): (f32, f32),
         beneath: Option<TextureShaderElement>,
         background: Color32F,
     ) -> Option<TextureShaderElement> {
-        let pane = self.shown(renderer, logical, physical, progress, nearer)?;
+        let pane = self.shown(renderer, screen, progress, nearer)?;
         let mut elements = vec![
             OutputElement::Memory(wallpaper),
             OutputElement::Shaded(pane),
@@ -391,12 +382,9 @@ impl Glass {
             &mut self.through,
             &mut broken,
             &elements,
-            logical,
-            physical,
-            scale,
+            screen,
             "the glass fade's crossing",
             background,
-            None,
         );
         if broken {
             self.through = None;
@@ -404,7 +392,7 @@ impl Glass {
         Some(TextureShaderElement::new(
             drawn?,
             self.through_program.clone()?,
-            uniforms(logical, progress, nearer),
+            uniforms(screen.logical, progress, nearer),
         ))
     }
 }

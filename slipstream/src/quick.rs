@@ -484,15 +484,14 @@ impl QuickSettings {
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        width: i32,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         facts: Facts,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (width, scale, now) = (frame.size.w, frame.scale, frame.time);
         if !self.open {
             return None;
         }

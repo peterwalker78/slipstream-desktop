@@ -218,6 +218,7 @@ struct Agent {
 
 #[interface(name = "org.freedesktop.PolicyKit1.AuthenticationAgent")]
 impl Agent {
+    // The arguments are the D-Bus method's own.
     #[allow(clippy::too_many_arguments)]
     async fn begin_authentication(
         &self,

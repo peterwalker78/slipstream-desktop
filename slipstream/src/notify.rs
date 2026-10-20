@@ -119,6 +119,7 @@ impl Server {
             .to_vec()
     }
 
+    // The arguments are the D-Bus method's own.
     #[allow(clippy::too_many_arguments)]
     async fn notify(
         &self,

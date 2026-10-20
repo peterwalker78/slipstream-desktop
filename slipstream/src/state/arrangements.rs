@@ -165,7 +165,12 @@ impl Slipstream {
             let pictures = self.arrangement_pictures(&arrange.window, arrange.workspace);
             let ring = self.panel_ring();
             let key = self.key_name(crate::keys::Action::ToggleGravity);
-            arrange.element(renderer, screen, scale, now, ring, pictures, key)
+            let frame = crate::panel::Frame {
+                size: screen,
+                scale,
+                time: now,
+            };
+            arrange.element(renderer, frame, ring, pictures, key)
         } else {
             None
         };

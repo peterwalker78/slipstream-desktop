@@ -185,14 +185,13 @@ impl LowCard {
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card(now);
         let fresh = self
             .shown

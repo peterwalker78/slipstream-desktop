@@ -13,7 +13,6 @@ pub(super) struct GlyphCache {
 }
 
 impl GlyphCache {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn draw(
         &mut self,
         pixels: &mut [u8],
@@ -80,7 +79,6 @@ pub(super) fn fill(
 }
 
 /// Adds `rgb` over a rectangle, `weight` of the way from the background (1 paints it solid).
-#[allow(clippy::too_many_arguments)]
 pub(super) fn ink_fill(
     pixels: &mut [u8],
     width: usize,

@@ -155,7 +155,6 @@ pub struct Contrails {
 impl Contrails {
     /// Lays down one flight's trail at `t`, and raises each letter's entry in `lit` to how brightly
     /// the trail lights it.
-    #[allow(clippy::too_many_arguments)]
     fn trail(
         letter_at: &[Option<usize>],
         layout: &Layout,

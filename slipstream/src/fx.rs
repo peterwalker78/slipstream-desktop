@@ -254,9 +254,11 @@ impl Fx {
             texture,
             &mut self.broken,
             &elements,
-            texpx.to_f64().to_logical(scale).to_i32_round(),
-            texpx,
-            scale,
+            tilt::Sizes {
+                logical: texpx.to_f64().to_logical(scale).to_i32_round(),
+                physical: texpx,
+                scale,
+            },
             "a closing window",
         )?;
         let corner = rect.loc.to_physical(scale).to_i32_round::<i32>();

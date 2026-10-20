@@ -475,7 +475,6 @@ fn fall_speed(busy: f32) -> f32 {
 }
 
 /// Code rain: three columns of glyphs, a bright head and a fading tail.
-#[allow(clippy::too_many_arguments)]
 fn glyphs(
     p: &mut Painter,
     stream: &Stream,
@@ -520,7 +519,6 @@ fn glyphs(
 }
 
 /// Slipstream's own effects: streaks of light falling at different depths.
-#[allow(clippy::too_many_arguments)]
 fn streaks(
     p: &mut Painter,
     stream: &Stream,
@@ -569,7 +567,6 @@ fn streaks(
 }
 
 /// One window, drawn as its app, `k` times its natural size.
-#[allow(clippy::too_many_arguments)]
 fn window(
     p: &mut Painter,
     kind: Kind,
@@ -594,7 +591,6 @@ fn window(
 type Span = (&'static str, u32);
 
 /// A terminal's lines of coloured spans, top down, as many as fit.
-#[allow(clippy::too_many_arguments)]
 fn lines(
     p: &mut Painter,
     x: f32,
@@ -633,7 +629,6 @@ const DOLLAR: Span = (" $ ", DIM);
 /// The command typed in the lesson about typing.
 const COMMAND: &str = "git commit -m \"Fix the login redirect\"";
 
-#[allow(clippy::too_many_arguments)]
 fn terminal(
     p: &mut Painter,
     x: f32,
@@ -696,7 +691,6 @@ fn terminal(
 }
 
 /// Lines of prose as grey bars, `widths` long in shares of `w`, as many as fit above `bottom`.
-#[allow(clippy::too_many_arguments)]
 fn prose(
     p: &mut Painter,
     x: f32,

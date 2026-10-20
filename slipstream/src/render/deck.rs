@@ -128,8 +128,7 @@ pub(super) fn deck_elements_for(
             &deck.windows[*i],
             pose,
             &eye,
-            output_geo.size,
-            scale,
+            view.sizes(),
             &look,
         ) {
             elements.push(OutputElement::Shaded(element));

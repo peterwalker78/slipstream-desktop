@@ -66,24 +66,21 @@ impl Piece {
         })
     }
 
-    /// The piece centred across `width` with its top at `y` (logical), grown by `grow` about the
-    /// screen's centre `centre`, and moved `dx` across.
-    #[allow(clippy::too_many_arguments)]
+    /// The piece centred across `width` with its top at `y` (logical), shown as `shown` says
+    /// about the screen's centre `centre`.
     fn element<R>(
         &self,
         renderer: &mut R,
-        width: i32,
-        y: f64,
+        (width, y): (i32, f64),
         centre: (f64, f64),
-        grow: f64,
-        dx: f64,
         scale: f64,
-        alpha: f32,
+        shown: Shown,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let Shown { alpha, grow, dx } = shown;
         let x = ((width - self.logical.w) / 2) as f64 + dx;
         let at = Point::<f64, Logical>::from((
             centre.0 + (x - centre.0) * grow,
@@ -145,17 +142,23 @@ fn keep(slot: &mut Option<Piece>, key: String, paint: impl FnOnce(String) -> Opt
     }
 }
 
+/// How the card is shown as the lock comes and goes: at `alpha`, grown by `grow` about the
+/// screen's centre, with the password pill moved `dx` across as it shakes.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Shown {
+    pub alpha: f32,
+    pub grow: f64,
+    pub dx: f64,
+}
+
 impl Card {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn elements<R>(
         &mut self,
         renderer: &mut R,
         view: &View,
         size: Size<i32, Logical>,
         scale: f64,
-        alpha: f32,
-        grow: f64,
-        dx: f64,
+        shown: Shown,
     ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -199,18 +202,21 @@ impl Card {
         let hint_y = pill_y + (PILL_H + GAP) as f64;
         let centre = (size.w as f64 / 2.0, size.h as f64 / 2.0);
         let place = [
-            (&self.top, TOP as f64, 0.0),
-            (&self.user, user_y, 0.0),
-            (&self.pill, pill_y, dx),
-            (&self.hint, hint_y, 0.0),
-            (&self.status, status_y, 0.0),
+            (&self.top, TOP as f64, false),
+            (&self.user, user_y, false),
+            (&self.pill, pill_y, true),
+            (&self.hint, hint_y, false),
+            (&self.status, status_y, false),
         ];
+        // Only the pill shakes.
+        let still = Shown { dx: 0.0, ..shown };
         place
             .into_iter()
-            .filter_map(|(piece, y, dx)| {
+            .filter_map(|(piece, y, shakes)| {
+                let shown = if shakes { shown } else { still };
                 piece
                     .as_ref()?
-                    .element(renderer, size.w, y * px, centre, grow, dx, scale, alpha)
+                    .element(renderer, (size.w, y * px), centre, scale, shown)
             })
             .collect()
     }

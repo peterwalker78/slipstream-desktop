@@ -86,9 +86,11 @@ pub(super) fn lock_elements(
             saver
                 .element(
                     renderer,
-                    output_geo.size,
-                    scale.x,
-                    now,
+                    crate::panel::Frame {
+                        size: output_geo.size,
+                        scale: scale.x,
+                        time: now,
+                    },
                     crate::lock::WALLPAPER_GLOW,
                     false,
                     false,
@@ -110,7 +112,8 @@ pub(super) fn unlock_zoom(
     zoom: f64,
     opacity: f32,
 ) -> Option<TextureRenderElement<GlesTexture>> {
-    let (logical, physical, scale) = (view.geo.size, view.physical, view.scale.x);
+    let screen = view.sizes();
+    let (logical, physical, scale) = (screen.logical, screen.physical, screen.scale);
     if chrome.unlock_broken {
         return None;
     }
@@ -119,9 +122,7 @@ pub(super) fn unlock_zoom(
         &mut chrome.unlock,
         &mut chrome.unlock_broken,
         pane,
-        logical,
-        physical,
-        scale,
+        screen,
         "the unlock",
     )?;
     let texture = &chrome.unlock.as_ref()?.texture;

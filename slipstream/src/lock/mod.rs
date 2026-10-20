@@ -34,7 +34,7 @@ use crate::{
     motion::{HYPR, REDUCED_FADE},
     panel::DESIGN_PX,
 };
-use card::{Card, View};
+use card::{Card, Shown, View};
 
 /// The longest password the pill takes, in bytes.
 const PASSWORD_LIMIT: usize = 512;
@@ -381,7 +381,7 @@ impl<W> Lock<W> {
         let alpha = self.shown(now);
         let dx = self.shake(now);
         self.card
-            .elements(renderer, &view, size, scale, alpha, 1.0, dx)
+            .elements(renderer, &view, size, scale, Shown { alpha, grow: 1.0, dx })
     }
 
     /// The card as it was at the moment of unlocking, to fade out.
@@ -467,7 +467,7 @@ impl Unlocking {
             return Vec::new();
         }
         self.card
-            .elements(renderer, &self.view, size, scale, alpha, grow, 0.0)
+            .elements(renderer, &self.view, size, scale, Shown { alpha, grow, dx: 0.0 })
     }
 }
 

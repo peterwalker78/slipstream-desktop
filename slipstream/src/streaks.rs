@@ -481,7 +481,6 @@ fn add(sum: &mut [f32], w: usize, x: usize, y: usize, rgb: [f32; 3], amount: f32
 
 /// One row of a streak `half` pixels either side of `x`, each pixel covered as far as the streak
 /// covers it, so fine streaks between pixels stay smooth.
-#[allow(clippy::too_many_arguments)]
 fn column(
     sum: &mut [f32],
     w: usize,

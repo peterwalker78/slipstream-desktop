@@ -600,11 +600,9 @@ impl Rain {
                 0..0,
                 tip.element(
                     renderer,
-                    &stream.name,
-                    stream.meter.figures,
+                    (&stream.name, stream.meter.figures),
                     column,
-                    screen,
-                    top,
+                    (screen, top),
                     scale,
                     ui,
                 ),

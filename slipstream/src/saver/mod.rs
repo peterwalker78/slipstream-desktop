@@ -500,13 +500,10 @@ impl Saver {
     /// The wallpaper for a screen `size` logical pixels big, at `alpha`. While `paused` (under a
     /// fullscreen window) it keeps its last frame. With `tween` (bullet time slowing the clock, so
     /// a step lasts many frames) cells fade from one step to the next rather than switching.
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        size: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         alpha: f32,
         paused: bool,
         tween: bool,
@@ -515,6 +512,7 @@ impl Saver {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (size, scale, now) = (frame.size, frame.scale, frame.time);
         let now = self.paced(now);
         let device = (
             (size.w as f64 * scale).round() as usize,

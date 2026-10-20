@@ -140,7 +140,6 @@ pub fn run(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compose(
     variation: &mut dyn super::Variation,
     layout: &Layout,

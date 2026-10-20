@@ -582,7 +582,6 @@ struct Target<'a> {
 }
 
 impl Target<'_> {
-    #[allow(clippy::too_many_arguments)]
     fn glyph(
         &mut self,
         glyphs: &mut Glyphs,

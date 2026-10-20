@@ -218,13 +218,10 @@ fn scroll_to_show(scroll: usize, selected: usize, count: usize, across: usize) -
 impl<W> Switcher<W> {
     /// The card, centred on a screen `screen` big, with `tiles` for the windows in order. `icon`
     /// finds an app's icon at a size in device pixels, and is asked only when the card repaints.
-    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        screen: Size<i32, Logical>,
-        scale: f64,
-        now: f64,
+        frame: crate::panel::Frame,
         ring: u32,
         tiles: Vec<Tile>,
         icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>,
@@ -233,6 +230,7 @@ impl<W> Switcher<W> {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         let across = across(screen.w, tiles.len());
         self.scroll = scroll_to_show(self.scroll, self.selected, tiles.len(), across);
         let look = Look {
@@ -399,7 +397,12 @@ impl Slipstream {
                 .collect();
             let ring = self.panel_ring();
             let explorer = &mut self.explorer;
-            switcher.element(renderer, screen, scale, now, ring, tiles, &mut |id, px| {
+            let frame = crate::panel::Frame {
+                size: screen,
+                scale,
+                time: now,
+            };
+            switcher.element(renderer, frame, ring, tiles, &mut |id, px| {
                 explorer.app_icon(id, px)
             })
         } else {
