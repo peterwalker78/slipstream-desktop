@@ -84,6 +84,23 @@ pub struct Slot {
     painted: Option<(Shown, paint::Painted)>,
 }
 
+/// How a slot looks this frame, beyond where it is and how big.
+pub struct Appearance<'a> {
+    pub alpha: f32,
+    /// Whether the keyboard is in the docked pane, which edges the slot in `ring`'s colour.
+    pub keyboard: bool,
+    pub ring: [f32; 3],
+    pub reduced_motion: bool,
+    /// The load shown for every app, when one is.
+    pub demand: Option<f32>,
+    /// The light the streams are drawn in.
+    pub light: (Effects, Option<&'a mut Glyphs>),
+    /// The light is shown between these two shares of the strip's length.
+    pub lit: (f32, f32),
+    /// How much of the landing's white lights the edge.
+    pub flash: f32,
+}
+
 impl Slot {
     /// A slot for an app called `name` whose process is `pid`, from `now` on the animation clock.
     pub fn new(name: String, pid: Option<u32>, now: f64) -> Self {
@@ -98,12 +115,8 @@ impl Slot {
         }
     }
 
-    /// The strip `width` logical pixels wide with its corner at `at`, lit for the app's load now
-    /// (or `demand`, when a load is being shown for every app), in the light the streams are
-    /// drawn in. Its edge is in `ring`'s colour while the `keyboard` is in the docked pane.
-    /// The light is shown between `lit`'s two shares of the strip's length, and the edge is
-    /// lit by `flash` of the landing's white.
-    #[allow(clippy::too_many_arguments)]
+    /// The strip `width` logical pixels wide with its corner at `at`, as `look` says, lit for
+    /// the app's load now (or `look.demand`, when a load is being shown for every app).
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
@@ -111,18 +124,22 @@ impl Slot {
         width: i32,
         scale: f64,
         now: f64,
-        alpha: f32,
-        keyboard: bool,
-        ring: [f32; 3],
-        reduced_motion: bool,
-        demand: Option<f32>,
-        (effects, glyphs): (Effects, Option<&mut Glyphs>),
-        (lit, flash): ((f32, f32), f32),
+        look: Appearance<'_>,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let Appearance {
+            alpha,
+            keyboard,
+            ring,
+            reduced_motion,
+            demand,
+            light: (effects, glyphs),
+            lit,
+            flash,
+        } = look;
         self.meter.refresh();
         let load = demand.unwrap_or(self.meter.load).clamp(0.0, 1.0);
         let step = (load * STEPS).round() as u16;

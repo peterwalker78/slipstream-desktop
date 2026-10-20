@@ -29,7 +29,6 @@ pub(super) fn veil(
 /// Everything on a screen while it's locked, front to back: the plain pointer, then on the
 /// focused screen the volume and brightness display and the lock's card, then the veil and the
 /// living wallpaper. No window, pop-up, toast, bar or client cursor is read.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn lock_elements(
     state: &mut Slipstream,
     renderer: &mut GlesRenderer,
@@ -38,8 +37,8 @@ pub(super) fn lock_elements(
     chrome: &mut Chrome,
     saver: &mut crate::saver::Saver,
     cursor: Option<&mut Cursor>,
-    scale: Scale<f64>,
 ) -> Vec<OutputElement> {
+    let scale = Scale::from(output.current_scale().fractional_scale());
     let mut elements = Vec::new();
     let now = state.clock.now();
     let wall = state.wall();
@@ -103,17 +102,15 @@ pub(super) fn lock_elements(
 /// `pane`, the desktop, drawn into the screen's unlock texture and shown `zoom` of its size about
 /// the screen's centre at `opacity`. `None` when the texture can't be made, and the desktop is
 /// drawn plainly instead.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn unlock_zoom(
     renderer: &mut GlesRenderer,
     chrome: &mut Chrome,
     pane: &[OutputElement],
-    logical: Size<i32, Logical>,
-    physical: Size<i32, Physical>,
-    scale: f64,
+    view: &View,
     zoom: f64,
     opacity: f32,
 ) -> Option<TextureRenderElement<GlesTexture>> {
+    let (logical, physical, scale) = (view.geo.size, view.physical, view.scale.x);
     if chrome.unlock_broken {
         return None;
     }

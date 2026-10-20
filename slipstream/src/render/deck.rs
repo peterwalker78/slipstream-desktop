@@ -2,24 +2,18 @@
 
 use super::*;
 
-/// Alt+Tab's deck on the screen at `output_geo`: each window's pane, nearest first, the name of
+/// Alt+Tab's deck on `view`'s screen: each window's pane, nearest first, the name of
 /// the one at the front, and the dark behind them all. The panes lift from where their windows
 /// are drawn and fly back there.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn deck_elements_for(
     state: &mut Slipstream,
     chrome: &mut Chrome,
     renderer: &mut GlesRenderer,
     deck: &mut crate::deck::Deck<Window>,
-    output_geo: Rectangle<i32, Logical>,
-    scale: f64,
-    now: f64,
-    wall: f64,
-    camera: f64,
-    step: f64,
-    rain_output: bool,
-    ui_alpha: f32,
+    view: &View,
 ) -> Vec<OutputElement> {
+    let (output_geo, scale, now, wall) = (view.geo, view.scale.x, view.now, view.wall);
+    let (camera, step, rain_output, ui_alpha) = (view.camera, view.step, view.rain, view.ui_alpha);
     use crate::pane::{Look, Pose};
     let screen = (output_geo.size.w as f64, output_geo.size.h as f64);
     let eye = crate::deck::camera(screen);

@@ -83,6 +83,18 @@ pub struct Fx {
     atlas: Option<Atlas>,
 }
 
+/// A closed window falling away in `effects`, `t` seconds in. It was drawn at `rect` on a screen
+/// whose bottom edge is `bottom`, both in the screen's own logical pixels; what falls, falls off
+/// that edge.
+#[derive(Clone, Copy)]
+pub struct Fall {
+    pub effects: Effects,
+    pub rect: Rectangle<f64, Logical>,
+    pub bottom: f64,
+    pub scale: f64,
+    pub t: f64,
+}
+
 impl Fx {
     /// Whether a closing window can fall away, compiling the shaders the first time.
     pub fn ready(&mut self, renderer: &mut GlesRenderer) -> bool {
@@ -182,21 +194,22 @@ impl Fx {
         .map(OutputElement::Memory)
     }
 
-    /// A closed window's last picture, `elements` laid out from its corner, falling away in
-    /// `effects` `t` seconds in. It was drawn at `rect` on a screen whose bottom edge is `bottom`,
-    /// both in the screen's own logical pixels; what falls, falls off that edge.
-    #[allow(clippy::too_many_arguments)]
+    /// A closed window's last picture, `elements` laid out from its corner, falling away as
+    /// `falling` says.
     pub fn fall(
         &mut self,
         renderer: &mut GlesRenderer,
-        effects: Effects,
         texture: &mut Option<tilt::Canvas>,
         mut elements: Vec<OutputElement>,
-        rect: Rectangle<f64, Logical>,
-        bottom: f64,
-        scale: f64,
-        t: f64,
+        falling: &Fall,
     ) -> Option<TextureShaderElement> {
+        let Fall {
+            effects,
+            rect,
+            bottom,
+            scale,
+            t,
+        } = *falling;
         if !self.ready(renderer) {
             return None;
         }
