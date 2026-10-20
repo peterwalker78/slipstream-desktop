@@ -78,6 +78,8 @@ struct Gpu {
     manager: DrmOutputManager<Allocator, Exporter, Option<OutputPresentationFeedback>, DrmDeviceFd>,
     scanner: DrmScanner,
     renderer: GlesRenderer,
+    /// The node the renderer draws on, which client buffers are allocated for.
+    render_node: DrmNode,
     screens: HashMap<crtc::Handle, Screen>,
     token: RegistrationToken,
 }
@@ -112,6 +114,9 @@ struct Screen {
     vrr: crate::vrr::Adaptive,
     /// The last frame put a fullscreen window's buffer straight on the screen.
     scanned_out: bool,
+    /// What windows on this screen are told about buffer formats; only screens on the primary
+    /// GPU, whose renderer imports client buffers, have any.
+    dmabuf_feedback: Option<crate::scanout::Feedback>,
 }
 
 impl Screen {
@@ -379,6 +384,7 @@ impl Slipstream {
                 manager,
                 scanner: DrmScanner::new(),
                 renderer,
+                render_node,
                 screens: HashMap::new(),
                 token,
             },
@@ -430,6 +436,7 @@ impl Slipstream {
             }
             return;
         }
+        let primary = self.udev.as_ref().and_then(|udev| udev.primary);
         let Some(gpu) = self.udev.as_mut().and_then(|udev| udev.gpus.get_mut(&node)) else {
             return;
         };
@@ -502,6 +509,25 @@ impl Slipstream {
                 return;
             }
         };
+        let dmabuf_feedback = (primary == Some(node))
+            .then(|| {
+                let plane_formats = drm_output.with_compositor(|compositor| {
+                    compositor.surface().plane_info().formats.clone()
+                });
+                crate::scanout::Feedback::new(
+                    gpu.render_node.dev_id(),
+                    gpu.renderer.dmabuf_formats(),
+                    node.dev_id(),
+                    &plane_formats,
+                )
+            })
+            .and_then(|built| {
+                built
+                    .inspect_err(|err| {
+                        tracing::warn!(output = name, "no scanout feedback for this screen: {err}")
+                    })
+                    .ok()
+            });
         let vrr_capable = match drm_output
             .with_compositor(|compositor| compositor.vrr_supported(connector.handle()))
         {
@@ -550,6 +576,7 @@ impl Slipstream {
                 vrr_capable,
                 vrr: Default::default(),
                 scanned_out: false,
+                dmabuf_feedback,
             },
         );
         self.screen_connected(&screen_output, x);
@@ -819,6 +846,14 @@ impl Slipstream {
                 screen.scanned_out = fullscreen
                     .as_ref()
                     .is_some_and(|window| crate::vrr::scanned_out(window, &frame.states));
+                if let Some(feedback) = &screen.dmabuf_feedback {
+                    self.send_dmabuf_feedback(
+                        &output,
+                        fullscreen.as_ref(),
+                        &frame.states,
+                        feedback,
+                    );
+                }
                 drew = !frame.is_empty;
                 if !frame.is_empty {
                     let feedback = self.presentation_feedback(&output, &frame.states);

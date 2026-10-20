@@ -82,6 +82,7 @@ mod render;
 mod restore;
 mod resume;
 mod saver;
+mod scanout;
 mod scope;
 mod screen;
 mod screencopy;
