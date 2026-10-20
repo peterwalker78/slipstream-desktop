@@ -140,7 +140,7 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
         holds: &[
             "Version",
             "Settings file",
-            "How much it weighs",
+            "Bloat score",
             "Where its code goes",
         ],
     },

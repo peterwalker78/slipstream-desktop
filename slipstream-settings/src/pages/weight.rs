@@ -53,8 +53,8 @@ pub(super) fn section(page: &gtk::Box) {
     heading.append(&verdict);
     heading.append(&label(
         &format!(
-            "Lower is leaner. Memory, pieces to install and code, weighed against {} other \
-             desktops; some of their figures are estimates.",
+            "How we make sure Slipstream stays lightweight. Lower is leaner: memory, pieces to \
+             install and code, against {} other desktops, some from estimates.",
             OTHERS.len()
         ),
         "row-sub",
@@ -160,10 +160,10 @@ pub(super) fn section(page: &gtk::Box) {
         let place = weight::place(score);
         let of = OTHERS.len() + 1;
         verdict.set_text(&if place == 1 {
-            format!("How much it weighs: {score:.0} out of 100, the leanest of {of}")
+            format!("Bloat score: {score:.0} out of 100, the leanest of {of}")
         } else {
             format!(
-                "How much it weighs: {score:.0} out of 100, the {} leanest of {of}",
+                "Bloat score: {score:.0} out of 100, the {} leanest of {of}",
                 ordinal(place)
             )
         });

@@ -18,22 +18,26 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         "Mouse & keyboard",
         "How the pointer moves and scrolls, and how the keys type",
     );
-    mouse(&group(&page, "Mouse"), store);
     // A desktop with no touchpad has nothing to set here. Where it can't be told, it's shown.
-    if touchpad_present(udev_input_records()) != Some(false) {
+    // On a laptop the touchpad is the pointer most of the time, so it comes first, and the mouse
+    // settings say they leave it alone.
+    let has_touchpad = touchpad_present(udev_input_records()) != Some(false);
+    if has_touchpad {
         touchpad(&group(&page, "Touchpad"), store);
     }
+    mouse(&group(&page, "Mouse"), store, has_touchpad);
     typing(&group(&page, "Typing"), store);
     fill_layouts(&group(&page, "Layouts"), store);
     page.upcast()
 }
 
-fn mouse(card: &gtk::Box, store: &Store) {
+fn mouse(card: &gtk::Box, store: &Store, has_touchpad: bool) {
     let mouse = store.get().mouse;
     let speed = speed_scale(mouse.speed(), store, |settings, speed| {
         settings.mouse.speed = speed
     });
-    row(card, "Pointer speed", None, &speed);
+    let note = has_touchpad.then_some("For a mouse plugged in. The touchpad has its own, above.");
+    row(card, "Pointer speed", note, &speed);
 
     let names: Vec<&str> = Acceleration::ALL.iter().map(|it| it.label()).collect();
     let acceleration = gtk::DropDown::from_strings(&names);
