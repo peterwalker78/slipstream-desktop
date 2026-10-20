@@ -64,7 +64,7 @@ pub const LESSONS: [Lesson; 14] = [
         chapter: 0,
         title: "Keys your hands already know",
         why: "Coming from Windows, a Mac or Omarchy? Pick one and the desktop's keys follow the \
-              habits you already have, in this tour and everywhere else. The Keyboard page in \
+              habits you already have, in this tour and everywhere else. The Shortcuts page in \
               Settings changes it later.",
         habit: None,
         // The choice is drawn in place of keys to try.
