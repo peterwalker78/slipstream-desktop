@@ -143,8 +143,9 @@ impl Slipstream {
             tracing::debug!(window = logged_app(window), "no focus while locked");
             return;
         }
-        // Nor while the password card is up: it gives the keyboard back when it goes.
-        if self.polkit.is_up() {
+        // Nor while the password card is up, or keys are settling after it: the keyboard goes back
+        // when they're done.
+        if self.polkit.takes_keys() {
             tracing::debug!(
                 window = logged_app(window),
                 "no focus while a password is asked"

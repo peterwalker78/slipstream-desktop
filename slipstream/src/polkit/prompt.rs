@@ -48,6 +48,8 @@ pub enum Key {
     /// Typing, erasing, clearing (Ctrl+U) or Enter.
     Field(lock::Key),
     Cancel,
+    /// Shift+Esc: this question and every one waiting behind it.
+    CancelAll,
     Next,
     Previous,
 }
@@ -56,6 +58,7 @@ pub enum Key {
 /// it, as for the lock's password.
 pub fn key_for(latin: Keysym, sym: Keysym, mods: &ModifiersState) -> Key {
     match latin {
+        Keysym::Escape if mods.shift => Key::CancelAll,
         Keysym::Escape => Key::Cancel,
         Keysym::ISO_Left_Tab | Keysym::Up => Key::Previous,
         Keysym::Tab if mods.shift => Key::Previous,
@@ -71,6 +74,7 @@ pub enum Act {
     /// Send the password, if the check is ready for it.
     Submit,
     Cancel,
+    CancelAll,
     /// Someone else was chosen to answer: the check starts again for them.
     Chose,
 }
@@ -108,7 +112,8 @@ pub struct Prompt {
     hits: Vec<Hit>,
     shown: Option<(Card, Size<i32, Logical>, f64)>,
     painted: Option<Painted>,
-    shade: SolidColorBuffer,
+    /// The shade on each screen, by name.
+    shades: std::collections::HashMap<String, SolidColorBuffer>,
 }
 
 impl Prompt {
@@ -136,7 +141,7 @@ impl Prompt {
             hits: Vec::new(),
             shown: None,
             painted: None,
-            shade: SolidColorBuffer::new((0, 0), SHADE),
+            shades: Default::default(),
         }
     }
 
@@ -155,6 +160,7 @@ impl Prompt {
         }
         match key {
             Key::Cancel => Act::Cancel,
+            Key::CancelAll => Act::CancelAll,
             Key::Next => self.choose_by(1),
             Key::Previous => self.choose_by(-1),
             Key::Field(lock::Key::Type(ch)) => {
@@ -257,7 +263,12 @@ impl Prompt {
     /// waits for Enter.
     pub fn asks(&mut self, echo: bool, prompt: String) -> Option<Zeroizing<Vec<u8>>> {
         self.asked = Some((echo, prompt));
-        if self.submitted && !echo {
+        if echo {
+            // Whatever was typed ahead was typed as a password: it is never shown in plain text,
+            // nor kept to go to a hidden prompt later.
+            self.password.clear();
+            self.submitted = false;
+        } else if self.submitted {
             return self.answer();
         }
         if self.line == Line::Checking {
@@ -354,18 +365,26 @@ impl Prompt {
         }
     }
 
-    /// The card, and the shade behind it over the whole screen.
-    pub fn elements<R>(
+    /// How far in the card is at `now`: its opacity, and how far below its place it still is.
+    fn arrival(&self, now: f64) -> (f32, f64) {
+        let since = now - self.since;
+        if self.reduced_motion {
+            ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
+        } else {
+            let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
+            (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
+        }
+    }
+
+    /// The card, in the middle of the screen it is asked on.
+    pub fn element<R>(
         &mut self,
         renderer: &mut R,
         screen: Size<i32, Logical>,
         scale: f64,
         now: f64,
         ring: u32,
-    ) -> (
-        Option<MemoryRenderBufferRenderElement<R>>,
-        SolidColorRenderElement,
-    )
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -381,30 +400,32 @@ impl Prompt {
             self.painted = painted;
             self.shown = Some((card, screen, scale));
         }
-        let since = now - self.since;
-        let (alpha, rise) = if self.reduced_motion {
-            ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
-        } else {
-            let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-            (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
-        };
-        self.shade.update(screen, SHADE);
-        let shade = SolidColorRenderElement::from_buffer(
-            &self.shade,
-            (0, 0),
-            scale,
-            alpha,
-            Kind::Unspecified,
-        );
-        let Some(painted) = self.painted.as_ref() else {
-            return (None, shade);
-        };
+        let (alpha, rise) = self.arrival(now);
+        let painted = self.painted.as_ref()?;
         self.at = Point::from((
             ((screen.w - painted.logical.w) / 2) as f64,
             ((screen.h - painted.logical.h) / 2).max(0) as f64,
         ));
         let at = self.at + Point::from((0.0, rise * DESIGN_PX as f64));
-        (painted.element(renderer, at, alpha), shade)
+        painted.element(renderer, at, alpha)
+    }
+
+    /// The shade over the whole of the screen called `output`: every screen is shaded, not only
+    /// the one the card is on.
+    pub fn shade(
+        &mut self,
+        output: &str,
+        screen: Size<i32, Logical>,
+        scale: f64,
+        now: f64,
+    ) -> SolidColorRenderElement {
+        let (alpha, _) = self.arrival(now);
+        let buffer = self
+            .shades
+            .entry(output.to_string())
+            .or_insert_with(|| SolidColorBuffer::new(screen, SHADE));
+        buffer.update(screen, SHADE);
+        SolidColorRenderElement::from_buffer(buffer, (0, 0), scale, alpha, Kind::Unspecified)
     }
 }
 
@@ -556,5 +577,41 @@ mod tests {
         prompt.key(Key::Field(lock::Key::Submit), DEAF);
         assert!(prompt.answer().is_none());
         assert!(prompt.asks(true, "Name:".into()).is_none());
+    }
+
+    /// A password typed before the check asks is typed as a password: if the first thing asked
+    /// is shown as it's typed, the password is wiped rather than shown, and never goes on to a
+    /// hidden prompt that comes after.
+    #[test]
+    fn a_password_typed_ahead_is_never_shown_in_plain_text() {
+        let mut prompt = prompt(vec![identity(1000, "alex", "")]);
+        typed(&mut prompt, "s3cret");
+        prompt.key(Key::Field(lock::Key::Submit), DEAF);
+        assert!(prompt.answer().is_none(), "kept until asked");
+        assert!(prompt.asks(true, "Login:".into()).is_none());
+        assert_eq!(prompt.card(0).field.unwrap().shown, "");
+        assert!(prompt.password.is_empty());
+        assert!(
+            prompt.asks(false, "Password:".into()).is_none(),
+            "nor sent to the hidden prompt after"
+        );
+    }
+
+    #[test]
+    fn shift_esc_cancels_everything_waiting() {
+        let mods = ModifiersState {
+            shift: true,
+            ..ModifiersState::default()
+        };
+        assert_eq!(
+            key_for(Keysym::Escape, Keysym::Escape, &mods),
+            Key::CancelAll
+        );
+        let mut prompt = prompt(vec![identity(1000, "alex", "")]);
+        assert_eq!(prompt.key(Key::CancelAll, DEAF), Act::CancelAll);
+        assert_eq!(
+            key_for(Keysym::Escape, Keysym::Escape, &ModifiersState::default()),
+            Key::Cancel
+        );
     }
 }

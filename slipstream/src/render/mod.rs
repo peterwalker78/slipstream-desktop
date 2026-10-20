@@ -249,6 +249,8 @@ pub fn output_elements(
             // Slipstream's own cursor over a gap or during a drag, never over an overlay or the
             // lock.
             let status = match state.cursor_override {
+                // Over the password card only the plain cursor: one a client drew could cover it.
+                _ if state.polkit.is_up() => CursorImageStatus::default_named(),
                 Some(icon) if state.drag.is_some() || !state.pointer_blocked() => {
                     CursorImageStatus::Named(icon)
                 }
@@ -325,20 +327,21 @@ pub fn output_elements(
     // windows' on the way out and leads it back.
     let bar_apart = glass && rain_output && zoomed_out <= 0.0 && state.docked_on_show().is_some();
     let mut bar_pane: Vec<OutputElement> = Vec::new();
+    // The password card in front of everything but the pointer, other programs' overlays
+    // included, so nothing can be drawn over what it says. The rest of the screen is shaded behind
+    // it, the bar and every other card too, and every other screen.
+    let ring = state.panel_ring();
+    if let Some(prompt) = state.polkit.prompt.as_mut() {
+        if first_output {
+            let card = prompt.element(renderer, output_geo.size, scale.x, wall, ring);
+            elements.extend(card.map(OutputElement::Memory));
+        }
+        let shade = prompt.shade(&output.name(), output_geo.size, scale.x, wall);
+        elements.push(OutputElement::Solid(shade));
+    }
     // Other programs' launchers, pickers and panels in front of everything of the desktop's, and
     // their docks and wallpapers behind the windows, all inside the pane that fades. Not in
     // bullet time, which is the desktop's own.
-    // The password card in front of everything but the pointer, other programs' overlays
-    // included, so nothing can be drawn over what it says. The rest of the screen is shaded behind
-    // it, the bar and every other card too.
-    if first_output {
-        let ring = state.panel_ring();
-        if let Some(prompt) = state.polkit.prompt.as_mut() {
-            let (card, shade) = prompt.elements(renderer, output_geo.size, scale.x, wall, ring);
-            elements.extend(card.map(OutputElement::Memory));
-            elements.push(OutputElement::Solid(shade));
-        }
-    }
     // A snip being chosen is in front of everything but the pointer; fragments of one just taken
     // fly in front of that.
     elements.extend(state.snip_flight_elements(renderer, output));

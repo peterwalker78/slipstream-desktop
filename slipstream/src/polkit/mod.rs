@@ -155,8 +155,14 @@ pub struct Request {
     pub message: String,
     /// Who may answer: never empty.
     pub identities: Vec<Identity>,
+    /// The action asked for and the process asking, which tell a repeat of a question that was
+    /// just dismissed.
+    source: Source,
     reply: Option<Reply>,
 }
+
+/// An action's ID and the asking process's pid, as polkit gives them.
+type Source = (String, String);
 
 impl Request {
     /// A question nobody is waiting on, for the card's debug step and tests: answering it checks
@@ -166,6 +172,7 @@ impl Request {
             cookie: String::new(),
             message,
             identities,
+            source: Source::default(),
             reply: None,
         }
     }
@@ -182,6 +189,8 @@ pub enum Event {
     Begin(Box<Request>),
     /// polkit has given up on the question with this cookie.
     Cancel(String),
+    /// polkit has gone from the bus, and every question with it.
+    Gone,
     /// The helper said something during check number `attempt`.
     Helper {
         attempt: u64,
@@ -215,12 +224,13 @@ impl Agent {
         action_id: String,
         message: String,
         _icon_name: String,
-        _details: HashMap<String, String>,
+        details: HashMap<String, String>,
         cookie: String,
         identities: Vec<(String, HashMap<String, OwnedValue>)>,
     ) -> Result<(), Refusal> {
         self.check_caller(connection, &header).await?;
-        let identities = users(&identities);
+        // SAFETY: getuid has no failure mode.
+        let identities = users(&identities, unsafe { libc::getuid() });
         if identities.is_empty() {
             return Err(Refusal::Failed(
                 "nobody polkit named has an account here".into(),
@@ -228,10 +238,16 @@ impl Agent {
         }
         tracing::info!(action = %action_id, "a program asked for a password");
         let (reply, waiting) = reply();
+        let asker = details
+            .get("polkit.subject-pid")
+            .or_else(|| details.get("polkit.caller-pid"))
+            .cloned()
+            .unwrap_or_default();
         let request = Request {
             cookie,
             message: plain(&message),
             identities,
+            source: (action_id, asker),
             reply: Some(reply),
         };
         // An event loop that has gone drops the request, which answers it.
@@ -285,8 +301,9 @@ impl Agent {
 }
 
 /// The people among polkit's identities: users only, since polkit has already turned groups into
-/// their members, each once, and only those with an account here.
-fn users(identities: &[(String, HashMap<String, OwnedValue>)]) -> Vec<Identity> {
+/// their members, each once, and only those with an account here. Past `IDENTITIES` only `me`
+/// is still taken, so this user is always offered, and is then the one chosen to begin with.
+fn users(identities: &[(String, HashMap<String, OwnedValue>)], me: u32) -> Vec<Identity> {
     let mut found: Vec<Identity> = Vec::new();
     for (kind, details) in identities {
         if kind != "unix-user" {
@@ -301,11 +318,11 @@ fn users(identities: &[(String, HashMap<String, OwnedValue>)]) -> Vec<Identity> 
         if found.iter().any(|known| known.uid == uid) {
             continue;
         }
+        if found.len() >= IDENTITIES && uid != me {
+            continue;
+        }
         if let Some(identity) = identity(uid) {
             found.push(identity);
-        }
-        if found.len() == IDENTITIES {
-            break;
         }
     }
     found
@@ -372,9 +389,9 @@ fn locale() -> String {
 }
 
 /// Registers the agent for this login session and serves it, sending what polkit asks to
-/// `events`. Without polkit's helper there is nothing to check a password with, so it doesn't
-/// register at all; without polkit, or with another agent already registered for the session, it
-/// says so in the log and gives up.
+/// `events`, and registers again whenever polkit restarts, which forgets every agent. Without
+/// polkit's helper there is nothing to check a password with, so it doesn't register at all;
+/// with another agent already registered for the session, it says so in the log.
 pub fn serve(events: Sender<Event>) {
     if !helper::available() {
         tracing::warn!("polkit's helper isn't installed, so programs can't ask for a password");
@@ -382,35 +399,46 @@ pub fn serve(events: Sender<Event>) {
     }
     std::thread::spawn(move || {
         let agent = Agent {
-            events: Mutex::new(events),
+            events: Mutex::new(events.clone()),
             polkit_only: true,
         };
-        match register(agent) {
-            Ok(connection) => {
-                tracing::info!("answering polkit's password requests");
-                let _ = CONNECTION.set(connection);
+        let connected = zbus::blocking::connection::Builder::system()
+            .and_then(|builder| builder.serve_at(AGENT_PATH, agent))
+            .and_then(|builder| builder.build())
+            .and_then(|connection| session_id(&connection).map(|id| (connection, id)));
+        let (connection, session) = match connected {
+            Ok(connected) => connected,
+            Err(err) => {
+                tracing::warn!("couldn't answer polkit's password requests: {err}");
+                return;
             }
+        };
+        match register(&connection, &session) {
+            Ok(()) => tracing::info!("answering polkit's password requests"),
             Err(err) => tracing::warn!(
                 "couldn't register for polkit's password requests (another agent may have): {err}"
             ),
         }
+        let _ = CONNECTION.set(connection.clone());
+        follow_polkit(&connection, &session, &events);
     });
 }
 
-fn register(agent: Agent) -> zbus::Result<zbus::blocking::Connection> {
-    let connection = zbus::blocking::connection::Builder::system()?
-        .serve_at(AGENT_PATH, agent)?
-        .build()?;
-    let id = match std::env::var("XDG_SESSION_ID") {
-        Ok(id) if !id.is_empty() => id,
+/// This login session's ID, which the agent registers for.
+fn session_id(connection: &zbus::blocking::Connection) -> zbus::Result<String> {
+    match std::env::var("XDG_SESSION_ID") {
+        Ok(id) if !id.is_empty() => Ok(id),
         _ => {
-            let session = crate::logind::session_path(&connection)?;
-            crate::logind::session_id(&connection, &session)?
+            let session = crate::logind::session_path(connection)?;
+            crate::logind::session_id(connection, &session)
         }
-    };
+    }
+}
+
+fn register(connection: &zbus::blocking::Connection, session: &str) -> zbus::Result<()> {
     let subject = (
         "unix-session",
-        HashMap::from([("session-id", Value::from(id.as_str()))]),
+        HashMap::from([("session-id", Value::from(session))]),
     );
     connection.call_method(
         Some(AUTHORITY),
@@ -419,7 +447,49 @@ fn register(agent: Agent) -> zbus::Result<zbus::blocking::Connection> {
         "RegisterAuthenticationAgent",
         &(subject, locale(), AGENT_PATH),
     )?;
-    Ok(connection)
+    Ok(())
+}
+
+/// Follows polkit on and off the bus for as long as the session runs: when it goes, its questions
+/// go with it; when it comes back, the agent registers again. Only the bus itself can say a name
+/// has moved; a signal claiming it from anyone else is ignored.
+fn follow_polkit(connection: &zbus::blocking::Connection, session: &str, events: &Sender<Event>) {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.DBus")
+        .and_then(|rule| rule.interface("org.freedesktop.DBus"))
+        .and_then(|rule| rule.member("NameOwnerChanged"))
+        .and_then(|rule| rule.arg(0, AUTHORITY))
+        .map(|rule| rule.build());
+    let messages = rule.and_then(|rule| {
+        zbus::blocking::MessageIterator::for_match_rule(rule, connection, Some(8))
+    });
+    let messages = match messages {
+        Ok(messages) => messages,
+        Err(err) => {
+            tracing::warn!("couldn't follow polkit, so a restart of it goes unanswered: {err}");
+            return;
+        }
+    };
+    for message in messages.flatten() {
+        if message.header().sender().map(|name| name.as_str()) != Some("org.freedesktop.DBus") {
+            continue;
+        }
+        let Ok((name, _old, new)) = message.body().deserialize::<(String, String, String)>() else {
+            continue;
+        };
+        if name != AUTHORITY {
+            continue;
+        }
+        if new.is_empty() {
+            let _ = events.send(Event::Gone);
+            continue;
+        }
+        match register(connection, session) {
+            Ok(()) => tracing::info!("polkit restarted; answering its password requests again"),
+            Err(err) => tracing::warn!("polkit restarted, and couldn't register again: {err}"),
+        }
+    }
 }
 
 /// The agent's side of the session: the card, the questions waiting behind it, and the check
@@ -436,11 +506,71 @@ pub struct Polkit {
     attempts: u64,
     /// The check under way has been sent an answer.
     answered: bool,
+    /// Keys still being swallowed after a card went away by itself.
+    settle: Option<Settle>,
+    /// Questions dismissed lately, so the same one can't be put straight back up.
+    repeats: Repeats,
+}
+
+/// How long keys go on being swallowed after a card goes away by itself, counted from the last
+/// one typed.
+const SETTLE: f64 = 1.0;
+
+/// After a card is withdrawn, or closes without the Esc or Enter that ends it on purpose, keys
+/// are swallowed until `SETTLE` passes without one. Otherwise the rest of a password, and its
+/// Enter, would land in whatever window gets the keyboard back, which may be the very program
+/// that withdrew the question.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Settle {
+    last: f64,
+}
+
+impl Settle {
+    fn key(&mut self, now: f64) {
+        self.last = self.last.max(now);
+    }
+
+    /// How long until the keyboard can go back, or `None` if it can now.
+    fn left(&self, now: f64) -> Option<f64> {
+        let left = self.last + SETTLE - now;
+        (left > 0.0).then_some(left)
+    }
+}
+
+/// How long a dismissed question is refused if the same process asks it again.
+const REPEAT_QUIET: f64 = 10.0;
+
+/// The questions dismissed lately, by action and asking process: a program that puts the same
+/// question straight back up each time it is dismissed is refused for a while, rather than
+/// keeping the card in front of everything.
+#[derive(Debug, Default)]
+struct Repeats {
+    dismissed: Vec<(Source, f64)>,
+}
+
+impl Repeats {
+    fn dismissed(&mut self, source: &Source, now: f64) {
+        self.dismissed.retain(|(known, _)| known != source);
+        if self.dismissed.len() == 32 {
+            self.dismissed.remove(0);
+        }
+        self.dismissed.push((source.clone(), now));
+    }
+
+    fn refuses(&mut self, source: &Source, now: f64) -> bool {
+        self.dismissed.retain(|(_, at)| now - at < REPEAT_QUIET);
+        self.dismissed.iter().any(|(known, _)| known == source)
+    }
 }
 
 impl Polkit {
     pub fn is_up(&self) -> bool {
         self.prompt.is_some()
+    }
+
+    /// Whether every key is the agent's: the card is up, or has just gone by itself.
+    pub fn takes_keys(&self) -> bool {
+        self.prompt.is_some() || self.settle.is_some()
     }
 
     fn send(&mut self, answer: zeroize::Zeroizing<Vec<u8>>) {
@@ -464,6 +594,14 @@ impl Slipstream {
                     tracing::info!("password request cancelled: too many are waiting");
                     return;
                 }
+                let now = self.wall();
+                if self.polkit.repeats.refuses(&request.source, now) {
+                    tracing::info!(
+                        action = %request.source.0,
+                        "password request cancelled: asked again straight after it was dismissed"
+                    );
+                    return;
+                }
                 self.polkit.waiting.push_back(*request);
                 self.show_next_polkit();
             }
@@ -475,12 +613,19 @@ impl Slipstream {
                     .is_some_and(|prompt| prompt.request.cookie == cookie)
                 {
                     tracing::info!("polkit withdrew its password request");
-                    self.close_polkit(Answer::Cancelled);
+                    self.close_polkit(Answer::Cancelled, false);
                 } else {
                     self.polkit
                         .waiting
                         .retain(|request| request.cookie != cookie);
                 }
+            }
+            Event::Gone => {
+                if self.polkit.prompt.is_some() || !self.polkit.waiting.is_empty() {
+                    tracing::info!("polkit has gone, and its password requests with it");
+                }
+                self.polkit.waiting.clear();
+                self.close_polkit(Answer::Cancelled, false);
             }
             Event::Helper { attempt, said } => self.polkit_said(attempt, said),
         }
@@ -517,10 +662,25 @@ impl Slipstream {
         // A core dump taken while the password is in memory would hold it.
         // SAFETY: prctl with PR_SET_DUMPABLE and a plain integer.
         unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0) };
-        self.polkit.had_keyboard = self.focused_window();
+        // While keys were settling after the last card the keyboard was already nobody's, and
+        // the window that had it before that is still the one to give it back to.
+        if self.polkit.settle.take().is_none() {
+            self.polkit.had_keyboard = self.focused_window();
+        }
+        // A grab would keep a client's pointer, and its cursor, over the card: a menu's grab, or
+        // a button held down in a window. Ended as the lock ends them.
+        let pointer = self.seat.get_pointer().unwrap();
+        let keyboard = self.seat.get_keyboard().unwrap();
+        if pointer.is_grabbed() {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            pointer.unset_grab(self, serial, smithay::backend::input::InputTime::now());
+        }
+        if keyboard.is_grabbed() {
+            keyboard.unset_grab(self);
+        }
         self.clear_focus();
         // A cursor a client drew is its pixels, which could be drawn over the card. The pointer
-        // leaves whatever client it was over, so none can set another while the card is up.
+        // leaves whatever client it was over, and no client's cursor is taken while it is up.
         let at = self.pointer_location();
         self.pointer_moved_to(at, smithay::backend::input::InputTime::now());
         self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
@@ -585,7 +745,10 @@ impl Slipstream {
             Said::Error(text) => prompt.told(text, true),
             Said::Done(Verdict::Authenticated) => {
                 tracing::info!("password accepted for polkit");
-                self.close_polkit(Answer::Done);
+                // Ended by Enter if a password went; a fingerprint can end it with typing still
+                // under way.
+                let by_enter = self.polkit.answered;
+                self.close_polkit(Answer::Done, by_enter);
             }
             Said::Done(verdict) => {
                 tracing::info!(?verdict, "password not accepted for polkit");
@@ -635,7 +798,14 @@ impl Slipstream {
             Act::Nothing => {}
             Act::Cancel => {
                 tracing::info!("password request cancelled");
-                self.close_polkit(Answer::Cancelled);
+                self.dismissed_polkit(false);
+            }
+            Act::CancelAll => {
+                tracing::info!(
+                    waiting = self.polkit.waiting.len(),
+                    "password request cancelled, and every one waiting"
+                );
+                self.dismissed_polkit(true);
             }
             Act::Chose => {
                 self.start_polkit_check();
@@ -654,20 +824,89 @@ impl Slipstream {
         }
     }
 
-    /// Takes the card down, answers polkit, and gives the keyboard back; the next question
-    /// waiting, if any, comes up.
-    fn close_polkit(&mut self, answer: Answer) {
+    /// Esc, or Shift+Esc for every question waiting too. Each is remembered as dismissed, so the
+    /// same program asking the same again at once is refused.
+    fn dismissed_polkit(&mut self, all: bool) {
+        let now = self.wall();
+        if let Some(prompt) = &self.polkit.prompt {
+            self.polkit.repeats.dismissed(&prompt.request.source, now);
+        }
+        if all {
+            // Dropping each answers it.
+            for request in std::mem::take(&mut self.polkit.waiting) {
+                self.polkit.repeats.dismissed(&request.source, now);
+            }
+        }
+        self.close_polkit(Answer::Cancelled, true);
+    }
+
+    /// Takes the card down and answers polkit; the next question waiting, if any, comes up. The
+    /// keyboard goes back at once when the card was ended `by_user`, with Esc or Enter; otherwise
+    /// keys are swallowed until typing stops (`Settle`).
+    fn close_polkit(&mut self, answer: Answer, by_user: bool) {
         self.polkit.conversation = None;
         let Some(prompt) = self.polkit.prompt.take() else {
             return;
         };
         // The password the card held is wiped as it drops.
         prompt.request.answer(answer);
-        ASKING.store(false, Ordering::Relaxed);
         if self.lock.is_none() {
             // SAFETY: prctl with PR_SET_DUMPABLE and a plain integer.
             unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 1) };
         }
+        if by_user {
+            self.give_keyboard_back();
+        } else {
+            tracing::info!("keys held back until typing stops");
+            let now = self.wall();
+            self.polkit.settle = Some(Settle { last: now });
+            self.wait_for_settling(SETTLE);
+        }
+        self.show_next_polkit();
+    }
+
+    /// A key while keys are settling: swallowed, and the wait starts again.
+    pub fn polkit_settling_key(&mut self) {
+        let now = self.wall();
+        if let Some(settle) = self.polkit.settle.as_mut() {
+            settle.key(now);
+        }
+    }
+
+    /// Looks again in `after` seconds whether typing has stopped, and gives the keyboard back
+    /// once it has. A card coming up in the meantime, or the lock, ends the wait.
+    fn wait_for_settling(&mut self, after: f64) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let inserted = self.loop_handle.insert_source(
+            Timer::from_duration(std::time::Duration::from_secs_f64(after)),
+            |_, _, state| {
+                let now = state.wall();
+                let Some(settle) = state.polkit.settle else {
+                    return TimeoutAction::Drop;
+                };
+                match settle.left(now) {
+                    Some(left) => {
+                        TimeoutAction::ToDuration(std::time::Duration::from_secs_f64(left))
+                    }
+                    None => {
+                        state.polkit.settle = None;
+                        state.give_keyboard_back();
+                        TimeoutAction::Drop
+                    }
+                }
+            },
+        );
+        if inserted.is_err() {
+            // Without a timer nothing would ever end the wait.
+            self.polkit.settle = None;
+            self.give_keyboard_back();
+        }
+    }
+
+    /// The keyboard back to the window that had it before the card, if it's still here, and the
+    /// pointer into whatever it is over.
+    fn give_keyboard_back(&mut self) {
+        ASKING.store(false, Ordering::Relaxed);
         let back = self
             .polkit
             .had_keyboard
@@ -677,21 +916,20 @@ impl Slipstream {
             Some(window) => self.focus_window(&window),
             None => self.restore_focus(),
         }
-        // The pointer enters whatever it is over again.
         let at = self.pointer_location();
         self.pointer_moved_to(at, smithay::backend::input::InputTime::now());
-        self.show_next_polkit();
     }
 
     /// The screen is locking: every question is cancelled, the one on the card and those
     /// waiting. The lock has the keyboard now and gives it back itself.
     pub fn cancel_polkit_for_lock(&mut self) {
-        if self.polkit.prompt.is_none() && self.polkit.waiting.is_empty() {
+        if !self.polkit.takes_keys() && self.polkit.waiting.is_empty() {
             return;
         }
         tracing::info!("password requests cancelled: the screen locked");
         self.polkit.conversation = None;
         self.polkit.prompt = None;
+        self.polkit.settle = None;
         self.polkit.waiting.clear();
         self.polkit.had_keyboard = None;
         ASKING.store(false, Ordering::Relaxed);
@@ -737,9 +975,70 @@ mod tests {
             HashMap::from([("gid".to_string(), OwnedValue::from(10u32))]),
         );
         // Root has an account everywhere; this uid nowhere.
-        let found = users(&[group, user(0), user(0), user(4_000_000_000)]);
+        let found = users(&[group, user(0), user(0), user(4_000_000_000)], 0);
         assert_eq!(found.len(), 1);
         assert_eq!((found[0].uid, found[0].name.as_str()), (0, "root"));
+    }
+
+    /// However many people polkit offers, this user is among them, and so is chosen to begin
+    /// with, rather than the first offered, who may be root.
+    #[test]
+    fn this_user_is_always_offered_however_many_are() {
+        // SAFETY: getuid has no failure mode.
+        let me = unsafe { libc::getuid() };
+        let user = |uid: u32| {
+            (
+                "unix-user".to_string(),
+                HashMap::from([("uid".to_string(), OwnedValue::from(uid))]),
+            )
+        };
+        // Root first, then the system's own accounts, more than the limit on any distribution,
+        // then this user.
+        let mut offered = vec![user(0)];
+        offered.extend((1..1000).filter(|uid| *uid != me).map(user));
+        offered.push(user(me));
+        let found = users(&offered, me);
+        assert!(found.len() <= IDENTITIES + 1, "{} offered", found.len());
+        assert!(found.iter().any(|identity| identity.uid == me));
+        let prompt = Prompt::new(Request::stand_in(String::new(), found), me, 0.0, false);
+        assert_eq!(prompt.identity().uid, me);
+    }
+
+    /// A card withdrawn under someone typing: keys go on being swallowed until a second passes
+    /// with none, so the rest of a password can't reach the window that gets the keyboard back.
+    #[test]
+    fn keys_are_held_back_until_typing_stops_after_a_withdrawal() {
+        let mut settle = Settle { last: 10.0 };
+        assert_eq!(settle.left(10.0), Some(SETTLE), "never less than a second");
+        settle.key(10.6);
+        settle.key(11.3);
+        assert!(settle.left(12.2).is_some(), "still typing a second ago");
+        assert!(settle.left(12.3).is_none(), "a second with no typing");
+        // A key that arrives out of order never shortens the wait.
+        settle.key(11.0);
+        assert!(settle.left(12.2).is_some());
+    }
+
+    #[test]
+    fn a_question_dismissed_is_refused_if_asked_again_at_once() {
+        let mut repeats = Repeats::default();
+        let install = ("org.example.install".to_string(), "4242".to_string());
+        let other_process = ("org.example.install".to_string(), "4343".to_string());
+        assert!(!repeats.refuses(&install, 0.0));
+        repeats.dismissed(&install, 0.0);
+        assert!(repeats.refuses(&install, 1.0));
+        assert!(
+            !repeats.refuses(&other_process, 1.0),
+            "only from the same process"
+        );
+        assert!(
+            !repeats.refuses(&install, REPEAT_QUIET),
+            "and only for a while"
+        );
+        for n in 0..100 {
+            repeats.dismissed(&(n.to_string(), String::new()), 0.0);
+        }
+        assert!(repeats.dismissed.len() <= 32, "the list stays short");
     }
 
     /// The agent on a private bus, standing in for the system bus: a call from anything but

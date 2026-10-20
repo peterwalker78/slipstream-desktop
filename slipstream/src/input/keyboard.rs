@@ -40,6 +40,8 @@ enum KeyUse {
     Lock(crate::lock::Key),
     /// A key for the card asking for a password on polkit's behalf.
     Polkit(crate::polkit::Key),
+    /// A key swallowed after the password card went away by itself.
+    PolkitSettling,
     /// A key let go while locked.
     LockRelease,
     /// Esc during a drag with the pointer.
@@ -208,7 +210,7 @@ impl Slipstream {
     /// bullet time keeps the keys to itself, so there it does nothing.
     fn super_tapped(&mut self) {
         let keys_taken = self.lock.is_some()
-            || self.polkit.is_up()
+            || self.polkit.takes_keys()
             || self.share.is_some()
             || self.offer.is_some()
             || self.connect.is_some()
@@ -390,7 +392,7 @@ impl Slipstream {
                 }
                 // RUST_LOG=slipstream=trace shows every key as Slipstream sees it, except while
                 // a password is being typed: at the lock, or on the password card.
-                if state.lock.is_none() && !state.polkit.is_up() {
+                if state.lock.is_none() && !state.polkit.takes_keys() {
                     tracing::trace!(?key, ?mods, pressed, "key");
                 }
                 // Num Lock says which way it went; Caps Lock has its chip on the bar and its
@@ -466,9 +468,13 @@ impl Slipstream {
                     return FilterResult::Intercept(Some(KeyUse::Action(Action::Lock)));
                 }
                 // The password card takes every key, before any other card: what is typed there
-                // is a password, and must reach nothing else.
-                if pressed && state.polkit.is_up() {
+                // is a password, and must reach nothing else. So does a card that has just gone
+                // by itself, until typing stops: the rest of a password goes nowhere.
+                if pressed && state.polkit.takes_keys() {
                     state.suppressed_keys.push(key);
+                    if !state.polkit.is_up() {
+                        return FilterResult::Intercept(Some(KeyUse::PolkitSettling));
+                    }
                     let typed = crate::polkit::key_for(key, handle.modified_sym(), modifiers);
                     return FilterResult::Intercept(Some(KeyUse::Polkit(typed)));
                 }
@@ -629,6 +635,7 @@ impl Slipstream {
             Some(Some(KeyUse::Share(key, shift))) => self.share_key(key, shift),
             Some(Some(KeyUse::Lock(key))) => self.lock_key(key),
             Some(Some(KeyUse::Polkit(key))) => self.polkit_key(key),
+            Some(Some(KeyUse::PolkitSettling)) => self.polkit_settling_key(),
             Some(Some(KeyUse::CancelDrag)) => self.cancel_drag(),
             Some(Some(KeyUse::CancelSwitch)) => self.cancel_cycle(),
             Some(Some(KeyUse::CancelArrange)) => self.cancel_arrangement(),

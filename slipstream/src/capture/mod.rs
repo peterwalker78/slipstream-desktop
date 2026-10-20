@@ -371,6 +371,24 @@ impl Slipstream {
         if waiting.is_empty() && !screencopy {
             return;
         }
+        // While the password card is up a screen's capture is black: the card says who is being
+        // asked and shows how long the password is, and nothing recording the screen sees that.
+        if self.polkit.is_up() {
+            let black = [0, 0, 0, 0xff].repeat((size.w * size.h).max(0) as usize);
+            if screencopy {
+                self.serve_screencopy(output, &black, Some(&black), size, presented);
+            }
+            for frame in waiting {
+                match copy_into(&frame.buffer(), &black, size) {
+                    Ok(()) => frame.success(Transform::Normal, None, presented),
+                    Err(CopyError::Constraints) => {
+                        frame.fail(CaptureFailureReason::BufferConstraints)
+                    }
+                    Err(CopyError::NotShm) => frame.fail(CaptureFailureReason::Unknown),
+                }
+            }
+            return;
+        }
         // One draw fills every frame waiting on this screen, however many clients are recording.
         let transform = output.current_transform();
         let drawn = draw_offscreen(renderer, elements, size, scale, transform);

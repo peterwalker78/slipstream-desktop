@@ -108,10 +108,23 @@ impl Slipstream {
             return;
         }
 
-        // So does the password card, over everything else but the lock.
+        // So does the password card, over everything else but the lock. A release still goes to
+        // the seat, which sends it nowhere (nothing has pointer focus), as at the lock, so a button
+        // held as the card came up isn't left pressed.
         if self.polkit.is_up() {
             if let Some(pos) = pressed_at {
                 self.polkit_click(pos.x, pos.y);
+            } else if button_state == ButtonState::Released {
+                pointer.button(
+                    self,
+                    &ButtonEvent {
+                        button,
+                        state: button_state,
+                        serial,
+                        time,
+                    },
+                );
+                pointer.frame(self);
             }
             return;
         }

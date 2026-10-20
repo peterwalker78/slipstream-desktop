@@ -49,6 +49,10 @@ impl SeatHandler for Slipstream {
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        // A client's cursor is its own pixels, which could be drawn over the password card.
+        if self.polkit.is_up() {
+            return;
+        }
         self.cursor_status = image;
     }
 
