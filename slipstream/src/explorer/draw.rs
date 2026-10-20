@@ -388,7 +388,7 @@ impl Explorer {
                 &Row {
                     icon: if opens { icons::FILE } else { icons::RUN },
                     label,
-                    trailing: Some("⏎".into()),
+                    trailing: (index == look.selected).then(|| "⏎".to_string()),
                     keycap: true,
                     selected: index == look.selected,
                     dim: false,

@@ -195,7 +195,7 @@ fn night_light(page: &gtk::Box, store: &Store) {
             if let Some(sub) = &sub {
                 sub.set_text(&match which {
                     NightSchedule::Off => "Warmer colours in the evening. Quick settings \
-                                           (Super+A) turns it on and off by hand."
+                                           turns it on and off by hand."
                         .to_string(),
                     NightSchedule::Sunset => sunset_note(),
                     NightSchedule::Custom => "Warms up over half an hour from the start, and \

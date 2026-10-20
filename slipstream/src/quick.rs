@@ -801,7 +801,7 @@ impl QuickSettings {
                     y += block_h;
                 }
 
-                // The footer: the way into the Settings app, and the keys.
+                // The footer: the way into the Settings app, and the keys that close the panel.
                 p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
                 let centre = y + FOOT_H - 9.0;
                 let link = Style::new(Face::Body, 14.0, 0xffd08aff);
@@ -810,7 +810,7 @@ impl QuickSettings {
                     Control::AllSettings,
                     [x0 - 6.0, centre - 13.0, link_w + 12.0, 26.0, 6.0],
                 ));
-                panel::key_hint(p, x0 + inner, centre, &[&look.facts.key, "Esc"], "");
+                panel::key_hint(p, x0 + inner, centre, &[&look.facts.key, "Esc"], "close");
 
                 for (control, [x, y, w, h, radius]) in &shapes {
                     if *control == look.selected {

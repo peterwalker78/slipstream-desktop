@@ -666,7 +666,7 @@ impl Centre {
             let foot_centre = foot_y + FOOT_H / 2.0;
             let keys = Style::new(Face::Mono, 12.0, panel::HINT);
             let mut x = x0;
-            for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "")] {
+            for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "close")] {
                 x += panel::key_hint_width(keys, label);
                 panel::key_hint(p, x, foot_centre, keys, label);
                 x += panel::HINT_GAP;

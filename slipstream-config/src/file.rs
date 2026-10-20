@@ -17,7 +17,7 @@ pub const FILE_NAME: &str = "settings.toml";
 
 /// Written at the top of the file.
 pub(crate) const HEADER: &str = "\
-# Slipstream's settings. The Settings app (Super+I) and quick settings (Super+A) write this file,
+# Slipstream's settings. The Settings app and quick settings write this file,
 # and Slipstream applies each change as soon as it's saved. Hand edits work too, but the apps
 # don't keep comments.
 

@@ -669,8 +669,7 @@ fn paint_tour(look: &Look, step: usize, tried: bool, names: &KeyNames) -> Option
         }
         x += w + 26.0;
     }
-    let right_x = fx + width - PADDING - paint::keycap_width("Esc");
-    p.keycap("Esc", right_x, centre);
+    panel::key_hint(&mut p, fx + width - PADDING, centre, &["Esc"], "every key");
     p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
     // The miniature's place, filled in case a frame shows before it's painted.
@@ -804,6 +803,11 @@ fn paint_stage(look: &StageLook, names: &KeyNames) -> Option<Painted> {
     })
 }
 
+/// What Esc does on the list, for its hint: it clears a filter first, then closes.
+fn escape_does(query: &str) -> &'static str {
+    if query.is_empty() { "close" } else { "clear" }
+}
+
 fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
     let screen_w = look.screen.w as f32 / DESIGN_PX;
     let screen_h = look.screen.h as f32 / DESIGN_PX;
@@ -879,18 +883,23 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
         );
         p.fill(x + typed + 2.0, centre - 11.0, 3.0, 22.0, 0.0, panel::AMBER);
     }
-    let mut right_x = fx + width - PADDING - paint::keycap_width("Esc");
-    p.keycap("Esc", right_x, centre);
-    right_x -= KEY_GAP;
+    let start = panel::key_hint(
+        &mut p,
+        fx + width - PADDING,
+        centre,
+        &["Esc"],
+        escape_does(&look.query),
+    );
     // The way into the tour, to the left of the key that closes the sheet, on the key already
-    // under a finger. Laid out from where that finished, so the two can never run together.
+    // under a finger.
     if look.query.is_empty() {
-        let says = "take the tour";
-        let hint = Style::new(Face::Body, 15.0, panel::PLACEHOLDER);
-        right_x -= 14.0 + text::width(says, &hint);
-        p.text(says, right_x, centre + 1.0, &hint);
-        right_x -= KEY_GAP + paint::keycap_width("⏎");
-        p.keycap("⏎", right_x, centre);
+        panel::key_hint(
+            &mut p,
+            start - panel::HINT_GAP,
+            centre,
+            &["⏎"],
+            "take the tour",
+        );
     }
     p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
@@ -1106,6 +1115,27 @@ mod tests {
         );
         assert_eq!(row(KeyStyle::Omarchy, "narrower, wider"), ["Super+- ="]);
         assert_eq!(row(KeyStyle::Omarchy, "every key"), ["Super+K"]);
+    }
+
+    #[test]
+    fn esc_does_what_its_hints_say() {
+        let mut sheet = Sheet::default();
+        sheet.open(0.0);
+        sheet.key(Keysym::w, Some('w'), 0.0);
+        assert_eq!(escape_does(&sheet.query), "clear");
+        assert!(matches!(
+            sheet.key(Keysym::Escape, None, 0.0),
+            Outcome::Nothing
+        ));
+        assert_eq!(escape_does(&sheet.query), "close");
+        // On the tour, Esc goes back to every key.
+        sheet.start_tour(0.0);
+        sheet.key(Keysym::Escape, None, 0.0);
+        assert!(sheet.tour.is_none());
+        assert!(matches!(
+            sheet.key(Keysym::Escape, None, 0.0),
+            Outcome::Close
+        ));
     }
 
     #[test]

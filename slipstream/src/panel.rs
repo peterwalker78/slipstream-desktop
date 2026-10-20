@@ -179,8 +179,7 @@ fn hint_style() -> crate::text::Style {
 
 /// How wide `key_hint` draws `keys` and `label`.
 pub fn key_hint_width(keys: &[&str], label: &str) -> f32 {
-    let caps: f32 = keys
-        .iter()
+    let caps: f32 = shown(keys)
         .map(|key| crate::paint::keycap_width(key) + KEY_GAP)
         .sum();
     let label_w = if label.is_empty() {
@@ -191,13 +190,18 @@ pub fn key_hint_width(keys: &[&str], label: &str) -> f32 {
     caps - KEY_GAP + label_w
 }
 
-/// A footer's hint ending at `right`, centred on `centre`: its keycaps, then what they do.
-/// Returns where it starts.
+/// The keys a hint draws: a key with no name, for an action nothing is bound to, gets no cap.
+fn shown<'a>(keys: &'a [&'a str]) -> impl Iterator<Item = &'a &'a str> {
+    keys.iter().filter(|key| !key.is_empty())
+}
+
+/// A footer's hint ending at `right`, centred on `centre`: its keycaps, each a way of doing the
+/// same thing, then what they do. Returns where it starts.
 pub fn key_hint(p: &mut Painter, right: f32, centre: f32, keys: &[&str], label: &str) -> f32 {
     let style = hint_style();
     let start = right - key_hint_width(keys, label);
     let mut x = start;
-    for key in keys {
+    for key in shown(keys) {
         x += p.keycap(key, x, centre) + KEY_GAP;
     }
     if !label.is_empty() {
@@ -273,5 +277,13 @@ mod tests {
         assert!(contrast(HINT, glass) >= 4.5, "{}", contrast(HINT, glass));
         assert!(contrast(HINT, quiet) >= 4.5, "{}", contrast(HINT, quiet));
         assert!(contrast(PLACEHOLDER, glass) >= 4.5);
+    }
+
+    #[test]
+    fn a_key_nothing_is_bound_to_gets_no_empty_cap() {
+        assert_eq!(
+            key_hint_width(&["", "Esc"], "close"),
+            key_hint_width(&["Esc"], "close")
+        );
     }
 }

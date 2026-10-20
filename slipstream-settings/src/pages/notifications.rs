@@ -20,9 +20,9 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         "Wait until I pause",
         Some(
             "Pop-ups that arrive while you're typing wait until you stop typing for 15 seconds, then show \
-             as one card. The bell counts them straight away, and Super+N shows them at any time. \
-             Critical notifications never wait. Only the timing of key presses is used, never \
-             which keys.",
+             as one card. The bell counts them straight away, and the notification centre has them \
+             at any time. Critical notifications never wait. Only the timing of key presses is \
+             used, never which keys.",
         ),
         &wait,
     );
@@ -102,7 +102,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         "Do not disturb",
         Some(
             "Nothing pops up, except critical notifications; everything still reaches the \
-             notification centre. Quick settings (Super+A) has the same switch.",
+             notification centre. Quick settings has the same switch.",
         ),
         &dnd,
     );

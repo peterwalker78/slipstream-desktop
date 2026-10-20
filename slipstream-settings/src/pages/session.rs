@@ -115,7 +115,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &clipboard,
         "Clipboard history",
         Some(
-            "Super+V lists the last 25 things you copied, text and pictures, to paste any of \
+            "Keeps the last 25 things you copied, text and pictures, to paste any of \
              them again. Kept in memory only and forgotten when you log out; anything a password \
              manager marks as secret is never kept. Turning this off forgets them all.",
         ),
