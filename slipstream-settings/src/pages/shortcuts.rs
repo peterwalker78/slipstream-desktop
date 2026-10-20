@@ -11,18 +11,10 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
          the style chosen here.",
     );
     let styles = group(&page, "Shortcuts");
-    let keys = group(&page, "Keys in this style");
+    let keys = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    page.append(&keys);
     fill_keys(&keys, store);
-    let zoom = group(&page, "Accessibility");
-    fill_zoom(&zoom, store);
-    let (refill_keys, refill_zoom) = (
-        refiller(&keys, store, fill_keys),
-        refiller(&zoom, store, fill_zoom),
-    );
-    let refill = move || {
-        refill_keys();
-        refill_zoom();
-    };
+    let refill = refiller(&keys, store, fill_keys);
     let chosen = store.get().keys.style;
     let mut first: Option<gtk::CheckButton> = None;
     for style in KeyStyle::ALL {
@@ -107,36 +99,68 @@ fn fill_app_shortcuts(card: &gtk::Box, store: &Store) {
     }
 }
 
-/// The chosen style's own keys, each beside what it does.
-fn fill_keys(card: &gtk::Box, store: &Store) {
-    while let Some(child) = card.first_child() {
-        card.remove(&child);
+/// Every key of the chosen style, in the shortcut sheet's groups, each beside what it does. The
+/// compositor beside this app says what they are, so the list is the sheet's own.
+fn fill_keys(sheet: &gtk::Box, store: &Store) {
+    while let Some(child) = sheet.first_child() {
+        sheet.remove(&child);
     }
-    for (does, keys) in store.get().keys.style.highlights() {
-        let keys = if *keys == "Super" {
-            "Super, tapped"
-        } else {
-            keys
-        };
-        row(card, &sentence(does), None, &label(keys, "kv"));
+    let style = store.get().keys.style;
+    let listing = crate::previews::compositor()
+        .and_then(|compositor| {
+            std::process::Command::new(compositor)
+                .args(["--list-keys", style.id()])
+                .output()
+                .ok()
+        })
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    let groups = parse_listing(&listing);
+    if groups.is_empty() {
+        let card = group(sheet, "Keys in this style");
+        row(
+            &card,
+            "The list of keys isn't available",
+            Some("The shortcut sheet still shows every key."),
+            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+        );
+        return;
+    }
+    for (title, rows) in groups {
+        let card = group(sheet, title);
+        for (does, keys) in rows {
+            let keys: Vec<&str> = keys
+                .iter()
+                .map(|&key| if key == "Super" { "Super, tapped" } else { key })
+                .collect();
+            let sub = does
+                .starts_with("zoom the screen")
+                .then_some("Super and the scroll wheel zoom too.");
+            row(&card, &sentence(does), sub, &label(&keys.join("   "), "kv"));
+        }
     }
 }
 
-/// The chosen style's keys for zooming the screen.
-fn fill_zoom(card: &gtk::Box, store: &Store) {
-    while let Some(child) = card.first_child() {
-        card.remove(&child);
+/// A group of the list of keys: its title, and what each of its rows does beside that row's keys.
+type KeyGroup<'a> = (&'a str, Vec<(&'a str, Vec<&'a str>)>);
+
+/// The groups in `slipstream --list-keys`'s output.
+fn parse_listing(listing: &str) -> Vec<KeyGroup<'_>> {
+    let mut groups: Vec<KeyGroup> = Vec::new();
+    for line in listing.lines() {
+        match line.strip_prefix('\t') {
+            Some(row) => {
+                let mut fields = row.split('\t');
+                if let (Some(does), Some((_, rows))) = (fields.next(), groups.last_mut()) {
+                    rows.push((does, fields.collect()));
+                }
+            }
+            None if !line.is_empty() => groups.push((line, Vec::new())),
+            None => {}
+        }
     }
-    let [zoom_in, zoom_out, off] = store.get().keys.style.zoom_keys();
-    row(
-        card,
-        "Zoom",
-        Some(
-            "Magnifies the screen around the pointer: zoom in, zoom out, and back to normal. \
-             Super and the scroll wheel zoom too.",
-        ),
-        &label(&format!("{zoom_in}   {zoom_out}   {off}"), "kv"),
-    );
+    groups
 }
 
 /// `does` as a sentence's start: its first letter a capital.
@@ -146,4 +170,29 @@ fn sentence(does: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_listing_is_read_as_groups_of_rows() {
+        let listing = "Apps and windows\n\tsearch apps and files\tSuper\tSuper+S\n\
+                       \tclose window\tAlt+F4\n\nBullet time\n\topen\tSuper+B\n";
+        assert_eq!(
+            parse_listing(listing),
+            [
+                (
+                    "Apps and windows",
+                    vec![
+                        ("search apps and files", vec!["Super", "Super+S"]),
+                        ("close window", vec!["Alt+F4"]),
+                    ]
+                ),
+                ("Bullet time", vec![("open", vec!["Super+B"])]),
+            ]
+        );
+        assert!(parse_listing("").is_empty());
+    }
 }

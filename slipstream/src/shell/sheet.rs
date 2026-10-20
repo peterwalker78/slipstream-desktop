@@ -226,6 +226,31 @@ pub fn sections(bindings: &[Binding], tap: bool) -> Vec<Section> {
     sections
 }
 
+/// Every row of `style`'s sheet as text, for the Settings app: each group's title on a line of
+/// its own, then a line per row, starting with a tab, of what it does and its keycaps, separated
+/// by tabs.
+pub fn listing(style: KeyStyle) -> String {
+    let bindings = keys::checked(keys::defaults(style), style);
+    let mut text = String::new();
+    for section in sections(&bindings, keys::taps_super(style)) {
+        if section.rows.is_empty() {
+            continue;
+        }
+        text.push_str(section.group.title());
+        text.push('\n');
+        for row in section.rows {
+            text.push('\t');
+            text.push_str(&row.does);
+            for key in &row.keys {
+                text.push('\t');
+                text.push_str(key);
+            }
+            text.push('\n');
+        }
+    }
+    text
+}
+
 /// The bindings worth listing with `screens` screens: the ones that move between screens only
 /// once there is a second.
 fn for_screens(bindings: &[Binding], screens: usize) -> Vec<Binding> {
@@ -1032,6 +1057,31 @@ mod tests {
 
     fn bindings_for(style: KeyStyle) -> Vec<Binding> {
         keys::checked(keys::defaults(style), style)
+    }
+
+    #[test]
+    fn the_settings_apps_listing_has_every_row_of_the_sheet() {
+        for style in KeyStyle::ALL {
+            let sections = sections(&bindings_for(style), keys::taps_super(style));
+            let listing = listing(style);
+            let rows: Vec<&str> = listing
+                .lines()
+                .filter_map(|line| line.strip_prefix('\t'))
+                .collect();
+            let sheet: Vec<String> = sections
+                .iter()
+                .flat_map(|section| &section.rows)
+                .map(|row| {
+                    [row.does.clone()]
+                        .into_iter()
+                        .chain(row.keys.clone())
+                        .collect::<Vec<_>>()
+                        .join("\t")
+                })
+                .collect();
+            assert_eq!(rows, sheet, "{style:?}");
+            assert!(listing.starts_with(Group::AppsAndWindows.title()));
+        }
     }
 
     #[test]

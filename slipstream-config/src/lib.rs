@@ -169,6 +169,20 @@ pub enum KeyStyle {
 impl KeyStyle {
     pub const ALL: [KeyStyle; 3] = [KeyStyle::Windows, KeyStyle::Mac, KeyStyle::Omarchy];
 
+    /// Its name in the settings file, which `slipstream --list-keys` takes too.
+    pub fn id(self) -> &'static str {
+        match self {
+            KeyStyle::Windows => "windows",
+            KeyStyle::Mac => "mac",
+            KeyStyle::Omarchy => "omarchy",
+        }
+    }
+
+    /// The style called `id` in the settings file.
+    pub fn from_id(id: &str) -> Option<KeyStyle> {
+        KeyStyle::ALL.into_iter().find(|style| style.id() == id)
+    }
+
     /// What it's called in the Settings app.
     pub fn label(self) -> &'static str {
         match self {
@@ -194,55 +208,6 @@ impl KeyStyle {
                 "Omarchy's keys: Super+Space opens apps, Super+W closes, Super+T floats, \
                  Super+C and Super+V copy and paste in any app, and Super+K lists every key."
             }
-        }
-    }
-
-    /// The keys that set the style apart, each beside what it does as the shortcut sheet says
-    /// it. `Super` alone is a tap.
-    pub fn highlights(self) -> &'static [(&'static str, &'static str)] {
-        match self {
-            KeyStyle::Windows => &[
-                ("search apps and files", "Super"),
-                ("switch window", "Alt+Tab"),
-                ("close window", "Alt+F4"),
-                ("every workspace at once", "Super+Tab"),
-                ("maximise", "Super+F"),
-                ("float the window, or tile it", "Super+Shift+V"),
-                ("snip a region or a window", "Super+Shift+S"),
-                ("lock the screen", "Super+L"),
-                ("every key", "Super+/"),
-            ],
-            KeyStyle::Mac => &[
-                ("search apps and files", "Super+Space"),
-                ("switch window", "Super+Tab"),
-                ("close window", "Super+W"),
-                ("quit the app", "Super+Q"),
-                ("every workspace at once", "Super+Ctrl+↑"),
-                ("maximise", "Super+Ctrl+F"),
-                ("snip a region or a window", "Super+Shift+4"),
-                ("lock the screen", "Super+Ctrl+Q"),
-                ("every key", "Super+/"),
-            ],
-            KeyStyle::Omarchy => &[
-                ("search apps and files", "Super+Space"),
-                ("close window", "Super+W"),
-                ("float the window, or tile it", "Super+T"),
-                ("tiling or gravity; hold to choose", "Super+L"),
-                ("previous, next workspace", "Super+Tab"),
-                ("every workspace at once", "Super+Ctrl+↑"),
-                ("snip a region or a window", "Print"),
-                ("lock the screen", "Super+Ctrl+L"),
-                ("every key", "Super+K"),
-            ],
-        }
-    }
-
-    /// The keys that zoom the screen in, out and back off, for the Settings app.
-    pub fn zoom_keys(self) -> [&'static str; 3] {
-        match self {
-            KeyStyle::Windows => ["Super+=", "Super+-", "Super+0"],
-            KeyStyle::Mac => ["Super+Alt+=", "Super+Alt+-", "Super+Alt+0"],
-            KeyStyle::Omarchy => ["Super+Ctrl+Z", "Super+Ctrl+-", "Super+Ctrl+Alt+Z"],
         }
     }
 }

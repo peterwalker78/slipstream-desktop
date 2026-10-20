@@ -1131,22 +1131,6 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_apps_highlights_are_the_styles_own_keys() {
-        for style in KeyStyle::ALL {
-            let bindings = checked(super::defaults(style), style);
-            for (does, keys) in style.highlights() {
-                let found = match *keys {
-                    "Super" => taps_super(style) && *does == Action::Explorer.describe(),
-                    _ => bindings
-                        .iter()
-                        .any(|b| label(b.mods, b.key) == *keys && b.action.describe() == *does),
-                };
-                assert!(found, "{style:?}: {keys} doesn't {does}");
-            }
-        }
-    }
-
-    #[test]
     fn only_the_windows_style_taps_super_and_the_others_take_super_space() {
         assert!(taps_super(KeyStyle::Windows));
         let windows = checked(defaults(), KeyStyle::Windows);
@@ -1259,19 +1243,13 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_app_names_each_styles_zoom_keys() {
+    fn every_style_zooms_in_out_and_back() {
         for style in KeyStyle::ALL {
             let bindings = checked(super::defaults(style), style);
-            for (keys, step) in style
-                .zoom_keys()
-                .into_iter()
-                .zip([Step::In, Step::Out, Step::Off])
-            {
+            for step in [Step::In, Step::Out, Step::Off] {
                 assert!(
-                    bindings
-                        .iter()
-                        .any(|b| label(b.mods, b.key) == keys && b.action == Action::Zoom(step)),
-                    "{style:?}: {keys} doesn't zoom {step:?}"
+                    bindings.iter().any(|b| b.action == Action::Zoom(step)),
+                    "{style:?} has no key to zoom {step:?}"
                 );
             }
         }

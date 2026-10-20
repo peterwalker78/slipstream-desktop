@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The modes that do one job and exit without starting a compositor: the version, the lock
-/// screen's password check, the share portal's chooser, and a wallpaper preview.
+/// screen's password check, the share portal's chooser, the list of keys and a wallpaper preview.
 fn run_one_off(args: &[String]) {
     // For bug reports, and for the install scripts to check a binary runs on this system at all.
     if args.first().map(String::as_str) == Some("--version") {
@@ -262,6 +262,18 @@ fn run_one_off(args: &[String]) {
     // one and its answer printed.
     if args.iter().any(|arg| arg == "--choose-share") {
         std::process::exit(share::choose());
+    }
+    // Every key of a style, as the shortcut sheet lists them, for the Settings app.
+    if args.first().map(String::as_str) == Some("--list-keys") {
+        let Some(style) = args
+            .get(1)
+            .and_then(|id| slipstream_config::KeyStyle::from_id(id))
+        else {
+            eprintln!("usage: slipstream --list-keys windows|mac|omarchy");
+            std::process::exit(2);
+        };
+        print!("{}", sheet::listing(style));
+        std::process::exit(0);
     }
     // A living-wallpaper variation drawn off screen for the Settings app's previews: no display,
     // no GPU, and nothing else started.
