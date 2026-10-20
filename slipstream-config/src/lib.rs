@@ -234,6 +234,15 @@ impl KeyStyle {
             ],
         }
     }
+
+    /// The keys that zoom the screen in, out and back off, for the Settings app.
+    pub fn zoom_keys(self) -> [&'static str; 3] {
+        match self {
+            KeyStyle::Windows => ["Super+=", "Super+-", "Super+0"],
+            KeyStyle::Mac => ["Super+Alt+=", "Super+Alt+-", "Super+Alt+0"],
+            KeyStyle::Omarchy => ["Super+Ctrl+Z", "Super+Ctrl+-", "Super+Ctrl+Alt+Z"],
+        }
+    }
 }
 
 /// What apps are told to colour themselves.

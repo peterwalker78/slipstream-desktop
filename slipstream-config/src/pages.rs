@@ -103,6 +103,9 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
             "Mac style",
             "Omarchy style",
             "Hotkeys",
+            "Zoom",
+            "Magnifier",
+            "Accessibility",
         ],
     },
     SettingsPage {

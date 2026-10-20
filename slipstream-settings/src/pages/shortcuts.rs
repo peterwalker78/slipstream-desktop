@@ -13,7 +13,16 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     let styles = group(&page, "Shortcuts");
     let keys = group(&page, "Keys in this style");
     fill_keys(&keys, store);
-    let refill = refiller(&keys, store, fill_keys);
+    let zoom = group(&page, "Accessibility");
+    fill_zoom(&zoom, store);
+    let (refill_keys, refill_zoom) = (
+        refiller(&keys, store, fill_keys),
+        refiller(&zoom, store, fill_zoom),
+    );
+    let refill = move || {
+        refill_keys();
+        refill_zoom();
+    };
     let chosen = store.get().keys.style;
     let mut first: Option<gtk::CheckButton> = None;
     for style in KeyStyle::ALL {
@@ -48,6 +57,23 @@ fn fill_keys(card: &gtk::Box, store: &Store) {
         };
         row(card, &sentence(does), None, &label(keys, "kv"));
     }
+}
+
+/// The chosen style's keys for zooming the screen.
+fn fill_zoom(card: &gtk::Box, store: &Store) {
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+    let [zoom_in, zoom_out, off] = store.get().keys.style.zoom_keys();
+    row(
+        card,
+        "Zoom",
+        Some(
+            "Magnifies the screen around the pointer: zoom in, zoom out, and back to normal. \
+             Super and the scroll wheel zoom too.",
+        ),
+        &label(&format!("{zoom_in}   {zoom_out}   {off}"), "kv"),
+    );
 }
 
 /// `does` as a sentence's start: its first letter a capital.

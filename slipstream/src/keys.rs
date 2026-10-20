@@ -1259,6 +1259,25 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_app_names_each_styles_zoom_keys() {
+        for style in KeyStyle::ALL {
+            let bindings = checked(super::defaults(style), style);
+            for (keys, step) in style
+                .zoom_keys()
+                .into_iter()
+                .zip([Step::In, Step::Out, Step::Off])
+            {
+                assert!(
+                    bindings
+                        .iter()
+                        .any(|b| label(b.mods, b.key) == keys && b.action == Action::Zoom(step)),
+                    "{style:?}: {keys} doesn't zoom {step:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn super_alone_with_the_wheel_zooms() {
         assert!(zooms_with_wheel(SUPER));
         assert!(!zooms_with_wheel(NONE));
