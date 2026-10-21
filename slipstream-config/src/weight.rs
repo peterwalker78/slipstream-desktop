@@ -68,7 +68,7 @@ pub const PIECES: u32 = 2;
 pub const ADD_ONS: u32 = 0;
 /// The session's memory at rest at its heaviest for this version, rounded up: the compositor with
 /// XWayland, the portals and the sound server. Measured again before each release.
-pub const WORST_MEMORY_MB: f64 = 300.0;
+pub const WORST_MEMORY_MB: f64 = 280.0;
 /// System libraries the compositor loads.
 pub const SYSTEM_PACKAGES: u32 = 18;
 /// Rust crates compiled into the compositor, and into two others for scale.
@@ -126,9 +126,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slipstream_scores_about_34() {
+    fn slipstream_scores_about_33() {
         let ours = score(WORST_MEMORY_MB, PIECES, 3.6);
-        assert!((ours - 34.0).abs() < 0.5, "{ours}");
+        assert!((ours - 33.0).abs() < 0.5, "{ours}");
         assert_eq!(place(ours), 1);
     }
 
