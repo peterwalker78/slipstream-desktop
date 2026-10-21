@@ -1,0 +1,49 @@
+name: weigh
+
+# Installs the newest release and seven other desktops, each complete and each on the same Arch
+# Linux system, and counts what each one added: packages, and space on disk. Run by hand before a
+# release; the figures go into slipstream-config/src/weight.rs.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        desktop: [slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland]
+    runs-on: ubuntu-latest
+    container: docker.io/library/archlinux:latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install ${{ matrix.desktop }} and weigh it
+        run: sh scripts/weigh-install ${{ matrix.desktop }} | tee weight-${{ matrix.desktop }}.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weight-${{ matrix.desktop }}
+          path: weight-${{ matrix.desktop }}.txt
+
+  table:
+    needs: install
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: weight-*
+          merge-multiple: true
+
+      - name: Put them in one table
+        run: |
+          {
+            echo "| Desktop | Packages added | MB on disk |"
+            echo "|---|---:|---:|"
+            cat weight-*.txt | sort -k3 -n | awk '{ printf "| %s | %s | %s |\n", $1, $2, $3 }'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

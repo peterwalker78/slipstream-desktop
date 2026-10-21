@@ -1,0 +1,91 @@
+#!/bin/sh
+# Installs one desktop, complete, into an Arch Linux container and says how much it added: the
+# packages it pulled in, counting what those depend on, and the space it takes on disk. Every
+# desktop starts from the same system, which already has the sound, network, Bluetooth and power
+# services any of them would use, so what is counted is the desktop's own.
+#
+#   scripts/weigh-install DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
+#
+# It prints a line of `desktop packages megabytes`. It writes to the system it runs on, so run it
+# in a container, never on a desktop.
+set -eu
+
+desktop=${1:?say which desktop: slipstream, gnome, plasma, xfce, cosmic, niri, sway or hyprland}
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "weigh-install: this has to run as root, in a container." >&2
+    exit 2
+fi
+if [ ! -e /run/.containerenv ] && [ ! -e /.dockerenv ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+    echo "weigh-install: this doesn't look like a container, and it installs whole desktops." >&2
+    exit 2
+fi
+if ! command -v pacman >/dev/null 2>&1; then
+    echo "weigh-install: this needs Arch Linux, which packages every desktop it weighs." >&2
+    exit 2
+fi
+
+# The packages each desktop needs to be complete: what draws the screen, a bar, a launcher,
+# notifications, a lock screen, idle handling, a wallpaper and the portals apps talk to. The big
+# desktops name theirs as a group.
+case $desktop in
+    slipstream) wanted= ;;
+    gnome) wanted=gnome ;;
+    plasma) wanted=plasma ;;
+    xfce) wanted="xfce4 xfce4-notifyd xfce4-screensaver" ;;
+    cosmic) wanted=cosmic ;;
+    niri)
+        wanted="niri waybar fuzzel mako swaylock swayidle swaybg xdg-desktop-portal-gnome \
+            xwayland-satellite"
+        ;;
+    sway)
+        wanted="sway waybar fuzzel mako swaylock swayidle swaybg xdg-desktop-portal-wlr \
+            xorg-xwayland"
+        ;;
+    hyprland)
+        wanted="hyprland waybar fuzzel mako hyprlock hypridle hyprpaper \
+            xdg-desktop-portal-hyprland"
+        ;;
+    *)
+        echo "weigh-install: $desktop isn't one this weighs." >&2
+        exit 2
+        ;;
+esac
+
+# The system every desktop starts from.
+pacman -Syu --noconfirm --quiet sudo ca-certificates curl tar gzip shadow pam gawk mesa \
+    pipewire pipewire-pulse wireplumber networkmanager bluez bluez-utils power-profiles-daemon \
+    >/dev/null
+pacman -Scc --noconfirm >/dev/null
+
+packages() { pacman -Qq | wc -l; }
+# Bytes in the folders installed programs live in. The package cache is emptied before counting,
+# so downloads aren't counted as the desktop.
+used() { du -sxb /usr /etc /opt 2>/dev/null | awk '{ total += $1 } END { print total }'; }
+
+packages_before=$(packages)
+used_before=$(used)
+
+if [ "$desktop" = slipstream ]; then
+    # The newest release, installed the way a person would, packages and all.
+    user=weigher
+    useradd --create-home --shell /bin/sh "$user"
+    printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$user" >/etc/sudoers.d/weigher
+    chmod 440 /etc/sudoers.d/weigher
+    repo=$(cd "$(dirname "$0")/.." && pwd -P)
+    cp "$repo/install.sh" "/home/$user/install.sh"
+    chown "$user" "/home/$user/install.sh"
+    su "$user" -c "cd /home/$user && SLIPSTREAM_TEST_SEAT=1 GH_TOKEN='${GH_TOKEN:-}' sh install.sh --yes" \
+        >/dev/null
+    # The download and its unpacked copy are kept in the cache, which isn't the desktop either.
+    rm -rf "/home/$user/.cache/slipstream-install"
+else
+    # shellcheck disable=SC2086 # one word per package
+    pacman -S --needed --noconfirm --quiet $wanted >/dev/null
+fi
+pacman -Scc --noconfirm >/dev/null
+
+added=$(($(packages) - packages_before))
+megabytes=$(($(used) - used_before))
+megabytes=$((megabytes / 1000000))
+printf '%s %s %s\n' "$desktop" "$added" "$megabytes"
