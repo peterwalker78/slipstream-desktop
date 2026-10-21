@@ -1,8 +1,8 @@
 #!/bin/sh
 # Starts one desktop, logged in, in an Arch Linux virtual machine and says what it costs once it
-# has settled: the memory it added to the system, and the processor time it takes while nobody
-# touches it. Every desktop runs on the same machine, from the same system, with the same
-# software graphics, so the figures compare.
+# has settled: the memory of everything it started, and the processor time it takes while nobody
+# touches it. Every desktop runs on the same machine, from the same system, with the same virtual
+# graphics card, so the figures compare.
 #
 #   scripts/weigh-session DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
 #
@@ -33,13 +33,32 @@ sample=60
 # ---------------------------------------------------------------------------------------------
 # Inside the machine, as root.
 
-# Memory in use, in KiB, once the kernel has let go of what it was only caching.
-in_use() {
-    sync
-    echo 3 >/proc/sys/vm/drop_caches
-    sleep 5
-    awk '/^MemTotal:/ { total = $2 } /^MemAvailable:/ { free = $2 } END { print total - free }' \
-        /proc/meminfo
+# The memory, in MB, of every process that started with the desktop: its own, and the services it
+# woke, each counted for its share of what it shares with others (PSS), swapped-out pages
+# included. The commands doing the measuring are left out.
+desktop_memory() {
+    mark=$(cut -d. -f1 /run/weigh-started)
+    hz=$(getconf CLK_TCK)
+    own=$(cut -d' ' -f6 "/proc/$$/stat")
+    kib=0
+    for dir in /proc/[0-9]*; do
+        stat=$(cat "$dir/stat" 2>/dev/null) || continue
+        comm=${stat#*(}
+        comm=${comm%%)*}
+        # shellcheck disable=SC2086 # the fields after the name, one word each
+        set -- ${stat##*) }
+        # Field 6 of stat is the session, field 22 when the process started.
+        session=$4
+        shift 19
+        started=$1
+        case $comm in sudo | sshd | sshd-session) continue ;; esac
+        [ "$session" != "$own" ] || continue
+        [ $((started / hz)) -ge "$mark" ] || continue
+        pss=$(awk '/^Pss:/ { p = $2 } /^SwapPss:/ { s = $2 } END { print p + s + 0 }' \
+            "$dir/smaps_rollup" 2>/dev/null) || continue
+        kib=$((kib + pss))
+    done
+    echo $((kib / 1024))
 }
 
 # Processor ticks spent working, and all ticks, since boot.
@@ -88,8 +107,8 @@ user = "$user"
 EOF
             echo "session: $command"
             ;;
-        before) in_use >/run/weigh-before ;;
         start)
+            cut -d' ' -f1 /proc/uptime >/run/weigh-started
             # GNOME only starts from its own login manager, so it logs in there instead.
             if [ "$desktop" = gnome ]; then
                 mkdir -p /etc/gdm
@@ -123,9 +142,7 @@ EOF
             cores=$(nproc)
             # Percent of one processor: the share of all the machine's ticks, times its processors.
             percent=$(awk -v b="$busy" -v a="$all" -v c="$cores" 'BEGIN { printf "%.1f", 100 * c * b / a }')
-            after=$(in_use)
-            before=$(cat /run/weigh-before)
-            echo "$desktop $(((after - before) / 1024)) $percent"
+            echo "$desktop $(desktop_memory) $percent"
             ;;
     esac
 }
@@ -164,7 +181,7 @@ cloud-localds seed.iso user-data meta-data
 # The machine gets a virtual graphics card that the host draws for, in software on a display of
 # its own, so every desktop sees a GPU rather than software rendering, which some refuse.
 if [ -z "${DISPLAY:-}" ]; then
-    Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+    Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
     export DISPLAY=:99
     sleep 2
 fi
@@ -199,7 +216,6 @@ screenshot() {
 }
 
 ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
-ssh_vm sudo sh weigh-session --inside "$desktop" before
 screenshot console.ppm
 ssh_vm sudo sh weigh-session --inside "$desktop" start
 sleep "$settle"

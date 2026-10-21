@@ -84,6 +84,8 @@ jobs:
       fail-fast: false
       matrix:
         desktop: ${{ fromJSON(inputs.desktops) }}
+        # Three runs each; the table takes the middle one.
+        round: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -109,15 +111,15 @@ jobs:
         run: |
           set -o pipefail
           SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz 2>/dev/null || true) WEIGH_DIR=$PWD/vm \
-            sh scripts/weigh-session ${{ matrix.desktop }} | tee session-${{ matrix.desktop }}.txt
+            sh scripts/weigh-session ${{ matrix.desktop }} | tee session-${{ matrix.desktop }}-${{ matrix.round }}.txt
         shell: bash
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: session-${{ matrix.desktop }}
+          name: session-${{ matrix.desktop }}-${{ matrix.round }}
           path: |
-            session-${{ matrix.desktop }}.txt
+            session-${{ matrix.desktop }}-${{ matrix.round }}.txt
             vm/session-${{ matrix.desktop }}.ppm
 
   table:
@@ -133,7 +135,15 @@ jobs:
       - name: Put them in one table
         run: |
           cat weight-*.txt | sort >installs
-          cat session-*.txt 2>/dev/null | sort >sessions
+          # The middle of each desktop's runs, for memory and for processor separately.
+          cat session-*.txt 2>/dev/null | awk '
+            { memory[$1] = memory[$1] " " $2; processor[$1] = processor[$1] " " $3 }
+            function middle(list,   n, v, i, j, t) {
+              n = split(list, v, " ")
+              for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) if (v[j] + 0 < v[i] + 0) { t = v[i]; v[i] = v[j]; v[j] = t }
+              return v[int((n + 1) / 2)]
+            }
+            END { for (d in memory) print d, middle(memory[d]), middle(processor[d]) }' | sort >sessions
           {
             echo "| Desktop | Packages added | MB on disk | MB of memory | % of a processor at rest |"
             echo "|---|---:|---:|---:|---:|"
