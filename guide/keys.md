@@ -33,6 +33,7 @@ These are the Windows style's keys, which Slipstream starts with. Settings → S
 | Super+A, Super+N | Quick settings, notifications |
 | Super+V | Clipboard history |
 | Print, Super+Print, Super+Shift+S | Screenshot of the screen; snip a region or a window |
+| Super+= and Super+-, Super+0 | Zoom in and out around the pointer; back to normal. Super and the wheel zoom too |
 | Super+L | Lock |
 | Super+Esc | Take the mouse and keys back from a game or virtual machine holding them |
 | Alt+Shift, pressed together and let go | The next keyboard layout, once Settings → Mouse & keyboard has more than one |
@@ -59,6 +60,7 @@ Super is ⌘. Apps keep their own shortcuts, so copy and paste are still Ctrl+C 
 | Super+Alt+1–9 | Move the window to a workspace |
 | Super+Shift+3, Print | Screenshot of the screen |
 | Super+Shift+4, Super+Shift+5 | Snip a region or a window |
+| Super+Alt+= and Super+Alt+-, Super+Alt+0 | Zoom in and out; back to normal |
 | Super+Ctrl+Q | Lock |
 | Super+Shift+Q | The way out: lock, log out, restart, shut down |
 | Super+, | Settings |
@@ -88,6 +90,7 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 | Super+C, Super+V, Super+X | Copy, paste and cut in any app; in a terminal they copy and paste without interrupting it |
 | Super+Ctrl+V | Clipboard history |
 | Print, Super+Shift+S | Snip a region or a window; Enter takes the whole screen |
+| Super+Ctrl+Z or Super+Ctrl+=, Super+Ctrl+-, Super+Ctrl+Alt+Z | Zoom in, out; back to normal |
 | Super+Ctrl+L | Lock |
 | Super+Esc | The way out: lock, log out, restart, shut down |
 | Super+Shift+Esc | Take the mouse and keys back from a game or virtual machine holding them |

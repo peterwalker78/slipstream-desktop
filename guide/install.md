@@ -9,7 +9,7 @@ Slipstream installs **alongside** the desktop you use now. Nothing about your cu
 - Linux with **systemd-logind** or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
 - A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
 - Libraries as old as Debian 13's or newer. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
-- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark and light, file dialogs), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
+- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark and light, file dialogs, app shortcuts, apps keeping the screen awake), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
 
 Your existing desktop stays installed and on the login screen: Slipstream is added beside it.
 
