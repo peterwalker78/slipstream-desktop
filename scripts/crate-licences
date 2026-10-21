@@ -3,6 +3,8 @@
 # download's licences folder. The list comes from `cargo tree` (what the programs link on this
 # machine's platform, without build tools or test-only crates), the texts from each crate's
 # source as cargo fetched it. A text several crates share is written once and pointed to after.
+# A crate whose source has no licence file gets the standard text of each licence its manifest
+# names, from the repository's licences/ folder, at the end of the file.
 #
 #   scripts/crate-licences OUT_FILE
 set -eu
@@ -50,6 +52,7 @@ licence_files() {
 }
 
 : >"$work/seen"
+: >"$work/standard"
 {
     echo "Rust crates built into Slipstream, each with its licence as its source gives it."
     while IFS='|' read -r package licence; do
@@ -72,7 +75,21 @@ licence_files() {
         echo "$name $version: ${licence:-licence not stated}"
         echo "================================================================================"
         if [ -z "$files" ]; then
-            echo "The crate's source carries no licence file; its manifest says ${licence:-nothing}."
+            [ -n "$licence" ] || {
+                echo "crate-licences: $name $version has no licence file and names no licence" >&2
+                exit 1
+            }
+            # The licences an SPDX expression names, without its operators and brackets.
+            ids=$(echo "$licence" | tr '()/' '   ' | tr ' ' '\n' | grep -vxE 'OR|AND|WITH|')
+            for id in $ids; do
+                [ -f "$repo/licences/$id.txt" ] || {
+                    echo "crate-licences: $name $version names $id, which licences/ has no text for" >&2
+                    exit 1
+                }
+                echo "$id" >>"$work/standard"
+            done
+            echo "The crate's source carries no licence file. The standard text of" \
+                "$(printf '%s\n' "$ids" | tr '\n' ' ' | sed 's/ $//; s/ / and /g') is at the end of this file."
             continue
         fi
         for file in $files; do
@@ -89,5 +106,15 @@ licence_files() {
             cat "$file"
         done
     done <"$work/crates"
+    if [ -s "$work/standard" ]; then
+        sort -u "$work/standard" | while IFS= read -r id; do
+            echo
+            echo "================================================================================"
+            echo "The standard text of $id"
+            echo "================================================================================"
+            echo
+            cat "$repo/licences/$id.txt"
+        done
+    fi
 } >"$work/out"
 mv "$work/out" "$out"
