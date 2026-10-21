@@ -164,7 +164,7 @@ cloud-localds seed.iso user-data meta-data
 # The machine gets a virtual graphics card that the host draws for, in software on a display of
 # its own, so every desktop sees a GPU rather than software rendering, which some refuse.
 if [ -z "${DISPLAY:-}" ]; then
-    Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+    Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
     export DISPLAY=:99
     sleep 2
 fi
@@ -172,7 +172,7 @@ qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
     -drive file=arch.qcow2,if=virtio -drive file=seed.iso,if=virtio,format=raw \
     -device virtio-vga-gl -display sdl,gl=on \
     -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 \
-    -qmp unix:qmp.sock,server,nowait -daemonize -pidfile qemu.pid
+    -daemonize -pidfile qemu.pid
 
 ssh_vm() {
     ssh -q -i key -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -194,9 +194,8 @@ if [ "$desktop" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
         "$SLIPSTREAM_TARBALL" "$user@127.0.0.1:download.tar.gz"
 fi
 screenshot() {
-    printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s"}}\n' \
-        "$work/$1" | socat - "UNIX-CONNECT:$work/qmp.sock" >/dev/null
-    sleep 1
+    # The machine's screen is a window on the virtual display, so that is what is read.
+    xwd -root -silent | xwdtopnm >"$work/$1" 2>/dev/null
 }
 
 ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
