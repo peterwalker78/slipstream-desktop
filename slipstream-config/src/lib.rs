@@ -153,6 +153,37 @@ pub struct Settings {
 pub struct Keys {
     /// Whose shortcuts the desktop's keys follow.
     pub style: KeyStyle,
+    /// Shortcuts of the person's own, each opening an app. One that clashes with a key of the
+    /// style in force stays here and does nothing until the style changes back, so changing
+    /// style never loses any.
+    #[serde(rename = "app", skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<AppKey>,
+}
+
+/// One shortcut that opens an app.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct AppKey {
+    /// The keys, as the XDG shortcuts specification writes them: `LOGO+g`.
+    pub keys: String,
+    /// The app's desktop file ID, without `.desktop`: `org.example.Files`.
+    pub app: String,
+}
+
+impl Keys {
+    /// Adds a shortcut, in place of any other on the same keys.
+    pub fn add_app_key(&mut self, keys: &str, app: &str) {
+        self.remove_app_key(keys);
+        self.apps.push(AppKey {
+            keys: keys.to_string(),
+            app: app.to_string(),
+        });
+    }
+
+    /// Takes away the shortcut on these keys.
+    pub fn remove_app_key(&mut self, keys: &str) {
+        self.apps.retain(|key| key.keys != keys);
+    }
 }
 
 /// Which desktop's habits the shortcuts follow. The actions are the same in each; the keys
@@ -695,6 +726,10 @@ mod tests {
             },
             keys: Keys {
                 style: KeyStyle::Omarchy,
+                apps: vec![AppKey {
+                    keys: "LOGO+g".into(),
+                    app: "org.example.Files".into(),
+                }],
             },
             mouse: Mouse {
                 speed: 0.5,
@@ -712,6 +747,7 @@ mod tests {
         let text = toml::to_string(&settings).unwrap();
         assert!(text.contains("fade-after-secs = 300"), "{text}");
         assert!(text.contains(r#"style = "omarchy""#), "{text}");
+        assert!(text.contains("[[keys.app]]"), "{text}");
         assert!(text.contains("tap-to-click = false"), "{text}");
         assert!(text.contains(r#"variant = "dvorak""#), "{text}");
         assert!(
@@ -754,5 +790,32 @@ mod tests {
     fn an_empty_allowlist_is_left_out_of_the_file() {
         let text = toml::to_string(&Settings::default()).unwrap();
         assert!(!text.contains("screen-capture-allowed"), "{text}");
+    }
+
+    #[test]
+    fn a_settings_file_from_before_own_shortcuts_still_loads() {
+        let settings = parse("[keys]\nstyle = \"mac\"\n").unwrap();
+        assert_eq!(settings.keys.style, KeyStyle::Mac);
+        assert!(settings.keys.apps.is_empty());
+        let text = toml::to_string(&Settings::default()).unwrap();
+        assert!(!text.contains("keys.app"), "{text}");
+    }
+
+    #[test]
+    fn an_own_shortcut_replaces_another_on_the_same_keys() {
+        let mut keys = Keys::default();
+        keys.add_app_key("LOGO+g", "org.example.Files");
+        keys.add_app_key("LOGO+h", "org.example.Notes");
+        keys.add_app_key("LOGO+g", "org.example.Browser");
+        let apps: Vec<_> = keys.apps.iter().map(|k| (&*k.keys, &*k.app)).collect();
+        assert_eq!(
+            apps,
+            [
+                ("LOGO+h", "org.example.Notes"),
+                ("LOGO+g", "org.example.Browser")
+            ]
+        );
+        keys.remove_app_key("LOGO+h");
+        assert_eq!(keys.apps.len(), 1);
     }
 }

@@ -21,6 +21,7 @@ use crate::{
     motion::HYPR,
     paint::{self, Painted, Painter},
     panel::{self, DESIGN_PX},
+    shortcuts::own::OwnKey,
     text::{self, Face, Style},
     tour::{self, CHAPTERS, LESSONS},
 };
@@ -310,6 +311,7 @@ struct Look {
     style: KeyStyle,
     /// How many screens there are: with one, the keys between screens have nothing to do.
     screens: usize,
+    own: Vec<OwnKey>,
 }
 
 /// Everything the tour's miniature depends on: the lesson, the moment in its loop and the rain's
@@ -394,12 +396,29 @@ pub struct Sheet {
 }
 
 /// What the key list lists: the bindings in force, written in a keyboard style, with the screen
-/// keys only when there is more than one screen.
+/// keys only when there is more than one screen, and the person's own shortcuts that work.
 #[derive(Clone, Copy)]
 pub struct Listing<'a> {
     pub bindings: &'a [Binding],
     pub style: KeyStyle,
     pub screens: usize,
+    pub own: &'a [OwnKey],
+}
+
+/// `sections` with the person's own shortcuts at the end of the apps' group, each as "open" and
+/// the app's name.
+fn with_own(mut sections: Vec<Section>, own: &[OwnKey]) -> Vec<Section> {
+    if let Some(section) = sections
+        .iter_mut()
+        .find(|section| section.group == Group::AppsAndWindows)
+    {
+        section.rows.extend(own.iter().map(|own| Row {
+            keys: vec![own.trigger.label()],
+            does: format!("open {}", own.name),
+            bindings: vec![(own.trigger.mods, own.trigger.key)],
+        }));
+    }
+    sections
 }
 
 impl Sheet {
@@ -552,6 +571,7 @@ impl Sheet {
             bindings,
             style,
             screens,
+            own,
         } = listing;
         let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
@@ -568,6 +588,7 @@ impl Sheet {
             ring,
             style,
             screens,
+            own: own.to_vec(),
         };
         if self.shown.as_ref() != Some(&look) {
             self.painted = match self.tour {
@@ -575,7 +596,8 @@ impl Sheet {
                 None => {
                     let tap = keys::taps_super(style);
                     let bindings = for_screens(bindings, screens);
-                    let sections = filtered(sections(&bindings, tap), &look.query);
+                    let sections = with_own(sections(&bindings, tap), own);
+                    let sections = filtered(sections, &look.query);
                     paint(&look, &sections)
                 }
             };

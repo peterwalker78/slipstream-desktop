@@ -13,6 +13,7 @@
 //! keyboard.
 
 pub mod ask;
+pub mod own;
 pub mod portal;
 pub mod trigger;
 
@@ -82,6 +83,8 @@ pub struct Shortcuts {
     /// The card on screen, and the request it answers.
     asking: Option<(Pending, Ask)>,
     waiting: VecDeque<Pending>,
+    /// The person's own shortcuts that work, which no app can be given.
+    own: Vec<own::OwnKey>,
 }
 
 impl Shortcuts {
@@ -90,6 +93,22 @@ impl Shortcuts {
             granted,
             ..Self::default()
         }
+    }
+
+    pub fn set_own(&mut self, own: Vec<own::OwnKey>) {
+        self.own = own;
+    }
+
+    pub fn own(&self) -> &[own::OwnKey] {
+        &self.own
+    }
+
+    /// The app the person's own shortcut on these keys opens.
+    pub fn own_app(&self, mods: Mods, key: Keysym) -> Option<String> {
+        self.own
+            .iter()
+            .find(|own| own.trigger.matches(mods, key))
+            .map(|own| own.app.clone())
     }
 
     pub fn granted(&self) -> &Granted {
@@ -167,6 +186,9 @@ impl Shortcuts {
         let spec = trigger.spec();
         if let Some(other) = self.granted.held_by_another(&spec, app) {
             return Some(Refusal::Taken(other.to_string()));
+        }
+        if let Some(own) = self.own.iter().find(|own| own.trigger == trigger) {
+            return Some(Refusal::Opens(own.name.clone()));
         }
         self.sessions
             .values()

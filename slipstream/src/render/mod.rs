@@ -285,6 +285,7 @@ fn card_elements(
                         bindings: &state.bindings,
                         style: state.settings.keys.style,
                         screens: state.space.outputs().count(),
+                        own: state.shortcuts.own(),
                     },
                     ring,
                     effects,

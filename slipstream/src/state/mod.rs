@@ -617,7 +617,21 @@ impl Slipstream {
         state
             .idle
             .set_screen_off_after(state.settings.display.screen_off_mins);
+        let keys = state.settings.keys.clone();
+        state.set_own_keys(&keys);
         state
+    }
+
+    /// The person's own shortcuts that work with `keys`' style.
+    pub fn set_own_keys(&mut self, keys: &slipstream_config::Keys) {
+        let name = |id: &str| {
+            crate::apps::find(id)
+                .map(|app| app.name)
+                .unwrap_or_else(|| id.to_string())
+        };
+        let own =
+            crate::shortcuts::own::usable(keys.style, &keys.apps, self.shortcuts.granted(), name);
+        self.shortcuts.set_own(own);
     }
 
     /// Every effect has a reduced-motion path: moves jump and effects become short fades. This

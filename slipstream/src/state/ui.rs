@@ -338,6 +338,7 @@ impl Slipstream {
         if settings.keys != self.settings.keys {
             let style = settings.keys.style;
             self.bindings = crate::keys::checked(crate::keys::defaults(style), style);
+            self.set_own_keys(&settings.keys);
         }
         // Apps hear about dark and light over the settings portal, and change without restarting.
         crate::appearance::set(settings.appearance.colour_scheme);
@@ -531,6 +532,14 @@ impl Slipstream {
             launch::app(&app.id, &app.exec, app.terminal, done)
         {
             self.no_terminal();
+        }
+    }
+
+    /// One of the person's own shortcuts: starts its app, and says so if it isn't there.
+    pub fn open_own_key(&mut self, id: &str) {
+        match crate::apps::find(id) {
+            Some(app) => self.start_app(&app),
+            None => self.show_toast("Couldn’t start it", &format!("{id} isn’t installed")),
         }
     }
 

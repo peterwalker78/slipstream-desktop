@@ -248,14 +248,34 @@ pub fn application_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every listed app, sorted by name. Where two directories have the same ID, the earlier one
-/// wins, even if it hides the app.
-pub fn scan() -> Vec<App> {
-    let desktops: Vec<String> = std::env::var("XDG_CURRENT_DESKTOP")
+fn current_desktops() -> Vec<String> {
+    std::env::var("XDG_CURRENT_DESKTOP")
         .unwrap_or_else(|_| "Slipstream".to_string())
         .split(':')
         .map(String::from)
-        .collect();
+        .collect()
+}
+
+/// The listed app with desktop file ID `id`, read from its own entry alone, without a scan. As
+/// in a scan, the first directory holding the ID wins.
+pub fn find(id: &str) -> Option<App> {
+    let path = data_dirs()
+        .into_iter()
+        .map(|dir| dir.join("applications").join(format!("{id}.desktop")))
+        .find(|path| path.is_file())?;
+    let bytes = crate::files::read_small(&path, crate::files::DESKTOP_ENTRY_LIMIT).ok()?;
+    parse(
+        id,
+        &String::from_utf8(bytes).ok()?,
+        &current_desktops(),
+        launch::installed,
+    )
+}
+
+/// Every listed app, sorted by name. Where two directories have the same ID, the earlier one
+/// wins, even if it hides the app.
+pub fn scan() -> Vec<App> {
+    let desktops = current_desktops();
     let mut seen = HashSet::new();
     let mut apps = Vec::new();
     for dir in data_dirs() {

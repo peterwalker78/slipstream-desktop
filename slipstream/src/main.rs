@@ -277,6 +277,22 @@ fn run_one_off(args: &[String]) {
         print!("{}", sheet::listing(style));
         std::process::exit(0);
     }
+    // Whether keys can open an app in a style, and if not why, for the Settings app.
+    if args.first().map(String::as_str) == Some("--check-keys") {
+        let Some(style) = args
+            .get(1)
+            .and_then(|id| slipstream_config::KeyStyle::from_id(id))
+        else {
+            eprintln!("usage: slipstream --check-keys windows|mac|omarchy KEYS…");
+            std::process::exit(2);
+        };
+        let granted = slipstream_config::shortcuts::read(&slipstream_config::shortcuts::path());
+        print!(
+            "{}",
+            shortcuts::own::check_listing(style, &args[2..], &granted)
+        );
+        std::process::exit(0);
+    }
     // A living-wallpaper variation drawn off screen for the Settings app's preview: no display,
     // no GPU, and nothing else started.
     if args.first().map(String::as_str) == Some("--wallpaper-preview") {

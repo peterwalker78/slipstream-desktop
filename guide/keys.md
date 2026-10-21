@@ -93,6 +93,10 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 | Super+Shift+Esc | Take the mouse and keys back from a game or virtual machine holding them |
 | Super+K | Every key, and Enter there starts the tour |
 
+## Your own shortcuts
+
+Settings → Shortcuts adds keys that open an app: choose the app, then press the keys. They can't be a key your style already uses, or one kept for typing aids, screen readers and games; Settings says which when you press one. Changing style keeps them. One the new style uses does nothing, and Settings says why, until you take it away or change back. Super+/ lists the ones that work.
+
 ## Inside panels and bullet time
 
 In any panel or card, Esc backs out one level, Tab and the arrows move, Enter presses, and Home, End, PgUp and PgDn jump.

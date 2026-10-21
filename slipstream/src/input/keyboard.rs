@@ -63,6 +63,8 @@ enum KeyUse {
     History(Keysym),
     /// A zoom key, whatever holds the keyboard.
     Zoom(crate::zoom::Step),
+    /// One of the person's own shortcuts: the desktop file ID of the app it opens.
+    OpenApp(String),
 }
 
 /// The character `sym` types into a panel's search: none with Super, Ctrl or Alt held, since
@@ -536,6 +538,10 @@ impl Slipstream {
                         }
                         return FilterResult::Intercept(None);
                     }
+                    if let Some(app) = state.shortcuts.own_app(mods, key) {
+                        state.keys.suppressed_keys.push(key);
+                        return FilterResult::Intercept(Some(KeyUse::OpenApp(app)));
+                    }
                 } else if release_suppressed(&mut state.keys.suppressed_keys, key) {
                     return FilterResult::Intercept(None);
                 }
@@ -687,6 +693,7 @@ impl Slipstream {
     fn use_key(&mut self, used: KeyUse) {
         match used {
             KeyUse::Action(action) => self.run_bound(action),
+            KeyUse::OpenApp(app) => self.open_own_key(&app),
             KeyUse::Explorer(sym, ch, mods) => self.explorer_key(sym, ch, mods),
             KeyUse::Bullet(key, mods) => self.bullet_key(key, mods),
             KeyUse::Quick(key, shift) => self.quick_key(key, shift),

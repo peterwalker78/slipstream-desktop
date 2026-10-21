@@ -31,6 +31,8 @@ pub enum Refusal {
     Types,
     /// Another app has them; its name.
     Taken(String),
+    /// They are one of the person's own shortcuts, opening this app.
+    Opens(String),
 }
 
 impl Refusal {
@@ -45,6 +47,7 @@ impl Refusal {
                 format!("{keys} types or edits text. Hold Ctrl, Alt or Super with it.")
             }
             Refusal::Taken(app) => format!("{app} already uses {keys}."),
+            Refusal::Opens(app) => format!("{keys} already opens {app}."),
         }
     }
 }
@@ -137,14 +140,19 @@ impl Trigger {
     /// Whether these keys can be an app's shortcut. Another app holding them is checked by the
     /// caller, which knows the apps.
     pub fn check(&self) -> Result<(), Refusal> {
+        self.check_in(&KeyStyle::ALL)
+    }
+
+    /// The same, against the keys of `styles` only.
+    pub fn check_in(&self, styles: &[KeyStyle]) -> Result<(), Refusal> {
         let (mods, key) = (self.mods, self.key);
-        if KeyStyle::ALL
+        if styles
             .iter()
             .any(|style| keys::is_reserved_in(*style, mods, key))
         {
             return Err(Refusal::Kept);
         }
-        if KeyStyle::ALL
+        if styles
             .iter()
             .any(|style| keys::action_for(&keys::defaults(*style), mods, key).is_some())
         {
