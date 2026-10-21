@@ -93,7 +93,15 @@ const PARTS: &[(&str, &[&str])] = &[
     ),
     (
         "App explorer",
-        &["shell/explorer", "apps", "calc", "emoji", "launch", "watch"],
+        &[
+            "shell/explorer",
+            "apps",
+            "app_scope",
+            "calc",
+            "emoji",
+            "launch",
+            "watch",
+        ],
     ),
     (
         "Bar, quick settings and notifications",

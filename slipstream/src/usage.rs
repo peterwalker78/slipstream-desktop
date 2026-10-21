@@ -371,7 +371,7 @@ fn cgroup_path(text: &str) -> Option<&str> {
 }
 
 /// A scope or service the desktop made for one app, rather than the session's own cgroup.
-fn is_app_cgroup(path: &str) -> bool {
+pub(crate) fn is_app_cgroup(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|leaf| {
         leaf.starts_with("app-") && (leaf.ends_with(".scope") || leaf.ends_with(".service"))
     })

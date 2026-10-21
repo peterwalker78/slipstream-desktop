@@ -12,6 +12,8 @@ rust-version.workspace = true
 # SIGTERM too, and a signalfd through the event loop is the only way to do that safely.
 calloop = { version = "0.14", features = ["signals"] }
 async-channel.workspace = true
+async-io.workspace = true
+futures-lite.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 fontdue.workspace = true

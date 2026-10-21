@@ -77,7 +77,7 @@ pub fn launch(app: App) -> Result<(), Failure> {
     match command {
         Some(command) => {
             tracing::info!(?app, ?command, "launching");
-            spawn(&command).map_err(Failure::Spawn)
+            run(&command).map_err(Failure::Spawn)
         }
         None => {
             tracing::warn!(?app, "nothing installed to launch");
@@ -223,9 +223,9 @@ fn settings_app() -> Option<Vec<String>> {
         .or_else(|| first_installed(&[&[SETTINGS_APP]]))
 }
 
-/// Starts an app's command from its desktop entry. Terminal apps open inside a terminal.
-pub fn app(exec: &[String], in_terminal: bool) -> Result<(), Failure> {
-    again(exec, in_terminal, None).map(drop)
+/// Starts an app's command from its desktop entry, `id`. Terminal apps open inside a terminal.
+pub fn app(id: &str, exec: &[String], in_terminal: bool) -> Result<(), Failure> {
+    again(id, exec, in_terminal, None).map(drop)
 }
 
 /// An AI agent's session to reopen inside a terminal (`resume.rs`): the command its note gave,
@@ -238,19 +238,24 @@ pub struct Reopen<'a> {
     pub search_path: Option<&'a str>,
 }
 
-/// Starts an app the layout record names, and says which process it became. A terminal with a
-/// session to reopen runs it, and is left at a shell when the agent exits, as it would have
-/// been had the agent been started by hand.
-pub fn again(exec: &[String], in_terminal: bool, reopen: Option<Reopen>) -> Result<u32, Failure> {
+/// Starts an app the layout record names, by its desktop entry `id`, and says which process it
+/// became. A terminal with a session to reopen runs it, and is left at a shell when the agent
+/// exits, as it would have been had the agent been started by hand.
+pub fn again(
+    id: &str,
+    exec: &[String],
+    in_terminal: bool,
+    reopen: Option<Reopen>,
+) -> Result<u32, Failure> {
     if in_terminal {
         let Some(command) = in_a_terminal(exec, terminal()) else {
             tracing::warn!(?exec, "no terminal installed to run it in");
             return Err(Failure::NothingInstalled);
         };
-        return start(&command, None, None).map_err(Failure::Spawn);
+        return start(&command, None, None, Some(id)).map_err(Failure::Spawn);
     }
     let Some(reopen) = reopen else {
-        return start(exec, None, None).map_err(Failure::Spawn);
+        return start(exec, None, None, Some(id)).map_err(Failure::Spawn);
     };
     // A shell that has gone since, in an upgrade say, is no more use than one never known.
     let typed_into = reopen.shell.filter(|shell| {
@@ -263,7 +268,7 @@ pub fn again(exec: &[String], in_terminal: bool, reopen: Option<Reopen>) -> Resu
     .ok_or(Failure::NothingInstalled)?;
     // A folder that has gone since is no reason not to reopen the session.
     let directory = reopen.directory.map(Path::new).filter(|dir| dir.is_dir());
-    start(&command, directory, reopen.search_path).map_err(Failure::Spawn)
+    start(&command, directory, reopen.search_path, Some(id)).map_err(Failure::Spawn)
 }
 
 /// The person's login shell, from `$SHELL`, else the one every system has.
@@ -563,18 +568,32 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
-/// Starts `command` with its output kept out of Slipstream's log, and reaps it when it exits.
-/// An error means it never started: most often, no program by that name.
+/// Starts a helper of Slipstream's own with its output kept out of Slipstream's log, and reaps it
+/// when it exits. An error means it never started: most often, no program by that name.
 pub fn spawn(command: &[String]) -> io::Result<()> {
-    start(command, None, None).map(drop)
+    start(command, None, None, None).map(drop)
+}
+
+/// `spawn` for an app that has no desktop entry to hand, such as a command typed into Run: it
+/// gets a scope of its own, named for its program.
+pub fn run(command: &[String]) -> io::Result<()> {
+    start(
+        command,
+        None,
+        None,
+        Some(crate::app_scope::command_id(command)),
+    )
+    .map(drop)
 }
 
 /// `spawn`, in `directory` and with `search_path` if they are given, saying which process the
-/// command became.
+/// command became. An app, with its desktop entry `id`, is started in a scope of its own where
+/// the system can give it one.
 fn start(
     command: &[String],
     directory: Option<&Path>,
     search_path: Option<&str>,
+    id: Option<&str>,
 ) -> io::Result<u32> {
     let Some((program, args)) = command.split_first() else {
         return Err(io::Error::new(
@@ -597,7 +616,10 @@ fn start(
     if let Some(search_path) = search_path {
         process.env("PATH", search_path);
     }
-    match process.spawn() {
+    let hold = id.and_then(|id| crate::app_scope::hold(&mut process, id));
+    let spawned = process.spawn();
+    drop(hold);
+    match spawned {
         Ok(mut child) => {
             tracing::debug!(?command, "started");
             let pid = child.id();

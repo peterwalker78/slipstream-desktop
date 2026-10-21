@@ -46,6 +46,8 @@ pub fn workspace_now(
 /// An app as its desktop entry gives it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
+    /// Its desktop file ID, which names the scope it is started in.
+    pub id: String,
     pub name: String,
     pub exec: Vec<String>,
     /// It runs inside a terminal.
@@ -57,6 +59,8 @@ pub struct Entry {
 /// One recorded app to start again.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Start {
+    /// The desktop file ID.
+    pub id: String,
     pub exec: Vec<String>,
     pub in_terminal: bool,
     /// An agent's session to reopen inside it, the folder to do that from, the shell to do it
@@ -74,6 +78,8 @@ pub struct Place {
     pub app: String,
     /// The app's name from its desktop entry, for the offer card and the log.
     pub name: String,
+    /// The desktop file ID of the entry `exec` came from.
+    pub id: String,
     /// What to run. Never the app id, which any client can set to anything.
     pub exec: Vec<String>,
     pub in_terminal: bool,
@@ -179,6 +185,7 @@ impl<W: Clone + PartialEq> Plan<W> {
             };
             places.push(Place {
                 app: win.app.to_lowercase(),
+                id: entry.id,
                 name: entry.name,
                 exec: entry.exec,
                 in_terminal: entry.in_terminal,
@@ -229,6 +236,7 @@ impl<W: Clone + PartialEq> Plan<W> {
         self.places
             .iter()
             .map(|place| Start {
+                id: place.id.clone(),
                 exec: place.exec.clone(),
                 in_terminal: place.in_terminal,
                 resume: place.resume.clone(),
@@ -412,6 +420,7 @@ mod tests {
             _ => return None,
         };
         Some(Entry {
+            id: app.into(),
             name: name.into(),
             exec: vec![exec.into()],
             in_terminal: false,
@@ -501,6 +510,7 @@ mod tests {
         assert_eq!(
             plan.to_launch(),
             [Start {
+                id: "firefox".to_string(),
                 exec: vec!["firefox".to_string()],
                 in_terminal: false,
                 resume: None,

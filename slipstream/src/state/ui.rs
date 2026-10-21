@@ -515,7 +515,7 @@ impl Slipstream {
     /// Starts an app from its desktop entry, and says so if it can't be.
     pub(super) fn start_app(&mut self, app: &crate::apps::App) {
         self.concentration.asked(std::time::Instant::now());
-        match launch::app(&app.exec, app.terminal) {
+        match launch::app(&app.id, &app.exec, app.terminal) {
             Ok(()) => {}
             Err(launch::Failure::NothingInstalled) => self.no_terminal(),
             Err(launch::Failure::Spawn(err)) => {
@@ -528,7 +528,7 @@ impl Slipstream {
     pub(super) fn open_path(&mut self, path: &std::path::Path) {
         self.concentration.asked(std::time::Instant::now());
         let command = ["xdg-open".to_string(), path.to_string_lossy().into_owned()];
-        if let Err(err) = launch::spawn(&command) {
+        if let Err(err) = launch::run(&command) {
             self.show_toast("Couldn’t open it", &err.to_string());
         }
     }
@@ -565,7 +565,7 @@ impl Slipstream {
         match run {
             Run::Url(url) => {
                 tracing::info!("opening a URL from the explorer");
-                if let Err(err) = launch::spawn(&["xdg-open".to_string(), url]) {
+                if let Err(err) = launch::run(&["xdg-open".to_string(), url]) {
                     self.show_toast("Couldn’t open it", &err.to_string());
                 }
             }
@@ -576,7 +576,7 @@ impl Slipstream {
             Run::Command(words) => {
                 tracing::info!(command = ?words, "running a command from the explorer");
                 let program = words.first().cloned().unwrap_or_default();
-                if let Err(err) = launch::spawn(&words) {
+                if let Err(err) = launch::run(&words) {
                     let (title, body) = launch::couldnt_run(&program, &err);
                     self.show_toast(title, &body);
                 }
@@ -632,7 +632,7 @@ impl Slipstream {
             return;
         };
         tracing::info!(page, ?command, "opening a Settings page");
-        if let Err(err) = launch::spawn(&command) {
+        if let Err(err) = launch::run(&command) {
             self.show_toast("Couldn’t start Settings", &err.to_string());
         }
     }
@@ -652,7 +652,7 @@ impl Slipstream {
             return;
         };
         tracing::info!(?page, ?command, "opening a system settings page");
-        if let Err(err) = launch::spawn(&command) {
+        if let Err(err) = launch::run(&command) {
             self.show_toast("Couldn’t open the settings page", &err.to_string());
         }
     }

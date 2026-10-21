@@ -2255,8 +2255,10 @@ name = "slipstream"
 version = "0.14.0"
 dependencies = [
  "async-channel",
+ "async-io",
  "calloop",
  "fontdue",
+ "futures-lite",
  "libc",
  "png",
  "resvg",

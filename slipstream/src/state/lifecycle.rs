@@ -338,6 +338,7 @@ impl Slipstream {
                     .app_for(id)
                     .filter(|app| !app.exec.is_empty())
                     .map(|app| restore::Entry {
+                        id: app.id,
                         name: app.name,
                         exec: app.exec,
                         in_terminal: app.terminal,
@@ -372,7 +373,7 @@ impl Slipstream {
                 shell: start.shell.as_deref(),
                 search_path: start.search_path.as_deref(),
             });
-            let started = launch::again(&start.exec, start.in_terminal, reopen);
+            let started = launch::again(&start.id, &start.exec, start.in_terminal, reopen);
             if let Ok(pid) = started {
                 plan.started(index, pid);
             }

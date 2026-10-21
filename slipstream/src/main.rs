@@ -9,6 +9,7 @@
 
 mod alert;
 mod anim;
+mod app_scope;
 mod appearance;
 mod apps;
 mod auth;
@@ -723,7 +724,12 @@ fn spawn_client(args: &[String]) {
         .position(|arg| arg == "-c" || arg == "--command")
         .and_then(|i| args.get(i + 1));
     if let Some(command) = command {
-        if let Err(err) = crate::launch::command(command).spawn() {
+        let mut process = crate::launch::command(command);
+        let id = crate::app_scope::command_id(std::slice::from_ref(command));
+        let hold = crate::app_scope::hold(&mut process, id);
+        let spawned = process.spawn();
+        drop(hold);
+        if let Err(err) = spawned {
             tracing::warn!("couldn't start {command}: {err}");
         }
     }

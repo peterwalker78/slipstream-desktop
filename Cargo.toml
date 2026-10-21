@@ -29,6 +29,9 @@ ttf-parser = { version = "0.25", default-features = false, features = ["std", "v
 resvg = { version = "0.48", default-features = false }
 # D-Bus in pure Rust: the compositor serves org.freedesktop.Notifications in its session.
 zbus = "5.19"
+# Waiting on systemd with a time limit (`app_scope.rs`); both come with zbus already.
+async-io = "2.6"
+futures-lite = "2.6"
 # Clearing the signal mask in children (`launch::command`).
 libc = "0.2"
 # The settings file, shared by the compositor and slipstream-settings.
