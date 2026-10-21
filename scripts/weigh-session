@@ -86,9 +86,15 @@ EOF
             ;;
         before) in_use >/run/weigh-before ;;
         start) systemctl start greetd ;;
+        logs)
+            journalctl -b -u greetd --no-pager | tail -n 40
+            journalctl -b _UID="$(id -u "$user")" --no-pager | tail -n 80
+            tail -n 60 "/home/$user/.local/state/slipstream/slipstream.log" 2>/dev/null || true
+            ;;
         after)
-            loginctl list-sessions --no-legend | grep -q " $user " \
-                || { echo "weigh-session: $user isn't logged in" >&2; exit 1; }
+            # Logged in on the screen, not just over ssh.
+            loginctl list-sessions --no-legend | grep -q " $user  *seat0" \
+                || { echo "weigh-session: $desktop never started on the screen" >&2; exit 1; }
             # shellcheck disable=SC2046 # two numbers
             set -- $(ticks)
             sleep "$sample"
@@ -163,5 +169,9 @@ sleep "$settle"
 
 printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s"}}\n' \
     "$work/session-$desktop.ppm" | socat - "UNIX-CONNECT:$work/qmp.sock" >/dev/null
-ssh_vm sudo sh weigh-session --inside "$desktop" after
+if ! ssh_vm sudo sh weigh-session --inside "$desktop" after; then
+    ssh_vm sudo sh weigh-session --inside "$desktop" logs >&2
+    kill "$(cat qemu.pid)" 2>/dev/null || true
+    exit 1
+fi
 kill "$(cat qemu.pid)" 2>/dev/null || true
