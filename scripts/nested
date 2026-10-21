@@ -1,18 +1,18 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Build Slipstream in the capped `slipstream` distrobox and run it nested: a window inside
 # your current desktop. Works from any terminal on the host.
 #
 #   scripts/nested            # opens foot inside it
 #   scripts/nested firefox    # or any other program
-set -euo pipefail
+set -eu
 
 repo="$(realpath "$(dirname "$0")/..")"
 repo="${repo#/var}"   # Fedora Atomic hosts see /var/home; the box sees /home
 
 free -h | head -2
 # shellcheck disable=SC2016 # expanded by the box's shell, from the arguments after it
-exec distrobox enter slipstream -- bash -c '
-  set -euo pipefail
+exec distrobox enter slipstream -- sh -c '
+  set -eu
   cd "$1"
   . "$HOME/.cargo/env"
   cargo build -q
