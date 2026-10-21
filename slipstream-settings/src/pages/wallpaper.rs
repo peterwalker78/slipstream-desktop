@@ -9,8 +9,14 @@ pub(super) const FADE_CHOICES: [u64; 7] = [30, 60, 120, 300, 600, 1800, 0];
 /// How long a variation holds before the next one takes over, in minutes; 0 never changes.
 pub(super) const CHANGE_CHOICES: [u64; 8] = [1, 2, 5, 10, 15, 30, 60, 0];
 
-/// How tall the list of variations is: about five rows.
-const LIST_HEIGHT: i32 = 260;
+/// How tall the list of variations is: as tall as the preview, about six rows.
+const LIST_HEIGHT: i32 = previews::SHOWN.1;
+
+/// The narrowest the list may be beside the preview; with less room it goes beneath it.
+const LIST_BESIDE: i32 = 280;
+
+/// The space between the preview and the list.
+const GAP: i32 = 16;
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
@@ -136,13 +142,25 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         .build();
     let preview = previews::Preview::new(&picture, store.get().motion.reduced);
     let shelf = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
+        .spacing(GAP)
         .css_classes(["row"])
         .build();
     shelf.append(&holder);
     shelf.append(&scroller);
     turns.append(&shelf);
+    // Side by side when the list has room beside the preview, otherwise the preview above it.
+    shelf.add_tick_callback(|shelf, _| {
+        let beside = shelf.width() >= previews::SHOWN.0 + GAP + LIST_BESIDE;
+        let orientation = if beside {
+            gtk::Orientation::Horizontal
+        } else {
+            gtk::Orientation::Vertical
+        };
+        if shelf.orientation() != orientation {
+            shelf.set_orientation(orientation);
+        }
+        gtk::glib::ControlFlow::Continue
+    });
 
     // How far the list is scrolled says which row is picked: the first at the top, the last at
     // the bottom, the rest in between. Picking a row with the keys or the pointer scrolls the
