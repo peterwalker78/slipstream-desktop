@@ -64,7 +64,7 @@ impl System {
             System::Restart => &["reboot"],
             System::ShutDown => &["shutdown", "power off", "turn off"],
             System::Shortcuts => &["keys", "help", "shortcuts"],
-            System::About => &["version", "bloat", "weight"],
+            System::About => &["version", "featherweight", "weight"],
         }
     }
 
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(found("shut"), [System::ShutDown]);
         assert_eq!(found("reboot"), [System::Restart]);
         assert_eq!(found("help"), [System::Shortcuts]);
-        for query in ["about", "version", "bloat", "weight"] {
+        for query in ["about", "version", "featherweight", "weight"] {
             assert_eq!(found(query), [System::About], "{query}");
         }
         assert!(found("ock").is_empty(), "only the start of a word");

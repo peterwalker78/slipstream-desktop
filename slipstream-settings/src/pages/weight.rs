@@ -1,10 +1,9 @@
-//! How much Slipstream weighs, on the About page: its score against other desktops, a strip
-//! placing each of them from 0 to 100, a map of where its code goes, and the figures behind it.
-//! The score is fixed for each version: its memory is the most the session uses at rest, not what
-//! it happens to be using now.
+//! How light Slipstream is, on the About page: its Featherweight score against other desktops, a
+//! strip placing each of them from 0 to 100, a map of where its code goes, and the figures behind
+//! the score. The figures are measured for each release, so the score is fixed for a version.
 
 use gtk::cairo;
-use slipstream_config::weight::{self, OTHERS};
+use slipstream_config::weight::{self, OTHERS, SLIPSTREAM, SLIPSTREAM_REDUCED};
 
 use super::*;
 
@@ -27,21 +26,17 @@ fn code_mb() -> f64 {
     CODE_BYTES as f64 / 1e6
 }
 
-fn our_score() -> f64 {
-    weight::score(weight::WORST_MEMORY_MB, weight::PIECES, code_mb())
-}
-
 pub(super) fn section(page: &gtk::Box) {
-    let card = group(page, "Weight");
-    let score = our_score();
+    let card = group(page, "Featherweight score");
+    let score = SLIPSTREAM.score();
     let place = weight::place(score);
     let of = OTHERS.len() + 1;
     let verdict = label(
         &if place == 1 {
-            format!("Bloat score: {score:.0} out of 100, the leanest of {of}")
+            format!("{score:.0} out of 100, the lightest of {of}")
         } else {
             format!(
-                "Bloat score: {score:.0} out of 100, the {} leanest of {of}",
+                "{score:.0} out of 100, the {} lightest of {of}",
                 ordinal(place)
             )
         },
@@ -54,9 +49,11 @@ pub(super) fn section(page: &gtk::Box) {
     heading.append(&verdict);
     heading.append(&label(
         &format!(
-            "How we make sure Slipstream stays lightweight. Lower is leaner: memory, pieces to \
-             install and code, against {} other desktops, some from estimates.",
-            OTHERS.len()
+            "How light Slipstream is in real use, next to {} other desktops: the space it takes, \
+             the memory it uses once you're logged in, and how much of a typical computer it \
+             keeps busy while you're away. Lower is lighter. With reduced motion it scores {:.0}.",
+            OTHERS.len(),
+            SLIPSTREAM_REDUCED.score()
         ),
         "row-sub",
     ));
@@ -123,34 +120,31 @@ pub(super) fn section(page: &gtk::Box) {
         .spacing(10)
         .css_classes(["row"])
         .build();
+    fact(&facts, &format!("{:.0} MB", SLIPSTREAM.disk_mb), "On disk")
+        .1
+        .set_tooltip_text(Some(
+            "What installing Slipstream adds, everything it needs included.",
+        ));
+    fact(&facts, &format!("{:.0} MB", SLIPSTREAM.memory_mb), "Memory")
+        .1
+        .set_tooltip_text(Some(
+            "What Slipstream and the services it starts use once you're logged in.",
+        ));
     fact(
         &facts,
-        &format!("{:.0} MB", weight::WORST_MEMORY_MB),
-        "Memory, worst case",
+        &format!("{:.1}%", SLIPSTREAM.share_at_rest()),
+        "Busy while you're away",
     )
     .1
     .set_tooltip_text(Some(&format!(
-        "The most Slipstream {} and the services it runs with use at rest.",
-        env!("CARGO_PKG_VERSION")
+        "The share of a typical {}-thread computer the moving wallpaper keeps busy.",
+        weight::TYPICAL_THREADS
     )));
-    fact(&facts, &weight::PIECES.to_string(), "Pieces to install")
+    fact(&facts, &SLIPSTREAM.packages.to_string(), "Packages")
         .1
-        .set_tooltip_text(Some("Slipstream and xdg-desktop-portal-wlr."));
-    fact(&facts, &weight::ADD_ONS.to_string(), "Add-ons needed");
-    fact(
-        &facts,
-        &weight::SYSTEM_PACKAGES.to_string(),
-        "System packages",
-    )
-    .1
-    .set_tooltip_text(Some("Libraries from the system that Slipstream loads."));
-    fact(&facts, &weight::CRATES.to_string(), "Rust crates")
-        .1
-        .set_tooltip_text(Some(&format!(
-            "niri has {}, cosmic-comp {}.",
-            weight::CRATES_NIRI,
-            weight::CRATES_COSMIC_COMP
-        )));
+        .set_tooltip_text(Some(
+            "What installing Slipstream adds, counting what those need.",
+        ));
     card.append(&facts);
 }
 
@@ -202,13 +196,7 @@ fn strip_tooltip(width: f64, x: f64, ours: f64) -> Option<String> {
     let lines: Vec<String> = strip_points(width, ours)
         .into_iter()
         .filter(|(at, ..)| (at - x).abs() <= 7.0)
-        .map(|(_, name, score, _)| {
-            let estimated = OTHERS
-                .iter()
-                .any(|other| other.name == name && other.estimated());
-            let note = if estimated { ", partly estimated" } else { "" };
-            format!("{name}: {score:.0}{note}")
-        })
+        .map(|(_, name, score, _)| format!("{name}: {score:.0}"))
         .collect();
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
