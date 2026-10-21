@@ -64,10 +64,13 @@ impl SeatHandler for Slipstream {
             .and_then(|surface| dh.get_client(surface.id()).ok());
         set_data_device_focus(dh, seat, client.clone());
         set_primary_focus(dh, seat, client);
-        // The keyboard is still being changed over here, so the grabs are looked at once it has.
+        // The keyboard is still being changed over here, so the grabs and the newly focused
+        // app's caret are looked at once it has.
         let focused = focused.cloned();
-        self.loop_handle
-            .insert_idle(move |state| state.grabs_after_focus_change(focused.as_ref()));
+        self.loop_handle.insert_idle(move |state| {
+            state.grabs_after_focus_change(focused.as_ref());
+            state.watch_carets();
+        });
     }
 
     fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {

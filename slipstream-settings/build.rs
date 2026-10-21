@@ -169,6 +169,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "screenshot",
             "snip",
             "zoom",
+            "caret",
             "scanout",
             "vrr",
             "gamma",

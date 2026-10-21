@@ -155,6 +155,7 @@ impl Slipstream {
     /// The pointer moved to `pos`: what Slipstream draws itself follows it, after the clients
     /// have heard.
     fn pointer_followers(&mut self, pos: Point<f64, Logical>) {
+        self.zoom.pointer_moved();
         self.exit_hover(pos);
         self.offer_hover(pos);
         self.connect_hover(pos);
@@ -347,6 +348,7 @@ impl Slipstream {
                     };
                     let now = self.clock.wall();
                     self.zoom.wheel(amount(Axis::Vertical) / notch, now);
+                    self.watch_carets();
                     return;
                 }
                 // The wheel over an overlay would otherwise scroll the window hidden under it. In
