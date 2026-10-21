@@ -76,7 +76,7 @@ Click a stream to bring the window back.
 
 <img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
 
-One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you - and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there.
+One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you - and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there. On a touchpad, swipe up with three fingers and the desktop tips back under them, at your pace.
 
 ## Nothing interrupts you
 
@@ -117,6 +117,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 ## Everything else you'd expect
 
+- **Keys your hands already know.** Slipstream starts with Windows' keys, or follows a Mac's or Omarchy's habits instead, and the key list, the tour and every hint on screen follow your choice. Give any app keys of its own in Settings.
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
@@ -127,7 +128,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
 - **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
-- **A meter of your own on the bar,** for any allowance a command can report: a quota, a plan's limits, a disk.
+- **Light, for a desktop that looks like this.** Settings → About shows its Featherweight score: how light Slipstream is in real use beside other desktops, each one measured the same way.
 - **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
 
 [**The full list →**](guide/features.md) · [**Every key →**](guide/keys.md)
@@ -157,6 +158,8 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 **What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
 
 ## Companions
+
+Slipstream is one of three apps made with one aim: to give people back their focus.
 
 <table>
 <tr>

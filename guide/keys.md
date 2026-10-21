@@ -100,6 +100,16 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 
 Settings → Shortcuts adds keys that open an app: choose the app, then press the keys. They can't be a key your style already uses, or one kept for typing aids, screen readers and games; Settings says which when you press one. Changing style keeps them. One the new style uses does nothing, and Settings says why, until you take it away or change back. Super+/ lists the ones that work.
 
+## On a touchpad
+
+The same in every style. Each swipe follows your fingers and finishes at your pace.
+
+| Three fingers | What they do |
+|---|---|
+| Left, right | The next or previous workspace; in bullet time, look at the next one |
+| Up | Bullet time |
+| Down | Leave bullet time |
+
 ## Inside panels and bullet time
 
 In any panel or card, Esc backs out one level, Tab and the arrows move, Enter presses, and Home, End, PgUp and PgDn jump.
