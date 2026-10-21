@@ -2,6 +2,22 @@
 
 Slipstream is in beta: anything can change between versions, including settings and keys.
 
+## 0.14.0 - 2026-10-21
+
+- **A password card when a program needs an administrator's say-so.** Slipstream answers polkit itself, so installing software or changing system settings asks in a card of its own, with nothing else able to read the typing.
+- **Zoom.** Super+= and Super+- zoom the screen around the pointer, Super+0 puts it back, and Super+scroll works in every key style.
+- **Mouse & keyboard in Settings.** Pointer speed, scrolling, tap to click and keyboard layouts take effect straight away, and Alt+Shift switches layout. The keyboard style page is now called Shortcuts and lists every key.
+- **Apps can ask for shortcuts of their own.** An app that asks through the system's shortcut service gets a card to approve it, and Settings › Shortcuts lists what each app was given, with a way to take it back.
+- **The app explorer searches Settings and your home folder,** lists Lock screen, Quick settings and About Slipstream under System, and Enter opens the top app whenever one matches.
+- **A stream's details when the pointer rests on it:** the app's memory, CPU and what it sends and receives.
+- **Swipes follow your fingers.** A three-finger swipe carries the workspace with it and finishes at your pace, and the same goes for opening and leaving bullet time.
+- **Games:** fullscreen windows can vary the refresh rate on screens that support it, explicit sync is offered on GPUs that do, and fullscreen windows are offered formats the screen can show directly.
+- **Floating windows cast a soft shadow.**
+- **X11 and Electron apps can keep the screen awake,** and only a window you can actually see does.
+- **Key hints say what they do** everywhere they appear, and Settings' text no longer names keys from another style.
+- **Settings:** the wallpapers show as a list beside one live preview, and the Notifications and Session pages say less.
+- Print and the snip work in bullet time, and windows on workspaces you can't see keep their right size.
+
 ## 0.13.0 - 2026-10-19
 
 - **Keys that follow your habits.** Settings → Keyboard picks the Windows style (the default), the Mac style or the Omarchy style. The Mac style treats Super as Command: Super+Space for apps, Super+Tab to switch, Super+Q and Super+W, Super+Shift+3 and 4 for screenshots. The Omarchy style follows Omarchy's keys: Super+Space, Super+W to close, Super+T to float, Super+K for every key. The key list, the tour and the hints on screen all show the keys of the style you chose.
