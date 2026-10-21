@@ -1,8 +1,9 @@
 name: weigh
 
-# Installs the newest release and seven other desktops, each complete and each on the same Arch
-# Linux system, and counts what each one added: packages, and space on disk. Run by hand before a
-# release; the figures go into slipstream-config/src/weight.rs.
+# Weighs this commit's Slipstream against seven other desktops, each complete and on the same Arch
+# Linux system: the packages and disk space each adds when installed, and the memory and processor
+# time each takes once logged in and left alone. Run by hand before a release; the figures go into
+# slipstream-config/src/weight.rs.
 on:
   workflow_dispatch:
     inputs:
@@ -16,6 +17,7 @@ permissions:
 jobs:
   # Slipstream as this commit has it, built the way a release is.
   build:
+    if: contains(inputs.desktops, 'slipstream')
     runs-on: ubuntu-latest
     container: docker.io/library/debian:13
     steps:
@@ -45,6 +47,7 @@ jobs:
 
   install:
     needs: build
+    if: ${{ !cancelled() && needs.build.result != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +60,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
+        if: matrix.desktop == 'slipstream'
         with:
           name: download
           path: download
@@ -64,7 +68,7 @@ jobs:
       - name: Install ${{ matrix.desktop }} and weigh it
         run: |
           set -o pipefail
-          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz) sh scripts/weigh-install \
+          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz 2>/dev/null || true) sh scripts/weigh-install \
             ${{ matrix.desktop }} | tee weight-${{ matrix.desktop }}.txt
         shell: bash
 
@@ -75,6 +79,7 @@ jobs:
 
   session:
     needs: build
+    if: ${{ !cancelled() && needs.build.result != 'failure' }}
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +100,7 @@ jobs:
             qemu-utils cloud-image-utils xvfb libgl1-mesa-dri x11-apps netpbm >/dev/null
 
       - uses: actions/download-artifact@v4
+        if: matrix.desktop == 'slipstream'
         with:
           name: download
           path: download
@@ -102,7 +108,7 @@ jobs:
       - name: Start ${{ matrix.desktop }} and weigh it
         run: |
           set -o pipefail
-          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz) WEIGH_DIR=$PWD/vm \
+          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz 2>/dev/null || true) WEIGH_DIR=$PWD/vm \
             sh scripts/weigh-session ${{ matrix.desktop }} | tee session-${{ matrix.desktop }}.txt
         shell: bash
 

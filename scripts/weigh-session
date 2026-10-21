@@ -195,7 +195,7 @@ if [ "$desktop" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
 fi
 screenshot() {
     # The machine's screen is a window on the virtual display, so that is what is read.
-    xwd -root -silent | xwdtopnm >"$work/$1" 2>/dev/null
+    xwd -root -silent | xwdtopnm 2>/dev/null | pnmdepth 255 >"$work/$1"
 }
 
 ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
