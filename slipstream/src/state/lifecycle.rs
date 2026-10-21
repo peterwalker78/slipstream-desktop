@@ -373,10 +373,12 @@ impl Slipstream {
                 shell: start.shell.as_deref(),
                 search_path: start.search_path.as_deref(),
             });
-            let started = launch::again(&start.id, &start.exec, start.in_terminal, reopen);
-            if let Ok(pid) = started {
-                plan.started(index, pid);
-            }
+            let done: launch::Done = Box::new(move |state, result| {
+                if let (Ok(pid), Some(plan)) = (result, state.restoring.as_mut()) {
+                    plan.started(index, pid);
+                }
+            });
+            let _ = launch::again(&start.id, &start.exec, start.in_terminal, reopen, done);
         }
         self.restoring = Some(plan);
     }

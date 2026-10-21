@@ -45,7 +45,7 @@ impl Slipstream {
                 debug::Step::Run(command) => {
                     let command: Vec<String> =
                         command.split_whitespace().map(String::from).collect();
-                    let _ = launch::run(&command);
+                    launch::run(&command, launch::ignore());
                 }
                 debug::Step::Wallpaper(id) => self.debug_wallpaper(&id),
                 debug::Step::Demand(value) => self.rain.pin_demand(Some(value)),

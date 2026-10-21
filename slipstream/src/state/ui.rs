@@ -515,12 +515,12 @@ impl Slipstream {
     /// Starts an app from its desktop entry, and says so if it can't be.
     pub(super) fn start_app(&mut self, app: &crate::apps::App) {
         self.concentration.asked(std::time::Instant::now());
-        match launch::app(&app.id, &app.exec, app.terminal) {
-            Ok(()) => {}
-            Err(launch::Failure::NothingInstalled) => self.no_terminal(),
-            Err(launch::Failure::Spawn(err)) => {
-                self.show_toast("Couldn’t start it", &format!("{}: {err}", app.name))
-            }
+        let name = app.name.clone();
+        let done = on_failure("Couldn’t start it", move |err| format!("{name}: {err}"));
+        if let Err(launch::Failure::NothingInstalled) =
+            launch::app(&app.id, &app.exec, app.terminal, done)
+        {
+            self.no_terminal();
         }
     }
 
@@ -528,9 +528,10 @@ impl Slipstream {
     pub(super) fn open_path(&mut self, path: &std::path::Path) {
         self.concentration.asked(std::time::Instant::now());
         let command = ["xdg-open".to_string(), path.to_string_lossy().into_owned()];
-        if let Err(err) = launch::run(&command) {
-            self.show_toast("Couldn’t open it", &err.to_string());
-        }
+        launch::run(
+            &command,
+            on_failure("Couldn’t open it", |err| err.to_string()),
+        );
     }
 
     /// The explorer's Run: a URL or a path is opened, anything else is run as a program with its
@@ -565,9 +566,10 @@ impl Slipstream {
         match run {
             Run::Url(url) => {
                 tracing::info!("opening a URL from the explorer");
-                if let Err(err) = launch::run(&["xdg-open".to_string(), url]) {
-                    self.show_toast("Couldn’t open it", &err.to_string());
-                }
+                launch::run(
+                    &["xdg-open".to_string(), url],
+                    on_failure("Couldn’t open it", |err| err.to_string()),
+                );
             }
             Run::Path(path) => {
                 tracing::info!("opening a path from the explorer");
@@ -576,10 +578,13 @@ impl Slipstream {
             Run::Command(words) => {
                 tracing::info!(command = ?words, "running a command from the explorer");
                 let program = words.first().cloned().unwrap_or_default();
-                if let Err(err) = launch::run(&words) {
-                    let (title, body) = launch::couldnt_run(&program, &err);
-                    self.show_toast(title, &body);
-                }
+                let done: launch::Done = Box::new(move |state, result| {
+                    if let Err(err) = result {
+                        let (title, body) = launch::couldnt_run(&program, &err);
+                        state.show_toast(title, &body);
+                    }
+                });
+                launch::run(&words, done);
             }
         }
     }
@@ -588,7 +593,14 @@ impl Slipstream {
     pub fn launch_app(&mut self, app: crate::keys::App) {
         use crate::keys::App;
         self.concentration.asked(std::time::Instant::now());
-        match launch::launch(app) {
+        let name = match app {
+            App::Terminal => "the terminal",
+            App::Files => "the file manager",
+            App::Settings => "Settings",
+            App::Browser => "the browser",
+        };
+        let done = on_failure("Couldn’t start it", move |err| format!("{name}: {err}"));
+        match launch::launch(app, done) {
             Ok(()) => {}
             Err(launch::Failure::NothingInstalled) => match app {
                 App::Terminal => self.no_terminal(),
@@ -605,15 +617,6 @@ impl Slipstream {
                     "Choose a default browser in your settings, or set $BROWSER.",
                 ),
             },
-            Err(launch::Failure::Spawn(err)) => {
-                let name = match app {
-                    App::Terminal => "the terminal",
-                    App::Files => "the file manager",
-                    App::Settings => "Settings",
-                    App::Browser => "the browser",
-                };
-                self.show_toast("Couldn’t start it", &format!("{name}: {err}"));
-            }
         }
     }
 
@@ -632,9 +635,10 @@ impl Slipstream {
             return;
         };
         tracing::info!(page, ?command, "opening a Settings page");
-        if let Err(err) = launch::run(&command) {
-            self.show_toast("Couldn’t start Settings", &err.to_string());
-        }
+        launch::run(
+            &command,
+            on_failure("Couldn’t start Settings", |err| err.to_string()),
+        );
     }
 
     /// Quick settings' chevrons: the system's own settings page for Wi-Fi or Bluetooth.
@@ -652,8 +656,21 @@ impl Slipstream {
             return;
         };
         tracing::info!(?page, ?command, "opening a system settings page");
-        if let Err(err) = launch::run(&command) {
-            self.show_toast("Couldn’t open the settings page", &err.to_string());
-        }
+        launch::run(
+            &command,
+            on_failure("Couldn’t open the settings page", |err| err.to_string()),
+        );
     }
+}
+
+/// A toast titled `title` if an app doesn't start, saying `body` of why.
+fn on_failure(
+    title: &'static str,
+    body: impl FnOnce(&std::io::Error) -> String + Send + 'static,
+) -> launch::Done {
+    Box::new(move |state, result| {
+        if let Err(err) = result {
+            state.show_toast(title, &body(&err));
+        }
+    })
 }

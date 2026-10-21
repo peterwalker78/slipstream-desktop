@@ -425,6 +425,19 @@ impl Slipstream {
             })
             .expect("a channel source always inserts");
 
+        // Apps started on threads of their own (`launch::start_app`) report back here.
+        let (reports, launched) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(launched, |event, _, state| {
+                if let channel::Event::Msg((done, result)) = event {
+                    let done: crate::launch::Done = done;
+                    done(state, result);
+                }
+            })
+            .expect("a channel source always inserts");
+        crate::launch::report_to(reports);
+
         // Copies read for the clipboard history, from their threads.
         let (clip_answers, clips) = channel::channel();
         event_loop

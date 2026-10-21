@@ -7,13 +7,34 @@ use std::{
     os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
-use crate::keys::App;
+use smithay::reexports::calloop::channel;
+
+use crate::{keys::App, state::Slipstream};
 
 /// XWayland's display, for the apps started from here, once it's ready.
 static X_DISPLAY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What to do on the event loop once an app has started, with the process it became or why it
+/// couldn't start.
+pub type Done = Box<dyn FnOnce(&mut Slipstream, io::Result<u32>) + Send>;
+
+/// Where apps' starts are reported, set once with the event loop.
+static REPORTS: OnceLock<channel::Sender<(Done, io::Result<u32>)>> = OnceLock::new();
+
+pub fn report_to(reports: channel::Sender<(Done, io::Result<u32>)>) {
+    let _ = REPORTS.set(reports);
+}
+
+/// Nothing to do once it has started.
+pub fn ignore() -> Done {
+    Box::new(|_, _| {})
+}
 
 pub fn set_x_display(display: String) {
     *X_DISPLAY.lock().unwrap() = Some(display);
@@ -63,11 +84,9 @@ const FILE_MANAGERS: &[&[&str]] = &[
 pub enum Failure {
     /// Nothing is installed that could do it.
     NothingInstalled,
-    /// The program is there, but starting it failed.
-    Spawn(io::Error),
 }
 
-pub fn launch(app: App) -> Result<(), Failure> {
+pub fn launch(app: App, done: Done) -> Result<(), Failure> {
     let command = match app {
         App::Terminal => terminal(),
         App::Files => first_installed(FILE_MANAGERS),
@@ -77,7 +96,8 @@ pub fn launch(app: App) -> Result<(), Failure> {
     match command {
         Some(command) => {
             tracing::info!(?app, ?command, "launching");
-            run(&command).map_err(Failure::Spawn)
+            run(&command, done);
+            Ok(())
         }
         None => {
             tracing::warn!(?app, "nothing installed to launch");
@@ -224,8 +244,8 @@ fn settings_app() -> Option<Vec<String>> {
 }
 
 /// Starts an app's command from its desktop entry, `id`. Terminal apps open inside a terminal.
-pub fn app(id: &str, exec: &[String], in_terminal: bool) -> Result<(), Failure> {
-    again(id, exec, in_terminal, None).map(drop)
+pub fn app(id: &str, exec: &[String], in_terminal: bool, done: Done) -> Result<(), Failure> {
+    again(id, exec, in_terminal, None, done)
 }
 
 /// An AI agent's session to reopen inside a terminal (`resume.rs`): the command its note gave,
@@ -238,24 +258,27 @@ pub struct Reopen<'a> {
     pub search_path: Option<&'a str>,
 }
 
-/// Starts an app the layout record names, by its desktop entry `id`, and says which process it
-/// became. A terminal with a session to reopen runs it, and is left at a shell when the agent
+/// Starts an app the layout record names, by its desktop entry `id`, and tells `done` which
+/// process it became. A terminal with a session to reopen runs it, and is left at a shell when the agent
 /// exits, as it would have been had the agent been started by hand.
 pub fn again(
     id: &str,
     exec: &[String],
     in_terminal: bool,
     reopen: Option<Reopen>,
-) -> Result<u32, Failure> {
+    done: Done,
+) -> Result<(), Failure> {
     if in_terminal {
         let Some(command) = in_a_terminal(exec, terminal()) else {
             tracing::warn!(?exec, "no terminal installed to run it in");
             return Err(Failure::NothingInstalled);
         };
-        return start(&command, None, None, Some(id)).map_err(Failure::Spawn);
+        start_app(command, None, None, id, done);
+        return Ok(());
     }
     let Some(reopen) = reopen else {
-        return start(exec, None, None, Some(id)).map_err(Failure::Spawn);
+        start_app(exec.to_vec(), None, None, id, done);
+        return Ok(());
     };
     // A shell that has gone since, in an upgrade say, is no more use than one never known.
     let typed_into = reopen.shell.filter(|shell| {
@@ -267,8 +290,13 @@ pub fn again(
     )
     .ok_or(Failure::NothingInstalled)?;
     // A folder that has gone since is no reason not to reopen the session.
-    let directory = reopen.directory.map(Path::new).filter(|dir| dir.is_dir());
-    start(&command, directory, reopen.search_path, Some(id)).map_err(Failure::Spawn)
+    let directory = reopen
+        .directory
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir());
+    let search_path = reopen.search_path.map(String::from);
+    start_app(command, directory, search_path, id, done);
+    Ok(())
 }
 
 /// The person's login shell, from `$SHELL`, else the one every system has.
@@ -571,30 +599,29 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 /// Starts a helper of Slipstream's own with its output kept out of Slipstream's log, and reaps it
 /// when it exits. An error means it never started: most often, no program by that name.
 pub fn spawn(command: &[String]) -> io::Result<()> {
-    start(command, None, None, None).map(drop)
+    let mut child = prepare(command, None, None)?.spawn().inspect_err(|err| {
+        tracing::warn!(?command, "couldn't launch: {err}");
+    })?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
-/// `spawn` for an app that has no desktop entry to hand, such as a command typed into Run: it
-/// gets a scope of its own, named for its program.
-pub fn run(command: &[String]) -> io::Result<()> {
-    start(
-        command,
-        None,
-        None,
-        Some(crate::app_scope::command_id(command)),
-    )
-    .map(drop)
+/// Starts an app that has no desktop entry to hand, such as a command typed into Run: it gets a
+/// scope of its own, named for its program.
+pub fn run(command: &[String], done: Done) {
+    let id = crate::app_scope::command_id(command).to_string();
+    start_app(command.to_vec(), None, None, &id, done);
 }
 
-/// `spawn`, in `directory` and with `search_path` if they are given, saying which process the
-/// command became. An app, with its desktop entry `id`, is started in a scope of its own where
-/// the system can give it one.
-fn start(
+/// `command` set up to run with its output kept out of Slipstream's log, in `directory` and with
+/// `search_path` if they are given.
+fn prepare(
     command: &[String],
     directory: Option<&Path>,
     search_path: Option<&str>,
-    id: Option<&str>,
-) -> io::Result<u32> {
+) -> io::Result<Command> {
     let Some((program, args)) = command.split_first() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -616,23 +643,46 @@ fn start(
     if let Some(search_path) = search_path {
         process.env("PATH", search_path);
     }
-    let hold = id.and_then(|id| crate::app_scope::hold(&mut process, id));
-    let spawned = process.spawn();
-    drop(hold);
-    match spawned {
-        Ok(mut child) => {
-            tracing::debug!(?command, "started");
-            let pid = child.id();
-            std::thread::spawn(move || {
+    Ok(process)
+}
+
+/// Starts an app, with its desktop entry `id`, in a scope of its own where the system can give it
+/// one, and reaps it when it exits. It is started on a thread of its own, since the child waits
+/// for its scope before it runs; `done` hears how it went, on the event loop.
+fn start_app(
+    command: Vec<String>,
+    directory: Option<PathBuf>,
+    search_path: Option<String>,
+    id: &str,
+    done: Done,
+) {
+    let id = id.to_string();
+    std::thread::spawn(move || {
+        let started = prepare(&command, directory.as_deref(), search_path.as_deref()).and_then(
+            |mut process| {
+                let hold = crate::app_scope::hold(&mut process, &id);
+                let spawned = process.spawn();
+                drop(hold);
+                spawned
+            },
+        );
+        let report = |result| {
+            if let Some(reports) = REPORTS.get() {
+                let _ = reports.send((done, result));
+            }
+        };
+        match started {
+            Ok(mut child) => {
+                tracing::debug!(?command, "started");
+                report(Ok(child.id()));
                 let _ = child.wait();
-            });
-            Ok(pid)
+            }
+            Err(err) => {
+                tracing::warn!(?command, "couldn't launch: {err}");
+                report(Err(err));
+            }
         }
-        Err(err) => {
-            tracing::warn!(?command, "couldn't launch: {err}");
-            Err(err)
-        }
-    }
+    });
 }
 
 #[cfg(test)]

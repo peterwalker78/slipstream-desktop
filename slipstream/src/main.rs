@@ -723,15 +723,21 @@ fn spawn_client(args: &[String]) {
         .iter()
         .position(|arg| arg == "-c" || arg == "--command")
         .and_then(|i| args.get(i + 1));
-    if let Some(command) = command {
-        let mut process = crate::launch::command(command);
-        let id = crate::app_scope::command_id(std::slice::from_ref(command));
-        let hold = crate::app_scope::hold(&mut process, id);
-        let spawned = process.spawn();
-        drop(hold);
-        if let Err(err) = spawned {
-            tracing::warn!("couldn't start {command}: {err}");
-        }
+    if let Some(command) = command.cloned() {
+        // On a thread, since the child waits for its scope before it runs.
+        std::thread::spawn(move || {
+            let mut process = crate::launch::command(&command);
+            let id = crate::app_scope::command_id(std::slice::from_ref(&command));
+            let hold = crate::app_scope::hold(&mut process, id);
+            let spawned = process.spawn();
+            drop(hold);
+            match spawned {
+                Ok(mut child) => {
+                    let _ = child.wait();
+                }
+                Err(err) => tracing::warn!("couldn't start {command}: {err}"),
+            }
+        });
     }
 }
 

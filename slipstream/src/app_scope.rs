@@ -31,8 +31,7 @@ use zbus::{
 const LAUNCHER: &str = "slipstream";
 /// The longest unit name systemd takes.
 const UNIT_NAME_MAX: usize = 255;
-/// How long a child waits to be moved before it runs anyway. Starting a process returns only once
-/// it runs, so this is also the longest the compositor waits.
+/// How long a child waits to be moved before it runs anyway.
 const HOLD: Duration = Duration::from_millis(250);
 
 /// `id` escaped as systemd escapes a part of a unit name: anything but ASCII letters, digits, `:`,
@@ -77,7 +76,7 @@ pub struct Hold {
 
 /// Sets `process` up to wait, before it runs, until systemd has moved it into a scope for `id`.
 /// `None` leaves it as it was: no ID, or no systemd user manager to ask. Keep the hold until
-/// `spawn` has returned.
+/// `spawn` has returned. `spawn` returns only once the child runs, so call it off the event loop.
 pub fn hold(process: &mut Command, id: &str) -> Option<Hold> {
     // Before anything else: an ID too long for a unit name needs no bus.
     unit_name(id, u32::MAX)?;
