@@ -1,12 +1,12 @@
 //! How much Slipstream weighs, on the About page: its score against other desktops, a strip
 //! placing each of them from 0 to 100, a map of where its code goes, and the figures behind it.
-//! The session's memory is read each time the page is shown, and nothing runs while it isn't.
+//! The score is fixed for each version: its memory is the most the session uses at rest, not what
+//! it happens to be using now.
 
 use gtk::cairo;
 use slipstream_config::weight::{self, OTHERS};
 
 use super::*;
-use crate::session_memory;
 
 include!(concat!(env!("OUT_DIR"), "/code_parts.rs"));
 
@@ -23,29 +23,30 @@ const LINE_Y: f64 = 26.0;
 const STRIP_PAD: f64 = 30.0;
 const MAP_H: i32 = 170;
 
-/// The session's memory as last read, and whether it had to be the typical figure instead.
-#[derive(Clone, Copy)]
-struct Memory {
-    mb: f64,
-    typical: bool,
-}
-
 fn code_mb() -> f64 {
     CODE_BYTES as f64 / 1e6
 }
 
-fn our_score(memory: Memory) -> f64 {
-    weight::score(memory.mb, weight::PIECES, code_mb())
+fn our_score() -> f64 {
+    weight::score(weight::WORST_MEMORY_MB, weight::PIECES, code_mb())
 }
 
 pub(super) fn section(page: &gtk::Box) {
     let card = group(page, "Weight");
-    let memory = Rc::new(Cell::new(Memory {
-        mb: weight::TYPICAL_MEMORY_MB,
-        typical: true,
-    }));
-
-    let verdict = label("", "row-title");
+    let score = our_score();
+    let place = weight::place(score);
+    let of = OTHERS.len() + 1;
+    let verdict = label(
+        &if place == 1 {
+            format!("Bloat score: {score:.0} out of 100, the leanest of {of}")
+        } else {
+            format!(
+                "Bloat score: {score:.0} out of 100, the {} leanest of {of}",
+                ordinal(place)
+            )
+        },
+        "row-title",
+    );
     let heading = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .hexpand(true)
@@ -66,18 +67,15 @@ pub(super) fn section(page: &gtk::Box) {
         .hexpand(true)
         .has_tooltip(true)
         .build();
-    strip.set_draw_func({
-        let memory = Rc::clone(&memory);
-        move |_, cr, width, _| draw_strip(cr, width as f64, our_score(memory.get()))
+    strip.set_draw_func(move |_, cr, width, _| draw_strip(cr, width as f64, score));
+    strip.connect_query_tooltip(move |area, x, _, _, tooltip| {
+        let near = strip_tooltip(area.width() as f64, x as f64, score);
+        tooltip.set_text(near.as_deref());
+        near.is_some()
     });
-    strip.connect_query_tooltip({
-        let memory = Rc::clone(&memory);
-        move |area, x, _, _, tooltip| {
-            let near = strip_tooltip(area.width() as f64, x as f64, our_score(memory.get()));
-            tooltip.set_text(near.as_deref());
-            near.is_some()
-        }
-    });
+    strip.update_property(&[gtk::accessible::Property::Description(&strip_description(
+        score,
+    ))]);
     card.append(&full_row(&strip));
 
     let map = gtk::DrawingArea::builder()
@@ -125,7 +123,16 @@ pub(super) fn section(page: &gtk::Box) {
         .spacing(10)
         .css_classes(["row"])
         .build();
-    let (memory_value, memory_caption) = fact(&facts, "", "");
+    fact(
+        &facts,
+        &format!("{:.0} MB", weight::WORST_MEMORY_MB),
+        "Memory, worst case",
+    )
+    .1
+    .set_tooltip_text(Some(&format!(
+        "The most Slipstream {} and the services it runs with use at rest.",
+        env!("CARGO_PKG_VERSION")
+    )));
     fact(&facts, &weight::PIECES.to_string(), "Pieces to install")
         .1
         .set_tooltip_text(Some("Slipstream and xdg-desktop-portal-wlr."));
@@ -145,45 +152,6 @@ pub(super) fn section(page: &gtk::Box) {
             weight::CRATES_COSMIC_COMP
         )));
     card.append(&facts);
-
-    // Read once each time the page comes into view.
-    card.connect_map(move |_| {
-        let now = match session_memory::measure() {
-            Some(mb) => Memory { mb, typical: false },
-            None => Memory {
-                mb: weight::TYPICAL_MEMORY_MB,
-                typical: true,
-            },
-        };
-        memory.set(now);
-        let score = our_score(now);
-        let place = weight::place(score);
-        let of = OTHERS.len() + 1;
-        verdict.set_text(&if place == 1 {
-            format!("Bloat score: {score:.0} out of 100, the leanest of {of}")
-        } else {
-            format!(
-                "Bloat score: {score:.0} out of 100, the {} leanest of {of}",
-                ordinal(place)
-            )
-        });
-        memory_value.set_text(&format!("{:.0} MB", now.mb));
-        if now.typical {
-            memory_caption.set_text("Memory, typical");
-            memory_caption.set_tooltip_text(Some(
-                "This session's memory couldn't be read, so this is a typical figure.",
-            ));
-        } else {
-            memory_caption.set_text("Memory now");
-            memory_caption.set_tooltip_text(Some(
-                "What Slipstream and the services it runs with are using now.",
-            ));
-        }
-        strip.update_property(&[gtk::accessible::Property::Description(&strip_description(
-            score,
-        ))]);
-        strip.queue_draw();
-    });
 }
 
 /// A row in the card's style holding `child` across its whole width.

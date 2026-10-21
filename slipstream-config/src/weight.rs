@@ -66,8 +66,9 @@ pub const OTHERS: [Desktop; 7] = [
 pub const PIECES: u32 = 2;
 /// Add-on programs needed for a complete desktop.
 pub const ADD_ONS: u32 = 0;
-/// The session's memory when it can't be measured.
-pub const TYPICAL_MEMORY_MB: f64 = 270.0;
+/// The session's memory at rest at its heaviest for this version, rounded up: the compositor with
+/// XWayland, the portals and the sound server. Measured again before each release.
+pub const WORST_MEMORY_MB: f64 = 300.0;
 /// System libraries the compositor loads.
 pub const SYSTEM_PACKAGES: u32 = 18;
 /// Rust crates compiled into the compositor, and into two others for scale.
@@ -125,16 +126,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slipstream_scores_about_32() {
-        let ours = score(TYPICAL_MEMORY_MB, PIECES, 3.6);
-        assert!((ours - 32.0).abs() < 0.5, "{ours}");
+    fn slipstream_scores_about_34() {
+        let ours = score(WORST_MEMORY_MB, PIECES, 3.6);
+        assert!((ours - 34.0).abs() < 0.5, "{ours}");
         assert_eq!(place(ours), 1);
     }
 
     #[test]
     fn the_desktops_come_out_leanest_first() {
         let mut all: Vec<(&str, f64)> = OTHERS.iter().map(|d| (d.name, d.score())).collect();
-        all.push(("Slipstream", score(TYPICAL_MEMORY_MB, PIECES, 3.6)));
+        all.push(("Slipstream", score(WORST_MEMORY_MB, PIECES, 3.6)));
         all.sort_by(|a, b| a.1.total_cmp(&b.1));
         let names: Vec<&str> = all.iter().map(|(name, _)| *name).collect();
         assert_eq!(
