@@ -33,6 +33,7 @@ jobs:
       - name: Scripts
         run: |
           shellcheck -s sh scripts/install-session scripts/update-session scripts/package-release \
+            scripts/crate-licences \
             scripts/test-install-session scripts/install-extras scripts/test-install-extras \
             scripts/build-portable scripts/check-portable scripts/try-slipstream \
             scripts/test-on-distro scripts/stubborn scripts/nested install.sh \
@@ -94,3 +95,8 @@ jobs:
 
       - name: Test
         run: scripts/build-portable --test
+
+      - name: Gather the crates' licences, as the download does
+        run: |
+          scripts/crate-licences target/portable/rust-crates.txt
+          grep -q '^smithay ' target/portable/rust-crates.txt

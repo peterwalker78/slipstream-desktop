@@ -1,0 +1,93 @@
+#!/bin/sh
+# Writes the licence of every Rust crate built into Slipstream's programs to one file, for the
+# download's licences folder. The list comes from `cargo tree` (what the programs link on this
+# machine's platform, without build tools or test-only crates), the texts from each crate's
+# source as cargo fetched it. A text several crates share is written once and pointed to after.
+#
+#   scripts/crate-licences OUT_FILE
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+out=${1:?usage: crate-licences OUT_FILE}
+cargo_home=${CARGO_HOME:-$HOME/.cargo}
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/crate-licences.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+# One line per crate: "NAME vVERSION|LICENCE" from crates.io, or "NAME vVERSION (SOURCE)|LICENCE"
+# from git; Slipstream's own crates come from a path and are left out.
+(cd "$repo" && cargo tree --locked -e normal -p slipstream -p slipstream-settings \
+    --prefix none --format '{p}|{l}') >"$work/tree"
+sed -e 's/ (\*)$//' -e 's/ (proc-macro)//' -e '/^$/d' "$work/tree" | grep -v ' (/' | sort -u >"$work/crates"
+[ -s "$work/crates" ] || { echo "crate-licences: cargo listed no crates" >&2; exit 1; }
+
+# crate_dir NAME VERSION SOURCE: the folder cargo unpacked the crate into.
+crate_dir() {
+    cd_name=$1 cd_version=$2 cd_source=$3
+    if [ -z "$cd_source" ]; then
+        for cd_dir in "$cargo_home"/registry/src/*/"$cd_name-$cd_version"; do
+            if [ -d "$cd_dir" ]; then echo "$cd_dir"; return 0; fi
+        done
+        return 1
+    fi
+    cd_rev=${cd_source##*#}
+    for cd_checkout in "$cargo_home"/git/checkouts/*/*; do
+        case "$cd_rev" in "${cd_checkout##*/}"*) ;; *) continue ;; esac
+        for cd_manifest in "$cd_checkout"/Cargo.toml "$cd_checkout"/*/Cargo.toml \
+            "$cd_checkout"/*/*/Cargo.toml; do
+            if [ -f "$cd_manifest" ] && grep -q "^name = \"$cd_name\"" "$cd_manifest"; then
+                dirname "$cd_manifest"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
+# licence_files DIR: the licence texts at the top of DIR.
+licence_files() {
+    find "$1" -maxdepth 1 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \
+        -o -iname 'notice*' -o -iname 'unlicense*' -o -iname 'copyright*' \) | sort
+}
+
+: >"$work/seen"
+{
+    echo "Rust crates built into Slipstream, each with its licence as its source gives it."
+    while IFS='|' read -r package licence; do
+        name=${package%% *}
+        rest=${package#* v}
+        version=${rest%% *}
+        source=
+        case "$rest" in *" ("*")") source=${rest#* (}; source=${source%)} ;; esac
+        dir=$(crate_dir "$name" "$version" "$source") || {
+            echo "crate-licences: $name $version isn't in $cargo_home; run cargo fetch" >&2
+            exit 1
+        }
+        files=$(licence_files "$dir")
+        # A crate inside a git workspace often keeps its licence at the workspace's top.
+        if [ -z "$files" ] && [ -n "$source" ]; then
+            files=$(licence_files "$(dirname "$dir")")
+        fi
+        echo
+        echo "================================================================================"
+        echo "$name $version: ${licence:-licence not stated}"
+        echo "================================================================================"
+        if [ -z "$files" ]; then
+            echo "The crate's source carries no licence file; its manifest says ${licence:-nothing}."
+            continue
+        fi
+        for file in $files; do
+            sum=$(sha256sum <"$file" | cut -d' ' -f1)
+            first=$(sed -n "s/^$sum //p" "$work/seen" | head -n1)
+            if [ -n "$first" ]; then
+                echo
+                echo "${file##*/}: the same text as $first, above."
+                continue
+            fi
+            echo "$sum $name $version ${file##*/}" >>"$work/seen"
+            echo
+            echo "--- ${file##*/} ---"
+            cat "$file"
+        done
+    done <"$work/crates"
+} >"$work/out"
+mv "$work/out" "$out"

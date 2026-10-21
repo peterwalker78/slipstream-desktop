@@ -44,6 +44,7 @@ cp "$repo/README.md" "$repo/CHANGELOG.md" "$repo/LICENSE" "$stage/$name/"
 cp "$repo"/assets/fonts/*-OFL.txt "$repo/assets/slipstream-logo.NOTE" \
     "$repo/slipstream/LICENSE-smallvil-MIT.txt" "$repo/slipstream/LICENSE-glmatrix.txt" \
     "$stage/$name/licences/"
+"$repo/scripts/crate-licences" "$stage/$name/licences/rust-crates.txt"
 # The licence of anything linked in by scripts/build-portable.
 portable_licences=${CARGO_TARGET_DIR:-$repo/target}/portable/licences
 if [ -d "$portable_licences" ]; then
