@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Slipstream is in beta and is tested on a small number of machines, so reports from other
+        Slipstream is tested on a small number of machines, so reports from other
         systems are genuinely useful.
   - type: textarea
     id: what

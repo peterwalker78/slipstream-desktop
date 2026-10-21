@@ -14,7 +14,7 @@ Windows that pour away into digital rain. Wallpapers that come alive when you st
 Nothing that interrupts you, and nothing that leaves your machine.
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=beta)](https://github.com/peterwalker78/slipstream-desktop/releases)
+[![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=release)](https://github.com/peterwalker78/slipstream-desktop/releases)
 [![licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 
 <img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
@@ -111,7 +111,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 
-**Status: beta (0.14).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. Expect changes between versions; the [changelog](CHANGELOG.md) says what's new in each.
+**Status: release candidate (1.0.0-rc.1).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. The [changelog](CHANGELOG.md) says what's new in each release.
 
 [**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 

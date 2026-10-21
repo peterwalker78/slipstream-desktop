@@ -1,8 +1,6 @@
 # Changelog
 
-Slipstream is in beta: anything can change between versions, including settings and keys.
-
-## Unreleased
+## 1.0.0-rc.1 - 2026-10-21
 
 - **Shortcuts of your own.** Settings › Shortcuts gives an app keys that open it: choose the app, then press the keys. Keys your style already uses, and keys kept for typing aids, screen readers and games, are refused with the reason. Changing style keeps them, and Super+/ lists the ones that work.
 - **Apps can keep the screen awake or ask the session not to end yet,** Flatpaks included. Slipstream answers them itself: an app keeps the screen on while you can see one of its windows, and the way out names an app holding off a logout, with its reason.

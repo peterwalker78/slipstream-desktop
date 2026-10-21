@@ -78,7 +78,7 @@ jobs:
               on && /^## / { exit }
               on { print }' CHANGELOG.md >notes.md
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-              --title "Slipstream $version beta" --notes-file notes.md \
+              --title "Slipstream $version" --notes-file notes.md \
               || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
           # One file at a time, and a file already on the release is left alone rather than
