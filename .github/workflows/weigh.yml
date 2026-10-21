@@ -10,10 +10,6 @@ on:
       desktops:
         description: Which desktops, as a JSON list
         default: '["slipstream", "gnome", "plasma", "xfce", "cosmic", "niri", "sway", "hyprland"]'
-      profile:
-        description: Also say where each idle desktop's processor time goes (keeps Slipstream's symbols)
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -40,10 +36,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build and pack
-        env:
-          # Function names for the profile; they change nothing about how it runs.
-          CARGO_PROFILE_RELEASE_STRIP: ${{ inputs.profile && 'false' || 'true' }}
-          CARGO_PROFILE_RELEASE_DEBUG: ${{ inputs.profile && 'line-tables-only' || 'false' }}
         run: |
           scripts/build-portable --release
           scripts/package-release dist
@@ -119,7 +111,6 @@ jobs:
         run: |
           set -o pipefail
           SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz 2>/dev/null || true) WEIGH_DIR=$PWD/vm \
-            WEIGH_PROFILE=${{ inputs.profile }} \
             sh scripts/weigh-session ${{ matrix.desktop }} | tee session-${{ matrix.desktop }}-${{ matrix.round }}.txt
         shell: bash
 
@@ -130,7 +121,6 @@ jobs:
           path: |
             session-${{ matrix.desktop }}-${{ matrix.round }}.txt
             vm/session-${{ matrix.desktop }}.ppm
-            vm/profile-${{ matrix.desktop }}.txt
 
   table:
     needs: [install, session]
