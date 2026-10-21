@@ -262,6 +262,7 @@ impl Slipstream {
         time: InputTime,
         injected: bool,
     ) {
+        self.own_keymap();
         let pressed = key_state == KeyState::Pressed;
         // The release of a Caps Lock press that only woke the faded UI goes nowhere either.
         if !pressed && self.keys.caps_woke == Some(keycode) {
@@ -758,4 +759,6 @@ pub struct KeyTracking {
     pub super_tap: keys::SuperTap,
     /// Alt and Shift together, on their way to switching the keyboard layout.
     pub layout_tap: keys::LayoutTap,
+    /// A virtual keyboard's keymap the seat is reading keys with instead of its own.
+    pub stand_in: Option<crate::ime::StandIn>,
 }

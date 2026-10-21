@@ -86,6 +86,9 @@ impl Slipstream {
             handle.change_repeat_info(new.repeat_rate() as i32, new.repeat_delay() as i32);
         }
         if new.layouts != old.layouts {
+            // The new keymap replaces a virtual keyboard's standing in, rather than being undone
+            // by the next key.
+            self.keys.stand_in = None;
             let names = new.xkb_names();
             let config = names.as_ref().map(xkb_config).unwrap_or_default();
             if handle.set_xkb_config(self, config).is_err() {
