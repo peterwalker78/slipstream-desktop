@@ -810,15 +810,14 @@ impl Slipstream {
         self.seat.get_pointer().unwrap().current_location()
     }
 
-    /// How `output` is magnified now. Only the screen the zoom is centred on is: the pointer's,
-    /// or the caret's while typing, and the zoom goes with it from screen to screen.
+    /// How `output` is magnified now. Only the screen with the pointer on it is: the zoom is
+    /// centred on the pointer, and goes with it from screen to screen.
     pub fn zoom_view(&self, output: &Output) -> crate::zoom::View {
-        let now = self.clock.wall();
-        let level = self.zoom.level(now);
-        let centre = self.zoom.centre(self.pointer_location(), now);
+        let level = self.zoom.level(self.clock.wall());
+        let pointer = self.pointer_location();
         match self.space.output_geometry(output) {
-            Some(geo) if level > 1.0 && geo.to_f64().contains(centre) => crate::zoom::View::about(
-                centre,
+            Some(geo) if level > 1.0 && geo.to_f64().contains(pointer) => crate::zoom::View::about(
+                pointer,
                 geo.loc,
                 output.current_scale().fractional_scale(),
                 level,
@@ -831,7 +830,6 @@ impl Slipstream {
     pub fn zoom_step(&mut self, step: crate::zoom::Step) {
         let now = self.clock.wall();
         self.zoom.step(step, now, self.clock.reduced_motion);
-        self.watch_carets();
     }
 
     /// The workspace the keyboard is on: the one the focused screen is showing.

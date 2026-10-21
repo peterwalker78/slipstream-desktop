@@ -17,7 +17,6 @@ mod awake;
 mod battery;
 mod calc;
 mod capture;
-mod caret;
 mod clipboard;
 mod concentration;
 mod cursor;
