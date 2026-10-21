@@ -312,8 +312,13 @@ impl Slipstream {
         // tracking of the displays it has open holds.
         let display = unsafe { EGLDisplay::new(gbm.clone())? };
         let egl_device = EGLDevice::device_for_display(&display)?;
-        if egl_device.is_software() {
-            return Err("only software rendering is available".into());
+        // Software rendering is too slow to be anyone's desktop, so it's refused unless asked for,
+        // as a virtual machine with no graphics of its own has to.
+        if egl_device.is_software() && std::env::var_os("SLIPSTREAM_SOFTWARE_RENDERING").is_none() {
+            return Err(
+                "only software rendering is available (SLIPSTREAM_SOFTWARE_RENDERING=1 allows it)"
+                    .into(),
+            );
         }
         let render_node = egl_device
             .try_get_render_node()

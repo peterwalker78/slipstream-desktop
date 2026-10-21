@@ -14,7 +14,37 @@ permissions:
   contents: read
 
 jobs:
+  # Slipstream as this commit has it, built the way a release is.
+  build:
+    runs-on: ubuntu-latest
+    container: docker.io/library/debian:13
+    steps:
+      - name: Install toolchain and libraries
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
+            mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
+            libgtk-4-dev tar gzip
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+
+      - uses: actions/checkout@v7
+
+      - name: Build and pack
+        run: |
+          scripts/build-portable --release
+          scripts/package-release dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: download
+          path: dist/*-linux-*.tar.gz
+
   install:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -26,8 +56,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: download
+          path: download
+
       - name: Install ${{ matrix.desktop }} and weigh it
-        run: sh scripts/weigh-install ${{ matrix.desktop }} | tee weight-${{ matrix.desktop }}.txt
+        run: |
+          set -o pipefail
+          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz) sh scripts/weigh-install \
+            ${{ matrix.desktop }} | tee weight-${{ matrix.desktop }}.txt
+        shell: bash
 
       - uses: actions/upload-artifact@v4
         with:
@@ -35,6 +74,7 @@ jobs:
           path: weight-${{ matrix.desktop }}.txt
 
   session:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -53,10 +93,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq qemu-system-x86 qemu-utils cloud-image-utils socat >/dev/null
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: download
+          path: download
+
       - name: Start ${{ matrix.desktop }} and weigh it
         run: |
-          WEIGH_DIR=$PWD/vm sh scripts/weigh-session ${{ matrix.desktop }} \
-            | tee session-${{ matrix.desktop }}.txt
+          set -o pipefail
+          SLIPSTREAM_TARBALL=$(ls "$PWD"/download/*.tar.gz) WEIGH_DIR=$PWD/vm \
+            sh scripts/weigh-session ${{ matrix.desktop }} | tee session-${{ matrix.desktop }}.txt
+        shell: bash
 
       - uses: actions/upload-artifact@v4
         if: always()

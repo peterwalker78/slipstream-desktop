@@ -56,7 +56,10 @@ inside() {
             pacman -Su --noconfirm --quiet --needed mesa pipewire pipewire-pulse wireplumber \
                 networkmanager bluez bluez-utils power-profiles-daemon greetd $(wanted "$desktop") \
                 >/dev/null
-            if [ "$desktop" = slipstream ]; then
+            if [ "$desktop" = slipstream ] && [ -f "/home/$user/download.tar.gz" ]; then
+                su "$user" -c "cd ~ && tar xf download.tar.gz && cd slipstream-*-linux-* \
+                    && sh scripts/install-session --yes" >/dev/null
+            elif [ "$desktop" = slipstream ]; then
                 su "$user" -c "cd ~ && sh install.sh --yes" >/dev/null
             fi
             session=$(find /usr/local/share/wayland-sessions /usr/share/wayland-sessions \
@@ -68,7 +71,8 @@ inside() {
                     program=$(command -v "${exec_line%% *}")
                     command="env XDG_SESSION_TYPE=x11 startx $program -- vt1"
                     ;;
-                *) command="env XDG_SESSION_TYPE=wayland $exec_line" ;;
+                # Slipstream refuses software graphics unless told it's wanted.
+                *) command="env XDG_SESSION_TYPE=wayland SLIPSTREAM_SOFTWARE_RENDERING=1 $exec_line" ;;
             esac
             mkdir -p /etc/greetd
             cat >/etc/greetd/config.toml <<EOF
@@ -92,8 +96,8 @@ EOF
             tail -n 60 "/home/$user/.local/state/slipstream/slipstream.log" 2>/dev/null || true
             ;;
         after)
-            # Logged in on the screen, not just over ssh.
-            loginctl list-sessions --no-legend | grep -q " $user  *seat0" \
+            # A display server of the user's running, not just a login.
+            ls "/run/user/$(id -u "$user")"/wayland-* /tmp/.X11-unix/X* >/dev/null 2>&1 \
                 || { echo "weigh-session: $desktop never started on the screen" >&2; exit 1; }
             # shellcheck disable=SC2046 # two numbers
             set -- $(ticks)
@@ -162,6 +166,11 @@ ssh_vm sudo cloud-init status --wait >/dev/null || true
 
 scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$repo/scripts/weigh-session" "$repo/install.sh" "$user@127.0.0.1:"
+# A download built for this commit, when there is one, in place of the newest release.
+if [ "$desktop" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
+    scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        "$SLIPSTREAM_TARBALL" "$user@127.0.0.1:download.tar.gz"
+fi
 ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
 ssh_vm sudo sh weigh-session --inside "$desktop" before
 ssh_vm sudo sh weigh-session --inside "$desktop" start

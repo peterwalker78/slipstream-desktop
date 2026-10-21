@@ -67,18 +67,27 @@ packages_before=$(packages)
 used_before=$(used)
 
 if [ "$desktop" = slipstream ]; then
-    # The newest release, installed the way a person would, packages and all.
+    # Installed the way a person would, packages and all: from SLIPSTREAM_TARBALL, a download
+    # built for this commit, or else the newest release.
     user=weigher
     useradd --create-home --shell /bin/sh "$user"
     printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$user" >/etc/sudoers.d/weigher
     chmod 440 /etc/sudoers.d/weigher
     repo=$(cd "$(dirname "$0")/.." && pwd -P)
-    cp "$repo/install.sh" "/home/$user/install.sh"
-    chown "$user" "/home/$user/install.sh"
-    su "$user" -c "cd /home/$user && SLIPSTREAM_TEST_SEAT=1 GH_TOKEN='${GH_TOKEN:-}' sh install.sh --yes" \
-        >/dev/null
-    # The download and its unpacked copy are kept in the cache, which isn't the desktop either.
-    rm -rf "/home/$user/.cache/slipstream-install"
+    if [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
+        cp "$SLIPSTREAM_TARBALL" "/home/$user/download.tar.gz"
+        chown "$user" "/home/$user/download.tar.gz"
+        su "$user" -c "cd /home/$user && tar xf download.tar.gz && cd slipstream-*-linux-* \
+            && SLIPSTREAM_TEST_SEAT=1 sh scripts/install-session --yes" >/dev/null
+        rm -rf "/home/$user"/download.tar.gz "/home/$user"/slipstream-*-linux-*
+    else
+        cp "$repo/install.sh" "/home/$user/install.sh"
+        chown "$user" "/home/$user/install.sh"
+        su "$user" -c "cd /home/$user && SLIPSTREAM_TEST_SEAT=1 GH_TOKEN='${GH_TOKEN:-}' sh install.sh --yes" \
+            >/dev/null
+        # The download and its unpacked copy are kept in the cache, which isn't the desktop.
+        rm -rf "/home/$user/.cache/slipstream-install"
+    fi
 else
     # shellcheck disable=SC2086 # one word per package
     pacman -S --needed --noconfirm --quiet $wanted >/dev/null
