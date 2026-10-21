@@ -86,13 +86,14 @@ pub struct Drag {
 
 impl Drag {
     /// Where the view is, in workspaces, with the swipe `progress` workspaces on. Towards a
-    /// workspace past the one beside it, a full swipe still reaches it; with none there the
-    /// view gives a little, and less the further it's pulled.
+    /// workspace past the one beside it, a full swipe still reaches it, and swiping further
+    /// leaves the view there rather than carrying it past; with none there the view gives a
+    /// little, and less the further it's pulled.
     pub fn position(&self, progress: f64) -> f64 {
         let at = self.offset + progress;
         let reach = if at >= 0.0 { self.ahead } else { self.back };
         match reach {
-            Some(to) => self.from as f64 + at.abs() * (to as f64 - self.from as f64),
+            Some(to) => self.from as f64 + at.abs().min(1.0) * (to as f64 - self.from as f64),
             None => self.from as f64 + at.signum() * GIVE * (1.0 - (-at.abs() / GIVE).exp()),
         }
     }
@@ -412,6 +413,8 @@ mod tests {
             2.0,
             "half a swipe, halfway to the one past"
         );
+        assert_eq!(middle.position(1.7), 2.0, "never past the one it reaches");
+        assert_eq!(middle.position(-1.7), 0.0);
         let last = drag(Some(0), None);
         assert!(last.position(0.1) > 1.0);
         assert!(

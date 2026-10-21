@@ -7,6 +7,7 @@ Slipstream is in beta: anything can change between versions, including settings 
 - **Shortcuts of your own.** Settings › Shortcuts gives an app keys that open it: choose the app, then press the keys. Keys your style already uses, and keys kept for typing aids, screen readers and games, are refused with the reason. Changing style keeps them, and Super+/ lists the ones that work.
 - **Apps can keep the screen awake or ask the session not to end yet,** Flatpaks included. Slipstream answers them itself: an app keeps the screen on while you can see one of its windows, and the way out names an app holding off a logout, with its reason.
 - **Each app starts in a systemd scope of its own,** named after it. `systemd-cgtop` shows apps by name, apps installed on the system can ask for shortcuts of their own as Flatpaks already could, and an app's stream counts its helper processes with it. Starting an app never holds up the desktop while it waits.
+- **A swipe stops at the workspace it reaches.** Swiping further than a whole workspace carried the view past it, and it sprang back when you let go.
 
 ## 0.14.0 - 2026-10-21
 
