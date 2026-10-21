@@ -74,6 +74,11 @@ inside() {
                 # Slipstream refuses software graphics unless told it's wanted.
                 *) command="env XDG_SESSION_TYPE=wayland SLIPSTREAM_SOFTWARE_RENDERING=1 $exec_line" ;;
             esac
+            # GNOME started from a login rather than its own display manager wants a session bus
+            # of its own, as its documentation says.
+            if [ "$desktop" = gnome ]; then
+                command="env XDG_SESSION_TYPE=wayland dbus-run-session $exec_line"
+            fi
             mkdir -p /etc/greetd
             cat >/etc/greetd/config.toml <<EOF
 [terminal]
@@ -91,14 +96,18 @@ EOF
         before) in_use >/run/weigh-before ;;
         start) systemctl start greetd ;;
         logs)
-            journalctl -b -u greetd --no-pager | tail -n 40
-            journalctl -b _UID="$(id -u "$user")" --no-pager | tail -n 80
+            journalctl -b -u greetd --no-pager | tail -n 20
+            journalctl -b _UID="$(id -u "$user")" --no-pager | grep -v ' audit\[\| sudo\[' \
+                | tail -n 200
             tail -n 60 "/home/$user/.local/state/slipstream/slipstream.log" 2>/dev/null || true
             ;;
         after)
             # A display server of the user's running, not just a login.
-            ls "/run/user/$(id -u "$user")"/wayland-* /tmp/.X11-unix/X* >/dev/null 2>&1 \
-                || { echo "weigh-session: $desktop never started on the screen" >&2; exit 1; }
+            if ! ls "/run/user/$(id -u "$user")"/wayland-* >/dev/null 2>&1 \
+                && ! ls /tmp/.X11-unix/X* >/dev/null 2>&1; then
+                echo "weigh-session: $desktop has no display server running" >&2
+                exit 1
+            fi
             # shellcheck disable=SC2046 # two numbers
             set -- $(ticks)
             sleep "$sample"
@@ -171,14 +180,25 @@ if [ "$desktop" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
     scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "$SLIPSTREAM_TARBALL" "$user@127.0.0.1:download.tar.gz"
 fi
+screenshot() {
+    printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s"}}\n' \
+        "$work/$1" | socat - "UNIX-CONNECT:$work/qmp.sock" >/dev/null
+    sleep 1
+}
+
 ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
 ssh_vm sudo sh weigh-session --inside "$desktop" before
+screenshot console.ppm
 ssh_vm sudo sh weigh-session --inside "$desktop" start
 sleep "$settle"
 
-printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s"}}\n' \
-    "$work/session-$desktop.ppm" | socat - "UNIX-CONNECT:$work/qmp.sock" >/dev/null
-if ! ssh_vm sudo sh weigh-session --inside "$desktop" after; then
+screenshot "session-$desktop.ppm"
+# A desktop that started draws over the whole text console; one that didn't leaves it showing.
+changed=$(cmp -l console.ppm "session-$desktop.ppm" 2>/dev/null | wc -l)
+total=$(wc -c <console.ppm)
+if [ $((changed * 10)) -lt "$total" ] || ! ssh_vm sudo sh weigh-session --inside "$desktop" after
+then
+    echo "weigh-session: $desktop didn't draw a desktop on the screen" >&2
     ssh_vm sudo sh weigh-session --inside "$desktop" logs >&2
     kill "$(cat qemu.pid)" 2>/dev/null || true
     exit 1
