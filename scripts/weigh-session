@@ -1,0 +1,167 @@
+#!/bin/sh
+# Starts one desktop, logged in, in an Arch Linux virtual machine and says what it costs once it
+# has settled: the memory it added to the system, and the processor time it takes while nobody
+# touches it. Every desktop runs on the same machine, from the same system, with the same
+# software graphics, so the figures compare.
+#
+#   scripts/weigh-session DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
+#
+# Run where QEMU can use KVM, such as a GitHub runner. It prints a line of `desktop megabytes
+# percent`, the percent being of one processor, and leaves a screenshot of the desktop it
+# measured in `session-DESKTOP.ppm`. Inside the machine it runs itself again with `--inside`.
+set -eu
+
+# The same packages weigh-install counts for each desktop, and the session file that starts it.
+wanted() {
+    case $1 in
+        slipstream) echo "" ;;
+        gnome) echo gnome ;;
+        plasma) echo plasma ;;
+        xfce) echo "xfce4 xfce4-notifyd xfce4-screensaver xorg-server xorg-xinit" ;;
+        cosmic) echo cosmic ;;
+        niri) echo "niri waybar fuzzel mako swaylock swayidle swaybg xdg-desktop-portal-gnome xwayland-satellite" ;;
+        sway) echo "sway waybar fuzzel mako swaylock swayidle swaybg xdg-desktop-portal-wlr xorg-xwayland" ;;
+        hyprland) echo "hyprland waybar fuzzel mako hyprlock hypridle hyprpaper xdg-desktop-portal-hyprland" ;;
+        *) return 1 ;;
+    esac
+}
+
+user=weigher
+settle=120
+sample=60
+
+# ---------------------------------------------------------------------------------------------
+# Inside the machine, as root.
+
+# Memory in use, in KiB, once the kernel has let go of what it was only caching.
+in_use() {
+    sync
+    echo 3 >/proc/sys/vm/drop_caches
+    sleep 5
+    awk '/^MemTotal:/ { total = $2 } /^MemAvailable:/ { free = $2 } END { print total - free }' \
+        /proc/meminfo
+}
+
+# Processor ticks spent working, and all ticks, since boot.
+ticks() { awk '/^cpu / { print $2 + $3 + $4 + $7 + $8, $2 + $3 + $4 + $5 + $6 + $7 + $8 }' /proc/stat; }
+
+inside() {
+    desktop=$1
+    case $2 in
+        install)
+            pacman-key --init >/dev/null 2>&1 || true
+            pacman-key --populate archlinux >/dev/null 2>&1 || true
+            pacman -Sy --noconfirm --quiet archlinux-keyring >/dev/null
+            # shellcheck disable=SC2046 # one word per package
+            pacman -Su --noconfirm --quiet --needed mesa pipewire pipewire-pulse wireplumber \
+                networkmanager bluez bluez-utils power-profiles-daemon greetd $(wanted "$desktop") \
+                >/dev/null
+            if [ "$desktop" = slipstream ]; then
+                su "$user" -c "cd ~ && sh install.sh --yes" >/dev/null
+            fi
+            session=$(find /usr/local/share/wayland-sessions /usr/share/wayland-sessions \
+                /usr/share/xsessions -name "$desktop.desktop" 2>/dev/null | head -n1)
+            [ -n "$session" ] || { echo "weigh-session: no session file for $desktop" >&2; exit 1; }
+            exec_line=$(sed -n 's/^Exec=//p' "$session" | head -n1)
+            case $session in
+                */xsessions/*)
+                    program=$(command -v "${exec_line%% *}")
+                    command="env XDG_SESSION_TYPE=x11 startx $program -- vt1"
+                    ;;
+                *) command="env XDG_SESSION_TYPE=wayland $exec_line" ;;
+            esac
+            mkdir -p /etc/greetd
+            cat >/etc/greetd/config.toml <<EOF
+[terminal]
+vt = 1
+
+[default_session]
+command = "agreety --cmd /bin/sh"
+
+[initial_session]
+command = "$command"
+user = "$user"
+EOF
+            echo "session: $command"
+            ;;
+        before) in_use >/run/weigh-before ;;
+        start) systemctl start greetd ;;
+        after)
+            loginctl list-sessions --no-legend | grep -q " $user " \
+                || { echo "weigh-session: $user isn't logged in" >&2; exit 1; }
+            # shellcheck disable=SC2046 # two numbers
+            set -- $(ticks)
+            sleep "$sample"
+            # shellcheck disable=SC2046
+            set -- "$@" $(ticks)
+            busy=$(($3 - $1))
+            all=$(($4 - $2))
+            cores=$(nproc)
+            # Percent of one processor: the share of all the machine's ticks, times its processors.
+            percent=$(awk -v b="$busy" -v a="$all" -v c="$cores" 'BEGIN { printf "%.1f", 100 * c * b / a }')
+            after=$(in_use)
+            before=$(cat /run/weigh-before)
+            echo "$desktop $(((after - before) / 1024)) $percent"
+            ;;
+    esac
+}
+
+if [ "${1:-}" = --inside ]; then
+    inside "$2" "$3"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------------------------
+# On the host: a machine to measure in.
+
+desktop=${1:?say which desktop: slipstream, gnome, plasma, xfce, cosmic, niri, sway or hyprland}
+wanted "$desktop" >/dev/null || { echo "weigh-session: $desktop isn't one this weighs." >&2; exit 2; }
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+work=${WEIGH_DIR:-$PWD/weigh-$desktop}
+mkdir -p "$work"
+cd "$work"
+
+[ -f arch.qcow2 ] || curl -fsSL -o arch.qcow2 \
+    https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2
+qemu-img resize -q arch.qcow2 16G
+[ -f key ] || ssh-keygen -q -t ed25519 -N '' -f key
+cat >user-data <<EOF
+#cloud-config
+users:
+  - name: $user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - $(cat key.pub)
+EOF
+printf 'instance-id: weigh-%s\nlocal-hostname: weigh\n' "$desktop" >meta-data
+cloud-localds seed.iso user-data meta-data
+
+qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
+    -drive file=arch.qcow2,if=virtio -drive file=seed.iso,if=virtio,format=raw \
+    -device virtio-vga -display none -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2222-:22 \
+    -qmp unix:qmp.sock,server,nowait -daemonize -pidfile qemu.pid
+
+ssh_vm() {
+    ssh -q -i key -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=5 "$user@127.0.0.1" "$@"
+}
+tries=0
+until ssh_vm true 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 60 ] || { echo "weigh-session: the machine never answered" >&2; exit 1; }
+    sleep 5
+done
+ssh_vm sudo cloud-init status --wait >/dev/null || true
+
+scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "$repo/scripts/weigh-session" "$repo/install.sh" "$user@127.0.0.1:"
+ssh_vm sudo sh weigh-session --inside "$desktop" install >&2
+ssh_vm sudo sh weigh-session --inside "$desktop" before
+ssh_vm sudo sh weigh-session --inside "$desktop" start
+sleep "$settle"
+
+printf '{"execute":"qmp_capabilities"}\n{"execute":"screendump","arguments":{"filename":"%s"}}\n' \
+    "$work/session-$desktop.ppm" | socat - "UNIX-CONNECT:$work/qmp.sock" >/dev/null
+ssh_vm sudo sh weigh-session --inside "$desktop" after
+kill "$(cat qemu.pid)" 2>/dev/null || true
