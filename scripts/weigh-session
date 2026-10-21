@@ -6,6 +6,8 @@
 #
 #   scripts/weigh-session DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
 #
+# `slipstream-reduced` is Slipstream with reduced motion, whose wallpaper holds still.
+#
 # Run where QEMU can use KVM, such as a GitHub runner. It prints a line of `desktop megabytes
 # percent`, the percent being of one processor, and leaves a screenshot of the desktop it
 # measured in `session-DESKTOP.ppm`. Inside the machine it runs itself again with `--inside`.
@@ -66,6 +68,7 @@ ticks() { awk '/^cpu / { print $2 + $3 + $4 + $7 + $8, $2 + $3 + $4 + $5 + $6 + 
 
 inside() {
     desktop=$1
+    base=${desktop%-reduced}
     case $2 in
         install)
             pacman-key --init >/dev/null 2>&1 || true
@@ -73,16 +76,21 @@ inside() {
             pacman -Sy --noconfirm --quiet archlinux-keyring >/dev/null
             # shellcheck disable=SC2046 # one word per package
             pacman -Su --noconfirm --quiet --needed mesa pipewire pipewire-pulse wireplumber \
-                networkmanager bluez bluez-utils power-profiles-daemon greetd $(wanted "$desktop") \
+                networkmanager bluez bluez-utils power-profiles-daemon greetd $(wanted "$base") \
                 >/dev/null
-            if [ "$desktop" = slipstream ] && [ -f "/home/$user/download.tar.gz" ]; then
+            if [ "$base" = slipstream ] && [ -f "/home/$user/download.tar.gz" ]; then
                 su "$user" -c "cd ~ && tar xf download.tar.gz && cd slipstream-*-linux-* \
                     && sh scripts/install-session --yes" >/dev/null
-            elif [ "$desktop" = slipstream ]; then
+            elif [ "$base" = slipstream ]; then
                 su "$user" -c "cd ~ && sh install.sh --yes" >/dev/null
             fi
+            # Slipstream with reduced motion, where the wallpaper is a still picture.
+            if [ "$desktop" = slipstream-reduced ]; then
+                su "$user" -c "mkdir -p ~/.config/slipstream \
+                    && printf '[motion]\nreduced = true\n' >~/.config/slipstream/settings.toml"
+            fi
             session=$(find /usr/local/share/wayland-sessions /usr/share/wayland-sessions \
-                /usr/share/xsessions -name "$desktop.desktop" 2>/dev/null | head -n1)
+                /usr/share/xsessions -name "$base.desktop" 2>/dev/null | head -n1)
             [ -n "$session" ] || { echo "weigh-session: no session file for $desktop" >&2; exit 1; }
             exec_line=$(sed -n 's/^Exec=//p' "$session" | head -n1)
             case $session in
@@ -156,7 +164,8 @@ fi
 # On the host: a machine to measure in.
 
 desktop=${1:?say which desktop: slipstream, gnome, plasma, xfce, cosmic, niri, sway or hyprland}
-wanted "$desktop" >/dev/null || { echo "weigh-session: $desktop isn't one this weighs." >&2; exit 2; }
+base=${desktop%-reduced}
+wanted "$base" >/dev/null || { echo "weigh-session: $desktop isn't one this weighs." >&2; exit 2; }
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 work=${WEIGH_DIR:-$PWD/weigh-$desktop}
 mkdir -p "$work"
@@ -206,7 +215,7 @@ ssh_vm sudo cloud-init status --wait >/dev/null || true
 scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$repo/scripts/weigh-session" "$repo/install.sh" "$user@127.0.0.1:"
 # A download built for this commit, when there is one, in place of the newest release.
-if [ "$desktop" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
+if [ "$base" = slipstream ] && [ -n "${SLIPSTREAM_TARBALL:-}" ]; then
     scp -q -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "$SLIPSTREAM_TARBALL" "$user@127.0.0.1:download.tar.gz"
 fi

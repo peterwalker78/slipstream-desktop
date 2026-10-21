@@ -29,7 +29,8 @@ fi
 # notifications, a lock screen, idle handling, a wallpaper and the portals apps talk to. The big
 # desktops name theirs as a group.
 case $desktop in
-    slipstream) wanted= ;;
+    # Reduced motion installs the same as Slipstream itself.
+    slipstream | slipstream-reduced) wanted= ;;
     gnome) wanted=gnome ;;
     plasma) wanted=plasma ;;
     xfce) wanted="xfce4 xfce4-notifyd xfce4-screensaver" ;;
@@ -66,7 +67,7 @@ used() { du -sxb /usr /etc /opt 2>/dev/null | awk '{ total += $1 } END { print t
 packages_before=$(packages)
 used_before=$(used)
 
-if [ "$desktop" = slipstream ]; then
+if [ "${desktop%-reduced}" = slipstream ]; then
     # Installed the way a person would, packages and all: from SLIPSTREAM_TARBALL, a download
     # built for this commit, or else the newest release.
     user=weigher
