@@ -127,6 +127,17 @@ EOF
                 systemctl start greetd
             fi
             ;;
+        profile)
+            # Where the machine's processor time goes while the desktop sits idle.
+            pacman -S --noconfirm --quiet --needed perf >/dev/null
+            perf record -a -g -F 199 -o /run/weigh.perf -- sleep 20 >/dev/null 2>&1
+            echo "== by program and library"
+            perf report -i /run/weigh.perf --stdio --no-children --sort comm,dso 2>/dev/null \
+                | grep -v '^#' | grep -v '^$' | head -n 40
+            echo "== by function"
+            perf report -i /run/weigh.perf --stdio --no-children --sort comm,dso,sym -g none \
+                2>/dev/null | grep -v '^#' | grep -v '^$' | head -n 80
+            ;;
         logs)
             journalctl -b -u greetd --no-pager | tail -n 20
             journalctl -b _UID="$(id -u "$user")" --no-pager | grep -v ' audit\[\| sudo\[' \
@@ -239,5 +250,10 @@ then
     ssh_vm sudo sh weigh-session --inside "$desktop" logs >&2
     kill "$(cat qemu.pid)" 2>/dev/null || true
     exit 1
+fi
+# WEIGH_PROFILE=true also says where the idle desktop's processor time goes, in
+# `profile-DESKTOP.txt`.
+if [ "${WEIGH_PROFILE:-}" = true ]; then
+    ssh_vm sudo sh weigh-session --inside "$desktop" profile >"$work/profile-$desktop.txt" || true
 fi
 kill "$(cat qemu.pid)" 2>/dev/null || true
