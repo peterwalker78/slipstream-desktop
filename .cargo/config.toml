@@ -1,4 +1,4 @@
-# Memory guard for a 14 GB laptop: never more than 4 parallel compile jobs.
+# Never more than 4 parallel compile jobs, so a build fits in a few gigabytes of memory.
 [build]
 jobs = 4
 
