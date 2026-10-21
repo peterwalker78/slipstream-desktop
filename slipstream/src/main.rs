@@ -57,6 +57,7 @@ mod notify;
 mod paint;
 mod polkit;
 mod portal;
+mod portal_inhibit;
 mod power;
 mod render;
 mod restore;
@@ -370,11 +371,16 @@ fn start_services(
     if wanted("SLIPSTREAM_NOTIFICATIONS") {
         notify::serve(channel_into(event_loop, Slipstream::notification_event)?);
     }
-    // The portal backend: dark or light, and shortcuts apps keep while another app has the
-    // keyboard.
+    // The portal backend: dark or light, shortcuts apps keep while another app has the keyboard,
+    // and apps asking the desktop to stay awake or not to log out yet.
     if wanted("SLIPSTREAM_PORTAL") {
         let shortcut_events = channel_into(event_loop, Slipstream::shortcut_event)?;
-        portal::serve(state.settings.appearance.colour_scheme, shortcut_events);
+        let holds = channel_into(event_loop, Slipstream::portal_holds)?;
+        portal::serve(
+            state.settings.appearance.colour_scheme,
+            shortcut_events,
+            holds,
+        );
         watch::watch_shortcuts(&event_loop.handle());
     }
     // The password card for programs that need an administrator's say-so. Polkit takes one

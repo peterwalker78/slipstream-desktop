@@ -43,6 +43,12 @@ pub struct Idle {
     /// How many holds apps have on the session bus's `org.freedesktop.ScreenSaver`, which count
     /// the same as an inhibitor: X11 and Electron apps ask there.
     pub bus_holds: usize,
+    /// What apps hold through the inhibit portal. The idle ones count the same as an inhibitor;
+    /// the way out names the ones holding off the end of the session.
+    pub portal: Vec<crate::portal_inhibit::Hold>,
+    /// Whether an idle hold through the portal counts: one of its app's windows is on a screen,
+    /// or the app has none.
+    pub portal_shown: bool,
     /// The last input, or the last moment something held the lock off.
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
@@ -70,6 +76,8 @@ impl Idle {
             inhibitors: Vec::new(),
             inhibitors_shown: false,
             bus_holds: 0,
+            portal: Vec::new(),
+            portal_shown: false,
             lock_idle_since: Instant::now(),
             lock_after: None,
             screen_idle_since: Instant::now(),
@@ -122,9 +130,9 @@ impl Idle {
     }
 
     /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor on a
-    /// screen or the session bus.
+    /// screen, the session bus or the inhibit portal.
     pub fn apps_hold(&self) -> bool {
-        self.inhibitors_shown || self.bus_holds > 0
+        self.inhibitors_shown || self.bus_holds > 0 || self.portal_shown
     }
 
     /// Starts the wait before locking again, as input does.
@@ -338,6 +346,9 @@ mod tests {
         assert!(idle.lock_due(later(65), false));
         idle.update(1.0, false);
         assert!(idle.is_faded());
+        // A hold through the inhibit portal counts the same.
+        idle.portal_shown = true;
+        assert!(idle.apps_hold());
     }
 
     #[test]

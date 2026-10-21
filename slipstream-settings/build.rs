@@ -48,6 +48,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "effects/glass",
             "idle",
             "screensaver",
+            "portal_inhibit",
             "effects/scope",
             "working",
         ],

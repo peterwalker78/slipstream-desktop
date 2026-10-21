@@ -1,7 +1,8 @@
-# Slipstream answers two portals itself: the settings portal, which is how apps ask the desktop
-# whether to be dark or light, and global shortcuts, which lets an app keep a shortcut that works
-# while another app has the keyboard (a voice chat's push to talk). The compositor takes this bus
-# name while the session runs; it can't be started on demand, so nothing here makes it
+# Slipstream answers three portals itself: the settings portal, which is how apps ask the desktop
+# whether to be dark or light; global shortcuts, which lets an app keep a shortcut that works
+# while another app has the keyboard (a voice chat's push to talk); and inhibit, which is how a
+# sandboxed app asks the screen to stay awake or the session not to end yet. The compositor takes
+# this bus name while the session runs; it can't be started on demand, so nothing here makes it
 # activatable.
 #
 # scripts/install-session puts this in /usr/local/share/xdg-desktop-portal/portals, for everyone
@@ -10,5 +11,5 @@
 # read; slipstream-portals.conf says the same thing for the ones that came after.
 [portal]
 DBusName=org.freedesktop.impl.portal.desktop.slipstream
-Interfaces=org.freedesktop.impl.portal.Settings;org.freedesktop.impl.portal.GlobalShortcuts;
+Interfaces=org.freedesktop.impl.portal.Settings;org.freedesktop.impl.portal.GlobalShortcuts;org.freedesktop.impl.portal.Inhibit;
 UseIn=Slipstream

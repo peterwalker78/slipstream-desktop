@@ -330,6 +330,10 @@ grep -q "^org.freedesktop.impl.portal.GlobalShortcuts=slipstream$" "$portals_con
     || fail "$case_name: apps' shortcuts aren't Slipstream's to answer"
 grep -q "^Interfaces=.*impl.portal.GlobalShortcuts;" "$portal_backend" \
     || fail "$case_name: the backend doesn't say it answers apps' shortcuts"
+grep -q "^org.freedesktop.impl.portal.Inhibit=slipstream$" "$portals_conf" \
+    || fail "$case_name: apps asking to stay awake aren't Slipstream's to answer"
+grep -q "^Interfaces=.*impl.portal.Inhibit;" "$portal_backend" \
+    || fail "$case_name: the backend doesn't say it answers apps asking to stay awake"
 grep -q "portals/slipstream.portal$" "$manifest" || fail "$case_name: not in the manifest"
 
 case_name="Slipstream's own backend stays out of the list of the others"

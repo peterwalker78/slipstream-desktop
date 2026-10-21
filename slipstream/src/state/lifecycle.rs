@@ -8,6 +8,19 @@ impl Slipstream {
     /// into the code rain. Not popups, not override-redirect X11 surfaces, not Slipstream's own overlays. The
     /// one definition of what's open, used by the way out to list, to ask, and to wait.
     pub fn mapped_windows(&self) -> Vec<exit::Open<Window>> {
+        self.open_windows()
+            .into_iter()
+            .map(|(window, minimised)| exit::Open {
+                app: self.window_name(&window),
+                title: window_title(&window),
+                minimised,
+                window,
+            })
+            .collect()
+    }
+
+    /// Every open window, and whether it is minimised into the code rain.
+    pub(super) fn open_windows(&self) -> Vec<(Window, bool)> {
         self.workspaces
             .all_windows()
             .into_iter()
@@ -25,11 +38,22 @@ impl Slipstream {
                     .map(|stream| (stream.window.clone(), true)),
             )
             .filter(|(window, _)| window.alive())
-            .map(|(window, minimised)| exit::Open {
-                app: self.window_name(&window),
-                title: window_title(&window),
-                minimised,
-                window,
+            .collect()
+    }
+
+    /// The apps asking through the inhibit portal for the session not to end yet: each one's name
+    /// and its reason.
+    fn ending_held(&self) -> Vec<(String, String)> {
+        self.idle
+            .portal
+            .iter()
+            .filter(|hold| hold.logout)
+            .map(|hold| {
+                let name = self
+                    .explorer
+                    .app_name(&hold.app)
+                    .unwrap_or_else(|| pretty_name(&hold.app));
+                (name, hold.reason.clone())
             })
             .collect()
     }
@@ -46,12 +70,15 @@ impl Slipstream {
         tracing::info!(windows = open.len(), "the way out: asking which");
         let wall = self.wall();
         self.record.exit_record = Some(self.take_record());
-        self.exit = Some(Exit::choosing(
-            open,
-            wall,
-            self.clock.reduced_motion,
-            self.settings.session.remember,
-        ));
+        self.exit = Some(
+            Exit::choosing(
+                open,
+                wall,
+                self.clock.reduced_motion,
+                self.settings.session.remember,
+            )
+            .held(self.ending_held()),
+        );
     }
 
     /// Log out, Restart or Shut down: the way out asks first, then gives the apps a moment to
@@ -65,13 +92,16 @@ impl Slipstream {
         tracing::info!(intent = intent.verb(), windows = open.len(), "the way out");
         let wall = self.wall();
         self.record.exit_record = Some(self.take_record());
-        self.exit = Some(Exit::new(
-            intent,
-            open,
-            wall,
-            self.clock.reduced_motion,
-            self.settings.session.remember,
-        ));
+        self.exit = Some(
+            Exit::new(
+                intent,
+                open,
+                wall,
+                self.clock.reduced_motion,
+                self.settings.session.remember,
+            )
+            .held(self.ending_held()),
+        );
     }
 
     /// Ends the way out while it is still asking, as Esc on its card does.

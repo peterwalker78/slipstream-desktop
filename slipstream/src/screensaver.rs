@@ -237,13 +237,14 @@ pub fn serve(events: Sender<Event>) {
         };
         tracing::info!("serving {NAME} on the session bus");
         let _ = CONNECTION.set(connection.clone());
-        follow_departures(&connection, &server);
+        follow_departures(&connection, |name| server.gone(name));
     });
 }
 
-/// Ends the holds of every connection that leaves the bus, for as long as the session runs. Only
-/// the bus itself can say a name has gone; a signal claiming it from anyone else is ignored.
-fn follow_departures(connection: &zbus::blocking::Connection, server: &Server) {
+/// Calls `gone` with every connection that leaves the bus, for as long as the session runs, so
+/// what it held can end. Only the bus itself can say a name has gone; a signal claiming it from
+/// anyone else is ignored.
+pub fn follow_departures(connection: &zbus::blocking::Connection, gone: impl Fn(&str)) {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender("org.freedesktop.DBus")
@@ -256,7 +257,7 @@ fn follow_departures(connection: &zbus::blocking::Connection, server: &Server) {
     let messages = match messages {
         Ok(messages) => messages,
         Err(err) => {
-            tracing::warn!("couldn't watch for apps quitting, so their screen holds stay: {err}");
+            tracing::warn!("couldn't watch for apps quitting, so what they hold stays: {err}");
             return;
         }
     };
@@ -267,7 +268,7 @@ fn follow_departures(connection: &zbus::blocking::Connection, server: &Server) {
         if let Ok((name, _old, new)) = message.body().deserialize::<(String, String, String)>() {
             // A unique name losing its owner is a connection closing.
             if new.is_empty() && name.starts_with(':') {
-                server.gone(&name);
+                gone(&name);
             }
         }
     }

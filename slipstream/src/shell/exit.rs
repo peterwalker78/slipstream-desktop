@@ -186,6 +186,9 @@ pub struct Exit<W> {
     pub reduced_motion: bool,
     /// Whether to write the layout down on the way out: the setting, until the switch is turned.
     remember: bool,
+    /// Apps that asked for the session not to end yet, each with its reason, named on the card
+    /// that asks first.
+    held: Vec<(String, String)>,
     /// The card or slim card on screen, and what the pointer is over.
     on_screen: card::OnScreen<Shape>,
 }
@@ -236,8 +239,15 @@ impl<W: Clone + PartialEq> Exit<W> {
             since: now,
             reduced_motion,
             remember,
+            held: Vec::new(),
             on_screen: Default::default(),
         }
+    }
+
+    /// The apps asking for the session not to end yet: each one's name and the reason it gave.
+    pub fn held(mut self, held: Vec<(String, String)>) -> Self {
+        self.held = held;
+        self
     }
 
     /// Whether the layout is to be written down on the way out.
@@ -517,18 +527,34 @@ impl<W: Clone + PartialEq> Exit<W> {
     }
 
     /// The first card. It says what is about to happen and nothing else: the windows that matter
-    /// are the ones that don't close, which the "still here" card names.
+    /// are the ones that don't close, which the "still here" card names. Only an app that asked
+    /// for the session not to end yet is named here, with its reason.
     fn ask_card(&self) -> Card {
         let count = self.asked.len();
-        let note = match count {
+        let mut note = match count {
             0 => "Nothing is open.".to_string(),
             1 => "One window is open. Its app is asked to close it first.".to_string(),
             n => format!("{n} windows are open. Every app is asked to close first."),
         };
+        let verb = self.intent.verb();
+        match self.held.len() {
+            0 => {}
+            1 => note.push_str(&format!(" An app asks you not to {verb} yet.")),
+            n => note.push_str(&format!(" {n} apps ask you not to {verb} yet.")),
+        }
         Card {
             title: self.intent.title().to_string(),
             note,
-            rows: Vec::new(),
+            rows: self
+                .held
+                .iter()
+                .take(MAX_ROWS)
+                .map(|(app, reason)| Row {
+                    name: app.clone(),
+                    title: reason.clone(),
+                    note: Some(("asks to wait".to_string(), AMBER)),
+                })
+                .collect(),
             more: None,
             field: None,
             remember: Some(self.remember),
@@ -979,6 +1005,19 @@ mod tests {
         assert_eq!(exit.key(Keysym::Return, 0.0), Act::Close(vec![]));
         assert_eq!(exit.tick(0.01, &[]), Act::Nothing);
         assert!(exit.going());
+    }
+
+    #[test]
+    fn an_app_holding_off_the_end_is_named_with_its_reason() {
+        let exit = Exit::new(Intent::LogOut, vec![open(1, "Burner")], 0.0, false, false)
+            .held(vec![("Burner".into(), "Writing a disc".into())]);
+        let card = exit.ask_card();
+        assert!(card.note.ends_with("An app asks you not to log out yet."));
+        assert_eq!(card.rows[0].name, "Burner");
+        assert_eq!(card.rows[0].title, "Writing a disc");
+        // It asks; it doesn't refuse: Enter still goes on.
+        let mut exit = exit;
+        assert_eq!(exit.key(Keysym::Return, 0.0), Act::Close(vec![1]));
     }
 
     #[test]

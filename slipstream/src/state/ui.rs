@@ -42,7 +42,8 @@ impl Slipstream {
     /// nothing may be told the seat has gone quiet, which is what the inhibitor is for. Only an
     /// inhibitor on a screen holds: a video paused in a minimised browser, or one on a workspace
     /// no screen is showing, doesn't keep the screens on. Inhibitors whose surfaces have gone are
-    /// forgotten on the way.
+    /// forgotten on the way. A hold through the inhibit portal goes by its app's windows in the
+    /// same way.
     pub fn follow_idle_inhibitors(&mut self) {
         self.idle.inhibitors.retain(|surface| surface.alive());
         self.idle.inhibitors_shown = self
@@ -50,6 +51,15 @@ impl Slipstream {
             .inhibitors
             .iter()
             .any(|surface| self.surface_on_screen(surface));
+        self.idle.portal_shown = self.idle.portal.iter().any(|hold| {
+            hold.idle
+                && crate::portal_inhibit::counts(
+                    self.open_windows()
+                        .into_iter()
+                        .filter(|(window, _)| window_app_id(window).as_deref() == Some(&hold.app))
+                        .map(|(window, _)| self.space.elements().any(|shown| *shown == window)),
+                )
+        });
         let inhibited = self.awake || self.idle.apps_hold();
         self.protocols
             .idle_notifier_state
