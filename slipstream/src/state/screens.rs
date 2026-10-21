@@ -82,8 +82,8 @@ impl Slipstream {
     /// and the card says so and offers the other answer. Asked once per screen, ever — the answer
     /// is written down against the screen, and a screen met before never asks again.
     pub(super) fn ask_about_screen(&mut self, output: &Output, monitor: &str, workspace: usize) {
-        // What it would have taken under the old rule: the lowest-numbered workspace from the
-        // settings' list that no screen is showing. With none free there is nothing to offer.
+        // The other answer: the lowest-numbered workspace from the settings' list that no screen
+        // is showing. With none free there is nothing to offer.
         let share = (0..self.workspaces.count())
             .find(|index| {
                 !self.workspaces.is_scratch(*index)

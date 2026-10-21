@@ -741,7 +741,7 @@ mod tests {
     fn a_screen_falls_back_to_the_lowest_free_workspace() {
         let mut screens: Screens<&str> = Screens::default();
         screens.add("eDP-1", 0, 0, 5, None);
-        // The workspace set aside for it is gone, or taken: the old rule still applies.
+        // The workspace set aside for it is gone, or taken, so it takes the lowest free one.
         screens.add("DP-2", 1920, 0, 5, Some(9));
         let monitor = screens.index_of(&"DP-2").unwrap();
         assert_eq!(screens.get(monitor).map(|s| s.workspace), Some(1));
