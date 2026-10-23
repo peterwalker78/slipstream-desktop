@@ -90,6 +90,13 @@ Slipstream puts your concentration first.
 
 ## Plugins beside the clock
 
+<table>
+<tr>
+<td width="50%" valign="top"><img src="assets/readme/plugins.webp" alt="The plugin panel open under the clock, over a living wallpaper, with four cards: a focus timer with 18 minutes to a break and Pause and Break now buttons, the weather, the computer's processor, memory and disk, and backups with a Back up now button. The chip beside the date reads 18 min." width="100%"></td>
+<td width="50%" valign="top"><img src="assets/readme/plugins-cog.webp" alt="The same panel with the focus card turned round by its cog: a switch for each of its sections, Session and Today, and a key to what its gauges' shading means." width="100%"></td>
+</tr>
+</table>
+
 **Little apps, your own or other people's, in a panel that drops from the bar.** The weather, a timer, anything a program can report: each plugin adds a card of lines, gauges and buttons, drawn in Slipstream's own style. The chip beside the date shows the headline of the one you choose, and turns amber when one wants your attention. Click it, or press Super+Y.
 
 **Write one in anything.** If it can print a line of JSON, it can be a plugin: a shell script, Python, a compiled program. [Writing a plugin →](guide/plugins.md)
