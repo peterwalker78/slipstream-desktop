@@ -36,9 +36,12 @@
 //! `slipstream/plugins/` under each of `$XDG_DATA_DIRS` (installed for everyone). A plugin is off
 //! until it is turned on (`[plugins] on`), and turning it on records a fingerprint of its folder
 //! (`fingerprint`). A plugin whose folder has changed since is held, and doesn't run, until it is
-//! turned on again: an update can't slip in unseen. That guards against a plugin changing
-//! underneath its approval, not against something already running as the person, which could
-//! change the settings file as easily.
+//! turned on again: an update can't slip in unseen. What it asked for is kept beside that
+//! (`approval`), so a held plugin can say whether its update is like for like or asks for more.
+//! That guards against a plugin changing underneath its approval, not against something already
+//! running as the person, which could change the settings file as easily.
+
+pub mod approval;
 
 use std::{
     collections::BTreeMap,
@@ -298,6 +301,23 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
 /// order. A folder with a link in it, or too much in it, isn't a plugin.
 pub fn fingerprint(dir: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    each_file(dir, |name, bytes| {
+        hash.update((name.len() as u64).to_le_bytes());
+        hash.update(name.as_bytes());
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    })?;
+    Ok(hex(&hash.finalize()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Calls `each` with every file in `dir`, by its path inside `dir`, and its contents, in order.
+/// A folder with a link in it, or too much in it, isn't a plugin.
+fn each_file(dir: &Path, mut each: impl FnMut(&str, &[u8])) -> Result<(), String> {
     let mut files = Vec::new();
     let mut folders = vec![dir.to_path_buf()];
     while let Some(folder) = folders.pop() {
@@ -319,7 +339,6 @@ pub fn fingerprint(dir: &Path) -> Result<String, String> {
         }
     }
     files.sort();
-    let mut hash = Sha256::new();
     let mut total = 0u64;
     for file in files {
         let bytes = std::fs::read(&file).map_err(|err| err.to_string())?;
@@ -327,17 +346,22 @@ pub fn fingerprint(dir: &Path) -> Result<String, String> {
         if total > MOST_BYTES {
             return Err(format!("it holds more than {} MB", MOST_BYTES >> 20));
         }
-        let name = file.strip_prefix(dir).unwrap_or(&file).to_string_lossy();
-        hash.update((name.len() as u64).to_le_bytes());
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(&bytes);
+        each(
+            &file.strip_prefix(dir).unwrap_or(&file).to_string_lossy(),
+            &bytes,
+        );
     }
-    Ok(hash
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(())
+}
+
+/// The SHA-256 of each file in `dir`, by its path inside `dir`.
+fn file_hashes(dir: &Path) -> Result<BTreeMap<String, String>, String> {
+    use sha2::{Digest, Sha256};
+    let mut hashes = BTreeMap::new();
+    each_file(dir, |name, bytes| {
+        hashes.insert(name.to_string(), hex(&Sha256::digest(bytes)));
+    })?;
+    Ok(hashes)
 }
 
 /// Every plugin in `dirs`, by name, with why the folders that aren't plugins were left out. Where

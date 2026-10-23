@@ -34,7 +34,8 @@
 # the bundle is installed instead, when there is one. A bundle is installed when the app isn't
 # installed or the bundle's checksum has changed. The default browser is set the first time only,
 # so choosing another browser afterwards sticks. A plugin is installed off, and Settings › Plugins
-# turns it on once you have looked at what it is.
+# turns it on once you have looked at what it is. Each install records where it came from (from=
+# release or checkout), which Settings shows beside a plugin an update has held.
 set -eu
 umask 022
 
@@ -189,6 +190,7 @@ from_checkout() {
         return 1
     fi
     record "$record_file" built "$commit"
+    record "$record_file" from checkout
     say "$1" "installed"
 }
 
@@ -249,6 +251,7 @@ from_bundle() {
         return 1
     fi
     record "$record_file" bundle "$want"
+    record "$record_file" from release
     say "$1" "installed"
 }
 

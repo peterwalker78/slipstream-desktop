@@ -95,6 +95,9 @@ impl Plugins {
         for id in &settings.plugins.on {
             if let Some(plugin) = found.iter().find(|plugin| plugin.id == *id) {
                 if settings.plugins.approved(plugin) {
+                    // So a later update can be compared with it, where it was turned on before
+                    // what a plugin asks for was kept.
+                    plugins::approval::remember_if_missing(plugin, &plugin.fingerprint);
                     wanted.push(plugin.clone());
                 } else {
                     tracing::warn!("plugin {id} has changed since it was turned on, so it waits");

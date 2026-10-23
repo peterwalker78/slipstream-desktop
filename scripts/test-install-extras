@@ -453,6 +453,16 @@ commit_checkout "plugin again"
 expect_status 0
 expect_count '^built' 2
 
+case_name="each install records where it came from"
+record_of="$work/home/.local/state/slipstream/extras/example"
+grep -qx 'from=checkout' "$record_of" || fail "$case_name: no from=checkout after a build"
+plugin_bundle two
+rm -rf "$work/checkout"
+plugin_conf
+expect_status 0
+grep -qx 'from=release' "$record_of" || fail "$case_name: no from=release after a bundle"
+if [ "$(grep -c '^from=' "$record_of")" -eq 1 ]; then ok; else fail "$case_name: from= twice"; fi
+
 case_name="a plugin ID that could name another folder is refused"
 fresh
 plugin_bundle one

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use slipstream_config::plugins::{self, METER_ID, Plugin};
+use slipstream_config::plugins::{self, METER_ID, Plugin, approval};
 
 use super::*;
 
@@ -212,11 +212,20 @@ fn plugin_row(
         ));
     }
     if held {
-        about.push(
-            "It has changed since you turned it on, so it waits. Turn it on again to run the new \
-             version."
-                .into(),
-        );
+        // Compared with what it asked for when it was turned on, if that was kept for the
+        // approval the settings hold.
+        let change = approval::load(&plugin.id)
+            .filter(|kept| settings.plugins.fingerprints.get(&plugin.id) == Some(&kept.fingerprint))
+            .and_then(|kept| {
+                approval::Approval::of(plugin)
+                    .ok()
+                    .map(|now| approval::compare(&kept, &now))
+            });
+        about.extend(approval::explain(
+            plugin,
+            change.as_ref(),
+            &approval::source(plugin),
+        ));
     }
     let controls = gtk::Box::builder().spacing(10).build();
     if on && !held {
@@ -233,6 +242,7 @@ fn plugin_row(
         remove.connect_clicked(move |button| {
             if confirmed(button) {
                 store_c.change(|settings| settings.plugins.set_on(&id, None));
+                approval::forget(&id);
                 if let Err(err) = std::fs::remove_dir_all(&dir) {
                     button.set_tooltip_text(Some(&format!("Couldn't remove it: {err}")));
                 }
@@ -250,13 +260,17 @@ fn plugin_row(
     let (store_c, dir) = (store.clone(), plugin.dir.clone());
     let id = plugin.id.clone();
     switch.connect_state_set(move |_, turned_on| {
-        // The fingerprint is of the folder as it is now, read again as it's turned on.
-        let fingerprint = turned_on
-            .then(|| plugins::read(&dir).ok().map(|plugin| plugin.fingerprint))
-            .flatten();
-        if turned_on && fingerprint.is_none() {
-            return gtk::glib::Propagation::Stop;
+        // The fingerprint is of the folder as it is now, read again as it's turned on, and what
+        // it asks for is kept with it, to compare an update with.
+        let now = turned_on.then(|| plugins::read(&dir).ok()).flatten();
+        match &now {
+            Some(plugin) => {
+                let _ = approval::save(plugin);
+            }
+            None if turned_on => return gtk::glib::Propagation::Stop,
+            None => approval::forget(&id),
         }
+        let fingerprint = now.map(|plugin| plugin.fingerprint);
         store_c.change(|settings| settings.plugins.set_on(&id, fingerprint));
         refill();
         gtk::glib::Propagation::Proceed
