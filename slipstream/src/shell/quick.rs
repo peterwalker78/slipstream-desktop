@@ -845,9 +845,7 @@ impl Slipstream {
                 let target = (!self.fullscreen_on_screen())
                     .then(|| self.focused_bar_target(x, y))
                     .flatten();
-                if let Some(target) = target
-                    .filter(|target| *target != bar::Target::Tray)
-                {
+                if let Some(target) = target.filter(|target| *target != bar::Target::Tray) {
                     self.bar_clicked(target);
                 }
             }

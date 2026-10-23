@@ -50,7 +50,10 @@ pub enum Request {
     Nothing,
     Close,
     /// Button `button` on plugin `plugin`'s card.
-    Press { plugin: String, button: String },
+    Press {
+        plugin: String,
+        button: String,
+    },
     /// The Settings app's Plugins page.
     Settings,
 }
@@ -562,10 +565,7 @@ impl Slipstream {
 
     pub fn plugin_facts(&self) -> Facts {
         let cards = self.plugins.shown();
-        let installed = self
-            .plugins
-            .chip(&cards)
-            .map_or(0, |chip| chip.installed);
+        let installed = self.plugins.chip(&cards).map_or(0, |chip| chip.installed);
         Facts {
             cards,
             installed,

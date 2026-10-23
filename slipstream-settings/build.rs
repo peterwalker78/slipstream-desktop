@@ -109,8 +109,8 @@ const PARTS: &[(&str, &[&str])] = &[
         "Bar, quick settings and notifications",
         &[
             "shell/bar",
-            "shell/bar_slots",
-            "bar_modules",
+            "plugins",
+            "shell/plugin_panel",
             "shell/quick",
             "status",
             "shell/centre",

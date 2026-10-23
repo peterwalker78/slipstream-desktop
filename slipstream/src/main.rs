@@ -14,7 +14,6 @@ mod appearance;
 mod apps;
 mod auth;
 mod awake;
-mod plugins;
 mod battery;
 mod calc;
 mod capture;
@@ -56,6 +55,7 @@ mod motion;
 mod nightlight;
 mod notify;
 mod paint;
+mod plugins;
 mod polkit;
 mod portal;
 mod portal_inhibit;
@@ -96,8 +96,8 @@ use effects::{
 };
 use shell::{
     arrange, bar, calendar, card, centre, chips, connect, exit, explorer, history, miniature,
-    notices, offer, osd, panel, plugin_panel, quick, share, sheet, slot, stream_tip, switcher,
-    tip, toast, tour, tray_menu,
+    notices, offer, osd, panel, plugin_panel, quick, share, sheet, slot, stream_tip, switcher, tip,
+    toast, tour, tray_menu,
 };
 
 use std::{

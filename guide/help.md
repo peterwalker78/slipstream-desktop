@@ -51,52 +51,13 @@ What an app puts in its menu is only ever shown. Choosing an entry tells that ap
 
 Slipstream serves the tray itself, through the StatusNotifierItem standard most Linux apps use. If another program on your desktop already does, Slipstream shows the icons that program collects.
 
-## The meter on the bar
+## Plugins beside the clock
 
-The bar can show how much of something is used, from any command that prints a small JSON report. Set it in **Settings → Meter**, where **Run it now** shows what the bar would show or why a command doesn't work, or in `~/.config/slipstream/settings.toml`:
+Plugins are little apps that add a card to the panel beside the clock: the weather, a timer, your plan's limits, anything a program can report. The chip right of the date has a square for each plugin, lit for each one that's on, and the headline of the one you choose. It turns amber when a plugin wants your attention. Click it for the panel: Tab moves between the cards' buttons, Enter presses, and Esc closes it.
 
-```toml
-[meter]
-command = "quota-report --json"   # run with sh -c
-every-secs = 60
-```
+Add plugins in **Settings → Plugins**, from a folder or an `https://` git address. A new plugin starts off, so you can read its files before turning it on, and nothing of it runs until you do. Each plugin is a program of its own and runs as you, so only add plugins you trust. One that changes after you turned it on waits until you turn it on again.
 
-The report has sections, each with meters:
-
-```json
-{"sections": [{"name": "Storage", "detail": "Pro",
-               "meters": [{"label": "Daily", "percent": 42, "resets": 1790000000},
-                          {"label": "Weekly", "percent": 18}],
-               "note": null, "stale": false}]}
-```
-
-The bar shows a small gauge for each section: its first meter as the thick bar, with the percentage beside it, and its second as the thin bar underneath. The gauge turns amber at 75% and orange at 90%. Quick settings lists every meter, with the time left until each starts over (`resets` is in seconds since the Unix epoch). `detail`, `note`, `stale` and `resets` are optional. A section marked `stale` is dimmed, and so is everything if the command fails, times out after 30 seconds, or prints something unreadable. The last good report stays on show in the meantime.
-
-To show only some sections, press the cog beside the meters in quick settings and switch off the ones you don't want. They disappear from the bar and from quick settings until you switch them back on.
-
-## Your own modules beside the clock
-
-The bar can show items of your own to the right of the clock: the weather, unread mail, anything a command can print. They take the format of Waybar's custom modules, so a script you already use with Waybar works as it is. Add them in **Settings → Bar modules**, where **Run it now** shows what the bar would show, or in `~/.config/slipstream/settings.toml`, a table each:
-
-```toml
-[[bar.modules]]
-name = "Weather"
-exec = "weather-report --short"   # run with sh -c
-interval = 600                    # seconds, or "once"; leave it out for a script that keeps printing
-on-click = "xdg-open https://example.org/forecast"
-
-[[bar.modules]]
-exec = "mail-count --waybar"
-return-type = "json"
-format = "{icon} {}"
-format-icons = { unread = "✉", default = "" }
-```
-
-These Waybar keys work: `exec`, `exec-if`, `exec-on-event`, `return-type`, `interval`, `restart-interval`, `format` (with `{}`, `{text}`, `{alt}`, `{icon}` and `{percentage}`), `format-icons`, `max-length`, `tooltip`, `on-click`, `on-click-right`, `on-click-middle`, `on-scroll-up` and `on-scroll-down`. Any other key is kept, noted in the log, and does nothing.
-
-A script with no `interval` keeps running, and each line it prints is an update; if it exits, it is started again, waiting longer each time it keeps exiting straight away. With `return-type = "json"` each line is an object with `text`, `alt`, `tooltip`, `class` and `percentage`; otherwise the first line is the text, the second the tooltip and the third the class. A `warning` class shows in amber, and `critical` or `urgent` in orange. Text is cut short at `max-length` characters (32 unless you set it), the modules together keep to a set width so the window title keeps its room, and any that don't fit are left off the end. Rest the pointer on a module for its tooltip.
-
-Each module's command runs as a program of its own, never inside Slipstream, and stops with everything it started when you remove the module or log out. What it prints is only ever shown, as plain text: markup is taken out rather than obeyed, and nothing it prints can run a command. A click or a scroll runs only the command your settings give it.
+To write one, see [Writing a plugin](plugins.md).
 
 ## Bringing an AI agent's session back
 
@@ -165,15 +126,6 @@ printf 'my-agent: the task\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGEN
 The note is left in place until the session's process exits; the desktop cleans up notes whose process is gone. Tools that start agents outside the normal process tree, such as multiplexers with their own session management, can set `AGENT_NOTIFY_PID` to the agent's PID when running any hook command, to use that PID directly instead of walking the process ancestry.
 
 A ready-made hook program for several popular agents comes with Slipstream: `agent-notify`, in the download's `bin/` folder, which `scripts/update-session` installs in `~/.local/bin` (its source is in `extras/agent-notify`). Run `agent-notify setup` to wire up the hooks and `agent-notify status` to see what it has done. It also handles desktop notifications and usage reporting; `agent-notify --help` covers those and lists the agents it supports.
-
-The same notes can show on the bar, as [a module of your own](#your-own-modules-beside-the-clock). `agent-notify bar` keeps running and prints a line whenever the sessions change: how many are working as the text, or how many are idle when none is, each session's name and its subagents as the tooltip, and the `warning` class, in amber, while one is waiting on you. With no session open the text is empty, which hides the module:
-
-```toml
-[[bar.modules]]
-name = "Agents"
-exec = "agent-notify bar"
-return-type = "json"
-```
 
 - **Only while the desktop is faded.** Nothing is drawn over your windows; the traces come in after the wallpaper has taken the screen and go as the desktop comes back.
 - **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its amber line until you touch a key or the mouse.

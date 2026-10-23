@@ -183,9 +183,9 @@ impl Job {
     /// runs its card is read again now and then, so the times left on it count down.
     fn every(&mut self, every: Duration) {
         loop {
-            let Some(ran) = command::run_tidily(program(&self.plugin, &[]), RUN_LIMIT, &|| {
-                self.stopped()
-            }) else {
+            let Some(ran) =
+                command::run_tidily(program(&self.plugin, &[]), RUN_LIMIT, &|| self.stopped())
+            else {
                 return;
             };
             let problem = match ran {

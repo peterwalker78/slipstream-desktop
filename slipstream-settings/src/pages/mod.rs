@@ -4,9 +4,8 @@
 mod about;
 mod appearance;
 mod input;
-mod meter;
-mod modules;
 mod notifications;
+mod plugins;
 mod power;
 mod privacy;
 mod screens;
@@ -37,7 +36,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 14] = [
+pub const PAGES: [Page; 13] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -94,24 +93,14 @@ pub const PAGES: [Page; 14] = [
         build: notifications::build,
     },
     Page {
-        id: "meter",
-        title: "Meter",
+        id: "plugins",
+        title: "Plugins",
         icons: &[
-            "speedometer-symbolic",
-            "xsi-gauge-symbolic",
-            "power-profile-performance-symbolic",
+            "application-x-addon-symbolic",
+            "puzzle-piece-symbolic",
+            "view-app-grid-symbolic",
         ],
-        build: meter::build,
-    },
-    Page {
-        id: "modules",
-        title: "Bar modules",
-        icons: &[
-            "view-list-bullet-symbolic",
-            "view-list-symbolic",
-            "format-justify-fill-symbolic",
-        ],
-        build: modules::build,
+        build: plugins::build,
     },
     Page {
         id: "input",

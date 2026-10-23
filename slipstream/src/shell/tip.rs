@@ -20,7 +20,6 @@ pub const REST: Duration = Duration::from_millis(500);
 /// The card's padding, in design pixels.
 const PAD: f32 = 14.0;
 
-
 /// What the pointer is on, since when, and at what height.
 pub struct Hover<K> {
     over: Option<(K, Instant)>,

@@ -131,8 +131,7 @@ impl Plugins {
 
     /// Whether `plugin` may run: it's on, and its folder is as it was when it was turned on.
     pub fn approved(&self, plugin: &Plugin) -> bool {
-        self.is_on(&plugin.id)
-            && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
+        self.is_on(&plugin.id) && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
     }
 }
 
@@ -190,8 +189,7 @@ pub fn read_folders(manifest: &Manifest) -> Vec<PathBuf> {
                 Some(_) => return None,
             };
             let path = base.join(rest.trim_start_matches('/'));
-            (path.is_absolute() && !rest.split('/').any(|part| part == ".."))
-                .then_some(path)
+            (path.is_absolute() && !rest.split('/').any(|part| part == "..")).then_some(path)
         })
         .collect()
 }
@@ -275,7 +273,11 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
     if manifest.name.trim().is_empty() {
         return Err(format!("{MANIFEST} gives it no name"));
     }
-    if manifest.exec.first().is_none_or(|program| program.trim().is_empty()) {
+    if manifest
+        .exec
+        .first()
+        .is_none_or(|program| program.trim().is_empty())
+    {
         return Err(format!("{MANIFEST} gives it no program to run"));
     }
     let fingerprint = fingerprint(dir)?;
@@ -353,7 +355,10 @@ pub fn find_in(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
         for folder in folders {
             match read(&folder) {
                 Ok(plugin) if plugin.id == METER_ID => {
-                    problems.push(format!("{}: the id \"{METER_ID}\" is kept", folder.display()));
+                    problems.push(format!(
+                        "{}: the id \"{METER_ID}\" is kept",
+                        folder.display()
+                    ));
                 }
                 Ok(plugin) if found.iter().any(|other| other.id == plugin.id) => {}
                 Ok(plugin) => found.push(plugin),
@@ -470,8 +475,7 @@ impl Card {
     /// The card in a line a plugin printed, at `now` in seconds since the Unix epoch. `stale`
     /// marks its numbers old.
     pub fn parse(text: &str, stale: bool, now: i64) -> Result<Card, String> {
-        let printed: Printed =
-            serde_json::from_str(text.trim()).map_err(|err| err.to_string())?;
+        let printed: Printed = serde_json::from_str(text.trim()).map_err(|err| err.to_string())?;
         let mut sections = printed.report.reading(stale, now).sections;
         sections.truncate(MAX_SECTIONS);
         let buttons = printed
@@ -524,7 +528,8 @@ impl Card {
 
     /// The card with its sections called one of `hidden` left out.
     pub fn without(mut self, hidden: &[String]) -> Card {
-        self.sections.retain(|section| !hidden.contains(&section.name));
+        self.sections
+            .retain(|section| !hidden.contains(&section.name));
         self
     }
 }
@@ -534,7 +539,8 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("slipstream-plugins-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("slipstream-plugins-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -550,15 +556,26 @@ mod tests {
         let own = scratch("own");
         let shared = scratch("shared");
         plugin(&own, "timer", "name = \"Timer\"\nexec = [\"./timer\"]\n");
-        plugin(&shared, "timer", "name = \"Shared timer\"\nexec = [\"timer\"]\n");
-        plugin(&shared, "disk", "name = \"Disk space\"\nexec = [\"df\"]\nevery-secs = 60\n");
+        plugin(
+            &shared,
+            "timer",
+            "name = \"Shared timer\"\nexec = [\"timer\"]\n",
+        );
+        plugin(
+            &shared,
+            "disk",
+            "name = \"Disk space\"\nexec = [\"df\"]\nevery-secs = 60\n",
+        );
         plugin(&shared, "broken", "name = \"\"\nexec = [\"x\"]\n");
         plugin(&shared, "meter", "name = \"Mine\"\nexec = [\"x\"]\n");
         std::fs::create_dir_all(shared.join("bad name")).unwrap();
         let (found, problems) = find_in(&[own.clone(), shared.clone()]);
         let names: Vec<_> = found.iter().map(|p| p.manifest.name.as_str()).collect();
         assert_eq!(names, ["Disk space", "Timer"]);
-        assert_eq!(found[0].manifest.every(), Some(std::time::Duration::from_secs(60)));
+        assert_eq!(
+            found[0].manifest.every(),
+            Some(std::time::Duration::from_secs(60))
+        );
         assert_eq!(found[1].manifest.every(), None);
         assert_eq!(problems.len(), 3, "{problems:?}");
     }
@@ -604,7 +621,10 @@ mod tests {
         .unwrap();
         assert_eq!(card.glance.gauges, [62, 81]);
         assert_eq!(card.glance.text, "81%");
-        assert!(card.attention, "a gauge past three quarters wants looking at");
+        assert!(
+            card.attention,
+            "a gauge past three quarters wants looking at"
+        );
         let card = Card::parse(r#"{"glance": "18:42 left on the clock"}"#, false, 0).unwrap();
         assert_eq!(card.glance.text, "18:42 left o…");
         assert!(card.glance.gauges.is_empty());
@@ -657,12 +677,17 @@ mod tests {
         let mut plugins = Plugins::default();
         plugins.set_on("timer", Some(first.fingerprint.clone()));
         assert!(plugins.approved(&first));
-        std::fs::write(root.join("timer").join("timer"), "#!/bin/sh\necho changed\n").unwrap();
+        std::fs::write(
+            root.join("timer").join("timer"),
+            "#!/bin/sh\necho changed\n",
+        )
+        .unwrap();
         let changed = read(&root.join("timer")).unwrap();
         assert_ne!(changed.fingerprint, first.fingerprint);
         assert!(!plugins.approved(&changed));
         std::fs::create_dir_all(root.join("timer").join("lib")).unwrap();
-        std::os::unix::fs::symlink("/etc/passwd", root.join("timer").join("lib").join("x")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", root.join("timer").join("lib").join("x"))
+            .unwrap();
         assert!(read(&root.join("timer")).unwrap_err().contains("link"));
     }
 
