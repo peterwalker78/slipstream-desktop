@@ -147,7 +147,7 @@ impl XwmHandler for Slipstream {
         let kind = own_kind(&surface)
             .filter(|kind| *kind != Own::Dock || touches_edge(surface.geometry(), &screens));
         if kind.is_some() {
-            let geometry = surface.geometry();
+            let geometry = self.on_a_screen(surface.geometry());
             let _ = surface.configure(geometry);
             let window = Window::new_x11_window(surface);
             window.user_data().insert_if_missing(|| PlacesItself);
@@ -164,7 +164,7 @@ impl XwmHandler for Slipstream {
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
-        let location = surface.last_configure().loc;
+        let location = self.on_a_screen(surface.last_configure()).loc;
         self.place_x11(Window::new_x11_window(surface), location, true);
     }
 
@@ -217,6 +217,7 @@ impl XwmHandler for Slipstream {
             if let Some(y) = y {
                 geometry.loc.y = y;
             }
+            geometry = self.on_a_screen(geometry);
         }
         let _ = surface.configure(geometry);
         if let Some(window) = own_place {
@@ -241,7 +242,8 @@ impl XwmHandler for Slipstream {
         // Only menus and tooltips place themselves.
         if surface.is_override_redirect() {
             if let Some(window) = self.x11_window(&surface) {
-                self.place_x11(window, geometry.loc, false);
+                let location = self.on_a_screen(geometry).loc;
+                self.place_x11(window, location, false);
             }
         }
     }
@@ -405,6 +407,59 @@ impl Slipstream {
         }
         Some((window, pointer.current_location()))
     }
+
+    /// Where an X11 window that places itself is put: where it asked, unless that runs off the
+    /// screens. Newer XWayland sizes the X11 screen in the screen's own pixels while windows are
+    /// placed in the desktop's scaled ones, so a popup aimed at a corner of it lands off the
+    /// edge; it's moved in to the nearest screen instead, into the corner it was aiming for.
+    fn on_a_screen(&self, geometry: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+        let screens: Vec<Rectangle<i32, Logical>> = self
+            .space
+            .outputs()
+            .filter_map(|output| self.space.output_geometry(output))
+            .collect();
+        into_screens(geometry, &screens)
+    }
+}
+
+/// `geometry`, moved as little as it takes to lie on `screens`: untouched when they cover it
+/// (across two of them, too), otherwise moved onto the one it overlaps most, or the nearest when
+/// it overlaps none. Larger than the screen, it keeps its top-left corner on it.
+fn into_screens(
+    geometry: Rectangle<i32, Logical>,
+    screens: &[Rectangle<i32, Logical>],
+) -> Rectangle<i32, Logical> {
+    let overlap = |screen: &Rectangle<i32, Logical>| {
+        screen
+            .intersection(geometry)
+            .map_or(0, |shared| shared.size.w as i64 * shared.size.h as i64)
+    };
+    let area = geometry.size.w as i64 * geometry.size.h as i64;
+    if screens.iter().map(overlap).sum::<i64>() >= area {
+        return geometry;
+    }
+    let distance = |screen: &Rectangle<i32, Logical>| {
+        let gap = |from: i32, to: i32, at: i32| (from - at).max(at - to).max(0) as i64;
+        let (x, y) = (
+            geometry.loc.x + geometry.size.w / 2,
+            geometry.loc.y + geometry.size.h / 2,
+        );
+        let dx = gap(screen.loc.x, screen.loc.x + screen.size.w, x);
+        let dy = gap(screen.loc.y, screen.loc.y + screen.size.h, y);
+        dx * dx + dy * dy
+    };
+    let Some(screen) = screens
+        .iter()
+        .max_by_key(|screen| (overlap(screen), -distance(screen)))
+    else {
+        return geometry;
+    };
+    let fit =
+        |at: i32, size: i32, start: i32, length: i32| at.min(start + length - size).max(start);
+    let mut moved = geometry;
+    moved.loc.x = fit(geometry.loc.x, geometry.size.w, screen.loc.x, screen.size.w);
+    moved.loc.y = fit(geometry.loc.y, geometry.size.h, screen.loc.y, screen.size.h);
+    moved
 }
 
 impl Slipstream {
@@ -572,6 +627,52 @@ mod tests {
 
     /// A fullscreen window's layer: the space's own, which tiles share.
     const FULLSCREEN: RenderZindex = RenderZindex::Shell;
+
+    fn rect(x: i32, y: i32, w: i32, h: i32) -> Rectangle<i32, Logical> {
+        Rectangle::new((x, y).into(), (w, h).into())
+    }
+
+    #[test]
+    fn a_window_on_a_screen_stays_where_it_asked() {
+        let screens = [rect(0, 0, 1536, 960)];
+        assert_eq!(
+            into_screens(rect(1150, 870, 375, 75), &screens),
+            rect(1150, 870, 375, 75)
+        );
+    }
+
+    #[test]
+    fn a_popup_aimed_at_the_corner_of_a_larger_x11_screen_lands_in_the_real_corner() {
+        // A 1920×1200 screen at 1.25: XWayland's X11 screen is 1920×1200, the desktop 1536×960.
+        let screens = [rect(0, 0, 1536, 960)];
+        let corner = rect(1920 - 375, 1200 - 75, 375, 75);
+        assert_eq!(
+            into_screens(corner, &screens),
+            rect(1536 - 375, 960 - 75, 375, 75)
+        );
+        // One partly off the edge moves in only as far as it has to.
+        let partly = rect(1400, 900, 375, 75);
+        assert_eq!(
+            into_screens(partly, &screens),
+            rect(1536 - 375, 960 - 75, 375, 75)
+        );
+    }
+
+    #[test]
+    fn with_two_screens_it_moves_onto_the_one_it_overlaps_most() {
+        let screens = [rect(0, 0, 1536, 960), rect(1536, 0, 1920, 1080)];
+        // Across the join, mostly on the right-hand screen, and off its bottom.
+        let window = rect(1500, 1050, 300, 100);
+        assert_eq!(into_screens(window, &screens), rect(1536, 980, 300, 100));
+        // A menu across the join, with both screens under it, stays.
+        let across = rect(1400, 100, 300, 100);
+        assert_eq!(into_screens(across, &screens), across);
+    }
+
+    #[test]
+    fn without_screens_nothing_moves() {
+        assert_eq!(into_screens(rect(5, 5, 10, 10), &[]), rect(5, 5, 10, 10));
+    }
 
     #[test]
     fn app_windows_are_left_to_the_layout() {
