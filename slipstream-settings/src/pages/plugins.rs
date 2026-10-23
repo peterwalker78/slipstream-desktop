@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use slipstream_config::plugins::{self, Plugin, approval};
+use slipstream_config::plugins::{self, Plugin, approval, store};
 
 use super::*;
 
@@ -31,36 +31,14 @@ fn fill(list: &gtk::Box, store: &Store) {
     }
     let settings = store.get();
     let refill = refiller(list, store, fill);
-    let (found, problems) = plugins::find();
 
     let add = group(list, "Add a plugin");
     add_rows(&add, refill.clone());
 
     let yours = group(list, "Your plugins");
-    if found.is_empty() {
-        row(
-            &yours,
-            "No plugins yet",
-            Some("Add one above. It starts off, so you can read its files before turning it on."),
-            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-        );
-    }
-    for plugin in &found {
-        plugin_row(&yours, store, plugin, &settings, refill.clone());
-    }
-
-    if !problems.is_empty() {
-        let skipped = group(list, "Folders that aren't plugins");
-        for problem in problems {
-            let (path, why) = problem.split_once(": ").unwrap_or((&problem, ""));
-            row(
-                &skipped,
-                path,
-                Some(why),
-                &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-            );
-        }
-    }
+    // Folders that aren't plugins go here, between the plugins and what a plugin can do.
+    let skipped = gtk::Box::new(gtk::Orientation::Vertical, 18);
+    list.append(&skipped);
 
     let about = group(list, "What a plugin can do");
     let link = gtk::LinkButton::with_label(HOW_TO, "How to write one");
@@ -68,12 +46,84 @@ fn fill(list: &gtk::Box, store: &Store) {
         &about,
         "Anything you can",
         Some(
-            "A plugin's program runs as you, from its own folder, without your session's keys or \
-             sockets. Its card is only ever shown, and its buttons only run its own program \
-             again. A plugin that changes after you turn it on waits until you turn it on again.",
+            "A plugin's program runs as you, from a copy of its folder taken when you turn it \
+             on, without your session's keys or sockets. Its card is only ever shown, and its \
+             buttons only run its own program again. A plugin that changes after you turn it on \
+             waits until you turn it on again.",
         ),
         &link,
     );
+
+    // Plugin folders are read and fingerprinted off the GTK thread, since a big one takes a
+    // while; the rows go in once that's done, unless the page has been built again meanwhile.
+    let (list, store) = (list.downgrade(), store.clone());
+    let approved = settings.plugins.clone();
+    gtk::glib::spawn_future_local(async move {
+        let looked = gtk::gio::spawn_blocking(move || look(&approved))
+            .await
+            .unwrap_or_default();
+        let Some(list) = list.upgrade() else {
+            return;
+        };
+        if !yours.is_ancestor(&list) {
+            return;
+        }
+        if looked.plugins.is_empty() {
+            row(
+                &yours,
+                "No plugins yet",
+                Some(
+                    "Add one above. It starts off, so you can read its files before turning it on.",
+                ),
+                &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+            );
+        }
+        for (plugin, explained) in &looked.plugins {
+            plugin_row(&yours, &store, plugin, explained, &settings, refill.clone());
+        }
+        if !looked.problems.is_empty() {
+            let group = group(&skipped, "Folders that aren't plugins");
+            for problem in &looked.problems {
+                let (path, why) = problem.split_once(": ").unwrap_or((problem, ""));
+                row(
+                    &group,
+                    path,
+                    Some(why),
+                    &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+                );
+            }
+        }
+    });
+}
+
+/// Every plugin, each held one with what its update means, and the folders that aren't plugins.
+#[derive(Default)]
+struct Looked {
+    plugins: Vec<(Plugin, Vec<String>)>,
+    problems: Vec<String>,
+}
+
+/// Looks at every plugin folder, as `approved` says each was turned on.
+fn look(approved: &plugins::Plugins) -> Looked {
+    let (found, problems) = plugins::find();
+    let plugins = found
+        .into_iter()
+        .map(|plugin| {
+            let held = approved.is_on(&plugin.id) && !approved.approved(&plugin);
+            let explained = if held && plugin.too_big.is_none() {
+                // Compared with what it asked for when it was turned on, if that was kept for the
+                // approval the settings hold.
+                let change = approval::load(&plugin.id)
+                    .filter(|kept| approved.fingerprints.get(&plugin.id) == Some(&kept.fingerprint))
+                    .map(|kept| approval::compare(&kept, &approval::Approval::of(&plugin)));
+                approval::explain(&plugin, change.as_ref(), &approval::source(&plugin))
+            } else {
+                Vec::new()
+            };
+            (plugin, explained)
+        })
+        .collect();
+    Looked { plugins, problems }
 }
 
 /// Adding a plugin: from a git address, or a folder.
@@ -144,7 +194,10 @@ fn add_rows(card: &gtk::Box, refill: impl Fn() + Clone + 'static) {
                 said.set_label("That folder isn't on this computer.");
                 return;
             };
-            match add_from_folder(&path) {
+            let added = gtk::gio::spawn_blocking(move || add_from_folder(&path))
+                .await
+                .unwrap_or_else(|_| Err("It couldn't be copied.".into()));
+            match added {
                 Ok(name) => {
                     said.set_label(&format!("Added {name}. Turn it on below."));
                     refill();
@@ -156,11 +209,12 @@ fn add_rows(card: &gtk::Box, refill: impl Fn() + Clone + 'static) {
 }
 
 /// A plugin's row: what it is and what it runs, then where its headline goes, removing it, and
-/// its switch.
+/// its switch. `explained` says what a held plugin's update means.
 fn plugin_row(
     card: &gtk::Box,
     store: &Store,
     plugin: &Plugin,
+    explained: &[String],
     settings: &Settings,
     refill: impl Fn() + Clone + 'static,
 ) {
@@ -177,22 +231,12 @@ fn plugin_row(
             plugin.dir.display()
         ));
     }
-    if held {
-        // Compared with what it asked for when it was turned on, if that was kept for the
-        // approval the settings hold.
-        let change = approval::load(&plugin.id)
-            .filter(|kept| settings.plugins.fingerprints.get(&plugin.id) == Some(&kept.fingerprint))
-            .and_then(|kept| {
-                approval::Approval::of(plugin)
-                    .ok()
-                    .map(|now| approval::compare(&kept, &now))
-            });
-        about.extend(approval::explain(
-            plugin,
-            change.as_ref(),
-            &approval::source(plugin),
+    if let Some(why) = &plugin.too_big {
+        about.push(format!(
+            "Too big to check: {why}. It can't be turned on until it holds less."
         ));
     }
+    about.extend(explained.iter().cloned());
     let controls = gtk::Box::builder().spacing(10).build();
     if on && !held {
         controls.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
@@ -209,7 +253,8 @@ fn plugin_row(
             if confirmed(button) {
                 store_c.change(|settings| settings.plugins.set_on(&id, None));
                 approval::forget(&id);
-                if let Err(err) = std::fs::remove_dir_all(&dir) {
+                let removed = std::fs::remove_dir_all(&dir).and_then(|()| store::remove(&id));
+                if let Err(err) = removed {
                     button.set_tooltip_text(Some(&format!("Couldn't remove it: {err}")));
                 }
                 refill_c();
@@ -221,23 +266,23 @@ fn plugin_row(
     // switch left to fill the row's height is drawn stretched.
     let switch = gtk::Switch::builder()
         .active(on && !held)
+        .sensitive(on || plugin.too_big.is_none())
         .valign(gtk::Align::Center)
         .build();
-    let (store_c, dir) = (store.clone(), plugin.dir.clone());
-    let id = plugin.id.clone();
+    let (store_c, shown) = (store.clone(), plugin.clone());
     switch.connect_state_set(move |_, turned_on| {
-        // The fingerprint is of the folder as it is now, read again as it's turned on, and what
-        // it asks for is kept with it, to compare an update with.
-        let now = turned_on.then(|| plugins::read(&dir).ok()).flatten();
-        match &now {
-            Some(plugin) => {
-                let _ = approval::save(plugin);
+        // What is approved is what this row showed: its fingerprint, and what it asks for, kept
+        // to compare an update with. If the folder has changed since, the compositor holds it.
+        if turned_on {
+            if shown.too_big.is_some() {
+                return gtk::glib::Propagation::Stop;
             }
-            None if turned_on => return gtk::glib::Propagation::Stop,
-            None => approval::forget(&id),
+            let _ = approval::save(&shown);
+        } else {
+            approval::forget(&shown.id);
         }
-        let fingerprint = now.map(|plugin| plugin.fingerprint);
-        store_c.change(|settings| settings.plugins.set_on(&id, fingerprint));
+        let fingerprint = turned_on.then(|| shown.fingerprint.clone());
+        store_c.change(|settings| settings.plugins.set_on(&shown.id, fingerprint));
         refill();
         gtk::glib::Propagation::Proceed
     });

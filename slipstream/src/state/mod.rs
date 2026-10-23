@@ -486,7 +486,19 @@ impl Slipstream {
             }
             None => {}
         }
-        let mut plugins = crate::plugins::Plugins::default();
+        // What each look at the plugin folders found, from the thread that looked.
+        let (plugin_scans, scans) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(scans, |event, _, state| {
+                if let channel::Event::Msg(scan) = event {
+                    state.plugins.scanned(scan);
+                }
+            })
+            .expect("a channel source always inserts");
+        let mut plugins = crate::plugins::Plugins::new(move |scan| {
+            let _ = plugin_scans.send(scan);
+        });
         plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();

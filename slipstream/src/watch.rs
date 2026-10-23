@@ -2,6 +2,7 @@
 //! applications folder (Flatpak exports included) is watched, and any change there, an app
 //! installed, removed or updated, reads the apps and their icons again once the changes settle. The recent files list is read again when an app rewrites it. Settings apply as
 //! soon as the Settings app saves them, and a shortcut taken away from an app there stops working.
+//! Plugins added, removed or updated are looked at again.
 
 use std::{cell::Cell, mem::MaybeUninit, path::PathBuf, rc::Rc, time::Duration};
 
@@ -23,6 +24,8 @@ use crate::{Slipstream, apps, settings};
 const APPS_SETTLE: Duration = Duration::from_millis(500);
 /// Apps write the recent files list once per file opened, sometimes twice in a row.
 const RECENT_SETTLE: Duration = Duration::from_millis(200);
+/// Installing a plugin moves its folder into place, after taking the old one away.
+const PLUGINS_SETTLE: Duration = Duration::from_millis(500);
 /// The Settings app renames a finished file into place, but editors may take a few writes.
 const SETTINGS_SETTLE: Duration = Duration::from_millis(100);
 
@@ -81,6 +84,26 @@ pub fn watch_settings(handle: &LoopHandle<'static, Slipstream>) {
                 state.apply_settings(settings);
             }
         },
+    );
+}
+
+/// Plugins being added, removed or updated: their folders are looked at again once the changes
+/// settle, off the event loop.
+pub fn watch_plugins(handle: &LoopHandle<'static, Slipstream>) {
+    let dirs = slipstream_config::plugins::dirs();
+    // The person's own folder is watched even before it holds anything.
+    if let Some(own) = dirs.first() {
+        if let Err(err) = std::fs::create_dir_all(own) {
+            tracing::warn!(dir = %own.display(), "can't watch for plugins: {err}");
+        }
+    }
+    watch(
+        handle,
+        "plugins being added or changed",
+        dirs,
+        PLUGINS_SETTLE,
+        |_| true,
+        |state| state.plugins.rescan(),
     );
 }
 

@@ -391,6 +391,7 @@ fn start_services(
     watch::watch_recent_files(&event_loop.handle());
     // Settings apply as soon as they're saved.
     watch::watch_settings(&event_loop.handle());
+    watch::watch_plugins(&event_loop.handle());
     // A fallback face loaded on its own thread wakes the loop, which takes it in between paints.
     {
         use smithay::reexports::calloop::ping;

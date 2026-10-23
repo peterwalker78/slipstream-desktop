@@ -11,8 +11,8 @@
 //! ```
 //!
 //! The program is run as it is written, with no shell, so what Settings shows before a plugin is
-//! turned on is exactly what runs. Its folder is its code, never written to: whatever it keeps
-//! goes in a folder of its own under `$XDG_STATE_HOME/slipstream/plugins/`, which it is given as
+//! turned on is exactly what runs. It runs from a read-only copy of its folder (`store`), so
+//! whatever it keeps goes in a folder of its own beside that copy, which it is given as
 //! `SLIPSTREAM_PLUGIN_STATE`. Folders it reads from outside are named in its manifest
 //! (`read = ["$XDG_CACHE_HOME/weather"]`) and given as `SLIPSTREAM_PLUGIN_READ_0`, `_1` and on. It starts from a cleared environment: only the variables that
 //! say who and where the person is, and their language, are passed on (`ENVIRONMENT`), so a
@@ -34,14 +34,17 @@
 //!
 //! Plugins live in `$XDG_DATA_HOME/slipstream/plugins/<id>/` (the person's own) and in
 //! `slipstream/plugins/` under each of `$XDG_DATA_DIRS` (installed for everyone). A plugin is off
-//! until it is turned on (`[plugins] on`), and turning it on records a fingerprint of its folder
-//! (`fingerprint`). A plugin whose folder has changed since is held, and doesn't run, until it is
-//! turned on again: an update can't slip in unseen. What it asked for is kept beside that
+//! until it is turned on (`[plugins] on`), and turning it on records the fingerprint of its folder
+//! that Settings showed (`contents`), and copies the folder as it was then. A plugin whose folder
+//! has changed since is held, and doesn't run, until it is turned on again: an update can't slip
+//! in unseen. What it asked for is kept beside that
 //! (`approval`), so a held plugin can say whether its update is like for like or asks for more.
 //! That guards against a plugin changing underneath its approval, not against something already
 //! running as the person, which could change the settings file as easily.
 
 pub mod approval;
+pub mod contents;
+pub mod store;
 
 use std::{
     collections::BTreeMap,
@@ -64,8 +67,8 @@ const GLANCE_CHARS: usize = 12;
 const LABEL_CHARS: usize = 20;
 /// A gauge this full or fuller asks for attention.
 pub const ATTENTION_PERCENT: u8 = 75;
-/// The most a plugin's folder may hold, all its files together, in bytes.
-const MOST_BYTES: u64 = 64 << 20;
+/// The largest `plugin.toml` read.
+const MOST_MANIFEST: u64 = 64 << 10;
 /// The environment a plugin's program is given: who and where the person is, their language,
 /// and the way to the network through a proxy. Everything else, the session bus, the display and
 /// the SSH and GPG agents among it, is left out.
@@ -156,7 +159,9 @@ impl Plugins {
 
     /// Whether `plugin` may run: it's on, and its folder is as it was when it was turned on.
     pub fn approved(&self, plugin: &Plugin) -> bool {
-        self.is_on(&plugin.id) && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
+        plugin.too_big.is_none()
+            && self.is_on(&plugin.id)
+            && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
     }
 }
 
@@ -219,14 +224,6 @@ pub fn read_folders(manifest: &Manifest) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Where plugin `id` keeps what it keeps.
-pub fn state_dir(id: &str) -> PathBuf {
-    crate::xdg_home("XDG_STATE_HOME", ".local/state")
-        .join("slipstream")
-        .join("plugins")
-        .join(id)
-}
-
 impl Manifest {
     /// `every_secs`, kept between a second and a day.
     pub fn every(&self) -> Option<std::time::Duration> {
@@ -244,8 +241,12 @@ pub struct Plugin {
     pub manifest: Manifest,
     /// In the person's own folder, so it can be removed from Settings.
     pub own: bool,
-    /// What its folder holds now (`fingerprint`).
+    /// What its folder holds now (`contents`); empty when it is too big to check.
     pub fingerprint: String,
+    /// Each file's own fingerprint, by its path in the folder.
+    pub files: BTreeMap<String, String>,
+    /// Why its folder is too big to check, if it is: it can't be turned on.
+    pub too_big: Option<String>,
 }
 
 /// Whether `id` can name a plugin: a folder name of letters, digits, `.`, `-` and `_`, starting
@@ -281,7 +282,8 @@ pub fn dirs() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Reads the plugin in `dir`, or says why it isn't one.
+/// Reads the plugin in `dir`, or says why it isn't one. Its folder's limits are checked from
+/// metadata first: one past them is read no further than its manifest, and can't be turned on.
 pub fn read(dir: &Path) -> Result<Plugin, String> {
     let id = dir
         .file_name()
@@ -289,8 +291,39 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
         .filter(|id| valid_id(id))
         .ok_or("its folder's name can only have letters, digits, '.', '-' and '_'")?
         .to_string();
-    let text = std::fs::read_to_string(dir.join(MANIFEST))
-        .map_err(|err| format!("no {MANIFEST}: {err}"))?;
+    let listed = match contents::list(dir) {
+        Ok(_) => None,
+        Err(contents::Unchecked::TooBig(why)) => Some(why),
+        Err(contents::Unchecked::NotAPlugin(why)) => return Err(why),
+    };
+    let manifest = read_manifest(&dir.join(MANIFEST))?;
+    let (fingerprint, files, too_big) = match listed {
+        Some(why) => (String::new(), BTreeMap::new(), Some(why)),
+        None => match contents::contents(dir) {
+            Ok(found) => (found.fingerprint, found.files, None),
+            Err(contents::Unchecked::TooBig(why)) => (String::new(), BTreeMap::new(), Some(why)),
+            Err(contents::Unchecked::NotAPlugin(why)) => return Err(why),
+        },
+    };
+    Ok(Plugin {
+        id,
+        dir: dir.to_path_buf(),
+        manifest,
+        own: dir.starts_with(own_dir()),
+        fingerprint,
+        files,
+        too_big,
+    })
+}
+
+/// The manifest at `path`: a file of its own, not a link, and small.
+fn read_manifest(path: &Path) -> Result<Manifest, String> {
+    use std::io::Read;
+    let (file, _) = contents::open_regular(path).map_err(|err| format!("no {MANIFEST}: {err}"))?;
+    let mut text = String::new();
+    file.take(MOST_MANIFEST)
+        .read_to_string(&mut text)
+        .map_err(|err| format!("{MANIFEST}: {err}"))?;
     let manifest: Manifest = toml::from_str(&text).map_err(|err| format!("{MANIFEST}: {err}"))?;
     if manifest.name.trim().is_empty() {
         return Err(format!("{MANIFEST} gives it no name"));
@@ -302,81 +335,7 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
     {
         return Err(format!("{MANIFEST} gives it no program to run"));
     }
-    let fingerprint = fingerprint(dir)?;
-    Ok(Plugin {
-        id,
-        dir: dir.to_path_buf(),
-        manifest,
-        own: dir.starts_with(own_dir()),
-        fingerprint,
-    })
-}
-
-/// A fingerprint of everything in `dir`: each file's path and contents, SHA-256 over them all in
-/// order. A folder with a link in it, or too much in it, isn't a plugin.
-pub fn fingerprint(dir: &Path) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    each_file(dir, |name, bytes| {
-        hash.update((name.len() as u64).to_le_bytes());
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(bytes);
-    })?;
-    Ok(hex(&hash.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-/// Calls `each` with every file in `dir`, by its path inside `dir`, and its contents, in order.
-/// A folder with a link in it, or too much in it, isn't a plugin.
-fn each_file(dir: &Path, mut each: impl FnMut(&str, &[u8])) -> Result<(), String> {
-    let mut files = Vec::new();
-    let mut folders = vec![dir.to_path_buf()];
-    while let Some(folder) = folders.pop() {
-        let entries = std::fs::read_dir(&folder).map_err(|err| err.to_string())?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let kind = entry.file_type().map_err(|err| err.to_string())?;
-            if kind.is_symlink() {
-                return Err(format!(
-                    "it holds a link, {}, and plugins can't",
-                    path.strip_prefix(dir).unwrap_or(&path).display()
-                ));
-            }
-            if kind.is_dir() {
-                folders.push(path);
-            } else if kind.is_file() {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    let mut total = 0u64;
-    for file in files {
-        let bytes = std::fs::read(&file).map_err(|err| err.to_string())?;
-        total += bytes.len() as u64;
-        if total > MOST_BYTES {
-            return Err(format!("it holds more than {} MB", MOST_BYTES >> 20));
-        }
-        each(
-            &file.strip_prefix(dir).unwrap_or(&file).to_string_lossy(),
-            &bytes,
-        );
-    }
-    Ok(())
-}
-
-/// The SHA-256 of each file in `dir`, by its path inside `dir`.
-fn file_hashes(dir: &Path) -> Result<BTreeMap<String, String>, String> {
-    use sha2::{Digest, Sha256};
-    let mut hashes = BTreeMap::new();
-    each_file(dir, |name, bytes| {
-        hashes.insert(name.to_string(), hex(&Sha256::digest(bytes)));
-    })?;
-    Ok(hashes)
+    Ok(manifest)
 }
 
 /// Every plugin in `dirs`, by name, with why the folders that aren't plugins were left out. Where
@@ -793,10 +752,40 @@ mod tests {
         let changed = read(&root.join("timer")).unwrap();
         assert_ne!(changed.fingerprint, first.fingerprint);
         assert!(!plugins.approved(&changed));
+        std::fs::write(root.join("timer").join("timer"), "#!/bin/sh\necho {}\n").unwrap();
+        assert!(plugins.approved(&read(&root.join("timer")).unwrap()));
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let program = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(root.join("timer").join("timer"), program).unwrap();
+        }
+        assert!(
+            !plugins.approved(&read(&root.join("timer")).unwrap()),
+            "made a program since: held too"
+        );
         std::fs::create_dir_all(root.join("timer").join("lib")).unwrap();
         std::os::unix::fs::symlink("/etc/passwd", root.join("timer").join("lib").join("x"))
             .unwrap();
         assert!(read(&root.join("timer")).unwrap_err().contains("link"));
+    }
+
+    /// The promise in the guide: a plugin too big to check is listed, and can't be turned on.
+    #[test]
+    fn a_plugin_too_big_to_check_can_t_be_turned_on() {
+        let root = scratch("too-big");
+        plugin(&root, "atlas", "name = \"Atlas\"\nexec = [\"./atlas\"]\n");
+        std::fs::File::create(root.join("atlas").join("maps"))
+            .unwrap()
+            .set_len(100 << 30)
+            .unwrap();
+        let (found, problems) = find_in(std::slice::from_ref(&root));
+        assert!(problems.is_empty(), "{problems:?}");
+        let atlas = &found[0];
+        assert_eq!(atlas.manifest.name, "Atlas");
+        assert!(atlas.too_big.as_deref().unwrap().contains("MB"));
+        let mut plugins = Plugins::default();
+        plugins.set_on("atlas", Some(atlas.fingerprint.clone()));
+        assert!(!plugins.approved(atlas));
     }
 
     /// The promise in the guide: a `[meter]` from before plugins becomes a plugin of its own,

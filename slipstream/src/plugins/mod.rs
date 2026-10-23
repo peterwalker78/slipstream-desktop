@@ -3,24 +3,30 @@
 //! Each plugin's program runs out of process, driven from a thread of its own (`worker.rs`);
 //! nothing of a plugin's is ever loaded into the compositor. What a program prints is only ever
 //! shown, and a button on its card only runs that same program again, with the button's id.
+//!
+//! Plugin folders are looked at on a thread of their own too (`scan.rs`), since reading and
+//! fingerprinting them can take a while: at the start, whenever the settings change, when a
+//! plugins folder changes and when the panel opens. A plugin that's on runs from the read-only
+//! copy kept when it was approved (`slipstream_config::plugins::store`), never from its folder.
 
 pub mod card;
+mod scan;
 mod worker;
 
+pub use scan::Scan;
 pub use slipstream_config::plugins::Glance;
 
 use slipstream_config::{
     Settings,
-    card::RUN_LIMIT,
     command::Run,
-    plugins::{self, Card, Plugin},
+    plugins::{self, Card},
 };
 
-use worker::Worker;
+use worker::{Approved, Worker};
 
 /// One plugin that's on, as it runs.
 struct Running {
-    plugin: Plugin,
+    approved: Approved,
     hidden: Vec<String>,
     worker: Worker,
 }
@@ -36,7 +42,7 @@ pub struct Shown {
     pub hidden: Vec<String>,
     /// Why there's no card, or why the one shown is old.
     pub problem: Option<String>,
-    /// It has changed since it was turned on, so it doesn't run until it is turned on again.
+    /// It is on but doesn't run: it has changed since it was turned on, or can't be checked.
     pub held: bool,
 }
 
@@ -60,72 +66,94 @@ pub struct Chip {
 }
 
 /// Every plugin there is, and the ones on, running.
-#[derive(Default)]
 pub struct Plugins {
     installed: usize,
     running: Vec<Running>,
-    /// Plugins that are on but have changed since, and wait to be turned on again.
-    held: Vec<Plugin>,
-    glance: Option<String>,
+    /// Plugins that are on but don't run, and why when it isn't that they changed.
+    held: Vec<scan::Held>,
+    /// What the settings last said: which plugins are on, as approved, and what their cards show.
+    wanted: plugins::Plugins,
     /// What was last logged as wrong, so a settings change elsewhere doesn't log it again.
     reported: Vec<String>,
+    scanner: scan::Scanner,
 }
 
 impl Plugins {
-    /// Looks for plugins again and follows the settings. A plugin that's on and unchanged keeps
-    /// running; a new or changed one starts; one turned off or gone is stopped, with everything
-    /// its program started.
-    pub fn configure(&mut self, settings: &Settings) {
-        self.configure_from(settings, &plugins::dirs());
+    /// Plugins looked for where they are installed, each look's result handed to `found`, from
+    /// the thread that looks.
+    pub fn new(found: impl Fn(Scan) + Send + 'static) -> Plugins {
+        Plugins::looking_in(scan::Places::real(), found)
     }
 
-    /// `configure`, looking for plugins in `dirs`.
-    fn configure_from(&mut self, settings: &Settings, dirs: &[std::path::PathBuf]) {
-        let (found, problems) = plugins::find_in(dirs);
-        if problems != self.reported {
-            for why in &problems {
+    fn looking_in(places: scan::Places, found: impl Fn(Scan) + Send + 'static) -> Plugins {
+        Plugins {
+            installed: 0,
+            running: Vec::new(),
+            held: Vec::new(),
+            wanted: plugins::Plugins::default(),
+            reported: Vec::new(),
+            scanner: scan::Scanner::start(places, Box::new(found)),
+        }
+    }
+
+    /// Follows the settings. A plugin turned off stops at once, with everything its program
+    /// started; one turned on starts once its folder has been looked at.
+    pub fn configure(&mut self, settings: &Settings) {
+        self.wanted = settings.plugins.clone();
+        let wanted = &self.wanted;
+        // Whatever is dropped here is stopped.
+        self.running
+            .retain(|running| wanted.approved(&running.approved.plugin));
+        for running in &mut self.running {
+            // Which sections show is only the panel's business: the program carries on.
+            running.hidden = wanted.hidden(&running.approved.plugin.id).to_vec();
+        }
+        self.rescan();
+    }
+
+    /// Looks at the plugin folders again, off the event loop.
+    pub fn rescan(&self) {
+        self.scanner.ask(&self.wanted);
+    }
+
+    /// What a look at the plugin folders found: a plugin that's on and unchanged keeps running,
+    /// one newly approved starts, and one gone or held is stopped.
+    pub fn scanned(&mut self, scan: Scan) {
+        if scan.problems != self.reported {
+            for why in &scan.problems {
                 tracing::warn!("plugins: {why}");
             }
-            self.reported = problems;
+            self.reported = scan.problems;
         }
-        self.installed = found.len();
-        // In the order they were turned on.
-        let mut wanted: Vec<Plugin> = Vec::new();
-        self.held.clear();
-        for id in &settings.plugins.on {
-            if let Some(plugin) = found.iter().find(|plugin| plugin.id == *id) {
-                if settings.plugins.approved(plugin) {
-                    // So a later update can be compared with it, where it was turned on before
-                    // what a plugin asks for was kept.
-                    plugins::approval::remember_if_missing(plugin, &plugin.fingerprint);
-                    wanted.push(plugin.clone());
-                } else {
-                    tracing::warn!("plugin {id} has changed since it was turned on, so it waits");
-                    self.held.push(plugin.clone());
-                }
-            }
-        }
+        self.installed = scan.installed;
+        let wanted = &self.wanted;
+        // A look asked for before the settings last changed can't start what is now off.
+        self.held = scan
+            .held
+            .into_iter()
+            .filter(|held| wanted.is_on(&held.id))
+            .collect();
         let mut old = std::mem::take(&mut self.running);
-        for plugin in wanted {
-            // Which sections show is only the panel's business: the program carries on.
-            let hidden = settings.plugins.hidden(&plugin.id).to_vec();
+        for approved in scan.run {
+            if !self.wanted.approved(&approved.plugin) {
+                continue;
+            }
+            let hidden = self.wanted.hidden(&approved.plugin.id).to_vec();
             let kept = old
                 .iter()
-                .position(|running| running.plugin == plugin)
+                .position(|running| running.approved == approved)
                 .map(|at| old.remove(at));
-            let mut running = kept.unwrap_or_else(|| {
-                tracing::debug!("starting plugin {}", plugin.id);
+            let running = kept.unwrap_or_else(|| {
+                tracing::debug!("starting plugin {}", approved.plugin.id);
                 Running {
-                    worker: Worker::start(plugin.clone()),
-                    plugin,
+                    worker: Worker::start(approved.clone()),
+                    approved,
                     hidden: Vec::new(),
                 }
             });
-            running.hidden = hidden;
-            self.running.push(running);
+            self.running.push(Running { hidden, ..running });
         }
         // Whatever is left in `old` is dropped here, which stops it.
-        self.glance = settings.plugins.glance().map(str::to_string);
     }
 
     /// The cards of the plugins that are on, in order.
@@ -135,20 +163,20 @@ impl Plugins {
             .map(|running| {
                 let published = running.worker.published();
                 Shown {
-                    id: running.plugin.id.clone(),
-                    name: running.plugin.manifest.name.clone(),
+                    id: running.approved.plugin.id.clone(),
+                    name: running.approved.plugin.manifest.name.clone(),
                     card: published.card,
                     hidden: running.hidden.clone(),
                     problem: published.problem,
                     held: false,
                 }
             })
-            .chain(self.held.iter().map(|plugin| Shown {
-                id: plugin.id.clone(),
-                name: plugin.manifest.name.clone(),
+            .chain(self.held.iter().map(|held| Shown {
+                id: held.id.clone(),
+                name: held.name.clone(),
                 card: None,
                 hidden: Vec::new(),
-                problem: None,
+                problem: held.why.clone(),
                 held: true,
             }))
             .collect()
@@ -159,10 +187,10 @@ impl Plugins {
         (self.installed > 0).then(|| Chip {
             installed: self.installed,
             on: self.running.len() + self.held.len(),
-            glance: self.glance.as_ref().and_then(|id| {
+            glance: self.wanted.glance().and_then(|id| {
                 let glance = shown
                     .iter()
-                    .find(|shown| shown.id == *id)?
+                    .find(|shown| shown.id == id)?
                     .visible()?
                     .glance();
                 (!glance.text.is_empty()).then_some(glance)
@@ -176,17 +204,22 @@ impl Plugins {
     /// Button `button` on plugin `id`'s card was pressed: its program runs with `press <button>`
     /// after it, off the event loop, and then runs as usual again to show what changed.
     pub fn press(&self, id: &str, button: &str) {
-        let Some(running) = self.running.iter().find(|running| running.plugin.id == id) else {
+        let Some(running) = self
+            .running
+            .iter()
+            .find(|running| running.approved.plugin.id == id)
+        else {
             return;
         };
         if !plugins::valid_id(button) {
             return;
         }
-        let command = worker::program(&running.plugin, &["press", button]);
+        let approved = &running.approved;
+        let command = worker::program(&approved.plugin, &approved.state, &["press", button]);
         let plugin = id.to_string();
         let again = running.worker.again_handle();
         std::thread::spawn(move || {
-            let ran = slipstream_config::command::run(command, RUN_LIMIT);
+            let ran = slipstream_config::command::run(command, slipstream_config::card::RUN_LIMIT);
             if !matches!(ran, Run::Printed(_)) {
                 tracing::warn!("plugin {plugin}: a press: {}", worker::why(&ran));
             }
@@ -204,11 +237,55 @@ impl Plugins {
 #[cfg(test)]
 mod tests {
     use std::{
-        path::PathBuf,
+        os::unix::fs::PermissionsExt,
+        path::{Path, PathBuf},
+        sync::mpsc,
         time::{Duration, Instant},
     };
 
+    use slipstream_config::plugins::{Plugin, store};
+
     use super::*;
+
+    /// A scratch folder for one test, on disk under the workspace's `target/test-scratch`.
+    fn scratch(name: &str) -> PathBuf {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dir = manifest
+            .parent()
+            .unwrap_or(manifest)
+            .join("target/test-scratch")
+            .join(format!("plugins-{name}-{}", std::process::id()));
+        let _ = store::remove_tree(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Plugins looked for in `root/plugins`, kept in `root/stores`, with each look's result
+    /// handed back here.
+    fn looking(root: &Path) -> (Plugins, mpsc::Receiver<Scan>) {
+        let (found, scans) = mpsc::channel();
+        let places = scan::Places {
+            dirs: vec![root.join("plugins")],
+            stores: root.join("stores"),
+            approvals: root.join("approvals"),
+        };
+        let plugins = Plugins::looking_in(places, move |scan| {
+            let _ = found.send(scan);
+        });
+        (plugins, scans)
+    }
+
+    /// Follows `settings`, as the event loop would once the look it asks for comes back.
+    fn follow(plugins: &mut Plugins, scans: &mpsc::Receiver<Scan>, settings: &Settings) {
+        plugins.configure(settings);
+        looked(plugins, scans);
+    }
+
+    /// Takes the next look's result, as the event loop would.
+    fn looked(plugins: &mut Plugins, scans: &mpsc::Receiver<Scan>) {
+        let scan = scans.recv_timeout(Duration::from_secs(20)).unwrap();
+        plugins.scanned(scan);
+    }
 
     fn settle(plugins: &Plugins, until: impl Fn(&[Shown]) -> bool) -> Vec<Shown> {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -221,13 +298,18 @@ mod tests {
         }
     }
 
-    /// A scratch folder of plugins holding `id`, whose manifest runs `sh -c script`, with the
-    /// settings that turn it on.
-    fn turned_on(name: &str, id: &str, script: &str, every: Option<u64>) -> (PathBuf, Settings) {
-        let root =
-            std::env::temp_dir().join(format!("slipstream-plugins-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join(id)).unwrap();
+    fn gone(path: &Path) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while path.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        !path.exists()
+    }
+
+    /// Writes plugin `id` into `root/plugins`, its manifest running `sh -c script`.
+    fn install(root: &Path, id: &str, script: &str, every: Option<u64>) -> Plugin {
+        let dir = root.join("plugins").join(id);
+        std::fs::create_dir_all(&dir).unwrap();
         let mut manifest = toml::Table::new();
         manifest.insert("name".into(), id.into());
         manifest.insert(
@@ -238,27 +320,42 @@ mod tests {
             manifest.insert("every-secs".into(), (every as i64).into());
         }
         std::fs::write(
-            root.join(id).join(plugins::MANIFEST),
+            dir.join(plugins::MANIFEST),
             toml::to_string(&manifest).unwrap(),
         )
         .unwrap();
-        let plugin = plugins::read(&root.join(id)).unwrap();
+        plugins::read(&dir).unwrap()
+    }
+
+    /// Settings with `plugin` turned on as it is now.
+    fn turned_on(plugin: &Plugin) -> Settings {
         let mut settings = Settings::default();
-        settings.plugins.set_on(id, Some(plugin.fingerprint));
-        (root, settings)
+        settings
+            .plugins
+            .set_on(&plugin.id, Some(plugin.fingerprint.clone()));
+        settings
+    }
+
+    /// A card whose only line is the name of the folder its program runs in.
+    const SAYS_WHERE: &str = r#"printf '{"lines":["%s"]}' "$(basename "$(pwd)")""#;
+
+    fn first_line(shown: &[Shown]) -> Option<String> {
+        shown.first()?.card.as_ref()?.lines.first().cloned()
     }
 
     #[test]
     fn a_plugin_runs_and_its_glance_is_on_the_chip() {
-        let (root, mut settings) = turned_on(
-            "glance",
+        let root = scratch("glance");
+        let plugin = install(
+            &root,
             "allowance",
             r#"printf '{"sections":[{"name":"Disk","meters":[{"label":"Home","percent":81}]},{"name":"Mail","meters":[]}]}'"#,
             Some(60),
         );
+        let mut settings = turned_on(&plugin);
         settings.plugins.glance = Some("allowance".into());
-        let mut plugins = Plugins::default();
-        plugins.configure_from(&settings, std::slice::from_ref(&root));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &settings);
         let shown = settle(&plugins, |shown| shown[0].card.is_some());
         let card = shown[0].card.as_ref().unwrap();
         assert_eq!(card.sections.len(), 2);
@@ -266,20 +363,158 @@ mod tests {
         assert_eq!(chip.glance.unwrap().text, "81%");
         assert!(chip.attention);
         assert_eq!((chip.installed, chip.on), (1, 1));
-        plugins.configure_from(&Settings::default(), &[root]);
-        assert!(plugins.shown().is_empty());
+        plugins.configure(&Settings::default());
+        assert!(plugins.shown().is_empty(), "off at once, before any look");
+    }
+
+    /// The promise in the guide: a plugin runs from a copy of what was approved, and a change to
+    /// its folder doesn't run until it is turned on again.
+    #[test]
+    fn a_plugin_runs_from_its_approved_copy_and_a_change_is_held() {
+        let root = scratch("held");
+        let plugin = install(&root, "tides", SAYS_WHERE, Some(60));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&plugin));
+        let shown = settle(&plugins, |shown| first_line(shown).is_some());
+        assert_eq!(first_line(&shown), Some(plugin.fingerprint.clone()));
+
+        std::fs::write(plugin.dir.join("extra.sh"), "echo more\n").unwrap();
+        plugins.rescan();
+        looked(&mut plugins, &scans);
+        let shown = plugins.shown();
+        assert!(shown[0].held && shown[0].card.is_none(), "{shown:?}");
+        assert_eq!(
+            store::current(&root.join("stores/tides")).as_deref(),
+            Some(plugin.fingerprint.as_str()),
+            "what was approved stays approved"
+        );
+    }
+
+    #[test]
+    fn making_a_file_a_program_since_it_was_approved_holds_the_plugin() {
+        let root = scratch("mode");
+        let plugin = install(&root, "kettle", SAYS_WHERE, Some(60));
+        std::fs::write(plugin.dir.join("helper"), "echo hi\n").unwrap();
+        let plugin = plugins::read(&plugin.dir).unwrap();
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&plugin));
+        assert!(!plugins.shown()[0].held);
+        let program = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(plugin.dir.join("helper"), program).unwrap();
+        plugins.rescan();
+        looked(&mut plugins, &scans);
+        assert!(plugins.shown()[0].held);
+    }
+
+    /// Approving sends the fingerprint the person was shown: a folder that has changed since
+    /// isn't copied or run.
+    #[test]
+    fn approving_with_a_fingerprint_the_folder_no_longer_has_runs_nothing() {
+        let root = scratch("stale");
+        let shown_then = install(&root, "ferry", SAYS_WHERE, Some(60));
+        std::fs::write(shown_then.dir.join("later.sh"), "echo later\n").unwrap();
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&shown_then));
+        let shown = plugins.shown();
+        assert!(shown[0].held, "{shown:?}");
+        let kept = root.join("stores/ferry");
+        assert!(!kept.join(&shown_then.fingerprint).exists());
+        assert_eq!(store::current(&kept), None);
+    }
+
+    /// The promise in the guide: commands a plugin offers follow its approval, through the
+    /// `current` link, and an old copy goes once nothing runs from it.
+    #[test]
+    fn current_moves_to_the_copy_approved_and_the_old_one_goes() {
+        let root = scratch("current");
+        let first = install(&root, "lantern", SAYS_WHERE, Some(60));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&first));
+        let kept = root.join("stores/lantern");
+        assert_eq!(
+            store::current(&kept).as_deref(),
+            Some(first.fingerprint.as_str())
+        );
+        settle(&plugins, |shown| first_line(shown).is_some());
+
+        std::fs::write(first.dir.join("glow.sh"), "echo glow\n").unwrap();
+        let second = plugins::read(&first.dir).unwrap();
+        follow(&mut plugins, &scans, &turned_on(&second));
+        assert_eq!(
+            store::current(&kept).as_deref(),
+            Some(second.fingerprint.as_str())
+        );
+        assert!(kept.join(store::CURRENT).join("glow.sh").exists());
+        assert!(
+            gone(&kept.join(&first.fingerprint)),
+            "the old copy goes once its worker has"
+        );
+
+        settle(&plugins, |shown| first_line(shown).is_some());
+        follow(&mut plugins, &scans, &Settings::default());
+        assert_eq!(store::current(&kept), None, "off: nothing is approved");
+        assert!(gone(&kept.join(&second.fingerprint)));
+    }
+
+    /// The copy is checked again on the worker's thread before each start of its program.
+    #[test]
+    fn a_copy_changed_after_it_was_approved_doesn_t_run() {
+        let root = scratch("altered");
+        let said = root.join("ran");
+        let plugin = install(
+            &root,
+            "harbour",
+            &format!("touch '{}'; printf '{{}}'", said.display()),
+            Some(60),
+        );
+        std::fs::write(plugin.dir.join("extra"), "x").unwrap();
+        let worker = Worker::start(Approved {
+            plugin,
+            state: root.join("state"),
+            store: None,
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while worker.published().problem.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let problem = worker.published().problem.unwrap();
+        assert!(problem.contains("changed"), "{problem}");
+        assert!(!said.exists(), "nothing of it ran");
+    }
+
+    /// Looking at a hostile folder of a hundred thousand files never holds up the event loop,
+    /// and the look itself stops at the limit.
+    #[test]
+    fn a_hostile_folder_is_looked_at_without_holding_up_the_loop() {
+        let root = scratch("hostile");
+        let plugin = install(&root, "flood", SAYS_WHERE, Some(60));
+        for n in 0..100_000 {
+            std::fs::File::create(plugin.dir.join(n.to_string())).unwrap();
+        }
+        let mut settings = Settings::default();
+        settings.plugins.set_on("flood", Some("0".repeat(64)));
+        let (mut plugins, scans) = looking(&root);
+        let started = Instant::now();
+        plugins.configure(&settings);
+        assert!(started.elapsed() < Duration::from_millis(50));
+        let scan = scans.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        plugins.scanned(scan);
+        let shown = plugins.shown();
+        assert!(shown[0].held);
+        let problem = shown[0].problem.as_deref().unwrap();
+        assert!(problem.contains("Too big to check"), "{problem}");
+        let _ = store::remove_tree(&root);
     }
 
     /// The promise in the guide: a button only runs its plugin's own program again, with the
     /// button's id as a word of its own, which the shell never reads.
     #[test]
     fn a_press_runs_the_plugin_s_own_program_with_the_button_s_id() {
-        let dir = std::env::temp_dir().join(format!("slipstream-press-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let said = dir.join("said");
-        let (root, settings) = turned_on(
-            "press",
+        let root = scratch("press");
+        let said = root.join("said");
+        let plugin = install(
+            &root,
             "kettle",
             &format!(
                 r#"[ "$1" = press ] && printf '%s' "$2" > '{}'; printf '{{}}'"#,
@@ -287,8 +522,8 @@ mod tests {
             ),
             Some(60),
         );
-        let mut plugins = Plugins::default();
-        plugins.configure_from(&settings, &[root]);
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&plugin));
         settle(&plugins, |shown| shown[0].card.is_some());
         plugins.press("kettle", "$(touch nope)");
         plugins.press("kettle", "go");
@@ -297,17 +532,14 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(std::fs::read_to_string(&said).unwrap(), "go");
-        assert!(!std::path::Path::new("nope").exists());
+        assert!(!Path::new("nope").exists());
     }
 
     /// A `[meter]` moved into a plugin runs its command as it was written: a line ending in a
     /// keyword or a comment still works, since nothing is added to it.
     #[test]
     fn a_moved_meter_runs_its_command_as_written() {
-        let root =
-            std::env::temp_dir().join(format!("slipstream-moved-meter-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        let root = scratch("moved-meter");
         let settings_file = root.join("settings.toml");
         std::fs::write(
             &settings_file,
@@ -320,9 +552,12 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             .unwrap()
             .unwrap();
         let meter = plugins::read(&moved).unwrap();
-        let out = worker::program(&meter, &[]).output().unwrap();
+        let state = root.join("state");
+        let out = worker::program(&meter, &state, &[]).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), r#"{"lines":["ran"]}"#);
-        let out = worker::program(&meter, &["press", "go"]).output().unwrap();
+        let out = worker::program(&meter, &state, &["press", "go"])
+            .output()
+            .unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
             r#"{"lines":["press"]}"#,
@@ -334,18 +569,12 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
     /// and where the person is, never the session's sockets or keys.
     #[test]
     fn a_plugin_s_program_runs_without_the_session_s_secrets() {
-        let dir = std::env::temp_dir().join(format!("slipstream-env-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(plugins::MANIFEST),
-            "name = \"Env\"\nexec = [\"sh\", \"-c\", \"env; pwd\"]\n",
-        )
-        .unwrap();
-        let plugin = plugins::read(&dir).unwrap();
+        let root = scratch("env");
+        let plugin = install(&root, "env", "env; pwd", None);
         // The test runs with all of cargo's environment, and the session's: none of it gets
         // through but what the list names, and what `sh` sets for itself.
-        let out = worker::program(&plugin, &[]).output().unwrap();
+        let state = root.join("state");
+        let out = worker::program(&plugin, &state, &[]).output().unwrap();
         let said = String::from_utf8_lossy(&out.stdout);
         let (env, folder) = said.trim_end().rsplit_once('\n').unwrap();
         for line in env.lines() {
@@ -357,14 +586,23 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             );
         }
         assert!(env.contains("HOME="), "{said}");
-        assert_eq!(folder, dir.display().to_string(), "run in its folder");
+        assert!(
+            env.contains(&format!("SLIPSTREAM_PLUGIN_STATE={}", state.display())),
+            "{said}"
+        );
+        assert_eq!(
+            folder,
+            plugin.dir.display().to_string(),
+            "run in its folder"
+        );
     }
 
     #[test]
     fn a_program_that_fails_says_why() {
-        let (root, settings) = turned_on("fails", "ferry", "echo gone >&2; exit 3", Some(60));
-        let mut plugins = Plugins::default();
-        plugins.configure_from(&settings, &[root]);
+        let root = scratch("fails");
+        let plugin = install(&root, "ferry", "echo gone >&2; exit 3", Some(60));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &turned_on(&plugin));
         let shown = settle(&plugins, |shown| shown[0].problem.is_some());
         assert_eq!(shown[0].problem.as_deref(), Some("exit Some(3): gone"));
         assert!(shown[0].card.is_none());

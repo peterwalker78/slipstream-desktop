@@ -626,6 +626,7 @@ fn paint_front(
     let Some(card) = shown.visible() else {
         let note = Style::new(Face::Body, 13.0, quiet(facts.ahead));
         let said = match &shown.problem {
+            Some(problem) if shown.held => problem.clone(),
             _ if shown.held => "Changed since it was turned on: turn it on again to run it".into(),
             Some(problem) => format!("Not answering: {problem}"),
             None => "Starting…".into(),
@@ -919,6 +920,8 @@ impl Slipstream {
             self.close_panels();
             let now = self.clock.tick();
             self.plugin_panel.open(now, under);
+            // A plugin's folder can change without anything to say so: look again.
+            self.plugins.rescan();
         }
     }
 

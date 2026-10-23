@@ -1,12 +1,14 @@
 //! One plugin's thread: it runs the plugin's program as its manifest says, reads the cards it
 //! prints, and publishes what the panel should show. Nothing here runs on the event loop, and
 //! nothing waits on it: stopping is a flag the thread looks at every so often, and the thread ends
-//! the program's whole process group on its way out.
+//! the program's whole process group on its way out. Before each start of the program, its
+//! approved copy is checked against the fingerprint it was approved with.
 
 use std::{
+    path::{Path, PathBuf},
     process::Command,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicBool, Ordering},
     },
     thread::Thread,
@@ -16,8 +18,30 @@ use std::{
 use slipstream_config::{
     card::{RUN_LIMIT, unix_now},
     command::{self, Lines, Run, Said},
-    plugins::{self, Card, Plugin},
+    plugins::{self, Card, Plugin, store},
 };
+
+/// A plugin approved to run, as it runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Approved {
+    /// The plugin, its folder the approved copy.
+    pub plugin: Plugin,
+    /// Its own folder for what it keeps (`SLIPSTREAM_PLUGIN_STATE`).
+    pub state: PathBuf,
+    /// The store its copy is in, which clears the copy away once nothing runs from it and it is
+    /// no longer the approved one.
+    pub store: Option<PathBuf>,
+}
+
+/// The copies workers run from, once for each worker.
+static IN_USE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// The copies workers run from, held so that none starts or finishes with one meanwhile.
+pub fn copies_in_use() -> MutexGuard<'static, Vec<PathBuf>> {
+    IN_USE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// The least time between two cards published, however fast a program prints.
 pub const UPDATE_GAP: Duration = Duration::from_millis(250);
@@ -61,14 +85,16 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Starts `plugin`'s worker.
-    pub fn start(plugin: Plugin) -> Worker {
+    /// Starts `approved`'s worker.
+    pub fn start(approved: Approved) -> Worker {
         let control = Arc::new(Control::default());
         let published = Arc::new(Mutex::new(Published::default()));
         let job = Job {
             control: control.clone(),
             published: published.clone(),
-            plugin,
+            plugin: approved.plugin,
+            state: approved.state,
+            store: approved.store,
             last: None,
             failures: Throttle::default(),
         };
@@ -111,6 +137,8 @@ impl Drop for Worker {
 /// The worker thread's own state.
 struct Job {
     plugin: Plugin,
+    state: PathBuf,
+    store: Option<PathBuf>,
     control: Arc<Control>,
     published: Arc<Mutex<Published>>,
     /// The last line that read as a card, read again to count its times left down.
@@ -120,10 +148,18 @@ struct Job {
 
 impl Job {
     fn go(mut self) {
+        copies_in_use().push(self.plugin.dir.clone());
         match self.plugin.manifest.every() {
             Some(every) => self.every(every),
             None => self.continuous(),
         }
+    }
+
+    /// The program, with `args`, if its copy still holds what was approved; says why not
+    /// otherwise.
+    fn program(&self, args: &[&str]) -> Result<Command, String> {
+        store::verify(&self.plugin.dir, &self.plugin.fingerprint)?;
+        Ok(program(&self.plugin, &self.state, args))
     }
 
     fn stopped(&self) -> bool {
@@ -180,14 +216,18 @@ impl Job {
     /// runs its card is read again now and then, so the times left on it count down.
     fn every(&mut self, every: Duration) {
         loop {
-            let Some(ran) =
-                command::run_tidily(program(&self.plugin, &[]), RUN_LIMIT, &|| self.stopped())
-            else {
-                return;
-            };
-            let problem = match ran {
-                Run::Printed(printed) => self.read(&printed).err(),
-                failed => Some(why(&failed)),
+            let problem = match self.program(&[]) {
+                Ok(program) => {
+                    let Some(ran) = command::run_tidily(program, RUN_LIMIT, &|| self.stopped())
+                    else {
+                        return;
+                    };
+                    match ran {
+                        Run::Printed(printed) => self.read(&printed).err(),
+                        failed => Some(why(&failed)),
+                    }
+                }
+                Err(why) => Some(why),
             };
             if let Some(problem) = &problem {
                 self.failed(problem);
@@ -238,7 +278,15 @@ impl Job {
     fn follow(&mut self) -> bool {
         let errors = Arc::new(Mutex::new(Throttle::default()));
         let id = self.plugin.id.clone();
-        let lines = match Lines::start(program(&self.plugin, &[]), move |line| {
+        let program = match self.program(&[]) {
+            Ok(program) => program,
+            Err(why) => {
+                self.failed(&why);
+                self.publish(true, Some(why));
+                return !self.stopped();
+            }
+        };
+        let lines = match Lines::start(program, move |line| {
             if let Some(dropped) = errors.lock().unwrap().admit(Instant::now()) {
                 let more = if dropped > 0 {
                     format!(" ({dropped} more lines not logged)")
@@ -298,9 +346,26 @@ impl Job {
     }
 }
 
+impl Drop for Job {
+    /// The copy goes once nothing runs from it and it is no longer the approved one.
+    fn drop(&mut self) {
+        let mut in_use = copies_in_use();
+        if let Some(at) = in_use.iter().position(|dir| *dir == self.plugin.dir) {
+            in_use.remove(at);
+        }
+        let Some(store) = &self.store else {
+            return;
+        };
+        let approved = store::current(store).is_some_and(|name| self.plugin.dir.ends_with(name));
+        if !approved && !in_use.contains(&self.plugin.dir) {
+            let _ = store::remove_tree(&self.plugin.dir);
+        }
+    }
+}
+
 /// The plugin's program, with `args` after its own words: run as its manifest writes it, in its
-/// folder, from a cleared environment (`plugins::ENVIRONMENT`).
-pub fn program(plugin: &Plugin, args: &[&str]) -> Command {
+/// folder, from a cleared environment (`plugins::ENVIRONMENT`), with `state` as its own folder.
+pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Command {
     let exec = &plugin.manifest.exec;
     let program = &exec[0];
     let mut command = if program.contains('/') {
@@ -318,8 +383,7 @@ pub fn program(plugin: &Plugin, args: &[&str]) -> Command {
             command.env(name, value);
         }
     }
-    let state = plugins::state_dir(&plugin.id);
-    if let Err(err) = std::fs::create_dir_all(&state) {
+    if let Err(err) = std::fs::create_dir_all(state) {
         tracing::warn!("plugin {}: no folder for its state: {err}", plugin.id);
     }
     command.env("SLIPSTREAM_PLUGIN_STATE", state);

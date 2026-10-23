@@ -16,7 +16,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::{Plugin, file_hashes};
+use super::Plugin;
 
 /// What a plugin asked for, and what its folder held, when it was turned on.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,19 +31,20 @@ pub struct Approval {
 }
 
 impl Approval {
-    /// What `plugin` asks for and holds now.
-    pub fn of(plugin: &Plugin) -> Result<Approval, String> {
-        Ok(Approval {
+    /// What `plugin` asks for, and held when it was read.
+    pub fn of(plugin: &Plugin) -> Approval {
+        Approval {
             fingerprint: plugin.fingerprint.clone(),
             exec: plugin.manifest.exec.clone(),
             every_secs: plugin.manifest.every_secs,
             read: plugin.manifest.read.clone(),
-            files: file_hashes(&plugin.dir)?,
-        })
+            files: plugin.files.clone(),
+        }
     }
 }
 
-fn folder() -> PathBuf {
+/// Where approvals are kept.
+pub fn folder() -> PathBuf {
     crate::xdg_home("XDG_STATE_HOME", ".local/state")
         .join("slipstream")
         .join("plugin-approvals")
@@ -65,7 +66,7 @@ pub fn save(plugin: &Plugin) -> Result<(), String> {
 }
 
 fn save_in(folder: &Path, plugin: &Plugin) -> Result<(), String> {
-    let approval = Approval::of(plugin)?;
+    let approval = Approval::of(plugin);
     let text = toml::to_string(&approval).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(folder).map_err(|err| err.to_string())?;
     crate::replace(&folder.join(format!("{}.toml", plugin.id)), text.as_bytes())
@@ -77,13 +78,9 @@ pub fn forget(id: &str) {
     let _ = std::fs::remove_file(folder().join(format!("{id}.toml")));
 }
 
-/// Keeps a record for a plugin that is running as it was approved, if none is kept for that
-/// approval yet: one turned on before records were kept, or by hand in the settings file.
-pub fn remember_if_missing(plugin: &Plugin, approved: &str) {
-    remember_in(&folder(), plugin, approved);
-}
-
-fn remember_in(folder: &Path, plugin: &Plugin, approved: &str) {
+/// Keeps a record in `folder` for a plugin that is running as it was approved, if none is kept for
+/// that approval yet: one turned on before records were kept, or by hand in the settings file.
+pub fn remember_if_missing_in(folder: &Path, plugin: &Plugin, approved: &str) {
     if plugin.fingerprint != approved {
         return;
     }
@@ -375,8 +372,8 @@ mod tests {
     #[test]
     fn an_update_of_its_code_alone_is_like_for_like() {
         let root = scratch("like");
-        let before = Approval::of(&timer(&root, MANIFEST, "echo one")).unwrap();
-        let now = Approval::of(&timer(&root, MANIFEST, "echo two")).unwrap();
+        let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
+        let now = Approval::of(&timer(&root, MANIFEST, "echo two"));
         let change = compare(&before, &now);
         assert!(change.like_for_like());
         assert!(!change.asks_for_more());
@@ -392,11 +389,11 @@ mod tests {
     #[test]
     fn an_update_that_asks_for_more_says_what() {
         let root = scratch("more");
-        let before = Approval::of(&timer(&root, MANIFEST, "echo one")).unwrap();
+        let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
         let more = "name = \"Timer\"\nexec = [\"./timer\", \"card\", \"--upload\"]\n\
                     read = [\"$XDG_CACHE_HOME/timer\", \"$HOME/.ssh\"]\nevery-secs = 5\n";
         let plugin = timer(&root, more, "echo one");
-        let change = compare(&before, &Approval::of(&plugin).unwrap());
+        let change = compare(&before, &Approval::of(&plugin));
         assert!(change.asks_for_more());
         assert_eq!(change.reads_added, ["$HOME/.ssh"]);
         assert_eq!(change.files_changed, ["plugin.toml"]);
@@ -416,15 +413,15 @@ mod tests {
         let root = scratch("remember");
         let records = root.join("records");
         let plugin = timer(&root, MANIFEST, "echo one");
-        remember_in(&records, &plugin, "not this one");
+        remember_if_missing_in(&records, &plugin, "not this one");
         assert_eq!(
             load_from(&records, "timer"),
             None,
             "only what was approved is kept"
         );
-        remember_in(&records, &plugin, &plugin.fingerprint);
+        remember_if_missing_in(&records, &plugin, &plugin.fingerprint);
         let kept = load_from(&records, "timer").unwrap();
-        assert_eq!(kept, Approval::of(&plugin).unwrap());
+        assert_eq!(kept, Approval::of(&plugin));
         let said = explain(&plugin, None, &Source::Unknown).join("\n");
         assert!(said.contains("can't be compared"), "{said}");
     }
