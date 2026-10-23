@@ -67,6 +67,9 @@ pub const PROSE: u32 = 0xdfe5eeff;
 pub const SECONDARY: u32 = 0xaab2c0ff;
 pub const TERTIARY: u32 = 0x9aa4b6ff;
 pub const AMBER: u32 = 0xffb547ff;
+/// Something pressing: a meter nearly used up, a bar module's `critical` class. Orange rather than
+/// red, which the bar keeps for sharing.
+pub const HOT: u32 = 0xff7a45ff;
 /// Text on amber.
 pub const DARK: u32 = 0x1a1206ff;
 /// The code rain's mint, and the charging battery's.

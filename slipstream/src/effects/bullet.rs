@@ -331,6 +331,8 @@ pub fn bar_click(target: bar::Target) -> BarClick {
         | bar::Target::Tray
         | bar::Target::Meter
         | bar::Target::Dock
+        // A module's click can open an app, which the overview would hide.
+        | bar::Target::Module(_)
         | bar::Target::Bell => BarClick::Leave,
     }
 }

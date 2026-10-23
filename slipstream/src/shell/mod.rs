@@ -3,6 +3,7 @@
 
 pub(crate) mod arrange;
 pub(crate) mod bar;
+pub(crate) mod bar_slots;
 pub(crate) mod calendar;
 pub(crate) mod card;
 pub(crate) mod centre;
@@ -21,5 +22,6 @@ pub(crate) mod sheet;
 pub(crate) mod slot;
 pub(crate) mod stream_tip;
 pub(crate) mod switcher;
+pub(crate) mod tip;
 pub(crate) mod toast;
 pub(crate) mod tour;

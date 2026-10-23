@@ -194,6 +194,13 @@ fn bar_content(
         meter: crate::status::held(&state.meter)
             .as_ref()
             .map(|reading| crate::meter::shown(reading, &state.settings.meter)),
+        modules: state.bar_modules.shown(),
+        hovered_module: screen_index
+            .and_then(|index| state.screens.get(index))
+            .and_then(|screen| {
+                let (name, id) = state.module_hover.over()?;
+                (*name == screen.output.name()).then_some(*id)
+            }),
         // The pane hangs from the bar of the screen the streams are on.
         dock: state
             .docked_on_show()

@@ -5,6 +5,7 @@ mod about;
 mod appearance;
 mod input;
 mod meter;
+mod modules;
 mod notifications;
 mod power;
 mod privacy;
@@ -36,7 +37,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 13] = [
+pub const PAGES: [Page; 14] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -101,6 +102,16 @@ pub const PAGES: [Page; 13] = [
             "power-profile-performance-symbolic",
         ],
         build: meter::build,
+    },
+    Page {
+        id: "modules",
+        title: "Bar modules",
+        icons: &[
+            "view-list-bullet-symbolic",
+            "view-list-symbolic",
+            "format-justify-fill-symbolic",
+        ],
+        build: modules::build,
     },
     Page {
         id: "input",

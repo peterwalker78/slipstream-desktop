@@ -1,6 +1,7 @@
 //! The system bar along the top: the apps button, the workspaces, a mode's label and the focused
-//! window's title on the left; the time and date in the middle; the tray and the notifications bell
-//! on the right, and before them the slot of a window docked to the bar.
+//! window's title on the left; the time and date in the middle, with the person's own modules
+//! after them (`bar_slots.rs`), centred as one; the tray and the notifications bell on the right,
+//! and before them the slot of a window docked to the bar.
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
 //! stays sharp at fractional scales, and repainted only when what it shows changes.
@@ -17,7 +18,10 @@ use smithay::{
     utils::{Buffer, Logical, Rectangle, Size},
 };
 
+use slipstream_config::bar::Shown as ModuleShown;
+
 use crate::{
+    bar_slots::{self, Placed, Slots},
     icons, meter,
     paint::{self, Painter},
     panel::{self, AMBER, ink_on},
@@ -68,6 +72,11 @@ pub struct Content {
     pub layout: Option<String>,
     /// What the meter's command last reported, when there is a meter.
     pub meter: Option<meter::Reading>,
+    /// What each of the bar's modules shows, left to right, by its id: only those with something
+    /// to show.
+    pub modules: Vec<(u64, ModuleShown)>,
+    /// The module the pointer is on.
+    pub hovered_module: Option<u64>,
     /// Where the frame of a pane hanging from this bar meets it, when one does: the frame's
     /// left and right edges, in logical pixels from the screen's left. The bar has no lower edge
     /// between them, where it runs on down into the frame, and keeps room for the pane's slot.
@@ -122,6 +131,8 @@ pub enum Target {
     Meter,
     /// The docked window's slot.
     Dock,
+    /// One of the person's own modules beside the clock, by its id.
+    Module(u64),
 }
 
 /// The overview button's width, and the gap before it, in the bar's units.
@@ -140,10 +151,13 @@ fn names_fit(label_widths: &[f32], wide: f32) -> bool {
 
 #[derive(Default)]
 pub struct Bar {
-    /// What the buffer shows, and for what screen width and scale.
-    shown: Option<(Content, i32, f64)>,
+    /// What the buffer shows, with its modules' slots, and for what screen width and scale.
+    shown: Option<(Content, Vec<Placed>, i32, f64)>,
     buffer: Option<(MemoryRenderBuffer, Size<i32, Buffer>)>,
     targets: Targets,
+    slots: Slots,
+    /// The room for modules when the bar was last painted, in its units.
+    room: Option<f32>,
 }
 
 impl Bar {
@@ -152,7 +166,8 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar for a screen `width` logical pixels wide at `scale`.
+    /// The bar for a screen `width` logical pixels wide at `scale`, at `now` in wall seconds.
+    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
@@ -160,17 +175,31 @@ impl Bar {
         width: i32,
         scale: f64,
         alpha: f32,
+        now: f64,
+        reduced_motion: bool,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let key = (content, width, scale);
+        let room = self.room.unwrap_or(bar_slots::CAP);
+        let placed = self.slots.place(
+            &content.modules,
+            content.hovered_module,
+            room,
+            now,
+            reduced_motion,
+        );
+        let key = (content, placed, width, scale);
         if self.shown.as_ref() != Some(&key) {
-            let (pixmap, targets) = paint(&key.0, width, scale)?;
-            let size = Size::from((pixmap.width() as i32, pixmap.height() as i32));
-            self.buffer = Some((paint::buffer(&pixmap), size));
-            self.targets = targets;
+            let painted = paint(&key.0, &key.1, width, scale)?;
+            let size = Size::from((
+                painted.pixmap.width() as i32,
+                painted.pixmap.height() as i32,
+            ));
+            self.buffer = Some((paint::buffer(&painted.pixmap), size));
+            self.targets = painted.targets;
+            self.room = Some(painted.room);
             self.shown = Some(key);
         }
         let (buffer, size) = self.buffer.as_ref()?;
@@ -196,6 +225,14 @@ impl Bar {
             .map(|(_, area)| (area.loc.x, area.size.w))
     }
 
+    /// Where a button is, in logical pixels from the screen's top-left corner.
+    pub fn area_of(&self, wanted: Target) -> Option<Rectangle<f64, Logical>> {
+        self.targets
+            .iter()
+            .find(|(target, _)| *target == wanted)
+            .map(|(_, area)| *area)
+    }
+
     /// What's at a point, in logical pixels from the screen's top-left corner.
     pub fn target_at(&self, x: f64, y: f64) -> Option<Target> {
         self.targets
@@ -215,8 +252,16 @@ const LIVE: u32 = 0xff5a5aff;
 /// The alpha of the faint pills that say a state is on: Caps Lock, Awake, sharing.
 const PILL: u32 = 0x24;
 
-/// Paints the bar for a screen `width` logical pixels wide, and says where its buttons are.
-fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
+/// The bar as painted: the picture, where its buttons are, and the room it had for modules.
+struct Painted {
+    pixmap: Pixmap,
+    targets: Targets,
+    room: f32,
+}
+
+/// Paints the bar for a screen `width` logical pixels wide, with its modules in `slots`, and says
+/// where its buttons are.
+fn paint(content: &Content, slots: &[Placed], width: i32, scale: f64) -> Option<Painted> {
     let device_w = (width as f64 * scale).round() as u32;
     let device_h = (HEIGHT as f64 * scale).round() as u32;
     let f = device_h as f32 / TALL;
@@ -247,21 +292,38 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)>
         None => bar.p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER),
     }
     let x = paint_left(&mut bar, content);
-    let (centre_x, centre_w) = paint_clock(&mut bar, &content.status);
-    paint_title(&mut bar, content, x, centre_x);
     let right = paint_right(&mut bar, content);
+    // The modules have the room the title and the docked window's slot leave either side of the
+    // middle, since the block they share with the clock is centred.
+    let clock_w = clock_width(&content.status);
+    let docked = if span.is_some() {
+        8.0 + DOCK_SLOT + 8.0
+    } else {
+        0.0
+    };
+    let half = (right - 16.0 - docked - wide / 2.0).min(wide / 2.0 - (x + TITLE_KEEP));
+    let room = (2.0 * half - clock_w).clamp(0.0, bar_slots::CAP);
+    let (centre_x, block_w) = paint_centre(&mut bar, &content.status, slots, room);
+    paint_title(&mut bar, content, x, centre_x);
 
     // Leftmost of them all: room for the docked window's slot, in the same place whatever size
     // its pane is. The slot is alive, so it is drawn over the bar every frame (`slot.rs`), not
     // painted here. A bar too narrow to keep it clear of the clock goes without.
     if span.is_some() {
         let x = right - 8.0 - DOCK_SLOT;
-        if x >= centre_x + centre_w + 8.0 {
+        if x >= centre_x + block_w + 8.0 {
             bar.target(Target::Dock, x, DOCK_SLOT);
         }
     }
-    Some((bar.p.pixmap, bar.targets))
+    Some(Painted {
+        pixmap: bar.p.pixmap,
+        targets: bar.targets,
+        room,
+    })
 }
+
+/// The least room the window's title keeps beside the centre, modules or none, in the bar's units.
+const TITLE_KEEP: f32 = 200.0;
 
 /// The bar as it is painted, in design pixels `wide`, and where its buttons are.
 struct Strip {
@@ -356,17 +418,34 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
     x
 }
 
-/// Centre: the time and date, sharing a baseline. Returns where they start and how wide they are.
-fn paint_clock(bar: &mut Strip, status: &Shown) -> (f32, f32) {
-    let wide = bar.wide;
+fn clock_styles() -> (Style, Style) {
     let clock = Style {
         tabular: true,
         ..Style::new(Face::Body, 16.0, panel::BRIGHT)
     };
-    let date = Style::new(Face::Body, 14.0, panel::TERTIARY);
+    (clock, Style::new(Face::Body, 14.0, panel::TERTIARY))
+}
+
+/// The time and date's width, padding included.
+fn clock_width(status: &Shown) -> f32 {
+    let (clock, date) = clock_styles();
+    14.0 + text::width(&status.time, &clock) + 10.0 + text::width(&status.date, &date) + 14.0
+}
+
+/// The divider between the date and the modules.
+const MODULE_DIVIDER: u32 = panel::EDGE;
+/// The patch under the module the pointer is on, as under the bar's other buttons.
+const HOVER: u32 = 0xffffff14;
+
+/// Centre: the time and date, sharing a baseline, then the modules in `slots`, no wider than
+/// `room`, all centred together. Returns where the block starts and how wide it is.
+fn paint_centre(bar: &mut Strip, status: &Shown, slots: &[Placed], room: f32) -> (f32, f32) {
+    let wide = bar.wide;
+    let (clock, date) = clock_styles();
     let time_w = text::width(&status.time, &clock);
-    let centre_w = 14.0 + time_w + 10.0 + text::width(&status.date, &date) + 14.0;
-    let centre_x = ((wide - centre_w) / 2.0).round();
+    let centre_w = clock_width(status);
+    let block_w = centre_w + bar_slots::width(slots);
+    let centre_x = ((wide - block_w) / 2.0).round();
     let baseline = text::baseline(&clock, 20.0);
     bar.p
         .text_on(&status.time, centre_x + 14.0, baseline, &clock);
@@ -377,8 +456,46 @@ fn paint_clock(bar: &mut Strip, status: &Shown) -> (f32, f32) {
         &date,
     );
     bar.target(Target::Clock, centre_x, centre_w);
+    paint_modules(bar, slots, centre_x + centre_w, room);
 
-    (centre_x, centre_w)
+    (centre_x, block_w)
+}
+
+/// The modules from `x`: a divider, then each slot with its text centred in it, lit while the
+/// pointer is on it. None is drawn past `room`, nor one that didn't fit last time and is closing.
+/// A module only ever draws its text, tinted at most, inside its own slot: never a pill, a dot or
+/// an icon of the bar's own.
+fn paint_modules(bar: &mut Strip, slots: &[Placed], x: f32, room: f32) {
+    let lead = bar_slots::lead(slots);
+    if lead <= 0.0 {
+        return;
+    }
+    let shown = lead / (bar_slots::DIVIDER + bar_slots::AFTER_DIVIDER);
+    let alpha = ((MODULE_DIVIDER & 0xff) as f32 * shown).round() as u32;
+    bar.p.fill(
+        x,
+        12.0,
+        bar_slots::DIVIDER,
+        16.0,
+        0.0,
+        (MODULE_DIVIDER & !0xff) | alpha,
+    );
+    let start = x;
+    let mut x = x + lead;
+    for slot in slots {
+        let fits = x + bar_slots::footprint(slot.width) - start <= room + 0.5;
+        if fits && !slot.crowded && slot.width > 0.5 {
+            if slot.hovered {
+                bar.p.fill(x, 7.0, slot.width, 26.0, 6.0, HOVER);
+            }
+            let style = bar_slots::style(slot.tint, slot.alpha);
+            let text_w = text::width(&slot.text, &style);
+            bar.p
+                .text(&slot.text, x + (slot.width - text_w) / 2.0, 20.0, &style);
+            bar.target(Target::Module(slot.id), x, slot.width);
+        }
+        x += bar_slots::footprint(slot.width);
+    }
 }
 
 /// The title of this screen's window fills what's left of the left column, from `x` to the
@@ -616,7 +733,14 @@ fn meter_width(content: &Content) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
+    use slipstream_config::bar::Tint;
+
     use super::*;
+
+    /// The bar with no modules.
+    fn paint_plain(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
+        paint(content, &[], width, scale).map(|painted| (painted.pixmap, painted.targets))
+    }
 
     fn content() -> Content {
         Content {
@@ -642,13 +766,15 @@ mod tests {
             awake: false,
             layout: None,
             meter: None,
+            modules: Vec::new(),
+            hovered_module: None,
             dock: None,
         }
     }
 
     #[test]
     fn the_overview_button_fits_the_name_budget() {
-        let (_, targets) = paint(&content(), 1536, 1.25).unwrap();
+        let (_, targets) = paint_plain(&content(), 1536, 1.25).unwrap();
         let area = |wanted: Target| {
             targets
                 .iter()
@@ -671,7 +797,7 @@ mod tests {
 
     #[test]
     fn the_awake_chip_shows_only_while_awake_and_sits_beside_caps_lock() {
-        let (_, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
         assert!(!quiet.iter().any(|(target, _)| *target == Target::Awake));
         let both = Content {
             awake: true,
@@ -679,7 +805,7 @@ mod tests {
             sharing: true,
             ..content()
         };
-        let (_, targets) = paint(&both, 1536, 1.25).unwrap();
+        let (_, targets) = paint_plain(&both, 1536, 1.25).unwrap();
         let area = |wanted: Target| {
             targets
                 .iter()
@@ -701,14 +827,14 @@ mod tests {
 
     #[test]
     fn the_layout_shows_beside_the_tray_only_when_there_are_others() {
-        let (_, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
         assert!(!quiet.iter().any(|(target, _)| *target == Target::Layout));
         let two = Content {
             layout: Some("GB".into()),
             awake: true,
             ..content()
         };
-        let (_, targets) = paint(&two, 1536, 1.25).unwrap();
+        let (_, targets) = paint_plain(&two, 1536, 1.25).unwrap();
         let area = |wanted: Target| {
             targets
                 .iter()
@@ -730,13 +856,13 @@ mod tests {
 
     #[test]
     fn the_red_dot_shows_only_while_sharing_and_can_be_clicked() {
-        let (_, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
         assert!(!quiet.iter().any(|(target, _)| *target == Target::Sharing));
         let sharing = Content {
             sharing: true,
             ..content()
         };
-        let (_, targets) = paint(&sharing, 1536, 1.25).unwrap();
+        let (_, targets) = paint_plain(&sharing, 1536, 1.25).unwrap();
         let (_, dot) = targets
             .iter()
             .find(|(target, _)| *target == Target::Sharing)
@@ -753,7 +879,7 @@ mod tests {
 
     #[test]
     fn a_docked_window_has_a_slot_over_its_pane_and_the_bar_runs_on_into_the_frame() {
-        let (plain, quiet) = paint(&content(), 1536, 1.25).unwrap();
+        let (plain, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
         assert!(!quiet.iter().any(|(target, _)| *target == Target::Dock));
         let docked = |span| Content {
             dock: Some(span),
@@ -767,7 +893,7 @@ mod tests {
                 .unwrap()
         };
         // The slot stands just left of the tray, and stays there whatever size the pane is.
-        let (pixmap, targets) = paint(&docked((1000, 1536)), 1536, 1.25).unwrap();
+        let (pixmap, targets) = paint_plain(&docked((1000, 1536)), 1536, 1.25).unwrap();
         let (slot, tray) = (area(&targets, Target::Dock), area(&targets, Target::Tray));
         assert!(slot.loc.x + slot.size.w <= tray.loc.x, "{slot:?} {tray:?}");
         assert!(
@@ -775,7 +901,7 @@ mod tests {
             "{slot:?} {tray:?}"
         );
         for span in [(760, 1536), (1300, 1536), (1500, 1536)] {
-            let (_, targets) = paint(&docked(span), 1536, 1.25).unwrap();
+            let (_, targets) = paint_plain(&docked(span), 1536, 1.25).unwrap();
             assert_eq!(area(&targets, Target::Dock), slot, "{span:?}");
         }
         // The line along the bar's foot stops where the frame takes over.
@@ -788,7 +914,7 @@ mod tests {
     #[test]
     fn the_meter_sits_left_of_the_tray_and_only_with_numbers_to_show() {
         let area = |content: &Content, wanted: Target| {
-            let (_, targets) = paint(content, 1536, 1.25).unwrap();
+            let (_, targets) = paint_plain(content, 1536, 1.25).unwrap();
             targets
                 .iter()
                 .find(|(target, _)| *target == wanted)
@@ -845,7 +971,7 @@ mod tests {
                 labels,
                 ..content()
             };
-            let (_, targets) = paint(&content, 1536, 1.25).unwrap();
+            let (_, targets) = paint_plain(&content, 1536, 1.25).unwrap();
             targets
                 .iter()
                 .filter(|(target, _)| matches!(target, Target::Workspace(_)))
@@ -882,7 +1008,7 @@ mod tests {
             home: Some(0),
             ..content()
         };
-        let (pixmap, targets) = paint(&looking, 1536, scale).unwrap();
+        let (pixmap, targets) = paint_plain(&looking, 1536, scale).unwrap();
         let button = |index| {
             targets
                 .iter()
@@ -908,7 +1034,7 @@ mod tests {
         };
         assert!(cyan(edge(&pixmap, 0)));
         assert!(!cyan(edge(&pixmap, 2)));
-        let (unringed, _) = paint(
+        let (unringed, _) = paint_plain(
             &Content {
                 home: None,
                 ..looking.clone()
@@ -921,7 +1047,7 @@ mod tests {
 
         // On a screen without the keyboard its own workspace has no band, and one another screen
         // shows is underlined in grey.
-        let (other, _) = paint(
+        let (other, _) = paint_plain(
             &Content {
                 keyboard_here: false,
                 elsewhere: vec![false, true, false, false, false],
@@ -947,17 +1073,209 @@ mod tests {
         );
     }
 
+    /// Slots for modules saying `texts`, opened fully, as the bar would have them.
+    fn slots_for(texts: &[&str]) -> Vec<Placed> {
+        let shown: Vec<(u64, ModuleShown)> = texts
+            .iter()
+            .enumerate()
+            .map(|(id, text)| {
+                (
+                    id as u64 + 1,
+                    ModuleShown {
+                        text: text.to_string(),
+                        ..ModuleShown::default()
+                    },
+                )
+            })
+            .collect();
+        Slots::default().place(&shown, None, bar_slots::CAP, 0.0, true)
+    }
+
+    fn painted_with(content: &Content, slots: &[Placed]) -> Painted {
+        paint(content, slots, 1536, 1.25).unwrap()
+    }
+
+    fn area(targets: &Targets, wanted: Target) -> Option<Rectangle<f64, Logical>> {
+        targets
+            .iter()
+            .find(|(target, _)| *target == wanted)
+            .map(|(_, area)| *area)
+    }
+
+    #[test]
+    fn the_clock_and_its_modules_are_centred_as_one_block() {
+        let plain = painted_with(&content(), &[]);
+        let clock = area(&plain.targets, Target::Clock).unwrap();
+        assert!(
+            (clock.loc.x + clock.size.w / 2.0 - 768.0).abs() < 1.0,
+            "alone, the clock is centred: {clock:?}"
+        );
+        let three = painted_with(&content(), &slots_for(&["21°C", "3 new", "42%"]));
+        let moved = area(&three.targets, Target::Clock).unwrap();
+        let last = area(&three.targets, Target::Module(3)).unwrap();
+        let block = (moved.loc.x, last.loc.x + last.size.w);
+        assert!(
+            ((block.0 + block.1) / 2.0 - 768.0).abs() < 1.0,
+            "the whole block is centred: {block:?}"
+        );
+        assert!(moved.loc.x < clock.loc.x, "the clock makes room");
+        let modules: Vec<_> = (1..=3)
+            .map(|id| area(&three.targets, Target::Module(id)).unwrap())
+            .collect();
+        assert!(
+            modules[0].loc.x > moved.loc.x + moved.size.w,
+            "after the date"
+        );
+        assert!(
+            modules
+                .windows(2)
+                .all(|pair| pair[0].loc.x + pair[0].size.w <= pair[1].loc.x),
+            "left to right, without overlapping"
+        );
+    }
+
+    #[test]
+    fn modules_keep_to_the_cap_and_leave_the_title_and_the_docked_slot_their_room() {
+        let many: Vec<String> = (0..12).map(|n| format!("Module number {n}")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        let painted = painted_with(&content(), &slots_for(&many));
+        assert!(painted.room <= bar_slots::CAP);
+        // Placed with the room the bar had, as the next frame is.
+        let shown: Vec<(u64, ModuleShown)> = many
+            .iter()
+            .enumerate()
+            .map(|(id, text)| {
+                (
+                    id as u64 + 1,
+                    ModuleShown {
+                        text: text.to_string(),
+                        ..ModuleShown::default()
+                    },
+                )
+            })
+            .collect();
+        let slots = Slots::default().place(&shown, None, painted.room, 0.0, true);
+        let painted = painted_with(&content(), &slots);
+        let drawn: Vec<_> = painted
+            .targets
+            .iter()
+            .filter(|(target, _)| matches!(target, Target::Module(_)))
+            .map(|(_, area)| *area)
+            .collect();
+        assert!(
+            !drawn.is_empty() && drawn.len() < many.len(),
+            "the last ones are dropped"
+        );
+        let clock = area(&painted.targets, Target::Clock).unwrap();
+        let end = drawn.last().map(|area| area.loc.x + area.size.w).unwrap();
+        // A design pixel is 0.8 of a logical one at this scale.
+        let unit = 0.8;
+        assert!(
+            end - (clock.loc.x + clock.size.w) <= bar_slots::CAP as f64 * unit + 0.5,
+            "within the cap"
+        );
+        // Docked, the slot keeps its place beside the tray.
+        let docked = Content {
+            dock: Some((1000, 1536)),
+            ..content()
+        };
+        let room = painted_with(&docked, &[]).room;
+        let slots = Slots::default().place(&shown, None, room, 0.0, true);
+        let painted = painted_with(&docked, &slots);
+        let slot = area(&painted.targets, Target::Dock).expect("the docked slot keeps its room");
+        let last = painted
+            .targets
+            .iter()
+            .filter(|(target, _)| matches!(target, Target::Module(_)))
+            .map(|(_, area)| area.loc.x + area.size.w)
+            .fold(0.0, f64::max);
+        assert!(last < slot.loc.x, "{last} {slot:?}");
+        // A bar too narrow for any leaves the title its room, and shows none.
+        let narrow = paint(&content(), &[], 700, 1.0).unwrap();
+        let slots = Slots::default().place(&shown, None, narrow.room, 0.0, true);
+        let narrow = paint(&content(), &slots, 700, 1.0).unwrap();
+        assert!(
+            !narrow
+                .targets
+                .iter()
+                .any(|(target, _)| matches!(target, Target::Module(_)))
+        );
+    }
+
+    #[test]
+    fn a_module_s_text_changing_its_digits_leaves_the_clock_where_it_is() {
+        let mut slots = Slots::default();
+        let say = |text: &str| {
+            vec![(
+                1,
+                ModuleShown {
+                    text: text.into(),
+                    ..ModuleShown::default()
+                },
+            )]
+        };
+        let mut clocks = Vec::new();
+        for (step, text) in ["100", "7", "42", "9", "13"].iter().enumerate() {
+            let placed = slots.place(&say(text), None, bar_slots::CAP, step as f64 * 0.5, true);
+            let painted = painted_with(&content(), &placed);
+            clocks.push(area(&painted.targets, Target::Clock).unwrap().loc.x);
+        }
+        assert!(
+            clocks.windows(2).all(|pair| pair[0] == pair[1]),
+            "{clocks:?}"
+        );
+    }
+
+    #[test]
+    fn the_pointer_lights_a_module_and_nothing_else_is_ever_drawn_behind_one() {
+        let scale = 1.25;
+        let mut slots = slots_for(&["Mail"]);
+        let plain = painted_with(&content(), &slots);
+        let module = area(&plain.targets, Target::Module(1)).unwrap();
+        // Just inside the slot's left edge, clear of its text, halfway down.
+        let (x, y) = (module.loc.x + 1.5, 16.0);
+        let background = pixel(&plain.pixmap, 700.0, 4.0, scale);
+        assert_eq!(
+            pixel(&plain.pixmap, x, y, scale),
+            background,
+            "no pill, no fill"
+        );
+        slots[0].hovered = true;
+        let lit = painted_with(&content(), &slots);
+        assert_ne!(pixel(&lit.pixmap, x, y, scale), background);
+        // Whatever its class, the slot behind the text stays the bar's own.
+        for tint in [Tint::Warning, Tint::Critical] {
+            let mut slots = slots_for(&["SHARING"]);
+            slots[0].tint = tint;
+            let painted = painted_with(&content(), &slots);
+            let module = area(&painted.targets, Target::Module(1)).unwrap();
+            assert_eq!(
+                pixel(&painted.pixmap, module.loc.x + 1.5, y, scale),
+                background
+            );
+        }
+    }
+
+    #[test]
+    fn a_module_s_tints_are_never_the_bar_s_own_signals() {
+        for tint in [Tint::Plain, Tint::Warning, Tint::Critical] {
+            let colour = u32::from_be_bytes(bar_slots::style(tint, 1.0).color);
+            assert_ne!(colour, LIVE, "the sharing dot's red is the bar's alone");
+            assert_ne!(colour, AWAKE);
+        }
+    }
+
     #[test]
     fn the_bar_is_painted_one_pixel_per_screen_pixel() {
-        let (pixmap, _) = paint(&content(), 1536, 1.25).unwrap();
+        let (pixmap, _) = paint_plain(&content(), 1536, 1.25).unwrap();
         assert_eq!((pixmap.width(), pixmap.height()), (1920, 40));
-        let (pixmap, _) = paint(&content(), 1280, 2.0).unwrap();
+        let (pixmap, _) = paint_plain(&content(), 1280, 2.0).unwrap();
         assert_eq!((pixmap.width(), pixmap.height()), (2560, 64));
     }
 
     #[test]
     fn clicks_find_the_workspaces_clock_and_bell() {
-        let (_, targets) = paint(&content(), 1536, 1.25).unwrap();
+        let (_, targets) = paint_plain(&content(), 1536, 1.25).unwrap();
         let workspaces: Vec<_> = targets
             .iter()
             .filter(|(target, _)| matches!(target, Target::Workspace(_)))

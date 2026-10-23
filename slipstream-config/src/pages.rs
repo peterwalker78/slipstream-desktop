@@ -12,7 +12,7 @@ pub struct SettingsPage {
     pub holds: &'static [&'static str],
 }
 
-pub const SETTINGS_PAGES: [SettingsPage; 13] = [
+pub const SETTINGS_PAGES: [SettingsPage; 14] = [
     SettingsPage {
         id: "appearance",
         title: "Appearance",
@@ -77,6 +77,16 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
         id: "meter",
         title: "Meter",
         holds: &["Bar meter", "Meter command"],
+    },
+    SettingsPage {
+        id: "modules",
+        title: "Bar modules",
+        holds: &[
+            "Waybar modules",
+            "Custom modules",
+            "Status scripts",
+            "Bar items",
+        ],
     },
     SettingsPage {
         id: "input",

@@ -343,6 +343,7 @@ impl Slipstream {
         // Apps hear about dark and light over the settings portal, and change without restarting.
         crate::appearance::set(settings.appearance.colour_scheme);
         meter::configure(&settings.meter);
+        self.bar_modules.configure(&settings.bar);
         let now = self.clock.tick();
         self.wallpaper = settings.wallpaper.clone();
         for saver in self.savers.values_mut() {

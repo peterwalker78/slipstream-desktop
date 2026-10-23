@@ -60,6 +60,30 @@ The bar shows a small gauge for each section: its first meter as the thick bar, 
 
 To show only some sections, press the cog beside the meters in quick settings and switch off the ones you don't want. They disappear from the bar and from quick settings until you switch them back on.
 
+## Your own modules beside the clock
+
+The bar can show items of your own to the right of the clock: the weather, unread mail, anything a command can print. They take the format of Waybar's custom modules, so a script you already use with Waybar works as it is. Add them in **Settings → Bar modules**, where **Run it now** shows what the bar would show, or in `~/.config/slipstream/settings.toml`, a table each:
+
+```toml
+[[bar.modules]]
+name = "Weather"
+exec = "weather-report --short"   # run with sh -c
+interval = 600                    # seconds, or "once"; leave it out for a script that keeps printing
+on-click = "xdg-open https://example.org/forecast"
+
+[[bar.modules]]
+exec = "mail-count --waybar"
+return-type = "json"
+format = "{icon} {}"
+format-icons = { unread = "✉", default = "" }
+```
+
+These Waybar keys work: `exec`, `exec-if`, `exec-on-event`, `return-type`, `interval`, `restart-interval`, `format` (with `{}`, `{text}`, `{alt}`, `{icon}` and `{percentage}`), `format-icons`, `max-length`, `tooltip`, `on-click`, `on-click-right`, `on-click-middle`, `on-scroll-up` and `on-scroll-down`. Any other key is kept, noted in the log, and does nothing.
+
+A script with no `interval` keeps running, and each line it prints is an update; if it exits, it is started again, waiting longer each time it keeps exiting straight away. With `return-type = "json"` each line is an object with `text`, `alt`, `tooltip`, `class` and `percentage`; otherwise the first line is the text, the second the tooltip and the third the class. A `warning` class shows in amber, and `critical` or `urgent` in orange. Text is cut short at `max-length` characters (32 unless you set it), the modules together keep to a set width so the window title keeps its room, and any that don't fit are left off the end. Rest the pointer on a module for its tooltip.
+
+Each module's command runs as a program of its own, never inside Slipstream, and stops with everything it started when you remove the module or log out. What it prints is only ever shown, as plain text: markup is taken out rather than obeyed, and nothing it prints can run a command. A click or a scroll runs only the command your settings give it.
+
 ## Bringing an AI agent's session back
 
 Slipstream has no AI in it. This is for people who run an AI coding agent of their own in a terminal: when your layout is reopened at login (**Settings → Session → Remember the layout**), a terminal that had an agent's session in it can come back in the same place, in the same folder, with that session open again.

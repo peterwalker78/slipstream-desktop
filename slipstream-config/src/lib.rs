@@ -69,6 +69,11 @@
 //! every-secs = 60
 //! hidden = []
 //!
+//! [[bar.modules]]
+//! name = "Weather"
+//! exec = "weather-report"
+//! interval = 600
+//!
 //! [session]
 //! remember = false
 //! reopen-without-asking = false
@@ -92,6 +97,7 @@
 //! Missing keys take their defaults and unknown ones are ignored, so an older compositor still
 //! reads a newer file.
 
+pub mod bar;
 pub mod battery;
 pub mod command;
 mod display;
@@ -141,6 +147,9 @@ pub struct Settings {
     pub clipboard: Clipboard,
     pub privacy: Privacy,
     pub meter: Meter,
+    /// The bar's modules: Waybar's custom modules, beside the clock.
+    #[serde(skip_serializing_if = "bar::Bar::is_empty")]
+    pub bar: bar::Bar,
     pub workspaces: Workspaces,
     pub keys: Keys,
     pub mouse: Mouse,
@@ -713,6 +722,16 @@ mod tests {
                 every_secs: 300,
                 hidden: vec!["Mail".into()],
             },
+            bar: bar::Bar {
+                modules: vec![bar::Module {
+                    exec: "made-up-status --json".into(),
+                    return_type: bar::ReturnType::Json,
+                    interval: bar::Interval::Every(5),
+                    on_click: "made-up-app".into(),
+                    ..bar::Module::default()
+                }],
+                problems: Vec::new(),
+            },
             workspaces: Workspaces {
                 list: vec![
                     WorkspaceEntry {
@@ -769,6 +788,7 @@ mod tests {
         assert!(text.contains("do-not-disturb = true"), "{text}");
         assert!(text.contains("history = false"), "{text}");
         assert!(text.contains(r##"selected-tile = "#b794ff""##), "{text}");
+        assert!(text.contains("[[bar.modules]]"), "{text}");
         assert_eq!(parse(&format!("{HEADER}{text}")).unwrap(), settings);
     }
 

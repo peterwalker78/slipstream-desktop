@@ -88,6 +88,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "anim",
             "shell/panel",
             "shell/card",
+            "shell/tip",
             "render/chrome",
             "state/ui",
         ],
@@ -108,6 +109,8 @@ const PARTS: &[(&str, &[&str])] = &[
         "Bar, quick settings and notifications",
         &[
             "shell/bar",
+            "shell/bar_slots",
+            "bar_modules",
             "shell/quick",
             "status",
             "shell/centre",

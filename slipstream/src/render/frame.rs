@@ -691,9 +691,41 @@ fn bar_elements(
     let mut elements = Vec::new();
     let content = bar_content(state, v.active, v.screen_index, v.first, used);
     let docked = content.dock.is_some();
-    let bar = chrome
-        .bar
-        .element(renderer, content, v.geo.size.w, v.scale.x, v.ui_alpha);
+    // The tooltip of the module the pointer has rested on, if it is on this screen's bar.
+    let tooltip = state
+        .module_hover
+        .showing(std::time::Instant::now())
+        .filter(|(name, _)| *name == v.name)
+        .and_then(|(_, id)| {
+            let (_, shown) = content.modules.iter().find(|(shown, _)| shown == id)?;
+            Some((*id, shown.tooltip.clone()?))
+        });
+    let bar = chrome.bar.element(
+        renderer,
+        content,
+        v.geo.size.w,
+        v.scale.x,
+        v.ui_alpha,
+        v.wall,
+        state.clock.reduced_motion,
+    );
+    if let Some((id, tooltip)) = tooltip
+        && let Some(area) = chrome.bar.area_of(bar::Target::Module(id))
+    {
+        elements.extend(
+            chrome
+                .module_tip
+                .element(
+                    renderer,
+                    &tooltip,
+                    area,
+                    (v.geo.size.w, bar::HEIGHT),
+                    v.scale.x,
+                    v.ui_alpha,
+                )
+                .map(OutputElement::Memory),
+        );
+    }
     let (ring, reduced_motion, demand) = (
         state.ring_rgb,
         state.clock.reduced_motion,

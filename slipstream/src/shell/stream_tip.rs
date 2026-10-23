@@ -1,31 +1,23 @@
-//! What a stream says when the pointer rests on it: the app's name, and the memory, processor time
-//! and network traffic behind its brightness, speed and rain, as numbers. It waits for the
-//! pointer to settle on one stream, so sweeping across them shows nothing, and sits just left of
-//! its stream at the pointer's height. It goes when the pointer leaves, the stream goes, or the
-//! rain does.
-//!
-//! It appears and goes at once, with nothing animated, so reduced motion has nothing to change.
-
-use std::time::{Duration, Instant};
+//! What a stream says when the pointer rests on it (a tip, `tip.rs`): the app's name, and the
+//! memory, processor time and network traffic behind its brightness, speed and rain, as numbers.
+//! It sits just left of its stream at the pointer's height, and goes when the pointer leaves, the
+//! stream goes, or the rain does.
 
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
-    utils::{Logical, Point, Size},
+    utils::Point,
 };
 
 use crate::{
     layout::Rect,
     paint,
     panel::{self, DESIGN_PX},
-    text::{self, Face, Style},
+    text::{Face, Style},
+    tip::{self, Hover, Line},
     usage::Figures,
 };
 
-/// How long the pointer stays on a stream before its tip shows.
-pub const REST: Duration = Duration::from_millis(500);
-
-/// The card's padding and its two lines' heights, in design pixels.
-const PAD: f32 = 14.0;
+/// The card's two lines' heights, in design pixels.
 const NAME_LINE: f32 = 22.0;
 const FIGURES_LINE: f32 = 20.0;
 
@@ -34,44 +26,6 @@ const FIGURES_LINE: f32 = 20.0;
 const GAP: f64 = 8.0;
 
 const MIB: f64 = 1024.0 * 1024.0;
-
-/// Which stream the pointer is on, since when, and at what height.
-pub struct Hover<K> {
-    over: Option<(K, Instant)>,
-    y: f64,
-}
-
-impl<K: PartialEq> Hover<K> {
-    pub fn new() -> Self {
-        Self { over: None, y: 0.0 }
-    }
-
-    /// The pointer is on `over`'s stream, or on none, `y` logical pixels down the screen. Moving
-    /// along the same stream keeps its wait, or its tip, and the tip follows the pointer down.
-    pub fn point(&mut self, over: Option<K>, y: f64, at: Instant) {
-        let Some(key) = over else {
-            self.over = None;
-            return;
-        };
-        if self.over.as_ref().is_none_or(|(on, _)| *on != key) {
-            self.over = Some((key, at));
-        }
-        self.y = y;
-    }
-
-    /// The rain went: the pointer has to come back for a tip to show again.
-    pub fn leave(&mut self) {
-        self.over = None;
-    }
-
-    /// The stream whose tip shows at `at`: the one the pointer has been on for `REST`.
-    pub fn showing(&self, at: Instant) -> Option<&K> {
-        self.over
-            .as_ref()
-            .filter(|(_, since)| at.saturating_duration_since(*since) >= REST)
-            .map(|(on, _)| on)
-    }
-}
 
 /// The hover, and the card last painted for it.
 pub struct Tip<K> {
@@ -167,29 +121,26 @@ fn rate(bytes_a_second: f32) -> String {
 /// The card: the app's name, and under it what it is using when that has been measured. A
 /// notice's solid card, since it is read at a glance over the rain.
 fn paint_card(name: &str, line: Option<&str>, scale: f64) -> Option<paint::Painted> {
-    let name_style = Style::new(Face::BodyBold, 15.0, panel::BRIGHT);
-    let figures_style = Style {
-        tabular: true,
-        ..Style::new(Face::Mono, 13.0, panel::PROSE)
+    let name = Line {
+        text: name,
+        style: Style::new(Face::BodyBold, 15.0, panel::BRIGHT),
+        height: NAME_LINE,
     };
-    let width = text::width(name, &name_style)
-        .max(line.map_or(0.0, |line| text::width(line, &figures_style)))
-        + 2.0 * PAD;
-    let height = 2.0 * PAD + NAME_LINE + if line.is_some() { FIGURES_LINE } else { 0.0 };
-    let m = panel::NOTICE_MARGIN;
-    let logical = Size::<i32, Logical>::from((
-        ((width + 2.0 * m) * DESIGN_PX).ceil() as i32,
-        ((height + 2.0 * m) * DESIGN_PX).ceil() as i32,
-    ));
-    paint::Painted::new(logical, scale, |p| {
-        p.f *= DESIGN_PX;
-        panel::notice(p, m, m, width, height);
-        let (x, y) = (m + PAD, m + PAD);
-        p.text(name, x, y + NAME_LINE / 2.0, &name_style);
-        if let Some(line) = line {
-            p.text(line, x, y + NAME_LINE + FIGURES_LINE / 2.0, &figures_style);
-        }
-    })
+    let figures = line.map(|line| Line {
+        text: line,
+        style: Style {
+            tabular: true,
+            ..Style::new(Face::Mono, 13.0, panel::PROSE)
+        },
+        height: FIGURES_LINE,
+    });
+    tip::card(
+        &[Some(name), figures]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+        scale,
+    )
 }
 
 #[cfg(test)]
@@ -204,37 +155,6 @@ mod tests {
         h: 960,
     };
     const TOP: i32 = 40;
-
-    #[test]
-    fn a_tip_waits_for_the_pointer_to_rest_on_one_stream() {
-        let start = Instant::now();
-        let mut hover = Hover::new();
-        hover.point(Some(0), 300.0, start);
-        assert_eq!(hover.showing(start + REST / 2), None, "only passing over");
-        // Moving along the same stream doesn't start the wait again.
-        hover.point(Some(0), 340.0, start + REST / 2);
-        assert_eq!(hover.showing(start + REST), Some(&0));
-        // Over to the next stream: it waits again, and the first one's tip has gone.
-        hover.point(Some(1), 340.0, start + REST);
-        assert_eq!(hover.showing(start + REST), None);
-        assert_eq!(hover.showing(start + REST * 2), Some(&1));
-    }
-
-    #[test]
-    fn a_tip_goes_when_the_pointer_leaves_or_the_rain_hides() {
-        let start = Instant::now();
-        let mut hover = Hover::new();
-        hover.point(Some(0), 300.0, start);
-        hover.point(None, 300.0, start + REST);
-        assert_eq!(hover.showing(start + REST * 2), None);
-
-        hover.point(Some(0), 300.0, start);
-        hover.leave();
-        assert_eq!(hover.showing(start + REST * 2), None);
-        // Coming back is a fresh wait.
-        hover.point(Some(0), 300.0, start + REST * 2);
-        assert_eq!(hover.showing(start + REST * 2), None);
-    }
 
     #[test]
     fn the_streams_and_only_the_streams_bring_up_a_tip() {

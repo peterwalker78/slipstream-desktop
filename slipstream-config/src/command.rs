@@ -1,5 +1,5 @@
-//! Running a command of the person's own, such as the meter's, without letting it hang anything
-//! or outlive its welcome. Each starts in a process group of its own, so whatever
+//! Running a command of the person's own, such as the meter's or a bar module's, without letting
+//! it hang anything or outlive its welcome. Each starts in a process group of its own, so whatever
 //! it starts can be stopped along with it; its output is read on threads of its own, a capped
 //! amount of it; and a run has a time limit.
 //!

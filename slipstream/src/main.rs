@@ -14,6 +14,7 @@ mod appearance;
 mod apps;
 mod auth;
 mod awake;
+mod bar_modules;
 mod battery;
 mod calc;
 mod capture;
@@ -93,8 +94,8 @@ use effects::{
     bullet, deck, fx, ghost, glass, glmatrix, overview, pane, rain, saver, scope, streaks, tilt,
 };
 use shell::{
-    arrange, bar, calendar, card, centre, connect, exit, explorer, history, miniature, notices,
-    offer, osd, panel, quick, share, sheet, slot, stream_tip, switcher, toast, tour,
+    arrange, bar, bar_slots, calendar, card, centre, connect, exit, explorer, history, miniature,
+    notices, offer, osd, panel, quick, share, sheet, slot, stream_tip, switcher, tip, toast, tour,
 };
 
 use std::{
@@ -242,6 +243,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Quitting from inside bullet time would otherwise leave the desktop's sound muffled.
     sound::restore();
+    // Nothing a bar module's command started outlives the compositor.
+    state.bar_modules.stop_all();
     end_session();
     tracing::info!("stopped cleanly");
     drop(owner);
@@ -540,6 +543,7 @@ fn start_watchdog(heartbeat: Arc<AtomicU64>, started: Instant) {
                 // and services at a socket that isn't there. It runs on this thread, not the
                 // frozen one, so a wedged event loop can't hold it up.
                 end_session();
+                slipstream_config::command::end_all();
                 std::process::exit(2);
             }
         }
@@ -628,6 +632,7 @@ fn install_panic_hook() {
         tracing::error!(thread = name, "panicked: {info}");
         if name == "main" {
             end_session();
+            slipstream_config::command::end_all();
         }
         default(info);
     }));

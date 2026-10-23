@@ -362,6 +362,13 @@ pub struct Slipstream {
     pub status: Arc<Mutex<status::Reading>>,
     /// What the bar's meter shows, from its command; `None` without one.
     pub meter: Arc<Mutex<Option<meter::Reading>>>,
+    /// The bar's own modules beside the clock, each running its command.
+    pub bar_modules: crate::bar_modules::Modules,
+    /// The module the pointer is on, by its screen's output and its id, for its lit patch and its
+    /// tooltip.
+    pub module_hover: crate::tip::Hover<(String, u64)>,
+    /// The wheel's movement over a module, adding up to a notch.
+    pub module_wheel: f64,
     pub debug: debug::Script,
     /// The settings as applied: the file's, with any environment overrides.
     pub settings: slipstream_config::Settings,
@@ -483,6 +490,8 @@ impl Slipstream {
             .expect("a channel source always inserts");
 
         meter::configure(&settings.meter);
+        let mut bar_modules = crate::bar_modules::Modules::default();
+        bar_modules.configure(&settings.bar);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();
 
@@ -595,6 +604,9 @@ impl Slipstream {
             tiled_mins: Vec::new(),
             status: status::start(),
             meter: meter::start(),
+            bar_modules,
+            module_hover: crate::tip::Hover::new(),
+            module_wheel: 0.0,
             debug: debug::Script::default(),
             settings,
             layouts: crate::layouts::Layouts::from_env(),
@@ -1042,6 +1054,9 @@ impl Slipstream {
             bar::Target::Dock => self.dock_clicked(),
             bar::Target::Awake => self.set_awake(false),
             bar::Target::Layout => self.next_layout(),
+            bar::Target::Module(id) => self
+                .bar_modules
+                .event(id, slipstream_config::bar::Event::Click),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(

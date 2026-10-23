@@ -176,7 +176,7 @@ Both are projects of their own that run on any Linux desktop. The installer adds
 |---|---|
 | [**Installing**](guide/install.md) | what you need, every install route, which distributions, updating, uninstalling, building from source |
 | [**Every key**](guide/keys.md) | the whole table - Super+/ shows it in the desktop too |
-| [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, the bar's meter, apps that come with your desktop, bringing an AI agent's session back, keeping one working while you're logged out, and seeing one at work from across the room |
+| [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, the bar's meter, your own modules beside the clock, apps that come with your desktop, bringing an AI agent's session back, keeping one working while you're logged out, and seeing one at work from across the room |
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
 | [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |

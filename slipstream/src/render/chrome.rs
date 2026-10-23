@@ -10,6 +10,8 @@ pub(super) type Painted = (f64, MemoryRenderBuffer, Size<i32, Logical>);
 /// tracking redraws only changes.
 pub struct Chrome {
     pub bar: Bar,
+    /// The tooltip of the bar module the pointer rests on.
+    pub(super) module_tip: crate::tip::BarTip,
     pub(super) ring: [SolidColorBuffer; 4],
     /// One per distant window drawn this frame.
     pub(super) dims: Vec<SolidColorBuffer>,
@@ -59,6 +61,7 @@ impl Default for Chrome {
     fn default() -> Self {
         Self {
             bar: Bar::default(),
+            module_tip: crate::tip::BarTip::default(),
             ring: std::array::from_fn(|_| SolidColorBuffer::new((0, 0), FOCUS)),
             dims: Vec::new(),
             tags: HashMap::new(),

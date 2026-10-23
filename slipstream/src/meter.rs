@@ -18,14 +18,12 @@ use slipstream_config::{
     meter::{RUN_LIMIT, Report, unix_now},
 };
 
-use crate::panel::AMBER;
+use crate::panel::{AMBER, HOT};
 
 /// The most sections the bar makes room for; quick settings shows them all.
 pub const BAR_SECTIONS: usize = 3;
 
 const CALM: u32 = 0xcfd6e2ff;
-/// Nearly used up. Orange rather than red, which the bar keeps for sharing.
-const HOT: u32 = 0xff7a45ff;
 
 /// A gauge's colour at `percent` used.
 pub fn ink(percent: u8) -> u32 {

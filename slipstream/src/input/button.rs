@@ -122,7 +122,15 @@ impl Slipstream {
             // The bar takes its own clicks; nothing below it sees them.
             if let Some(target) = self.bar_target_at(at) {
                 if pressed {
-                    self.bar_clicked(target);
+                    match target {
+                        // Each of a module's buttons runs its own command, if it has one.
+                        crate::bar::Target::Module(id) => {
+                            if let Some(event) = crate::bar_modules::button_event(button) {
+                                self.bar_modules.event(id, event);
+                            }
+                        }
+                        target => self.bar_clicked(target),
+                    }
                 }
                 return;
             }

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Your own modules beside the clock,** in the format of Waybar's custom modules, so a Waybar script works as it is. Settings › Bar modules adds them and tries them out. Each runs as a program of its own and only ever shows text: a click or a scroll runs the command you set, and nothing a module prints can run anything.
+
 ## 1.0.0-rc.1 - 2026-10-21
 
 - **Shortcuts of your own.** Settings › Shortcuts gives an app keys that open it: choose the app, then press the keys. Keys your style already uses, and keys kept for typing aids, screen readers and games, are refused with the reason. Changing style keeps them, and Super+/ lists the ones that work.
