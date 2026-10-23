@@ -626,9 +626,10 @@ fn paint_front(
     let Some(card) = shown.visible() else {
         let note = Style::new(Face::Body, 13.0, quiet(facts.ahead));
         let said = match &shown.problem {
-            Some(problem) if shown.held => problem.clone(),
-            _ if shown.held => "Changed since it was turned on: turn it on again to run it".into(),
-            Some(problem) => format!("Not answering: {problem}"),
+            _ if shown.held && shown.problem.is_none() => {
+                "Changed since it was turned on: turn it on again to run it".into()
+            }
+            Some(problem) => problem.clone(),
             None => "Starting…".into(),
         };
         p.text(
@@ -758,7 +759,7 @@ fn paint_front(
     if let Some(problem) = &shown.problem {
         let note = Style::new(Face::Body, 12.5, quiet(facts.ahead));
         p.text(
-            &text::ellipsize(&format!("Not up to date: {problem}"), &note, inner),
+            &text::ellipsize(&format!("Not up to date. {problem}"), &note, inner),
             x0,
             y + NOTE_H / 2.0,
             &note,
@@ -861,7 +862,11 @@ fn paint_back(
             sh - 6.0,
             sh - 6.0,
             (sh - 6.0) / 2.0,
-            if on { panel::DARK } else { panel::SECONDARY },
+            if on {
+                panel::ink_on(facts.accent)
+            } else {
+                panel::SECONDARY
+            },
         );
         shapes.push((
             Item::Section(shown.id.clone(), section.name.clone()),
@@ -1079,27 +1084,27 @@ mod tests {
     /// back before it closes anything.
     #[test]
     fn the_cog_leads_to_a_switch_for_every_section_and_esc_comes_back() {
-        let mut usage = with_sections("meter", &["Claude", "Codex", "Antigravity"], None);
-        usage.hidden = vec!["Codex".into(), "Antigravity".into()];
+        let mut usage = with_sections("allotments", &["Orchard", "Meadow", "Copse"], None);
+        usage.hidden = vec!["Meadow".into(), "Copse".into()];
         let facts = facts(vec![usage]);
         let mut panel = PluginPanel::default();
         panel.open(0.0, 800.0);
-        assert_eq!(panel.selected(&facts), Item::Cog("meter".into()));
+        assert_eq!(panel.selected(&facts), Item::Cog("allotments".into()));
         assert_eq!(panel.key(Keysym::Return, false, &facts), Request::Nothing);
-        assert_eq!(panel.switches(), Some("meter"));
+        assert_eq!(panel.switches(), Some("allotments"));
         panel.key(Keysym::Down, false, &facts);
         panel.key(Keysym::Down, false, &facts);
         assert_eq!(
             panel.key(Keysym::space, false, &facts),
             Request::Toggle {
-                plugin: "meter".into(),
-                section: "Codex".into()
+                plugin: "allotments".into(),
+                section: "Meadow".into()
             },
             "a hidden section has its switch too"
         );
         assert_eq!(panel.key(Keysym::Escape, false, &facts), Request::Nothing);
         assert_eq!(panel.switches(), None);
-        assert_eq!(panel.selected(&facts), Item::Cog("meter".into()));
+        assert_eq!(panel.selected(&facts), Item::Cog("allotments".into()));
         assert_eq!(panel.key(Keysym::Escape, false, &facts), Request::Close);
     }
 
@@ -1113,16 +1118,16 @@ mod tests {
             ..shown("a", &[])
         };
         assert_eq!(front_height(&quiet), bare + LINE_H);
-        let mut usage = with_sections("meter", &["Claude", "Codex"], None);
+        let mut usage = with_sections("allotments", &["Orchard", "Meadow"], None);
         let both = front_height(&usage);
-        usage.hidden = vec!["Codex".into()];
+        usage.hidden = vec!["Meadow".into()];
         assert!(
             front_height(&usage) < both,
             "a hidden section takes no room"
         );
         assert_eq!(
-            back_height(&with_sections("meter", &["Claude"], Some(0.5))),
-            back_height(&with_sections("meter", &["Claude"], None)) + 6.0 + 2.0 * KEY_H,
+            back_height(&with_sections("allotments", &["Orchard"], Some(0.5))),
+            back_height(&with_sections("allotments", &["Orchard"], None)) + 6.0 + 2.0 * KEY_H,
             "the key to the colours shows only for gauges that show time"
         );
     }

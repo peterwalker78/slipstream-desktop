@@ -104,7 +104,7 @@ impl Report {
                             resets_in: meter
                                 .resets
                                 .filter(|at| at.is_finite())
-                                .map(|at| at as i64 - now)
+                                .and_then(|at| (at as i64).checked_sub(now))
                                 .filter(|left| *left > 0)
                                 .map(time_left),
                             through: through(meter.resets, meter.window, now),
@@ -215,6 +215,17 @@ mod tests {
             "a name is needed, and the error says so"
         );
         assert_eq!(Report::parse("{}").unwrap().sections.len(), 0);
+    }
+
+    #[test]
+    fn a_reset_far_in_the_past_is_no_time_left() {
+        let report = Report::parse(
+            r#"{"sections": [{"name": "Odd", "meters": [
+                {"label": "Old", "percent": 1, "resets": -1e300}]}]}"#,
+        )
+        .unwrap();
+        let odd = &report.reading(false, 1_800_000_000).sections[0];
+        assert_eq!(odd.gauges[0].resets_in, None);
     }
 
     #[test]

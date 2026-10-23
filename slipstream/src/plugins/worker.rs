@@ -110,6 +110,7 @@ impl Worker {
             state: approved.state,
             store: approved.store,
             last: None,
+            fresh: None,
             failures: Throttle::default(),
         };
         let thread = std::thread::Builder::new()
@@ -166,8 +167,10 @@ struct Job {
     store: Option<PathBuf>,
     control: Arc<Control>,
     published: Arc<Mutex<Published>>,
-    /// The last line that read as a card, read again to count its times left down.
+    /// The last line that read as a card, read again to count its times left down, and the card
+    /// it read as, until that has been published.
     last: Option<String>,
+    fresh: Option<Card>,
     failures: Throttle,
 }
 
@@ -208,24 +211,27 @@ impl Job {
             match command::run_tidily(program, RUN_LIMIT, &|| self.stopped()) {
                 None => return false,
                 Some(Run::Printed(_)) => {}
-                Some(ran) => self.failed(&format!("a press: {}", why(&ran))),
+                Some(ran) => self.failed(&format!("A press: {}", why(&ran))),
             }
         }
     }
 
     /// Publishes the last card read, `stale` when its program has since failed, with `problem`.
-    fn publish(&self, stale: bool, problem: Option<String>) {
-        let card = self
-            .last
-            .as_ref()
-            .and_then(|line| Card::parse(line, stale, unix_now()).ok());
+    fn publish(&mut self, stale: bool, problem: Option<String>) {
+        let fresh = self.fresh.take().filter(|_| !stale);
+        let card = fresh.or_else(|| {
+            let line = self.last.as_ref()?;
+            Card::parse(line, stale, unix_now()).ok()
+        });
         *self.published.lock().unwrap() = Published { card, problem };
     }
 
     /// Takes `line` as the new card if it reads as one; says why not otherwise.
     fn read(&mut self, line: &str) -> Result<(), String> {
-        Card::parse(line, false, unix_now()).map_err(|err| format!("unreadable card: {err}"))?;
+        let card = Card::parse(line, false, unix_now())
+            .map_err(|err| format!("Its card can't be read: {err}"))?;
         self.last = Some(line.to_string());
+        self.fresh = Some(card);
         Ok(())
     }
 
@@ -311,7 +317,7 @@ impl Job {
             }
             backoff = next_backoff(backoff, started.elapsed());
             let problem = format!(
-                "its program exited; starting it again in {:.0} s",
+                "Its program stopped; starting it again in {:.0} s",
                 backoff.as_secs_f64().ceil()
             );
             self.failed(&problem);
@@ -349,7 +355,7 @@ impl Job {
         }) {
             Ok(lines) => lines,
             Err(err) => {
-                let problem = format!("couldn't start: {err}");
+                let problem = format!("Couldn't start: {err}");
                 self.failed(&problem);
                 self.publish(true, Some(problem));
                 return !self.stopped();
@@ -470,14 +476,23 @@ fn next_backoff(backoff: Duration, ran: Duration) -> Duration {
 /// Why a run has nothing new to show.
 fn why(run: &Run) -> String {
     match run {
-        Run::Printed(_) => "it ran".into(),
-        Run::Failed { code, error } if error.is_empty() => format!("exit {code:?}"),
-        Run::Failed { code, error } => format!("exit {code:?}: {error}"),
+        Run::Printed(_) => "It ran".into(),
+        Run::Failed { code, error } => {
+            let stopped = match code {
+                Some(code) => format!("Stopped with error {code}"),
+                None => "Stopped by a signal".into(),
+            };
+            if error.is_empty() {
+                stopped
+            } else {
+                format!("{stopped}: {error}")
+            }
+        }
         Run::TimedOut => format!(
-            "still running after {} s, so it was stopped",
+            "Still running after {} s, so it was stopped",
             RUN_LIMIT.as_secs()
         ),
-        Run::CouldntStart(err) => format!("couldn't start: {err}"),
+        Run::CouldntStart(err) => format!("Couldn't start: {err}"),
     }
 }
 

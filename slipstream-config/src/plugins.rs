@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn a_card_s_glance_comes_from_its_gauges_unless_it_gives_one() {
         let card = Card::parse(
-            r#"{"sections": [{"name": "Claude", "meters": [
+            r#"{"sections": [{"name": "Allotment", "meters": [
                 {"label": "Session", "percent": 62}, {"label": "Week", "percent": 81}]}]}"#,
             false,
             0,
@@ -672,7 +672,7 @@ mod tests {
             card.attention(),
             "a gauge past three quarters wants looking at"
         );
-        let hidden = card.clone().without(&["Claude".to_string()]);
+        let hidden = card.clone().without(&["Allotment".to_string()]);
         assert_eq!(
             hidden.glance().text,
             "",

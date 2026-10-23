@@ -709,7 +709,10 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
         let (mut plugins, scans) = looking(&root);
         follow(&mut plugins, &scans, &turned_on(&plugin));
         let shown = settle(&plugins, |shown| shown[0].problem.is_some());
-        assert_eq!(shown[0].problem.as_deref(), Some("exit Some(3): gone"));
+        assert_eq!(
+            shown[0].problem.as_deref(),
+            Some("Stopped with error 3: gone")
+        );
         assert!(shown[0].card.is_none());
     }
 }

@@ -71,8 +71,8 @@ pub fn snapshot(plugin: &Plugin, store: &Path) -> Result<PathBuf, String> {
 pub fn verify(copy: &Path, fingerprint: &str) -> Result<(), String> {
     match contents::fingerprint(copy) {
         Ok(now) if now == fingerprint => Ok(()),
-        Ok(_) => Err("its approved copy has been changed, so it doesn't run".into()),
-        Err(why) => Err(format!("its approved copy can't be checked: {why}")),
+        Ok(_) => Err("Its approved copy has been changed, so it doesn't run".into()),
+        Err(why) => Err(format!("Its approved copy can't be checked: {why}")),
     }
 }
 

@@ -407,13 +407,26 @@ fn add_from_git(url: &str) -> Result<String, String> {
         }
         failed => {
             let _ = std::fs::remove_dir_all(&staging);
-            return Err(format!("git couldn't copy it: {failed:?}"));
+            return Err(git_failed(&failed));
         }
     }
     let _ = std::fs::remove_dir_all(staging.join(".git"));
     let added = add_from_folder(&staging);
     let _ = std::fs::remove_dir_all(&staging);
     added
+}
+
+/// Why git couldn't copy a plugin, in git's own last words where it gave some.
+fn git_failed(run: &slipstream_config::command::Run) -> String {
+    use slipstream_config::command::Run;
+    match run {
+        Run::Failed { error, .. } if !error.is_empty() => {
+            let error = error.strip_prefix("fatal: ").unwrap_or(error);
+            format!("git couldn't copy it: {error}")
+        }
+        Run::TimedOut => "git took more than two minutes, so it was stopped.".into(),
+        _ => "git couldn't copy it.".into(),
+    }
 }
 
 /// A plugin's id from its repository's address: the last part of the path, without `.git`.
@@ -447,6 +460,19 @@ fn copy_folder(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn git_s_failure_reads_as_its_last_line() {
+        use slipstream_config::command::Run;
+        let failed = Run::Failed {
+            code: Some(128),
+            error: "fatal: repository 'https://example.org/a/timer/' not found".into(),
+        };
+        assert_eq!(
+            git_failed(&failed),
+            "git couldn't copy it: repository 'https://example.org/a/timer/' not found"
+        );
+    }
 
     #[test]
     fn only_an_https_address_names_a_plugin() {

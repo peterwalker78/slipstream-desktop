@@ -72,8 +72,8 @@ pub const TERTIARY: u32 = 0x9aa4b6ff;
 /// What wants attention, until the settings are read: the secondary colour's default.
 /// `Slipstream::panel_attention` hands the chosen one out.
 pub const AMBER: u32 = 0xffb547ff;
-/// Something pressing: a meter nearly used up, a bar module's `critical` class. Orange rather than
-/// red, which the bar keeps for sharing.
+/// Something pressing: a gauge nearly used up. Orange rather than red, which the bar keeps for
+/// sharing.
 pub const HOT: u32 = 0xff7a45ff;
 /// Text on amber.
 pub const DARK: u32 = 0x1a1206ff;

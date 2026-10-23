@@ -262,7 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Quitting from inside bullet time would otherwise leave the desktop's sound muffled.
     sound::restore();
-    // Nothing a bar module's command started outlives the compositor.
+    // Nothing a plugin's program started outlives the compositor.
     state.plugins.stop_all();
     end_session();
     tracing::info!("stopped cleanly");

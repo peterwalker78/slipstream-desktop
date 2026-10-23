@@ -86,7 +86,7 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
     SettingsPage {
         id: "plugins",
         title: "Plugins",
-        holds: &["Plugins", "Add a plugin", "Meter", "Bar modules"],
+        holds: &["Plugins", "Add a plugin", "Meter"],
     },
     SettingsPage {
         id: "input",
