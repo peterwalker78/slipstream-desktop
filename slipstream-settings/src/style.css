@@ -287,13 +287,6 @@ dropdown > button:focus-visible {
   outline-offset: -2px;
 }
 
-/* The colour wheel: round, so its outline is too. */
-.row drawingarea.wheel:focus-visible {
-  outline: 2px solid #ffb547;
-  outline-offset: 2px;
-  border-radius: 50%;
-}
-
 .note {
   margin: 0 28px 16px;
 }
