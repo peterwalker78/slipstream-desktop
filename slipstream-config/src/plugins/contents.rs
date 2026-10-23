@@ -160,17 +160,40 @@ pub(super) fn stream(
 
 /// What `dir` holds, and its fingerprint.
 pub fn contents(dir: &Path) -> Result<Contents, Unchecked> {
+    contents_keeping(dir, None).map(|(contents, _)| contents)
+}
+
+/// `contents`, keeping the bytes of the file at `keep` in the folder, at most `most` of them, as
+/// they were fingerprinted. More than `most` is kept as none.
+pub(super) fn contents_keeping(
+    dir: &Path,
+    keep: Option<(&str, u64)>,
+) -> Result<(Contents, Option<Vec<u8>>), Unchecked> {
     let files = list(dir)?;
+    let mut kept = None;
     let mut left = MOST_BYTES;
     let mut whole = Sha256::new();
     let mut each = BTreeMap::new();
     for file in files {
         let (opened, program) = open_regular(&file.path).map_err(Unchecked::NotAPlugin)?;
         let mut hash = Sha256::new();
+        let mut keeping = keep
+            .filter(|(name, _)| file.name == *name)
+            .map(|(_, most)| (Vec::new(), most));
         stream(opened, &mut left, |bytes| {
             hash.update(bytes);
+            if let Some((held, most)) = &mut keeping {
+                if held.len() as u64 + bytes.len() as u64 > *most {
+                    keeping = None;
+                } else {
+                    held.extend_from_slice(bytes);
+                }
+            }
             Ok(())
         })?;
+        if let Some((held, _)) = keeping {
+            kept = Some(held);
+        }
         let digest = hex(&hash.finalize());
         whole.update((file.name.len() as u64).to_le_bytes());
         whole.update(file.name.as_bytes());
@@ -183,10 +206,13 @@ pub fn contents(dir: &Path) -> Result<Contents, Unchecked> {
         };
         each.insert(file.name, recorded);
     }
-    Ok(Contents {
-        fingerprint: hex(&whole.finalize()),
-        files: each,
-    })
+    Ok((
+        Contents {
+            fingerprint: hex(&whole.finalize()),
+            files: each,
+        },
+        kept,
+    ))
 }
 
 /// `dir`'s fingerprint, or why it has none.

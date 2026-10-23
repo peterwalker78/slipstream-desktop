@@ -9,7 +9,7 @@ use std::{
     sync::mpsc,
 };
 
-use slipstream_config::plugins::{self, Plugin, approval, store};
+use slipstream_config::plugins::{self, approval, store};
 
 use super::worker::{self, Approved};
 
@@ -116,18 +116,16 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
         }
         let kept = places.stores.join(id);
         match store::snapshot(plugin, &kept) {
-            Ok(copy) => {
+            // What runs is the copy's own manifest, read from the bytes that were checked.
+            Ok(copied) => {
                 if let Err(err) = store::point_current(&kept, &plugin.fingerprint) {
                     tracing::warn!("plugin {id}: its current link couldn't be moved: {err}");
                 }
                 // So a later update can be compared with it, where it was turned on before what
                 // a plugin asks for was kept.
-                approval::remember_if_missing_in(&places.approvals, plugin, &plugin.fingerprint);
+                approval::remember_if_missing_in(&places.approvals, &copied, &plugin.fingerprint);
                 run.push(Approved {
-                    plugin: Plugin {
-                        dir: copy,
-                        ..plugin.clone()
-                    },
+                    plugin: copied,
                     state: kept.join(store::STATE),
                     store: Some(kept),
                 });

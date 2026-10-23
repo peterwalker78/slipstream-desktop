@@ -20,7 +20,7 @@ every-secs = 600
 ```
 
 - `name` and `exec` are needed; `description` shows in **Settings → Plugins**.
-- `exec` is the program and the words it is run with, as a list. It is run as written, with no shell. A program with a `/` in it is found from the plugin's folder; one without is looked for on `PATH`.
+- `exec` is the program and the words it is run with, as a list. It is run as written, with no shell. A program with a `/` in it is found from the plugin's folder, and can't start with `/` or go up with `..`; one without is looked for on `PATH`.
 - `every-secs` runs the program that often, and again after one of its buttons is pressed. Leave it out for a program that keeps running and prints a new card whenever something changes.
 - `read` names folders outside its own that it reads, such as `read = ["$XDG_CACHE_HOME/weather"]`. They are handed to the program as `SLIPSTREAM_PLUGIN_READ_0`, `SLIPSTREAM_PLUGIN_READ_1` and so on. A folder starts with `$HOME`, `$XDG_RUNTIME_DIR`, one of the `$XDG_…_HOME` folders, or `/`.
 

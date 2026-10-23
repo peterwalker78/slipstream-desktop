@@ -456,11 +456,15 @@ mod tests {
             &format!("touch '{}'; printf '{{}}'", said.display()),
             Some(60),
         );
-        std::fs::write(plugin.dir.join("extra"), "x").unwrap();
+        let kept = root.join("stores").join("harbour");
+        let copied = store::snapshot(&plugin, &kept).unwrap();
+        // Read-only, but its owner can still open it up and add to it.
+        std::fs::set_permissions(&copied.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(copied.dir.join("extra"), "x").unwrap();
         let worker = Worker::start(Approved {
-            plugin,
-            state: root.join("state"),
-            store: None,
+            plugin: copied,
+            state: kept.join(store::STATE),
+            store: Some(kept),
         });
         let deadline = Instant::now() + Duration::from_secs(5);
         while worker.published().problem.is_none() && Instant::now() < deadline {

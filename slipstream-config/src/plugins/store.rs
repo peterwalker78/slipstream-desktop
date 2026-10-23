@@ -12,7 +12,7 @@ use std::{
 };
 
 use super::{
-    Plugin,
+    Manifest, Plugin,
     contents::{self, MOST_BYTES, is_fingerprint},
 };
 
@@ -37,16 +37,17 @@ pub fn of(id: &str) -> PathBuf {
 
 /// A copy of `plugin`'s folder in `store` that holds exactly what its fingerprint says: the one
 /// kept from before if it still does, else a new one, written, checked against the fingerprint
-/// and made read-only. Altered copies are thrown away and made again.
-pub fn snapshot(plugin: &Plugin, store: &Path) -> Result<PathBuf, String> {
+/// and made read-only. Altered copies are thrown away and made again. Gives the plugin as its copy
+/// holds it, with the manifest read from the bytes that were checked, never from its folder.
+pub fn snapshot(plugin: &Plugin, store: &Path) -> Result<Plugin, String> {
     let fingerprint = &plugin.fingerprint;
     if plugin.too_big.is_some() || !is_fingerprint(fingerprint) {
         return Err("its folder couldn't be checked".into());
     }
     let kept = store.join(fingerprint);
     if kept.exists() {
-        if verify(&kept, fingerprint).is_ok() {
-            return Ok(kept);
+        if let Ok(manifest) = manifest_of(&kept, fingerprint) {
+            return Ok(as_copied(plugin, kept, manifest));
         }
         remove_tree(&kept).map_err(|err| err.to_string())?;
     }
@@ -58,13 +59,34 @@ pub fn snapshot(plugin: &Plugin, store: &Path) -> Result<PathBuf, String> {
         return Err(why);
     }
     // What was written is what's checked, so a folder that changed while it was copied is caught.
-    if contents::fingerprint(&new).as_ref() != Ok(fingerprint) {
-        let _ = remove_tree(&new);
-        return Err("its folder changed while it was being copied".into());
-    }
+    let manifest = match manifest_of(&new, fingerprint) {
+        Ok(manifest) => manifest,
+        Err(_) => {
+            let _ = remove_tree(&new);
+            return Err("its folder changed while it was being copied".into());
+        }
+    };
     fs::rename(&new, &kept).map_err(|err| err.to_string())?;
     seal(&kept).map_err(|err| err.to_string())?;
-    Ok(kept)
+    Ok(as_copied(plugin, kept, manifest))
+}
+
+/// The manifest in `copy`, when `copy` holds what `fingerprint` says.
+fn manifest_of(copy: &Path, fingerprint: &str) -> Result<Manifest, String> {
+    let (found, manifest) =
+        super::checked(copy).map_err(|unchecked| unchecked.why().to_string())?;
+    if found.fingerprint != fingerprint {
+        return Err("it doesn't hold what was approved".into());
+    }
+    manifest
+}
+
+fn as_copied(plugin: &Plugin, dir: PathBuf, manifest: Manifest) -> Plugin {
+    Plugin {
+        dir,
+        manifest,
+        ..plugin.clone()
+    }
 }
 
 /// Whether `copy` still holds what `fingerprint` says.
@@ -236,7 +258,7 @@ mod tests {
         let root = scratch("copy");
         let plugin = timer(&root, "#!/bin/sh\necho {}\n");
         let store = root.join("store");
-        let copy = snapshot(&plugin, &store).unwrap();
+        let copy = snapshot(&plugin, &store).unwrap().dir;
         assert_eq!(copy, store.join(&plugin.fingerprint));
         verify(&copy, &plugin.fingerprint).unwrap();
         let program = fs::metadata(copy.join("timer"))
@@ -256,7 +278,7 @@ mod tests {
         fs::set_permissions(&copy, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(copy.join("added"), "x").unwrap();
         assert!(verify(&copy, &plugin.fingerprint).is_err());
-        assert_eq!(snapshot(&plugin, &store).unwrap(), copy);
+        assert_eq!(snapshot(&plugin, &store).unwrap().dir, copy);
         verify(&copy, &plugin.fingerprint).unwrap();
     }
 
@@ -268,6 +290,21 @@ mod tests {
         let store = root.join("store");
         assert!(snapshot(&plugin, &store).is_err());
         assert!(!store.join(&plugin.fingerprint).exists());
+    }
+
+    /// A manifest read apart from the bytes that were fingerprinted (its file swapped between the
+    /// two reads) never runs: what runs is read again from the checked copy.
+    #[test]
+    fn a_manifest_swapped_after_it_was_read_never_runs() {
+        let root = scratch("swapped");
+        let mut plugin = timer(&root, "#!/bin/sh\necho {}\n");
+        let approved = plugin.manifest.clone();
+        plugin.manifest.exec = vec!["./elsewhere".into(), "--upload".into()];
+        let store = root.join("store");
+        let copied = snapshot(&plugin, &store).unwrap();
+        assert_eq!(copied.manifest, approved);
+        // And again from the copy kept from before.
+        assert_eq!(snapshot(&plugin, &store).unwrap().manifest, approved);
     }
 
     /// `current` moves to the copy approved in one step, and old copies go once nothing uses them.

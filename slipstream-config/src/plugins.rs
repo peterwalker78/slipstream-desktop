@@ -296,14 +296,19 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
         Err(contents::Unchecked::TooBig(why)) => Some(why),
         Err(contents::Unchecked::NotAPlugin(why)) => return Err(why),
     };
-    let manifest = read_manifest(&dir.join(MANIFEST))?;
-    let (fingerprint, files, too_big) = match listed {
-        Some(why) => (String::new(), BTreeMap::new(), Some(why)),
-        None => match contents::contents(dir) {
-            Ok(found) => (found.fingerprint, found.files, None),
-            Err(contents::Unchecked::TooBig(why)) => (String::new(), BTreeMap::new(), Some(why)),
+    let (manifest, fingerprint, files, too_big) = match listed {
+        None => match checked(dir) {
+            Ok((found, manifest)) => (manifest?, found.fingerprint, found.files, None),
+            Err(contents::Unchecked::TooBig(why)) => {
+                let manifest = read_manifest(&dir.join(MANIFEST))?;
+                (manifest, String::new(), BTreeMap::new(), Some(why))
+            }
             Err(contents::Unchecked::NotAPlugin(why)) => return Err(why),
         },
+        Some(why) => {
+            let manifest = read_manifest(&dir.join(MANIFEST))?;
+            (manifest, String::new(), BTreeMap::new(), Some(why))
+        }
     };
     Ok(Plugin {
         id,
@@ -316,24 +321,60 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
     })
 }
 
+/// What `dir` holds, and its manifest read from the very bytes its fingerprint was taken from, so
+/// what is shown and run is exactly what was approved, whatever changes in the folder meanwhile.
+pub(crate) fn checked(
+    dir: &Path,
+) -> Result<(contents::Contents, Result<Manifest, String>), contents::Unchecked> {
+    let (found, bytes) = contents::contents_keeping(dir, Some((MANIFEST, MOST_MANIFEST)))?;
+    let manifest = match bytes {
+        Some(bytes) => parse_manifest(&bytes),
+        None if found.files.contains_key(MANIFEST) => Err(too_long()),
+        None => Err(format!("no {MANIFEST}")),
+    };
+    Ok((found, manifest))
+}
+
+fn too_long() -> String {
+    format!("{MANIFEST} is longer than {} KB", MOST_MANIFEST >> 10)
+}
+
 /// The manifest at `path`: a file of its own, not a link, and small.
 fn read_manifest(path: &Path) -> Result<Manifest, String> {
     use std::io::Read;
     let (file, _) = contents::open_regular(path).map_err(|err| format!("no {MANIFEST}: {err}"))?;
-    let mut text = String::new();
-    file.take(MOST_MANIFEST)
-        .read_to_string(&mut text)
+    let mut bytes = Vec::new();
+    file.take(MOST_MANIFEST + 1)
+        .read_to_end(&mut bytes)
         .map_err(|err| format!("{MANIFEST}: {err}"))?;
-    let manifest: Manifest = toml::from_str(&text).map_err(|err| format!("{MANIFEST}: {err}"))?;
+    if bytes.len() as u64 > MOST_MANIFEST {
+        return Err(too_long());
+    }
+    parse_manifest(&bytes)
+}
+
+/// A manifest from its bytes, refused when it names no plugin or no program, or a program of its
+/// own outside its folder.
+fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
+    let text = std::str::from_utf8(bytes).map_err(|err| format!("{MANIFEST}: {err}"))?;
+    let manifest: Manifest = toml::from_str(text).map_err(|err| format!("{MANIFEST}: {err}"))?;
     if manifest.name.trim().is_empty() {
         return Err(format!("{MANIFEST} gives it no name"));
     }
-    if manifest
+    let Some(program) = manifest
         .exec
         .first()
-        .is_none_or(|program| program.trim().is_empty())
-    {
+        .filter(|program| !program.trim().is_empty())
+    else {
         return Err(format!("{MANIFEST} gives it no program to run"));
+    };
+    if program.contains('/')
+        && (program.starts_with('/') || program.split('/').any(|part| part == ".."))
+    {
+        return Err(format!(
+            "{MANIFEST} runs {program}, outside the plugin's folder: a program of its own is \
+             named from its folder, without '..', and any other by its name alone"
+        ));
     }
     Ok(manifest)
 }
@@ -597,6 +638,30 @@ mod tests {
     fn plugin(root: &Path, id: &str, manifest: &str) {
         std::fs::create_dir_all(root.join(id)).unwrap();
         std::fs::write(root.join(id).join(MANIFEST), manifest).unwrap();
+    }
+
+    /// A program of the plugin's own can't lead out of its approved copy, and Settings says why.
+    #[test]
+    fn a_program_outside_the_plugin_s_folder_is_refused() {
+        let root = scratch("outside");
+        for (id, program) in [
+            ("rooted", "/usr/bin/env"),
+            ("climbing", "./bin/../../timer"),
+        ] {
+            plugin(
+                &root,
+                id,
+                &format!("name = \"Timer\"\nexec = [\"{program}\"]\n"),
+            );
+            let why = read(&root.join(id)).unwrap_err();
+            assert!(why.contains("outside the plugin's folder"), "{why}");
+        }
+        plugin(
+            &root,
+            "inside",
+            "name = \"Timer\"\nexec = [\"./bin/timer\"]\n",
+        );
+        read(&root.join("inside")).unwrap();
     }
 
     #[test]
