@@ -65,7 +65,7 @@ impl Slipstream {
             pointer: bullet::Pointer::default(),
         });
         self.clock.enter_bullet_time();
-        if self.muffles_sound() {
+        if self.muffles_sound() && self.settings.sound.muffle_bullet_time {
             crate::sound::muffle(true);
         }
         let (wall, duration) = (self.wall(), self.overview_duration());

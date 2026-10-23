@@ -33,6 +33,8 @@
 //!
 //! [sound]
 //! volume-blip = true
+//! volume-step = 5
+//! muffle-bullet-time = true
 //!
 //! [clipboard]
 //! history = true
@@ -384,11 +386,26 @@ pub struct Sound {
     /// settings' slider, as macOS and Windows do, so the setting can be heard as well as seen.
     /// Never on mute, never on brightness.
     pub volume_blip: bool,
+    /// How far each press of the volume keys moves the volume, in percent.
+    pub volume_step: u8,
+    /// Muffle what's playing while bullet time is open: quieter, with the highs rolled off.
+    pub muffle_bullet_time: bool,
 }
 
 impl Default for Sound {
     fn default() -> Self {
-        Self { volume_blip: true }
+        Self {
+            volume_blip: true,
+            volume_step: 5,
+            muffle_bullet_time: true,
+        }
+    }
+}
+
+impl Sound {
+    /// `volume_step`, from 1% to 25%.
+    pub fn volume_step(&self) -> u8 {
+        self.volume_step.clamp(1, 25)
     }
 }
 
@@ -681,7 +698,11 @@ mod tests {
                 bullet_time: "#ffcf5c".into(),
                 accent: "#ff77b0".into(),
             },
-            sound: Sound { volume_blip: false },
+            sound: Sound {
+                volume_blip: false,
+                volume_step: 2,
+                muffle_bullet_time: false,
+            },
             clipboard: Clipboard { history: false },
             privacy: Privacy {
                 screen_capture_allowed: vec!["/usr/bin/made-up-recorder".into()],

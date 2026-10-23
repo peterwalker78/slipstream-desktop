@@ -428,6 +428,42 @@ fn open_window(
             .build(),
     ));
 
+    // The sidebar is one stop for Tab, as any list is: the arrow keys move through the pages, and
+    // Tab and Shift+Tab leave it for the page and the title bar, in the window's own order.
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.connect_key_pressed({
+        let main = main.clone();
+        let header = header.clone();
+        move |_, key, _, state| {
+            let held = gdk::ModifierType::CONTROL_MASK
+                | gdk::ModifierType::ALT_MASK
+                | gdk::ModifierType::SUPER_MASK;
+            if state.intersects(held) {
+                return glib::Propagation::Proceed;
+            }
+            let main = main.upcast_ref::<gtk::Widget>();
+            let header = header.upcast_ref::<gtk::Widget>();
+            let (direction, order) = match key {
+                gdk::Key::Tab | gdk::Key::KP_Tab
+                    if !state.contains(gdk::ModifierType::SHIFT_MASK) =>
+                {
+                    (gtk::DirectionType::TabForward, [main, header])
+                }
+                gdk::Key::Tab | gdk::Key::KP_Tab | gdk::Key::ISO_Left_Tab => {
+                    (gtk::DirectionType::TabBackward, [header, main])
+                }
+                _ => return glib::Propagation::Proceed,
+            };
+            if order.iter().any(|widget| widget.child_focus(direction)) {
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        }
+    });
+    side.add_controller(keys);
+
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("Settings")

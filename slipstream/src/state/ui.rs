@@ -156,11 +156,13 @@ impl Slipstream {
 
     /// The volume keys. The level is set outright rather than stepped, so what the display says
     /// and what the machine does can't drift apart, and the new level is shown at once — the
-    /// reading catches up when the change has been made.
+    /// reading catches up when the change has been made. `step` gives the direction; how far it
+    /// goes is the sound settings' step.
     pub fn change_volume(&mut self, step: i8) {
+        let step = step.signum() as i16 * self.settings.sound.volume_step() as i16;
         let (level, muted) = {
             let mut reading = self.status.lock().unwrap();
-            let level = (reading.volume as i16 + step as i16).clamp(0, 100) as u8;
+            let level = (reading.volume as i16 + step).clamp(0, 100) as u8;
             reading.volume = level;
             (level, reading.muted)
         };

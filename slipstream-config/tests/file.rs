@@ -65,7 +65,11 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             after_idle_mins: 15,
             before_sleep: false,
         },
-        sound: Sound { volume_blip: false },
+        sound: Sound {
+            volume_blip: false,
+            volume_step: 10,
+            muffle_bullet_time: false,
+        },
         clipboard: Clipboard { history: false },
         privacy: Default::default(),
         plugins: Default::default(),
