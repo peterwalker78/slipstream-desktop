@@ -53,6 +53,10 @@ pub struct Content {
     pub title: String,
     /// A mode's label, such as `BULLET TIME`, and the colour of its chip, 0xRRGGBBAA.
     pub mode: Option<(&'static str, u32)>,
+    /// The focused window's ring colour, 0xRRGGBBFF: the workspace in front and Awake's pill.
+    pub ring: u32,
+    /// Bullet time's colour, for the ring around the workspace it started on.
+    pub bullet: u32,
     pub status: Shown,
     /// Do not disturb is on, so the bell shows its sign instead.
     pub do_not_disturb: bool,
@@ -220,10 +224,6 @@ impl Bar {
 }
 
 const INK: u32 = panel::PROSE;
-/// The 1 px ring inside the button of the workspace bullet time started on.
-const HOME_RING: u32 = 0x33ccff99;
-/// Awake's chip: the cyan of the rest of the bar's accents.
-const AWAKE: u32 = 0x33ccffff;
 /// The dot that says the screen is being shared. Red, and nothing else on the bar is.
 const LIVE: u32 = 0xff5a5aff;
 /// The alpha of the faint pills that say a state is on: Caps Lock, Awake, sharing.
@@ -334,7 +334,7 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
             (index + 1).to_string()
         };
         let color = if on {
-            0x7fe3ffff
+            panel::lighter(content.ring, 1.0 / 3.0)
         } else if content.occupied.get(index).copied().unwrap_or(false) {
             0xcdd6f4ff
         } else {
@@ -343,17 +343,19 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
         let style = Style::new(Face::Mono, 15.0, color);
         let label_w = text::width(&label, &style);
         let w = (label_w + 16.0).max(30.0);
+        let ring = content.ring & 0xffffff00;
         if on && content.keyboard_here {
-            bar.p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff26);
-            bar.p.inset_bottom(x, 7.0, w, 26.0, 6.0, 0x33ccffff);
+            bar.p.fill(x, 7.0, w, 26.0, 6.0, ring | 0x26);
+            bar.p.inset_bottom(x, 7.0, w, 26.0, 6.0, ring | 0xff);
         } else if on {
-            bar.p.fill(x, 7.0, w, 26.0, 6.0, 0x33ccff14);
+            bar.p.fill(x, 7.0, w, 26.0, 6.0, ring | 0x14);
         } else if content.elsewhere.get(index).copied().unwrap_or(false) {
             bar.p
                 .inset_bottom(x, 7.0, w, 26.0, 6.0, (panel::HINT & 0xffffff00) | 0xb0);
         }
         if content.home == Some(index) {
-            bar.p.border(x, 7.0, w, 26.0, 6.0, 1.0, HOME_RING);
+            let home = (content.bullet & 0xffffff00) | 0x99;
+            bar.p.border(x, 7.0, w, 26.0, 6.0, 1.0, home);
         }
         bar.p.text(&label, x + (w - label_w) / 2.0, 20.0, &style);
         bar.target(Target::Workspace(index), x, w);
@@ -654,10 +656,11 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
     if content.caps_lock {
         right = pill(bar, right, "CAPS", AMBER, Mark::Icon(icons::CAPS_LOCK)).0;
     }
-    // While Awake is on: an open eye and the word, on a faint cyan pill, which turns it off when
-    // clicked.
+    // While Awake is on: an open eye and the word, on a faint pill in the ring's colour, which
+    // turns it off when clicked.
     if content.awake {
-        let (x, w) = pill(bar, right, "AWAKE", AWAKE, Mark::Icon(icons::EYE));
+        let awake = content.ring | 0xff;
+        let (x, w) = pill(bar, right, "AWAKE", awake, Mark::Icon(icons::EYE));
         bar.target(Target::Awake, x, w);
         right = x;
     }
@@ -725,6 +728,8 @@ mod tests {
             labels: (1..=5).map(|n| n.to_string()).collect(),
             title: "Firefox".into(),
             mode: Some(("BULLET TIME", AMBER)),
+            ring: 0x42d3ffff,
+            bullet: AMBER,
             status: Shown {
                 time: "17:24".into(),
                 date: "Fri 11 Sep".into(),
@@ -937,6 +942,7 @@ mod tests {
                 .unwrap()
         };
         let cyan = |[r, g, b]: [u8; 3]| b > 120 && g > 90 && r < 100;
+        let amber = |[r, g, b]: [u8; 3]| r > 120 && g > 80 && b < 100;
         // Clicks take the bar's whole height, but the buttons are drawn 7 to 33 of its 40 units
         // down: 5.6 to 26.4 logical pixels.
         let (top, bottom) = (5.6, 26.4);
@@ -947,13 +953,14 @@ mod tests {
         };
         assert!(cyan(band(3)));
         assert!(!cyan(band(1)));
-        // The ring down the left edge of home's button, and not of any other.
+        // The ring down the left edge of home's button, in bullet time's colour, and not of any
+        // other.
         let edge = |pixmap: &Pixmap, index| {
             let area = button(index);
             pixel(pixmap, area.loc.x + 0.4, (top + bottom) / 2.0, scale)
         };
-        assert!(cyan(edge(&pixmap, 0)));
-        assert!(!cyan(edge(&pixmap, 2)));
+        assert!(amber(edge(&pixmap, 0)));
+        assert!(!amber(edge(&pixmap, 2)));
         let (unringed, _) = paint_plain(
             &Content {
                 home: None,
@@ -963,7 +970,7 @@ mod tests {
             scale,
         )
         .unwrap();
-        assert!(!cyan(edge(&unringed, 0)));
+        assert!(!amber(edge(&unringed, 0)));
 
         // On a screen without the keyboard its own workspace has no band, and one another screen
         // shows is underlined in grey.

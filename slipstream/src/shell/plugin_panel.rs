@@ -95,6 +95,8 @@ pub struct Facts {
     /// The time gone by in a gauge: the focus ring's colour. Used beyond it: the second colour.
     pub time: u32,
     pub ahead: u32,
+    /// The way into the Settings app, as a link.
+    pub accent: u32,
     pub reduced_motion: bool,
     /// The key that opens and closes the panel.
     pub key: String,
@@ -446,7 +448,7 @@ impl PluginPanel {
             y += GAP;
             p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
             let centre = y + FOOT_H - 9.0;
-            let link = Style::new(Face::Body, 14.0, 0xffd08aff);
+            let link = Style::new(Face::Body, 14.0, panel::lighter(facts.accent, 0.36));
             let link_w = p.text("Plugin settings", x0, centre, &link);
             shapes.push((
                 Item::Settings,
@@ -889,12 +891,6 @@ fn meter_text(percent: u8) -> u32 {
     }
 }
 
-/// `rgb`, from 0 to 1 a channel, as 0xRRGGBBff.
-fn opaque([r, g, b]: [f32; 3]) -> u32 {
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
-    (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xff
-}
-
 impl Slipstream {
     /// A click on the chip, or its key: opens the panel under the chip, or closes it.
     pub fn toggle_plugin_panel(&mut self) {
@@ -915,8 +911,9 @@ impl Slipstream {
             cards,
             installed,
             ring: self.panel_ring(),
-            time: opaque(self.ring_rgb),
-            ahead: opaque(self.bullet_rgb),
+            time: panel::opaque(self.ring_rgb),
+            ahead: panel::opaque(self.bullet_rgb),
+            accent: self.panel_accent(),
             reduced_motion: self.clock.reduced_motion,
             key: self.key_label(crate::keys::Action::Plugins),
         }
@@ -1021,6 +1018,7 @@ mod tests {
             ring: panel::FOCUS,
             time: 0x42d3ffff,
             ahead: panel::AMBER,
+            accent: panel::ACCENT,
             reduced_motion: true,
             key: "Super+Y".into(),
         }
@@ -1110,6 +1108,6 @@ mod tests {
 
     #[test]
     fn colours_come_from_the_settings_rgb() {
-        assert_eq!(opaque([1.0, 0.5, 0.0]), 0xff8000ff);
+        assert_eq!(panel::opaque([1.0, 0.5, 0.0]), 0xff8000ff);
     }
 }

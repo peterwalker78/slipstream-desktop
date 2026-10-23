@@ -14,6 +14,8 @@ pub struct Chrome {
     /// One per distant window drawn this frame.
     pub(super) dims: Vec<SolidColorBuffer>,
     pub(super) tags: HashMap<Rung, Painted>,
+    /// The accent the tags were painted in.
+    tags_accent: u32,
     /// The keyboard-tips prompt on an empty workspace, and the key it names.
     pub(super) tips: Option<Painted>,
     tips_key: String,
@@ -62,6 +64,7 @@ impl Default for Chrome {
             ring: std::array::from_fn(|_| SolidColorBuffer::new((0, 0), FOCUS)),
             dims: Vec::new(),
             tags: HashMap::new(),
+            tags_accent: panel::ACCENT,
             tips: None,
             tips_key: String::new(),
             legend: None,
@@ -117,8 +120,10 @@ impl Chrome {
         )
     }
 
-    /// The tag for a window's new rung, near the top of it: it drops in, holds, and fades, over
-    /// 1.8 s. With reduced motion it appears where it rests, with a short fade either end.
+    /// The tag for a window's new rung, near the top of it, in `accent`: it drops in, holds, and
+    /// fades, over 1.8 s. With reduced motion it appears where it rests, with a short fade either
+    /// end.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn tag<R>(
         &mut self,
         renderer: &mut R,
@@ -127,18 +132,23 @@ impl Chrome {
         age: f64,
         scale: Scale<f64>,
         reduced_motion: bool,
+        accent: u32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (alpha, drop) = tag_motion(age, reduced_motion);
+        if self.tags_accent != accent {
+            self.tags_accent = accent;
+            self.tags.clear();
+        }
         if self
             .tags
             .get(&rung)
             .is_none_or(|(painted_at, ..)| *painted_at != scale.x)
         {
-            let (pixmap, size) = paint_tag(rung, scale.x)?;
+            let (pixmap, size) = paint_tag(rung, accent, scale.x)?;
             self.tags
                 .insert(rung, (scale.x, paint::buffer(&pixmap), size));
         }
@@ -277,15 +287,16 @@ pub(super) fn tag_motion(age: f64, reduced_motion: bool) -> (f64, f64) {
     }
 }
 
-/// A rung's tag: its name in amber, and the ladder beside it as a row of pips with this rung's
-/// filled, so where the window is on the ladder reads at a glance. Laid out in design pixels.
-fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
+/// A rung's tag: its name on the accent, and the ladder beside it as a row of pips with this
+/// rung's filled, so where the window is on the ladder reads at a glance. Laid out in design
+/// pixels.
+fn paint_tag(rung: Rung, accent: u32, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
     const PIP: f32 = 7.0;
     const PIP_GAP: f32 = 4.0;
-    const INK: u32 = panel::DARK;
+    let ink = panel::ink_on(accent);
     let style = Style {
         tracking: 0.08,
-        ..Style::new(Face::MonoBold, 16.0, INK)
+        ..Style::new(Face::MonoBold, 16.0, ink)
     };
     let label = rung.label().to_uppercase();
     let rungs = Rung::LADDER.len() as f32;
@@ -299,15 +310,15 @@ fn paint_tag(rung: Rung, scale: f64) -> Option<(Pixmap, Size<i32, Logical>)> {
         (size.h as f64 * scale).round() as u32,
         scale as f32 * DESIGN_PX,
     )?;
-    p.fill(0.0, 0.0, w, h, 6.0, panel::AMBER);
+    p.fill(0.0, 0.0, w, h, 6.0, accent);
     p.text(&label, 12.0, h / 2.0, &style);
     let mut x = 12.0 + text_w + 12.0;
     for step in Rung::LADDER {
         let (y, radius) = ((h - PIP) / 2.0, 2.0);
         if step == rung {
-            p.fill(x, y, PIP, PIP, radius, INK);
+            p.fill(x, y, PIP, PIP, radius, ink);
         } else {
-            p.border(x, y, PIP, PIP, radius, 1.5, (INK & 0xffffff00) | 0x80);
+            p.border(x, y, PIP, PIP, radius, 1.5, (ink & 0xffffff00) | 0x80);
         }
         x += PIP + PIP_GAP;
     }

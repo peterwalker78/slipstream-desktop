@@ -32,6 +32,7 @@ const FADE: f64 = 0.25;
 
 struct Painted {
     scale: f64,
+    accent: u32,
     buffer: MemoryRenderBuffer,
     logical: Size<i32, Logical>,
     device: (i32, i32),
@@ -72,12 +73,14 @@ impl Toast {
         self.painted = None;
     }
 
-    /// The toast for a screen `size` logical pixels across, while one is showing.
+    /// The toast for a screen `size` logical pixels across, while one is showing, edged and
+    /// titled in `accent`.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
         size: Size<i32, Logical>,
         scale: f64,
+        accent: u32,
         now: f64,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
@@ -94,9 +97,9 @@ impl Toast {
         if self
             .painted
             .as_ref()
-            .is_none_or(|painted| painted.scale != scale)
+            .is_none_or(|painted| painted.scale != scale || painted.accent != accent)
         {
-            self.painted = paint(title, body, scale);
+            self.painted = paint(title, body, accent, scale);
         }
         let painted = self.painted.as_ref()?;
         let fade = if self.reduced_motion {
@@ -168,7 +171,8 @@ pub fn card_height(lines: usize, extra: f32) -> f32 {
 }
 
 /// A toast's card, `width` × `height` with its corner at (`x`, `y`): the notice's shadow and
-/// card with an amber left edge, the title in amber capitals, and `lines` of words under it.
+/// card with a left edge in `accent`, the title in its capitals, and `lines` of words under it.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_card(
     p: &mut Painter,
     x: f32,
@@ -177,16 +181,17 @@ pub fn paint_card(
     height: f32,
     title: &str,
     lines: &[String],
+    accent: u32,
 ) {
     let heading = Style {
         tracking: 0.1,
-        ..Style::new(Face::BodyBold, 13.0, panel::AMBER)
+        ..Style::new(Face::BodyBold, 13.0, accent)
     };
     let prose = prose();
     let radius = panel::NOTICE_RADIUS;
     let (dy, blur, shadow) = panel::NOTICE_SHADOW;
     p.shadow(x, y, width, height, radius, dy, blur, shadow);
-    p.fill(x, y, width, height, radius, panel::AMBER);
+    p.fill(x, y, width, height, radius, accent);
     p.fill(x + 4.0, y, width - 4.0, height, radius - 3.0, panel::NOTICE);
     p.border(x, y, width, height, radius, 1.0, panel::NOTICE_EDGE);
     p.text(&title.to_uppercase(), x + PAD, y + 16.0 + 10.0, &heading);
@@ -196,7 +201,7 @@ pub fn paint_card(
     }
 }
 
-fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
+fn paint(title: &str, body: &str, accent: u32, scale: f64) -> Option<Painted> {
     let lines = text::wrap(body, &prose(), prose_width(WIDTH));
     let height = card_height(lines.len(), 0.0);
     let m = panel::NOTICE_MARGIN;
@@ -209,9 +214,10 @@ fn paint(title: &str, body: &str, scale: f64) -> Option<Painted> {
         (logical.h as f64 * scale).round() as i32,
     );
     let mut p = Painter::new(device.0 as u32, device.1 as u32, scale as f32 * DESIGN_PX)?;
-    paint_card(&mut p, m, m, WIDTH, height, title, &lines);
+    paint_card(&mut p, m, m, WIDTH, height, title, &lines, accent);
     Some(Painted {
         scale,
+        accent,
         buffer: paint::buffer(&p.pixmap),
         logical,
         device,
@@ -224,11 +230,12 @@ mod tests {
 
     #[test]
     fn a_long_message_grows_the_card_rather_than_overflowing() {
-        let short = paint("Gravity", "On.", 1.25).unwrap();
+        let short = paint("Gravity", "On.", panel::ACCENT, 1.25).unwrap();
         let long = paint(
             "Already the centre",
             "Konsole can’t get any heavier, and this sentence goes on long enough to wrap twice \
              over in a card this narrow. Super+[ makes it lighter.",
+            panel::ACCENT,
             1.25,
         )
         .unwrap();

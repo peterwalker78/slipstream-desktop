@@ -499,6 +499,8 @@ pub struct Facts {
     pub network: Option<String>,
     pub battery: Option<(u8, bool)>,
     pub caps_lock: bool,
+    /// The password's caret.
+    pub accent: u32,
 }
 
 impl Facts {
@@ -800,6 +802,7 @@ impl Slipstream {
                 .seat
                 .get_keyboard()
                 .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
+            accent: self.panel_accent(),
         }
     }
 }

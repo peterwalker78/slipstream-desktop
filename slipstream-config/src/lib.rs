@@ -80,6 +80,7 @@
 //! [borders]
 //! selected-tile = "#42d3ff"
 //! bullet-time = "#ffb547"
+//! accent = "#ffb547"
 //!
 //! [privacy]
 //! screen-capture-allowed = ["/usr/bin/wf-recorder"]
@@ -518,8 +519,9 @@ impl Default for Lock {
     }
 }
 
-/// The rings that mark what's selected. Each is `#rrggbb`; a value that isn't falls back to the
-/// default, so a mistyped hand edit leaves the desktop usable rather than colourless.
+/// Slipstream's three colours: the rings that mark what's selected, and the accent for what's on.
+/// Each is `#rrggbb`; a value that isn't falls back to the default, so a mistyped hand edit leaves
+/// the desktop usable rather than colourless.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Borders {
@@ -528,6 +530,9 @@ pub struct Borders {
     pub selected_tile: String,
     /// Bullet time's rings around the chosen window and workspace, and its workspace frames.
     pub bullet_time: String,
+    /// What's on or chosen inside the panels: switches and tiles that are on, sliders, the
+    /// default button, today in the calendar, text cursors and toasts.
+    pub accent: String,
 }
 
 /// Ice cyan. It sits 73° of hue from the code rain, so the ring reads against it rather than
@@ -536,12 +541,15 @@ pub const SELECTED_TILE: &str = "#42d3ff";
 /// Slipstream's amber, near-opposite the ring's cyan: cold means the live desktop, warm the slow
 /// world.
 pub const BULLET_TIME: &str = "#ffb547";
+/// The same amber: what's on inside a panel is warm against the cyan of where the keys are.
+pub const ACCENT: &str = "#ffb547";
 
 impl Default for Borders {
     fn default() -> Self {
         Self {
             selected_tile: SELECTED_TILE.to_string(),
             bullet_time: BULLET_TIME.to_string(),
+            accent: ACCENT.to_string(),
         }
     }
 }
@@ -553,6 +561,10 @@ impl Borders {
 
     pub fn bullet_time_rgb(&self) -> [f32; 3] {
         rgb(&self.bullet_time).unwrap_or_else(|| rgb(BULLET_TIME).expect("a valid default"))
+    }
+
+    pub fn accent_rgb(&self) -> [f32; 3] {
+        rgb(&self.accent).unwrap_or_else(|| rgb(ACCENT).expect("a valid default"))
     }
 }
 
@@ -648,9 +660,11 @@ mod tests {
         let borders = Borders {
             selected_tile: "mint".into(),
             bullet_time: "#12345g".into(),
+            accent: "".into(),
         };
         assert_eq!(borders.selected_tile_rgb(), rgb(SELECTED_TILE).unwrap());
         assert_eq!(borders.bullet_time_rgb(), rgb(BULLET_TIME).unwrap());
+        assert_eq!(borders.accent_rgb(), rgb(ACCENT).unwrap());
     }
 
     #[test]
@@ -709,6 +723,7 @@ mod tests {
             borders: Borders {
                 selected_tile: "#b794ff".into(),
                 bullet_time: "#ffcf5c".into(),
+                accent: "#ff77b0".into(),
             },
             sound: Sound { volume_blip: false },
             clipboard: Clipboard { history: false },

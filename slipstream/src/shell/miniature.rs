@@ -24,6 +24,8 @@ pub const HEIGHT: f32 = 400.0;
 /// What the miniature follows from the real desktop, and the clock its rain falls by.
 pub struct Look<'a> {
     pub ring: u32,
+    /// Bullet time's colour, for the workspace in front and the windows' letters.
+    pub bullet: u32,
     pub effects: Effects,
     pub secs: f32,
     /// The keys it shows being pressed, named in the style the keys follow.
@@ -193,7 +195,7 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
             let (x, y, sw, sh) = frame.screen(workspace);
             p.fill(x, y, sw, sh, 4.0, fade(0x11151cff, scene.zoom));
             let edge = if workspace == scene.bar_workspace {
-                fade(look.ring, scene.zoom)
+                fade(look.bullet, scene.zoom)
             } else {
                 fade(0xffffff22, scene.zoom)
             };
@@ -268,7 +270,7 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
         }
     }
     if scene.zoom > 0.5 {
-        labels(p, scene, &frame);
+        labels(p, scene, &frame, look);
     }
     streams(p, &scene.streams, &frame, look);
     bar(p, scene, w, look);
@@ -416,7 +418,7 @@ fn slot(p: &mut Painter, strip: &Stream, scene: &Scene, x: f32, look: &Look) {
 }
 
 /// Bullet time's letters, one on each window.
-fn labels(p: &mut Painter, scene: &Scene, frame: &Frame) {
+fn labels(p: &mut Painter, scene: &Scene, frame: &Frame, look: &Look) {
     let alpha = ((scene.zoom - 0.5) / 0.5).clamp(0.0, 1.0);
     let letter = Style::new(Face::MonoBold, 7.5, fade(panel::DARK, alpha));
     for win in &scene.windows {
@@ -429,7 +431,7 @@ fn labels(p: &mut Painter, scene: &Scene, frame: &Frame) {
             12.0,
             12.0,
             3.0,
-            fade(panel::AMBER, alpha),
+            fade(look.bullet, alpha),
         );
         let s = label.to_ascii_uppercase().to_string();
         let lw = text::width(&s, &letter);
@@ -1645,6 +1647,7 @@ mod tests {
         let names = KeyNames::default();
         let look = Look {
             ring: 0x42d3ffcc,
+            bullet: panel::AMBER,
             effects: Effects::Matrix,
             secs: 1.3,
             keys: &names,

@@ -180,7 +180,9 @@ fn bar_content(
         mode: state
             .bullet
             .as_ref()
-            .map(|_| ("BULLET TIME", opaque(state.bullet_rgb))),
+            .map(|_| ("BULLET TIME", crate::panel::opaque(state.bullet_rgb))),
+        ring: crate::panel::opaque(state.ring_rgb),
+        bullet: crate::panel::opaque(state.bullet_rgb),
         status: bar::Shown::of(&crate::status::held(&state.status)),
         do_not_disturb: state.settings.notifications.do_not_disturb,
         unread: state.notices.unread(),
@@ -218,7 +220,13 @@ fn card_elements(
     wall: f64,
     deck_shown: bool,
 ) -> Vec<OutputElement> {
-    let frame = |time| crate::panel::Frame { size, scale, time };
+    let accent = state.panel_accent();
+    let frame = |time| crate::panel::Frame {
+        size,
+        scale,
+        time,
+        accent,
+    };
     let mut elements = Vec::new();
     if state.explorer.is_open() {
         let running = state.running_apps();
@@ -284,7 +292,7 @@ fn card_elements(
         );
     }
     if state.sheet.is_open() {
-        let ring = state.panel_ring();
+        let colours = (state.panel_ring(), crate::panel::opaque(state.bullet_rgb));
         let effects = state.settings.motion.effects;
         elements.extend(
             state
@@ -298,7 +306,7 @@ fn card_elements(
                         screens: state.space.outputs().count(),
                         own: state.shortcuts.own(),
                     },
-                    ring,
+                    colours,
                     effects,
                 )
                 .into_iter()
@@ -347,7 +355,7 @@ fn card_elements(
     }
     // The share picker, on the screen the keyboard is on: the app waiting for it is usually the
     // one being looked at.
-    let ring = opaque(state.ring_rgb);
+    let ring = crate::panel::opaque(state.ring_rgb);
     if let Some(share) = state.share.as_mut() {
         elements.extend(
             share
@@ -414,11 +422,6 @@ fn saver_readings(state: &Slipstream, place: String) -> crate::saver::Readings {
 }
 
 /// `rgb`, opaque, packed as `0xrrggbbaa` for the painter.
-fn opaque(rgb: [f32; 3]) -> u32 {
-    let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
-    u32::from_be_bytes([r, g, b, 0xff])
-}
-
 /// Whether `window` has been sent a size it hasn't acked and drawn yet.
 fn awaiting_size(window: &Window) -> bool {
     use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;

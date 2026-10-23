@@ -152,7 +152,7 @@ impl Ask {
         }
     }
 
-    fn card(&self, ring: u32) -> Card {
+    fn card(&self, (ring, accent): (u32, u32)) -> Card {
         let app = &self.app;
         let note = self.refusal.clone().unwrap_or_else(|| {
             format!(
@@ -176,7 +176,7 @@ impl Ask {
                     },
                     title: String::new(),
                     note: Some(match row.trigger {
-                        Some(trigger) => (trigger.label(), panel::AMBER),
+                        Some(trigger) => (trigger.label(), accent),
                         None => ("left out".to_string(), panel::HINT),
                     }),
                 })
@@ -215,7 +215,7 @@ impl Ask {
         R::TextureId: Send + Clone + 'static,
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
-        let card = self.card(ring);
+        let card = self.card((ring, frame.accent));
         let (alpha, rise) = exit::opening(now - self.since, self.reduced_motion);
         self.on_screen.element(renderer, card, frame, (alpha, rise))
     }
@@ -283,15 +283,18 @@ mod tests {
         let mut ask = ask();
         ask.key(Keysym::BackSpace, Mods::default(), 2.0);
         assert_eq!(ask.rows[0].trigger, None);
-        assert_eq!(ask.card(0).rows[0].note.as_ref().unwrap().0, "left out");
+        assert_eq!(
+            ask.card((0, 0)).rows[0].note.as_ref().unwrap().0,
+            "left out"
+        );
     }
 
     #[test]
     fn a_refusal_says_why_until_other_keys_are_pressed() {
         let mut ask = ask();
         ask.refuse("Super+L is one of Slipstream's own shortcuts.".into());
-        assert!(ask.card(0).note.starts_with("Super+L"));
+        assert!(ask.card((0, 0)).note.starts_with("Super+L"));
         ask.set(Trigger::parse("CTRL+ALT+x").unwrap());
-        assert!(ask.card(0).note.starts_with("They work"));
+        assert!(ask.card((0, 0)).note.starts_with("They work"));
     }
 }

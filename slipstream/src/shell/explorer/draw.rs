@@ -8,7 +8,9 @@ pub(super) type Painted = (MemoryRenderBuffer, Size<i32, Logical>, (i32, i32));
 /// The caret's size in design pixels. It's an element of its own, so blinking never repaints the
 /// explorer.
 pub(super) const CARET: (f32, f32) = (3.0, 29.7);
-pub(super) const CARET_COLOUR: u32 = panel::AMBER;
+
+/// The painted caret: the scale and colour it was painted for, and its size in logical pixels.
+pub(super) type Caret = ((f64, u32), MemoryRenderBuffer, Size<i32, Logical>);
 
 /// Everything the painted explorer depends on.
 #[derive(Clone, PartialEq)]
@@ -108,8 +110,9 @@ impl Explorer {
         // stays on.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
         if caret_on {
-            if self.caret.as_ref().is_none_or(|(at, _, _)| *at != scale) {
-                self.caret = caret_buffer(scale);
+            let key = (scale, frame.accent);
+            if self.caret.as_ref().is_none_or(|(at, _, _)| *at != key) {
+                self.caret = caret_buffer(key);
             }
             if let Some((_, caret, size)) = &self.caret {
                 let at = location + self.caret_at.to_physical(scale).to_i32_round::<i32>();
@@ -549,9 +552,9 @@ pub(super) fn run_label(command: &str, program: bool) -> (bool, String) {
     (opens, label)
 }
 
-/// The caret painted at `scale`, with its size in logical pixels. Sized as the painted explorer
-/// is, in whole logical pixels first, so the renderer scales it by the same amount.
-pub(super) fn caret_buffer(scale: f64) -> Option<(f64, MemoryRenderBuffer, Size<i32, Logical>)> {
+/// The caret painted at `scale` in `colour`, with its size in logical pixels. Sized as the painted
+/// explorer is, in whole logical pixels first, so the renderer scales it by the same amount.
+pub(super) fn caret_buffer((scale, colour): (f64, u32)) -> Option<Caret> {
     let size = Size::<i32, Logical>::from((
         ((CARET.0 * DESIGN_PX).round() as i32).max(1),
         ((CARET.1 * DESIGN_PX).round() as i32).max(1),
@@ -560,9 +563,9 @@ pub(super) fn caret_buffer(scale: f64) -> Option<(f64, MemoryRenderBuffer, Size<
         ((size.w as f64 * scale).round() as u32).max(1),
         ((size.h as f64 * scale).round() as u32).max(1),
     )?;
-    let [r, g, b, a] = CARET_COLOUR.to_be_bytes();
+    let [r, g, b, a] = colour.to_be_bytes();
     pixmap.fill(resvg::tiny_skia::Color::from_rgba8(r, g, b, a));
-    Some((scale, paint::buffer(&pixmap), size))
+    Some(((scale, colour), paint::buffer(&pixmap), size))
 }
 
 pub(super) fn file_name(path: &std::path::Path) -> String {

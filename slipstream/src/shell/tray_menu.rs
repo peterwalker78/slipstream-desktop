@@ -21,7 +21,7 @@ use crate::{
     icons,
     motion::{HYPR, REDUCED_FADE},
     paint::{CardStyle, Painted, Painter},
-    panel::{self, AMBER, DARK, DESIGN_PX, INK},
+    panel::{self, DESIGN_PX, INK},
     text::{self, Face, Style},
     tray::{
         Command,
@@ -138,6 +138,7 @@ struct Look {
     size: Size<i32, Logical>,
     scale: f64,
     ring: u32,
+    accent: u32,
     /// The entry chosen, painted pressed.
     confirmed: Option<i32>,
 }
@@ -199,7 +200,7 @@ pub struct Menu {
     /// The entry chosen, and when: the menu takes no more input, and shows its row pressed.
     confirmed: Option<(i32, f64)>,
     /// The ring that pulses out from the chosen row, painted once for its size.
-    pulse: Option<(Painted, Size<i32, Logical>)>,
+    pulse: Option<(Painted, Size<i32, Logical>, u32)>,
 }
 
 impl Drop for Menu {
@@ -622,6 +623,7 @@ impl Menu {
             size: frame.size,
             scale: frame.scale,
             ring,
+            accent: frame.accent,
             confirmed: self.confirmed.map(|(id, _)| id),
         };
         if self.shown.as_ref() != Some(&look) {
@@ -643,7 +645,8 @@ impl Menu {
         if let Some((id, since)) = self.confirmed
             && !reduced_motion
         {
-            elements.extend(self.pulse_element(renderer, id, now, now - since, frame.scale));
+            let (time, accent) = (now - since, frame.accent);
+            elements.extend(self.pulse_element(renderer, id, (now, time), frame.scale, accent));
         }
         for card in self.cards.iter().rev() {
             let Some(level) = self.levels.get(card.level) else {
@@ -680,9 +683,9 @@ impl Menu {
         &mut self,
         renderer: &mut R,
         id: i32,
-        now: f64,
-        since: f64,
+        (now, since): (f64, f64),
         scale: f64,
+        accent: u32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -707,16 +710,18 @@ impl Menu {
         if self
             .pulse
             .as_ref()
-            .is_none_or(|(painted, painted_size)| painted.scale != scale || *painted_size != size)
+            .is_none_or(|(painted, painted_size, painted_accent)| {
+                painted.scale != scale || *painted_size != size || *painted_accent != accent
+            })
         {
             let (w, h) = (size.w as f32 / DESIGN_PX, size.h as f32 / DESIGN_PX);
             let painted = Painted::new(size, scale, |p| {
                 p.f *= DESIGN_PX;
-                p.border(1.25, 1.25, w - 2.5, h - 2.5, ROW_RADIUS, 2.5, AMBER);
+                p.border(1.25, 1.25, w - 2.5, h - 2.5, ROW_RADIUS, 2.5, accent);
             })?;
-            self.pulse = Some((painted, size));
+            self.pulse = Some((painted, size, accent));
         }
-        let (painted, _) = self.pulse.as_ref()?;
+        let (painted, ..) = self.pulse.as_ref()?;
         let (out, alpha) = pulse(t);
         let out = f64::from(out * DESIGN_PX);
         let at = row.loc - Point::from((out, out));
@@ -816,7 +821,7 @@ impl Menu {
                     } else {
                         let lit = chosen == Some(row.id) || open_child == Some(row.id);
                         let shade = if look.confirmed == Some(row.id) {
-                            p.fill(rx, ry, rw, h, ROW_RADIUS, AMBER);
+                            p.fill(rx, ry, rw, h, ROW_RADIUS, look.accent);
                             Shade::Pressed
                         } else if lit {
                             selected(p, rx, ry, rw, h, look.ring);
@@ -831,7 +836,7 @@ impl Menu {
                             picture.as_ref(),
                             &sizes,
                             [rx, ry, rw, h],
-                            shade,
+                            (shade, look.accent),
                             leftward,
                         );
                         row_boxes.push((row.id, [rx, ry, rw, h]));
@@ -979,13 +984,13 @@ fn paint_row(
     picture: Option<&resvg::tiny_skia::Pixmap>,
     sizes: &Sizes,
     [x, y, w, h]: [f32; 4],
-    shade: Shade,
+    (shade, accent): (Shade, u32),
     leftward: bool,
 ) {
     let centre = y + h / 2.0;
     let ink = match shade {
         _ if !row.enabled => panel::PLACEHOLDER,
-        Shade::Pressed => DARK,
+        Shade::Pressed => panel::ink_on(accent),
         Shade::Lit => panel::BRIGHT,
         Shade::Plain => INK,
     };
@@ -995,7 +1000,7 @@ fn paint_row(
             p,
             row.toggle,
             row.enabled,
-            shade == Shade::Pressed,
+            (shade == Shade::Pressed, accent),
             lx,
             centre,
         );
@@ -1041,16 +1046,24 @@ fn paint_row(
     }
 }
 
-/// A checkbox or radio button, on in amber.
-/// A checkmark or radio button; on a pressed row, in the row's dark ink over its accent.
-fn paint_mark(p: &mut Painter, toggle: Toggle, enabled: bool, pressed: bool, x: f32, centre: f32) {
+/// A checkbox or radio button, on in the accent.
+/// A checkmark or radio button; on a pressed row, in the row's ink over its accent.
+fn paint_mark(
+    p: &mut Painter,
+    toggle: Toggle,
+    enabled: bool,
+    (pressed, on): (bool, u32),
+    x: f32,
+    centre: f32,
+) {
     let y = centre - MARK / 2.0;
+    let ink = panel::ink_on(on);
     let (edge, accent, tick) = if pressed {
-        ((DARK & 0xffffff00) | 0x99, DARK, AMBER)
+        ((ink & 0xffffff00) | 0x99, ink, on)
     } else if enabled {
-        (panel::TERTIARY, AMBER, DARK)
+        (panel::TERTIARY, on, ink)
     } else {
-        (panel::PLACEHOLDER, panel::PLACEHOLDER, DARK)
+        (panel::PLACEHOLDER, panel::PLACEHOLDER, panel::DARK)
     };
     match toggle {
         Toggle::None => {}
@@ -1360,6 +1373,7 @@ mod tests {
             size: (1536, 960).into(),
             scale: 1.25,
             ring: panel::FOCUS,
+            accent: panel::ACCENT,
             confirmed: menu.confirmed.map(|(id, _)| id),
         };
         menu.repaint(&look, &mut |_, _| None);

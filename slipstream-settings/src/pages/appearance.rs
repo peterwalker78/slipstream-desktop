@@ -1,6 +1,7 @@
-//! Appearance: the colour scheme, motion, the rings' colours and night light.
+//! Appearance: the colour scheme, Slipstream's three colours, motion and night light.
 
 use super::*;
+use crate::harmony;
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
@@ -29,24 +30,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         ),
         &scheme,
     );
-    let borders = group(&page, "Border colours");
-    colour_row(
-        &borders,
-        store,
-        "Focus ring",
-        "The ring around the focused window, and the keyboard's ring in quick settings and the \
-         notification centre.",
-        |settings| settings.borders.selected_tile.clone(),
-        |settings, hex| settings.borders.selected_tile = hex,
-    );
-    colour_row(
-        &borders,
-        store,
-        "Bullet time highlight",
-        "The rings and frames around what's chosen while the desktop is zoomed out.",
-        |settings| settings.borders.bullet_time.clone(),
-        |settings, hex| settings.borders.bullet_time = hex,
-    );
+    self::colours(&colours, store);
     let motion = group(&page, "Motion");
     // The same name quick settings gives this switch.
     let reduced = gtk::Switch::new();
@@ -231,105 +215,254 @@ fn night_light(page: &gtk::Box, store: &Store) {
     }
 }
 
-/// The colours offered for the rings, warm and cold, each one told apart from the code rain's
-/// green at a glance.
-const COLOURS: [(&str, &str); 12] = [
-    ("Ice cyan", "#42d3ff"),
-    ("Sky", "#7fe3ff"),
-    ("Mint", "#3cf0c0"),
-    ("Rain green", "#59ff8c"),
-    ("Chartreuse", "#c6ff4f"),
-    ("Gold", "#ffcf5c"),
-    ("Amber", "#ffb547"),
-    ("Tangerine", "#ff9b3d"),
-    ("Coral", "#ff7a5c"),
-    ("Rose", "#ff77b0"),
-    ("Lilac", "#b794ff"),
-    ("Silver", "#e8eef7"),
-];
+/// What the theme list says when the colours are none of its sets.
+const YOUR_OWN: &str = "Your own";
 
-/// A row with a dot of the colour and the list to choose from.
-fn colour_row(
-    card: &gtk::Box,
-    store: &Store,
-    title: &str,
-    sub: &str,
-    read: fn(&Settings) -> String,
-    write: fn(&mut Settings, String),
-) {
-    let current = read(&store.get());
-    let choices = colour_choices(&current);
-    let names: Vec<&str> = choices.iter().map(|(name, _)| *name).collect();
-    let list = gtk::DropDown::from_strings(&names);
-    let selected = choices
-        .iter()
-        .position(|(_, hex)| same_colour(hex, &current))
-        .unwrap_or(0);
-    list.set_selected(selected as u32);
+/// The focus ring, bullet time's colour and the accent, each channel 0–1.
+type Three = [[f32; 3]; 3];
 
-    let shown = Rc::new(Cell::new(
-        slipstream_config::rgb(&current).unwrap_or([1.0, 1.0, 1.0]),
-    ));
-    let dot = gtk::DrawingArea::new();
-    dot.set_content_width(20);
-    dot.set_content_height(20);
-    dot.set_valign(gtk::Align::Center);
-    let painted = Rc::clone(&shown);
-    dot.set_draw_func(move |_, cairo, width, height| {
-        let [r, g, b] = painted.get();
-        let radius = (width.min(height) as f64) / 2.0 - 1.0;
-        cairo.arc(
-            width as f64 / 2.0,
-            height as f64 / 2.0,
-            radius,
-            0.0,
-            std::f64::consts::TAU,
-        );
-        cairo.set_source_rgb(r as f64, g as f64, b as f64);
-        let _ = cairo.fill();
-    });
+/// The colour rows, kept in step with each other: whatever changes one shows the result on all.
+struct Colours {
+    store: Store,
+    theme: gtk::DropDown,
+    names: gtk::StringList,
+    shown: Cell<Three>,
+    wheel: gtk::Scale,
+    focus: gtk::ColorDialogButton,
+    bullet: gtk::ColorDialogButton,
+    accent: gtk::ColorDialogButton,
+    /// Set while the rows are being changed to match, so their own handlers stay quiet.
+    syncing: Cell<bool>,
+}
 
-    let store = store.clone();
-    let dot_to_redraw = dot.clone();
-    list.connect_selected_notify(move |list| {
-        let Some((_, hex)) = choices.get(list.selected() as usize) else {
+impl Colours {
+    fn current_of(settings: &Settings) -> Three {
+        let borders = &settings.borders;
+        [
+            borders.selected_tile_rgb(),
+            borders.bullet_time_rgb(),
+            borders.accent_rgb(),
+        ]
+    }
+
+    /// Saves `three` and shows it on every row.
+    fn choose(&self, three: Three) {
+        let [focus, bullet, accent] = three.map(harmony::hex);
+        self.store.change(|settings| {
+            settings.borders.selected_tile = focus;
+            settings.borders.bullet_time = bullet;
+            settings.borders.accent = accent;
+        });
+        self.show(three);
+    }
+
+    /// A focus ring of `focus`, with the two colours that go with it.
+    fn choose_focus(&self, focus: [f32; 3]) {
+        let (bullet, accent) = harmony::partners(focus);
+        self.choose([focus, bullet, accent]);
+    }
+
+    fn show(&self, three: Three) {
+        self.syncing.set(true);
+        self.shown.set(three);
+        let sets = harmony::THEMES.len() as u32;
+        match matching_theme(three) {
+            Some(index) => {
+                self.theme.set_selected(index as u32);
+                if self.names.n_items() > sets {
+                    self.names.remove(sets);
+                }
+            }
+            None => {
+                if self.names.n_items() == sets {
+                    self.names.append(YOUR_OWN);
+                }
+                self.theme.set_selected(sets);
+            }
+        }
+        // The rainbow moves to the focus ring's hue, unless it's already within a step of it.
+        let hue = harmony::hue(three[0]);
+        if (self.wheel.value() - hue).abs() >= 1.0 {
+            self.wheel.set_value(hue.round());
+        }
+        for (button, rgb) in [&self.focus, &self.bullet, &self.accent].iter().zip(three) {
+            button.set_rgba(&rgba(rgb));
+        }
+        self.syncing.set(false);
+    }
+}
+
+/// Which of the sets `three` is, if it's one of them.
+fn matching_theme(three: Three) -> Option<usize> {
+    harmony::THEMES.iter().position(|theme| {
+        [theme.focus, theme.bullet, theme.accent]
+            .map(slipstream_config::rgb)
+            .iter()
+            .zip(three)
+            .all(|(held, rgb)| *held == Some(rgb))
+    })
+}
+
+fn rgba([r, g, b]: [f32; 3]) -> gtk::gdk::RGBA {
+    gtk::gdk::RGBA::new(r, g, b, 1.0)
+}
+
+fn colour_button(title: &str) -> gtk::ColorDialogButton {
+    let dialog = gtk::ColorDialog::builder()
+        .title(title)
+        .with_alpha(false)
+        .modal(true)
+        .build();
+    gtk::ColorDialogButton::new(Some(dialog))
+}
+
+/// The theme list's entries: a set's three colours as dots, then its name.
+fn theme_entries() -> gtk::SignalListItemFactory {
+    const DOT: i32 = 14;
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
             return;
         };
-        let hex = (*hex).to_string();
-        if let Some(rgb) = slipstream_config::rgb(&hex) {
-            shown.set(rgb);
-            dot_to_redraw.queue_draw();
-        }
-        store.change(|settings| write(settings, hex.clone()));
+        let dots = gtk::DrawingArea::new();
+        dots.set_content_width(3 * DOT + 2 * 4);
+        dots.set_content_height(DOT);
+        dots.set_valign(gtk::Align::Center);
+        let entry = gtk::Box::builder().spacing(10).build();
+        entry.append(&dots);
+        entry.append(&gtk::Label::new(None));
+        item.set_child(Some(&entry));
+    });
+    factory.connect_bind(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let name = item
+            .item()
+            .and_downcast::<gtk::StringObject>()
+            .map(|name| name.string().to_string())
+            .unwrap_or_default();
+        let Some(entry) = item.child() else {
+            return;
+        };
+        let dots = entry.first_child().and_downcast::<gtk::DrawingArea>();
+        let label = entry.last_child().and_downcast::<gtk::Label>();
+        let (Some(dots), Some(label)) = (dots, label) else {
+            return;
+        };
+        label.set_label(&name);
+        let set = harmony::THEMES.iter().find(|set| set.name == name);
+        dots.set_visible(set.is_some());
+        let three = set.map(|set| [set.focus, set.bullet, set.accent].map(slipstream_config::rgb));
+        dots.set_draw_func(move |_, cairo, _, height| {
+            let radius = height as f64 / 2.0 - 1.0;
+            for (n, rgb) in three.iter().flatten().enumerate() {
+                let Some([r, g, b]) = rgb else { continue };
+                let x = height as f64 / 2.0 + n as f64 * (height as f64 + 4.0);
+                cairo.arc(x, height as f64 / 2.0, radius, 0.0, std::f64::consts::TAU);
+                cairo.set_source_rgb(*r as f64, *g as f64, *b as f64);
+                let _ = cairo.fill();
+            }
+        });
+    });
+    factory
+}
+
+/// The theme, the focus ring on a rainbow with the other two following it, and each colour on
+/// its own for a choice of one's own.
+fn colours(card: &gtk::Box, store: &Store) {
+    let names: Vec<&str> = harmony::THEMES.iter().map(|theme| theme.name).collect();
+    let names = gtk::StringList::new(&names);
+    let theme = gtk::DropDown::new(Some(names.clone()), gtk::Expression::NONE);
+    theme.set_factory(Some(&theme_entries()));
+    let wheel = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 360.0, 1.0);
+    wheel.set_round_digits(0);
+    wheel.set_draw_value(false);
+    wheel.set_width_request(200);
+    wheel.add_css_class("hue");
+    // The handlers hold it; GTK lets them go with the widgets when the window closes.
+    let colours = Rc::new(Colours {
+        store: store.clone(),
+        theme,
+        names,
+        shown: Cell::new(Colours::current_of(&store.get())),
+        wheel,
+        focus: colour_button("Focus ring"),
+        bullet: colour_button("Bullet time highlight"),
+        accent: colour_button("Accent"),
+        syncing: Cell::new(false),
     });
 
-    let control = gtk::Box::builder().spacing(10).build();
-    control.append(&dot);
-    control.append(&list);
-    row(card, title, Some(sub), &control);
-}
-
-/// The usual colours, plus the one in the file if it is something else, so a hand-edited colour
-/// is shown rather than silently swapped for another.
-fn colour_choices(current: &str) -> Vec<(&'static str, String)> {
-    let mut choices: Vec<(&'static str, String)> = COLOURS
-        .iter()
-        .map(|(name, hex)| (*name, (*hex).to_string()))
-        .collect();
-    if slipstream_config::rgb(current).is_some()
-        && !COLOURS.iter().any(|(_, hex)| same_colour(hex, current))
-    {
-        choices.push(("Custom", current.trim().to_lowercase()));
+    let chosen = Rc::clone(&colours);
+    colours.theme.connect_selected_notify(move |theme| {
+        if chosen.syncing.get() {
+            return;
+        }
+        if let Some(set) = harmony::THEMES.get(theme.selected() as usize) {
+            let three = [set.focus, set.bullet, set.accent]
+                .map(|hex| slipstream_config::rgb(hex).expect("a valid theme"));
+            chosen.choose(three);
+        }
+    });
+    let turned = Rc::clone(&colours);
+    colours.wheel.connect_value_changed(move |wheel| {
+        if !turned.syncing.get() {
+            turned.choose_focus(harmony::on_wheel(wheel.value()));
+        }
+    });
+    let picked = Rc::clone(&colours);
+    colours.focus.connect_rgba_notify(move |button| {
+        if !picked.syncing.get() {
+            let rgba = button.rgba();
+            picked.choose_focus([rgba.red(), rgba.green(), rgba.blue()]);
+        }
+    });
+    for (which, button) in [(1, &colours.bullet), (2, &colours.accent)] {
+        let picked = Rc::clone(&colours);
+        button.connect_rgba_notify(move |button| {
+            if !picked.syncing.get() {
+                let rgba = button.rgba();
+                let mut three = picked.shown.get();
+                three[which] = [rgba.red(), rgba.green(), rgba.blue()];
+                picked.choose(three);
+            }
+        });
     }
-    choices
-}
+    colours.show(colours.shown.get());
 
-/// Two colours are the same whatever the case, and with or without the hash.
-fn same_colour(one: &str, other: &str) -> bool {
-    match (slipstream_config::rgb(one), slipstream_config::rgb(other)) {
-        (Some(one), Some(other)) => one == other,
-        _ => false,
-    }
+    row(
+        card,
+        "Theme",
+        Some("Sets of three colours that go together. Change any of them below to make your own."),
+        &colours.theme,
+    );
+    let focus_control = gtk::Box::builder().spacing(10).build();
+    focus_control.append(&colours.wheel);
+    focus_control.append(&colours.focus);
+    row(
+        card,
+        "Focus ring",
+        Some(
+            "The ring around the focused window, and the keyboard's ring in quick settings and the \
+             notification centre. Pick any colour, and the two below are chosen to go with it.",
+        ),
+        &focus_control,
+    );
+    row(
+        card,
+        "Bullet time highlight",
+        Some("The rings and frames around what's chosen while the desktop is zoomed out."),
+        &colours.bullet,
+    );
+    row(
+        card,
+        "Accent",
+        Some(
+            "Switches and tiles that are on, sliders, the button Enter presses, today in the \
+             calendar, the text cursor and toasts.",
+        ),
+        &colours.accent,
+    );
 }
 
 #[cfg(test)]
@@ -337,35 +470,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_defaults_are_colours_the_list_offers() {
-        for hex in [
-            slipstream_config::SELECTED_TILE,
-            slipstream_config::BULLET_TIME,
-        ] {
-            assert!(
-                COLOURS.iter().any(|(_, listed)| same_colour(listed, hex)),
-                "{hex} is not in the list"
-            );
-            assert_eq!(
-                colour_choices(hex).len(),
-                COLOURS.len(),
-                "no Custom for {hex}"
-            );
-        }
+    fn the_default_colours_are_the_first_theme() {
+        assert_eq!(
+            matching_theme(Colours::current_of(&Settings::default())),
+            Some(0)
+        );
     }
 
     #[test]
-    fn a_hand_edited_colour_joins_the_list_as_custom() {
-        let choices = colour_choices("#123456");
-        assert_eq!(choices.len(), COLOURS.len() + 1);
-        assert_eq!(
-            choices.last(),
-            Some(&("Custom", "#123456".to_string())),
-            "the file's own colour is offered last"
-        );
-        // A colour that is only written differently is the one already in the list.
-        assert_eq!(colour_choices("42D3FF").len(), COLOURS.len());
-        // Something that isn't a colour leaves the list alone; the ring falls back to its default.
-        assert_eq!(colour_choices("mint").len(), COLOURS.len());
+    fn colours_that_match_no_set_are_your_own() {
+        let mut three = Colours::current_of(&Settings::default());
+        three[2] = slipstream_config::rgb("#123456").unwrap();
+        assert_eq!(matching_theme(three), None);
     }
 }

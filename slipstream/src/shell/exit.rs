@@ -651,9 +651,9 @@ impl<W: Clone + PartialEq> Exit<W> {
         }
         let size = self
             .on_screen
-            .paint(shape, frame, |shape, scale| match shape {
-                Shape::Card(card) => card::paint(card, scale),
-                Shape::Slim(slim) => (paint_slim(slim, scale), Vec::new()),
+            .paint(shape, frame, |shape, accent, scale| match shape {
+                Shape::Card(card) => card::paint(card, accent, scale),
+                Shape::Slim(slim) => (paint_slim(slim, accent, scale), Vec::new()),
                 Shape::Blank => (None, Vec::new()),
             })?;
         let at = self.origin(screen, size);
@@ -699,7 +699,7 @@ fn row<W>(open: &Open<W>) -> Row {
     }
 }
 
-fn paint_slim(slim: &Slim, scale: f64) -> Option<Painted> {
+fn paint_slim(slim: &Slim, accent: u32, scale: f64) -> Option<Painted> {
     // The toast's card, with the grace's bar under its line.
     let height = crate::toast::card_height(1, 10.0 + 4.0);
     let logical = Size::<i32, Logical>::from((
@@ -710,14 +710,14 @@ fn paint_slim(slim: &Slim, scale: f64) -> Option<Painted> {
         p.f *= DESIGN_PX;
         let (fx, fy) = (MARGIN, MARGIN);
         let lines = [slim.note.clone()];
-        crate::toast::paint_card(p, fx, fy, SLIM_WIDTH, height, &slim.title, &lines);
+        crate::toast::paint_card(p, fx, fy, SLIM_WIDTH, height, &slim.title, &lines, accent);
         // How much of the grace has gone.
         let left = fx + crate::toast::PAD;
         let bar_y = fy + height - 16.0 - 4.0;
         let bar_w = SLIM_WIDTH - 2.0 * crate::toast::PAD;
         p.fill(left, bar_y, bar_w, 4.0, 2.0, panel::TRACK);
         if slim.filled > 0 {
-            p.fill(left, bar_y, slim.filled as f32, 4.0, 2.0, AMBER);
+            p.fill(left, bar_y, slim.filled as f32, 4.0, 2.0, accent);
         }
     })
 }
@@ -867,18 +867,23 @@ mod tests {
         let Shape::Card(card) = exit.shape(0.0, RING) else {
             panic!("the card should be up");
         };
-        let (_, hits) = card::paint(&card, 1.25);
+        let (_, hits) = card::paint(&card, panel::ACCENT, 1.25);
         let frame = crate::panel::Frame {
             size: screen,
             scale: 1.25,
             time: 0.0,
+            accent: panel::ACCENT,
         };
         let size = exit
             .on_screen
-            .paint(Shape::Card(card), frame, |shape, scale| match shape {
-                Shape::Card(card) => card::paint(card, scale),
-                _ => (None, Vec::new()),
-            })
+            .paint(
+                Shape::Card(card),
+                frame,
+                |shape, accent, scale| match shape {
+                    Shape::Card(card) => card::paint(card, accent, scale),
+                    _ => (None, Vec::new()),
+                },
+            )
             .unwrap();
         exit.on_screen.at = exit.origin(screen, size);
         let at = exit.on_screen.at;
@@ -1048,7 +1053,9 @@ mod tests {
         let mut short = exit();
         short.key(Keysym::Return, 0.0);
         short.tick(GRACE + 0.1, &[open(1, "Konsole")]);
-        let short = card::paint(&short.still_here_card(), 1.25).0.unwrap();
+        let short = card::paint(&short.still_here_card(), panel::ACCENT, 1.25)
+            .0
+            .unwrap();
         let mut long = Exit::new(
             Intent::LogOut,
             (0..8).map(|i| open(i, "Konsole")).collect(),
@@ -1059,7 +1066,9 @@ mod tests {
         long.key(Keysym::Return, 0.0);
         let all: Vec<Open<u32>> = (0..8).map(|i| open(i, "Konsole")).collect();
         long.tick(GRACE + 0.1, &all);
-        let long = card::paint(&long.still_here_card(), 1.25).0.unwrap();
+        let long = card::paint(&long.still_here_card(), panel::ACCENT, 1.25)
+            .0
+            .unwrap();
         assert_eq!(short.logical.w, long.logical.w);
         assert!(long.logical.h > short.logical.h);
     }

@@ -72,9 +72,6 @@ const BACKING: u32 = 0x0b0e13b8;
 const BACKING_RADIUS: f32 = 7.0;
 const NAME: u32 = 0xaab2c0ff;
 const HELPER_NAME: u32 = 0x7f8898ff;
-/// At work and stopped.
-const CYAN: [f32; 3] = [51.0, 204.0, 255.0];
-const AMBER: [f32; 3] = [255.0, 181.0, 71.0];
 
 /// How fast a wave settles flat or rises again, as a rate a second.
 const SETTLE: f32 = 3.0;
@@ -235,16 +232,37 @@ pub struct Scope {
     shown: f32,
     last: Option<f64>,
     canvases: HashMap<String, Canvas>,
+    /// A wave at work, and a line that has stopped, each channel 0–255: the focused window's ring
+    /// colour and bullet time's, as the settings have them.
+    working: [f32; 3],
+    stopped: [f32; 3],
 }
 
 impl Scope {
     pub fn new(reduced_motion: bool) -> Self {
+        let channels = |rgb: [f32; 3]| rgb.map(|c| c * 255.0);
+        let borders = slipstream_config::Borders::default();
         Self {
             traces: Vec::new(),
             reduced_motion,
             shown: 0.0,
             last: None,
             canvases: HashMap::new(),
+            working: channels(borders.selected_tile_rgb()),
+            stopped: channels(borders.bullet_time_rgb()),
+        }
+    }
+
+    /// The colours from the settings, each channel 0–1: the ring's for at work, bullet time's for
+    /// stopped. Readouts on screen repaint in them.
+    pub fn set_colours(&mut self, working: [f32; 3], stopped: [f32; 3]) {
+        let (working, stopped) = (working.map(|c| c * 255.0), stopped.map(|c| c * 255.0));
+        if (working, stopped) == (self.working, self.stopped) {
+            return;
+        }
+        (self.working, self.stopped) = (working, stopped);
+        for canvas in self.canvases.values_mut() {
+            canvas.painted.clear();
         }
     }
 
@@ -419,7 +437,15 @@ impl Scope {
             let mut context = buffer.render();
             let _ = context.draw(|pixels| {
                 pixels.copy_from_slice(base);
-                plot(pixels, size, traces, &fit, scale, t);
+                plot(
+                    pixels,
+                    size,
+                    traces,
+                    (self.working, self.stopped),
+                    &fit,
+                    scale,
+                    t,
+                );
                 Ok::<_, ()>(vec![Rectangle::<i32, Buffer>::from_size(device.into())])
             });
             drop(context);
@@ -477,6 +503,7 @@ fn plot(
     pixels: &mut [u8],
     (width, height): (usize, usize),
     traces: &[Trace],
+    (working, stopped): ([f32; 3], [f32; 3]),
     fit: &Fit,
     scale: f64,
     t: Option<f64>,
@@ -488,7 +515,8 @@ fn plot(
     let (left, right) = (px(PAD), width as i32 - px(PAD) - dot);
     let time = t.unwrap_or(0.0);
     for (trace, &(top, _)) in traces.iter().zip(&fit.readouts) {
-        let rgb: [f32; 3] = std::array::from_fn(|c| AMBER[c] + (CYAN[c] - AMBER[c]) * trace.colour);
+        let rgb: [f32; 3] =
+            std::array::from_fn(|c| stopped[c] + (working[c] - stopped[c]) * trace.colour);
         let spot = (time * SWEEP + trace.pid as f64 * 0.37).fract() as f32;
         let trace_top = top + PAD + LABEL;
         let pen = Pen { pitch, dot, rgb };
@@ -645,7 +673,17 @@ mod tests {
         let size = fit.size();
         let (width, height) = (size.w as usize, size.h as usize);
         let mut pixels = vec![0u8; width * height * 4];
-        plot(&mut pixels, (width, height), &[trace], &fit, 1.0, t);
+        let scope = Scope::new(false);
+        let colours = (scope.working, scope.stopped);
+        plot(
+            &mut pixels,
+            (width, height),
+            &[trace],
+            colours,
+            &fit,
+            1.0,
+            t,
+        );
         (pixels, width, height)
     }
 

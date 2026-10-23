@@ -20,7 +20,7 @@ use crate::{
     chips::{self, Chip, ChipId, Press},
     notices::{self, Notices},
     paint::{Painted, Painter},
-    panel::{self, AMBER, DARK, DESIGN_PX, GAP, INK, PADDING},
+    panel::{self, DESIGN_PX, GAP, INK, PADDING},
     text::{self, Face, Style},
     tray_menu::{self, End, Outcome},
 };
@@ -89,6 +89,8 @@ pub struct Facts {
     pub reduced_motion: bool,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
+    /// Today in the calendar, and Do not disturb's switch when it's on.
+    pub accent: u32,
 }
 
 /// Everything the painted panel depends on.
@@ -98,6 +100,7 @@ struct Look {
     month: i32,
     do_not_disturb: bool,
     ring: u32,
+    accent: u32,
     revision: u64,
     selected: Item,
     action: Option<usize>,
@@ -508,6 +511,7 @@ impl Centre {
             month: self.month,
             do_not_disturb: facts.do_not_disturb,
             ring: facts.ring,
+            accent: facts.accent,
             revision: notices.revision(),
             selected: self.selected,
             action: self.action,
@@ -738,8 +742,8 @@ fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
             let cell_y = grid_y + DOW_H + CELL_GAP + (i / 7) as f32 * (CELL_H + CELL_GAP);
             let is_today = look.month == 0 && cell.in_month && cell.day == today.day;
             let style = if is_today {
-                p.fill(cell_x, cell_y, cell_w, CELL_H, 8.0, AMBER);
-                Style::new(Face::BodyBold, 14.0, DARK)
+                p.fill(cell_x, cell_y, cell_w, CELL_H, 8.0, look.accent);
+                Style::new(Face::BodyBold, 14.0, panel::ink_on(look.accent))
             } else if cell.in_month {
                 Style::new(Face::Body, 14.0, 0xd5dae3ff)
             } else {
@@ -769,7 +773,7 @@ fn paint_heading(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits)
     p.text("Notifications", x0, y + HEAD_H / 2.0, &heading);
     let switch_x = x0 + inner - 42.0;
     let (track, knob, knob_x) = if look.do_not_disturb {
-        (AMBER, DARK, switch_x + 21.0)
+        (look.accent, panel::ink_on(look.accent), switch_x + 21.0)
     } else {
         (0x3a3f4bff, INK, switch_x + 3.0)
     };
@@ -938,6 +942,7 @@ impl Slipstream {
             do_not_disturb: self.settings.notifications.do_not_disturb,
             reduced_motion: self.centre.reduced_motion,
             ring: self.panel_ring(),
+            accent: self.panel_accent(),
         }
     }
 
@@ -1082,6 +1087,7 @@ mod tests {
             month: centre.month,
             do_not_disturb: false,
             ring: panel::FOCUS,
+            accent: panel::ACCENT,
             revision: notices.revision(),
             selected: centre.selected,
             action: centre.action,

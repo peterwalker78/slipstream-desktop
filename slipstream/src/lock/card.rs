@@ -177,8 +177,14 @@ impl Card {
         let dots = view.dots.min(DOTS_SHOWN);
         keep(
             &mut self.pill,
-            format!("{s}|{dots}|{}|{}", view.caret, facts.caps_lock),
-            |key| paint_pill(key, dots, view.caret, facts.caps_lock, scale),
+            format!(
+                "{s}|{dots}|{}|{}|{}",
+                view.caret, facts.caps_lock, facts.accent
+            ),
+            |key| {
+                let caret = view.caret.then_some(facts.accent);
+                paint_pill(key, dots, caret, facts.caps_lock, scale)
+            },
         );
         keep(
             &mut self.hint,
@@ -251,8 +257,14 @@ fn paint_user(key: String, user: &str, scale: f64) -> Option<Piece> {
 }
 
 /// The password pill. With Caps Lock on, the key's arrow sits at its right end, in amber, as
-/// Windows marks its password box.
-fn paint_pill(key: String, dots: usize, caret: bool, caps_lock: bool, scale: f64) -> Option<Piece> {
+/// Windows marks its password box. The caret, while it shows, is in its own colour.
+fn paint_pill(
+    key: String,
+    dots: usize,
+    caret: Option<u32>,
+    caps_lock: bool,
+    scale: f64,
+) -> Option<Piece> {
     const CAPS_ICON: f32 = 22.0;
     const CAPS_INSET: f32 = 20.0;
     let (label, style) = if dots == 0 {
@@ -287,10 +299,10 @@ fn paint_pill(key: String, dots: usize, caret: bool, caps_lock: bool, scale: f64
         }
         let x = (w - label_w - caret_w) / 2.0;
         p.text(&label, x, PILL_H / 2.0, &style);
-        if caret {
+        if let Some(caret) = caret {
             // CSS draws the caret after the text, 2 px on, 1.1 em tall.
             let h = 22.0 * 1.1;
-            p.fill(x + label_w + 2.0, (PILL_H - h) / 2.0, 3.0, h, 0.0, AMBER);
+            p.fill(x + label_w + 2.0, (PILL_H - h) / 2.0, 3.0, h, 0.0, caret);
         }
     })
 }

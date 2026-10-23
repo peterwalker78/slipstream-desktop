@@ -580,7 +580,7 @@ mod tests {
             Act::Nothing,
             "nor shares the screen"
         );
-        let (_, hits) = card::paint(&picker.card(0), 1.0);
+        let (_, hits) = card::paint(&picker.card(0), crate::panel::ACCENT, 1.0);
         let (x, y) = hits
             .iter()
             .find(|hit| hit.which == Button::Go)
@@ -590,6 +590,7 @@ mod tests {
             size: (1920, 1080).into(),
             scale: 1.0,
             time: 0.0,
+            accent: crate::panel::ACCENT,
         };
         picker.on_screen.paint(picker.card(0), frame, card::paint);
         let px = crate::panel::DESIGN_PX as f64;

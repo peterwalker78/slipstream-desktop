@@ -18,7 +18,7 @@ use crate::{
     keys::App,
     launch,
     paint::{Painted, Painter},
-    panel::{self, DARK, DESIGN_PX, GAP, INK, PADDING},
+    panel::{self, DESIGN_PX, GAP, INK, PADDING},
     status::{self, Reading},
     text::{self, Face, Style},
 };
@@ -139,6 +139,8 @@ pub struct Facts {
     pub user: String,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
+    /// Tiles that are on, and the sliders' levels.
+    pub accent: u32,
     /// The key that opens and closes the panel.
     pub key: String,
 }
@@ -152,6 +154,7 @@ impl Default for Facts {
             reduced_motion: false,
             user: String::new(),
             ring: crate::panel::FOCUS,
+            accent: crate::panel::ACCENT,
             key: String::new(),
         }
     }
@@ -488,7 +491,7 @@ impl QuickSettings {
             paint_tiles(p, facts, x0, y, &mut hits);
             y += 3.0 * TILE_H + 2.0 * TILE_GAP + GAP;
             for &slider in &sliders {
-                paint_slider(p, &facts.status, slider, place, y, &mut hits);
+                paint_slider(p, facts, slider, place, y, &mut hits);
                 y += SLIDER_H + GAP;
             }
             paint_footer(p, look, x0, y, &mut hits);
@@ -612,9 +615,9 @@ fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits)
         let x = x0 + (i % 2) as f32 * (tile_w + TILE_GAP);
         let top = y + (i / 2) as f32 * (TILE_H + TILE_GAP);
         let (on, detail) = tile(control, facts);
-        let fill = if on { panel::AMBER } else { panel::TILE };
+        let fill = if on { facts.accent } else { panel::TILE };
         p.fill(x, top, tile_w, TILE_H, panel::TILE_RADIUS, fill);
-        let ink = if on { DARK } else { INK };
+        let ink = if on { panel::ink_on(fill) } else { INK };
         let icon = match control {
             Control::WiFi if !status.wifi => icons::WIFI_OFF,
             Control::WiFi => icons::WIFI,
@@ -634,7 +637,11 @@ fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits)
             top + 22.0,
             &title,
         );
-        let detail_ink = if on { 0x5a3f10ff } else { panel::TERTIARY };
+        let detail_ink = if on {
+            panel::faint_ink_on(fill)
+        } else {
+            panel::TERTIARY
+        };
         let detail_style = Style::new(Face::Body, 12.5, detail_ink);
         p.text(
             &text::ellipsize(&detail, &detail_style, room),
@@ -664,7 +671,7 @@ fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits)
 /// A slider: an icon, the track with its knob, and the level.
 fn paint_slider(
     p: &mut Painter,
-    status: &Reading,
+    facts: &Facts,
     (control, icon, level): (Control, &str, u8),
     place: panel::Place,
     y: f32,
@@ -678,8 +685,9 @@ fn paint_slider(
     let track_w = x0 + inner - 6.0 - 46.0 - 14.0 - track_x;
     let filled = track_w * level.min(100) as f32 / 100.0;
     p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, 0x3a3f4bff);
+    let status = &facts.status;
     let muted = control == Control::Volume && status.muted;
-    let bar_ink = if muted { panel::HINT } else { panel::AMBER };
+    let bar_ink = if muted { panel::HINT } else { facts.accent };
     p.fill(track_x, centre - 3.0, filled, 6.0, 3.0, bar_ink);
     let knob = track_x + filled;
     p.shadow(
@@ -718,7 +726,7 @@ fn paint_footer(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) 
     let inner = WIDTH - 2.0 * PADDING;
     p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
     let centre = y + FOOT_H - 9.0;
-    let link = Style::new(Face::Body, 14.0, 0xffd08aff);
+    let link = Style::new(Face::Body, 14.0, panel::lighter(look.facts.accent, 0.36));
     let link_w = p.text("All settings", x0, centre, &link);
     hits.shapes.push((
         Control::AllSettings,
@@ -826,6 +834,7 @@ impl Slipstream {
             reduced_motion: self.quick.reduced_motion,
             user: self.user.clone(),
             ring: self.panel_ring(),
+            accent: self.panel_accent(),
             key: self.key_label(crate::keys::Action::QuickSettings),
         }
     }

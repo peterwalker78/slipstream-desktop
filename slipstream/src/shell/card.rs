@@ -13,7 +13,7 @@ use smithay::{
 use crate::{
     icons,
     paint::{Painted, Painter},
-    panel::{self, AMBER, BELOW, DARK, DESIGN_PX, HINT, INK, MARGIN},
+    panel::{self, AMBER, BELOW, DESIGN_PX, HINT, INK, MARGIN},
     text::{self, Face, Style},
 };
 
@@ -32,11 +32,6 @@ const KEY_GAP: f32 = 10.0;
 /// The switch that says whether to write the layout down, and its row.
 const CHECK: f32 = 18.0;
 const CHECK_ROW: f32 = 26.0;
-
-/// The amber button under the pointer.
-const AMBER_LIT: u32 = 0xffc978ff;
-/// The key hint inside the amber button.
-const ON_AMBER: u32 = 0x1a1206a0;
 
 /// An answer on a card: a button to click, and a key that does the same thing. Enter always
 /// presses `Go` and Esc always `Stay`, whichever card is up.
@@ -130,11 +125,24 @@ impl Hit {
 
 /// A button, filled amber when it's the one Enter presses and quiet glass otherwise, with the key
 /// that does the same thing inside it. Returns where it was drawn, so it can be clicked.
-fn paint_button(p: &mut Painter, button: &Btn, x: f32, y: f32, w: f32, lit: bool) -> Hit {
+fn paint_button(
+    p: &mut Painter,
+    button: &Btn,
+    (x, y, w): (f32, f32, f32),
+    lit: bool,
+    accent: u32,
+) -> Hit {
     let (ink, key_ink) = if button.primary {
-        let fill = if lit { AMBER_LIT } else { AMBER };
+        let fill = if lit {
+            panel::lighter(accent, 0.2)
+        } else {
+            accent
+        };
         p.fill(x, y, w, BUTTON_H, panel::ROW_RADIUS, fill);
-        (DARK, ON_AMBER)
+        (
+            panel::ink_on(fill),
+            (panel::ink_on(fill) & 0xffffff00) | 0xa0,
+        )
     } else {
         panel::quiet_button(p, x, y, w, BUTTON_H, panel::ROW_RADIUS, lit);
         (INK, if lit { INK } else { HINT })
@@ -189,7 +197,7 @@ const FIELD_LINE: f32 = 28.0;
 
 /// The box to type into: dots or text in it, or what it asks for while it's empty, the amber
 /// caret after them, and the line under it.
-fn paint_field(p: &mut Painter, field: &Field, x: f32, y: f32, w: f32) {
+fn paint_field(p: &mut Painter, field: &Field, (x, y, w): (f32, f32, f32), accent: u32) {
     p.fill(x, y, w, FIELD_H, panel::ROW_RADIUS, 0xffffff14);
     p.border(x, y, w, FIELD_H, panel::ROW_RADIUS, 1.0, panel::EDGE);
     let middle = y + FIELD_H / 2.0;
@@ -214,7 +222,7 @@ fn paint_field(p: &mut Painter, field: &Field, x: f32, y: f32, w: f32) {
         p.text(shown, x + inset, middle, &typed);
         x + inset + text::width(shown, &typed)
     };
-    p.fill(end + 2.0, middle - 10.0, 2.0, 20.0, 0.0, AMBER);
+    p.fill(end + 2.0, middle - 10.0, 2.0, 20.0, 0.0, accent);
     if let Some((line, warning)) = &field.line {
         let style = Style::new(Face::Body, 13.0, if *warning { AMBER } else { HINT });
         let line = text::ellipsize(line, &style, w);
@@ -222,7 +230,7 @@ fn paint_field(p: &mut Painter, field: &Field, x: f32, y: f32, w: f32) {
     }
 }
 
-pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
+pub fn paint(card: &Card, accent: u32, scale: f64) -> (Option<Painted>, Vec<Hit>) {
     let title = Style {
         tracking: 0.02,
         ..Style::new(Face::Display, 27.0, INK)
@@ -245,8 +253,9 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
         panel::glass(p, fx, fy, WIDTH, height);
         let x0 = fx + PADDING;
         let mut y = fy + PADDING;
-        // An amber bar down the title, as the toast has: this is the one card that ends things.
-        p.fill(fx + 1.0, fy + PADDING, 3.0, 30.0, 1.5, AMBER);
+        // A bar of the accent down the title, as the toast has: this is the one card that ends
+        // things.
+        p.fill(fx + 1.0, fy + PADDING, 3.0, 30.0, 1.5, accent);
         p.text(&card.title, x0 + 10.0, y + 15.0, &title);
         y += 30.0 + 8.0;
         for line in &lines {
@@ -301,14 +310,14 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
         }
         if let Some(field) = &card.field {
             y += 16.0;
-            paint_field(p, field, x0, y, inner);
+            paint_field(p, field, (x0, y, inner), accent);
             y += FIELD_H + FIELD_LINE;
         }
         if let Some(on) = card.remember {
             y += 16.0;
             hits.push(paint_switch(
                 p,
-                on,
+                (on, accent),
                 x0,
                 y,
                 inner,
@@ -328,10 +337,9 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
             hits.push(paint_button(
                 p,
                 button,
-                right,
-                button_y,
-                w,
+                (right, button_y, w),
                 card.hover == Some(button.which),
+                accent,
             ));
             right -= BUTTON_GAP;
         }
@@ -341,14 +349,22 @@ pub fn paint(card: &Card, scale: f64) -> (Option<Painted>, Vec<Hit>) {
 
 /// The switch that says whether to write the layout down, with what it means under it. The whole
 /// row is clickable, not just the box, because an 18-pixel box is too small a target.
-fn paint_switch(p: &mut Painter, on: bool, x: f32, y: f32, inner: f32, lit: bool) -> Hit {
+fn paint_switch(
+    p: &mut Painter,
+    (on, accent): (bool, u32),
+    x: f32,
+    y: f32,
+    inner: f32,
+    lit: bool,
+) -> Hit {
     let label = Style::new(Face::Body, 15.0, INK);
     let key = Style::new(Face::Mono, 12.0, if lit { INK } else { HINT });
     let under = Style::new(Face::Body, 12.0, HINT);
     let box_y = y + (CHECK_ROW - CHECK) / 2.0;
     if on {
-        p.fill(x, box_y, CHECK, CHECK, 5.0, AMBER);
-        p.icon(icons::TICK, x + 2.0, box_y + 2.0, CHECK - 4.0, Some(DARK));
+        p.fill(x, box_y, CHECK, CHECK, 5.0, accent);
+        let tick = panel::ink_on(accent);
+        p.icon(icons::TICK, x + 2.0, box_y + 2.0, CHECK - 4.0, Some(tick));
     } else {
         panel::quiet_button(p, x, box_y, CHECK, CHECK, 5.0, lit);
     }
@@ -388,7 +404,7 @@ pub struct OnScreen<K = Card> {
     /// waits for it.
     pub at: Point<f64, Logical>,
     hits: Vec<Hit>,
-    shown: Option<(K, Size<i32, Logical>, f64)>,
+    shown: Option<(K, Size<i32, Logical>, f64, u32)>,
     painted: Option<Painted>,
 }
 
@@ -440,20 +456,26 @@ impl<K: PartialEq> OnScreen<K> {
         self.hover_over(self.hit(x, y))
     }
 
-    /// Paints `shows` with `paint` unless it, the screen and the scale are what was last painted.
-    /// Returns the paint's size.
+    /// Paints `shows` with `paint`, in the frame's accent, unless it, the screen, the scale and the
+    /// accent are what was last painted. Returns the paint's size.
     pub fn paint(
         &mut self,
         shows: K,
         frame: crate::panel::Frame,
-        paint: impl FnOnce(&K, f64) -> (Option<Painted>, Vec<Hit>),
+        paint: impl FnOnce(&K, u32, f64) -> (Option<Painted>, Vec<Hit>),
     ) -> Option<Size<i32, Logical>> {
-        let fresh = self.shown.as_ref().is_some_and(|(shown, size, scale)| {
-            *shown == shows && *size == frame.size && *scale == frame.scale
-        });
+        let fresh = self
+            .shown
+            .as_ref()
+            .is_some_and(|(shown, size, scale, accent)| {
+                *shown == shows
+                    && *size == frame.size
+                    && *scale == frame.scale
+                    && *accent == frame.accent
+            });
         if !fresh {
-            (self.painted, self.hits) = paint(&shows, frame.scale);
-            self.shown = Some((shows, frame.size, frame.scale));
+            (self.painted, self.hits) = paint(&shows, frame.accent, frame.scale);
+            self.shown = Some((shows, frame.size, frame.scale, frame.accent));
         }
         self.painted.as_ref().map(|painted| painted.logical)
     }

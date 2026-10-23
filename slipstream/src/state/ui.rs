@@ -293,6 +293,11 @@ impl Slipstream {
         (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xcc
     }
 
+    /// What's on or chosen inside a panel, as the settings have it.
+    pub fn panel_accent(&self) -> u32 {
+        crate::panel::opaque(self.accent_rgb)
+    }
+
     /// How `action` is pressed, for hints and toasts: `Super+Shift+M`, or `Super` for the
     /// explorer where a tapped Super opens it.
     pub fn key_label(&self, action: crate::keys::Action) -> String {
@@ -353,6 +358,8 @@ impl Slipstream {
         self.rain.set_ring_colour(self.ring_rgb);
         self.rain.set_effects(settings.motion.effects);
         self.bullet_rgb = settings.borders.bullet_time_rgb();
+        self.accent_rgb = settings.borders.accent_rgb();
+        self.scope.set_colours(self.ring_rgb, self.bullet_rgb);
         if settings.workspaces != self.settings.workspaces {
             let entries = workspace_entries(&settings);
             self.set_workspaces(&entries, self.screens.len());

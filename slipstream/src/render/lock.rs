@@ -57,11 +57,11 @@ pub(super) fn lock_elements(
         }
     }
     if state.screens.focused_output().as_ref() == Some(output) {
-        let ring = state.panel_ring();
+        let inks = (state.panel_ring(), state.panel_accent());
         elements.extend(
             state
                 .osd
-                .element(renderer, output_geo.size, scale.x, ring, now)
+                .element(renderer, output_geo.size, scale.x, inks, now)
                 .map(OutputElement::Memory),
         );
         let facts = state.lock_facts();
@@ -90,6 +90,7 @@ pub(super) fn lock_elements(
                         size: output_geo.size,
                         scale: scale.x,
                         time: now,
+                        accent: state.panel_accent(),
                     },
                     crate::lock::WALLPAPER_GLOW,
                     false,

@@ -145,7 +145,7 @@ impl Kind {
 
 struct Painted {
     /// What was painted, so the same card isn't painted again every frame.
-    key: (Kind, u8, Option<String>, u32, u64),
+    key: (Kind, u8, Option<String>, (u32, u32), u64),
     buffer: MemoryRenderBuffer,
     logical: Size<i32, Logical>,
     device: (i32, i32),
@@ -223,14 +223,14 @@ impl Osd {
     }
 
     /// The card for a screen `size` logical pixels across, while one is showing. `ink` is the
-    /// focus ring's colour, which the icon is drawn in; the level is amber, as a value is on
-    /// quick settings' sliders.
+    /// focus ring's colour, which the icon is drawn in, and the accent the level's, as a value is
+    /// on quick settings' sliders.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
         size: Size<i32, Logical>,
         scale: f64,
-        ink: u32,
+        ink: (u32, u32),
         now: f64,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
@@ -294,7 +294,13 @@ impl Osd {
     }
 }
 
-fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> Option<Painted> {
+fn paint(
+    kind: Kind,
+    level: u8,
+    detail: Option<&str>,
+    (ink, accent): (u32, u32),
+    scale: f64,
+) -> Option<Painted> {
     const DIM: u32 = panel::HINT;
     // Room for the shadow all round.
     let m = panel::NOTICE_MARGIN;
@@ -334,7 +340,7 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
             let bar = match kind {
                 _ if muted => DIM,
                 Kind::Power { plugged: true } => MINT,
-                _ => panel::AMBER,
+                _ => accent,
             };
             p.fill(bar_x, y, filled, BAR_H, BAR_H / 2.0, bar);
         }
@@ -388,7 +394,13 @@ fn paint(kind: Kind, level: u8, detail: Option<&str>, ink: u32, scale: f64) -> O
         p.text(&kind.label(level), dx + 60.0, dy + HEIGHT / 2.0, &label);
     }
     Some(Painted {
-        key: (kind, level, detail.map(String::from), ink, scale.to_bits()),
+        key: (
+            kind,
+            level,
+            detail.map(String::from),
+            (ink, accent),
+            scale.to_bits(),
+        ),
         buffer: paint::buffer(&p.pixmap),
         logical,
         device,
@@ -403,9 +415,10 @@ mod tests {
 
     #[test]
     fn the_card_is_the_same_size_whatever_it_says() {
-        let quiet = paint(Kind::Volume { muted: false }, 0, None, RING, 1.25).unwrap();
-        let loud = paint(Kind::Volume { muted: false }, 100, None, RING, 1.25).unwrap();
-        let mic = paint(Kind::Microphone { muted: true }, 0, None, RING, 1.25).unwrap();
+        let inks = (RING, panel::ACCENT);
+        let quiet = paint(Kind::Volume { muted: false }, 0, None, inks, 1.25).unwrap();
+        let loud = paint(Kind::Volume { muted: false }, 100, None, inks, 1.25).unwrap();
+        let mic = paint(Kind::Microphone { muted: true }, 0, None, inks, 1.25).unwrap();
         assert_eq!(quiet.logical, loud.logical);
         assert_eq!(quiet.logical, mic.logical);
     }

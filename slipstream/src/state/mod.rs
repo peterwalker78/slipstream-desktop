@@ -364,6 +364,8 @@ pub struct Slipstream {
     pub ring_rgb: [f32; 3],
     /// Bullet time's rings and frames, from the settings in the same way.
     pub bullet_rgb: [f32; 3],
+    /// What's on or chosen inside the panels, from the settings in the same way.
+    pub accent_rgb: [f32; 3],
     /// Where logind's refusals, and a nested run's stand-in answers, come back to the event loop
     /// (`power.rs`).
     power_answers: channel::Sender<crate::power::Answer>,
@@ -478,6 +480,7 @@ impl Slipstream {
         plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();
+        let accent_rgb = settings.borders.accent_rgb();
 
         let reduced_motion = settings.motion.reduced;
         let mut state = Self {
@@ -550,7 +553,11 @@ impl Slipstream {
             notices: Default::default(),
             toast: Toast::new(false),
             osd: crate::osd::Osd::new(false),
-            scope: crate::scope::Scope::new(false),
+            scope: {
+                let mut scope = crate::scope::Scope::new(false);
+                scope.set_colours(ring_rgb, bullet_rgb);
+                scope
+            },
             agents_read: None,
             exit: None,
             hidden: None,
@@ -593,6 +600,7 @@ impl Slipstream {
             layouts: crate::layouts::Layouts::from_env(),
             ring_rgb,
             bullet_rgb,
+            accent_rgb,
             power_answers,
             lock: None,
             unlocking: None,

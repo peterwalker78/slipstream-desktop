@@ -308,6 +308,7 @@ struct Look {
     screen: Size<i32, Logical>,
     scale: f64,
     ring: u32,
+    accent: u32,
     style: KeyStyle,
     /// How many screens there are: with one, the keys between screens have nothing to do.
     screens: usize,
@@ -324,6 +325,7 @@ struct StageLook {
     screen: Size<i32, Logical>,
     scale: f64,
     ring: u32,
+    bullet: u32,
     effects: Effects,
     style: KeyStyle,
 }
@@ -560,7 +562,7 @@ impl Sheet {
         renderer: &mut R,
         frame: crate::panel::Frame,
         listing: Listing,
-        ring: u32,
+        (ring, bullet): (u32, u32),
         effects: Effects,
     ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
@@ -586,6 +588,7 @@ impl Sheet {
             screen,
             scale,
             ring,
+            accent: frame.accent,
             style,
             screens,
             own: own.to_vec(),
@@ -625,6 +628,7 @@ impl Sheet {
                 screen,
                 scale,
                 ring,
+                bullet,
                 effects,
                 style,
             }
@@ -722,7 +726,7 @@ fn paint_tour(look: &Look, step: usize, tried: bool, names: &KeyNames) -> Option
         };
         let w = p.text(chapter, x, centre, &Style::new(face, 15.0, ink));
         if n == lesson.chapter {
-            p.fill(x, fy + HEAD_H - 2.0, w, 2.0, 1.0, panel::AMBER);
+            p.fill(x, fy + HEAD_H - 2.0, w, 2.0, 1.0, look.accent);
         }
         x += w + 26.0;
     }
@@ -807,7 +811,7 @@ fn paint_tour(look: &Look, step: usize, tried: bool, names: &KeyNames) -> Option
         }
         let shade = match n.cmp(&step) {
             std::cmp::Ordering::Less => 0xffffff59,
-            std::cmp::Ordering::Equal => panel::AMBER,
+            std::cmp::Ordering::Equal => look.accent,
             std::cmp::Ordering::Greater => 0xffffff1f,
         };
         p.fill(mark_x, centre - 1.5, 16.0, 3.0, 1.5, shade);
@@ -844,6 +848,7 @@ fn paint_stage(look: &StageLook, names: &KeyNames) -> Option<Painted> {
     let scene = tour::scene(look.step, t.min(1.0));
     let mini = miniature::Look {
         ring: look.ring,
+        bullet: look.bullet,
         effects: look.effects,
         secs: (look.clock as f64 / TOUR_FPS) as f32,
         keys: names,
@@ -938,7 +943,7 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
             centre,
             &Style::new(Face::Body, 22.0, panel::BRIGHT),
         );
-        p.fill(x + typed + 2.0, centre - 11.0, 3.0, 22.0, 0.0, panel::AMBER);
+        p.fill(x + typed + 2.0, centre - 11.0, 3.0, 22.0, 0.0, look.accent);
     }
     let start = panel::key_hint(
         &mut p,

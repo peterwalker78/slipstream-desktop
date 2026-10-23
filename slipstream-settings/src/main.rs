@@ -7,6 +7,7 @@
 //! check how it looks without opening it on screen; GTK's Broadway backend works for that.
 
 mod fonts;
+mod harmony;
 mod pages;
 mod power;
 mod previews;
@@ -210,6 +211,19 @@ fn focus_css(rgb: [f32; 3]) -> String {
     )
 }
 
+/// The rainbow the focus ring is picked from: the colour wheel in steps of 30°.
+fn hue_css() -> String {
+    let stops: Vec<String> = (0..=12)
+        .map(|step| harmony::hex(harmony::on_wheel(step as f64 * 30.0)))
+        .collect();
+    format!(
+        ".row scale.hue trough {{ min-height: 10px; border-radius: 5px; \
+         background-image: linear-gradient(to right, {}); }} \
+         .row scale.hue highlight {{ background: none; }}",
+        stops.join(", ")
+    )
+}
+
 /// Slipstream's colours, spacing and fonts, over GTK's dark theme.
 fn style() {
     let Some(display) = gdk::Display::default() else {
@@ -228,7 +242,7 @@ fn style() {
         .borders
         .selected_tile_rgb();
     let focus = gtk::CssProvider::new();
-    focus.load_from_string(&focus_css(ring));
+    focus.load_from_string(&(focus_css(ring) + &hue_css()));
     gtk::style_context_add_provider_for_display(
         &display,
         &focus,

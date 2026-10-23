@@ -55,6 +55,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
         borders: Borders {
             selected_tile: "#3cf0c0".into(),
             bullet_time: "#ff9b3d".into(),
+            accent: "#ff9b3d".into(),
         },
         session: Session {
             remember: true,

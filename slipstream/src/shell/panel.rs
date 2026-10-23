@@ -5,13 +5,14 @@
 use crate::motion::REDUCED_FADE;
 use crate::{Slipstream, motion::HYPR, paint::Painter};
 
-/// What a card is drawn for: the screen's logical size and scale, and the time on whichever clock
-/// the card animates by.
+/// What a card is drawn for: the screen's logical size and scale, the time on whichever clock
+/// the card animates by, and the accent from the settings.
 #[derive(Debug, Clone, Copy)]
 pub struct Frame {
     pub size: smithay::utils::Size<i32, smithay::utils::Logical>,
     pub scale: f64,
     pub time: f64,
+    pub accent: u32,
 }
 
 /// Where a card is painted, in design pixels: its corner (`x`, `y`) inside the painted area, its
@@ -96,6 +97,9 @@ pub const HEAD_INSET: f32 = 26.0;
 /// same four fifths' opacity the window ring is drawn with. `Slipstream::panel_ring` hands the
 /// chosen one to each panel.
 pub const FOCUS: u32 = 0x42d3ffcc;
+/// What's on or chosen inside a panel, until the settings are read. `Slipstream::panel_accent`
+/// hands the chosen one to each panel; `AMBER` stays for what needs noticing.
+pub const ACCENT: u32 = 0xffb547ff;
 
 /// Opening: 200 ms from 10 px higher and transparent. Closing is instant.
 const OPEN: f64 = 0.2;
@@ -134,6 +138,12 @@ pub const HINT: u32 = 0x8f98a8ff;
 /// What an empty search box says.
 pub const PLACEHOLDER: u32 = 0x7d8697ff;
 
+/// A colour from the settings, each channel 0–1, packed as `0xrrggbbff` for the painter.
+pub fn opaque(rgb: [f32; 3]) -> u32 {
+    let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+    u32::from_be_bytes([r, g, b, 0xff])
+}
+
 /// Dark ink on a light colour, light ink on a dark one.
 pub fn ink_on(rgba: u32) -> u32 {
     let [r, g, b, _] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
@@ -142,6 +152,19 @@ pub fn ink_on(rgba: u32) -> u32 {
     } else {
         BRIGHT
     }
+}
+
+/// `rgba` taken `share` of the way to white, opaque: a link in the accent, or a button lit under
+/// the pointer.
+pub fn lighter(rgba: u32, share: f32) -> u32 {
+    let [r, g, b, _] = rgba.to_be_bytes();
+    let lift = |c: u8| c + ((255 - c) as f32 * share).round() as u8;
+    u32::from_be_bytes([lift(r), lift(g), lift(b), 0xff])
+}
+
+/// Quieter ink on a colour: `ink_on`'s, partly letting the colour through.
+pub fn faint_ink_on(rgba: u32) -> u32 {
+    (ink_on(rgba) & 0xffffff00) | 0xb8
 }
 
 /// A selection's fill: the ring colour, faint.

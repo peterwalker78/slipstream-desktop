@@ -141,8 +141,7 @@ pub struct Explorer {
     icon_cache: HashMap<(String, u32), Option<Pixmap>>,
     shown: Option<Look>,
     buffer: Option<Painted>,
-    /// The caret, painted for a scale, and its size in logical pixels.
-    caret: Option<(f64, MemoryRenderBuffer, Size<i32, Logical>)>,
+    caret: Option<draw::Caret>,
     /// The caret's corner, in logical pixels from the painted area's.
     caret_at: Point<f64, Logical>,
     /// The catalog version and icon size last asked to be warmed.

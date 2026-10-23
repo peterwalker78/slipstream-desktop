@@ -62,6 +62,7 @@ pub(super) struct View {
     pub bar_apart: bool,
     pub selected: Option<Target<Window>>,
     pub labels: Vec<(Target<Window>, String)>,
+    pub accent: u32,
 }
 
 impl View {
@@ -179,6 +180,7 @@ impl View {
             bar_apart,
             selected,
             labels,
+            accent: state.panel_accent(),
         }
     }
 
@@ -220,6 +222,7 @@ impl View {
             size: self.geo.size,
             scale: self.scale.x,
             time,
+            accent: self.accent,
         }
     }
 
@@ -615,13 +618,16 @@ fn popup_elements(
         crate::notify::closed(expired, crate::notify::Reason::Expired);
     }
     if v.first && v.ui > 0.0 {
-        let toast = state.toast.element(renderer, size, scale.x, v.now);
+        let toast = state
+            .toast
+            .element(renderer, size, scale.x, state.panel_accent(), v.now);
         over_windows.extend(toast.iter().map(|toast| toast.geometry(scale)));
         elements.extend(toast.map(OutputElement::Memory));
         // The volume and brightness display sits low on the screen, over a fullscreen window as
         // well: a film is exactly when the volume keys are used.
         let ring = state.panel_ring();
-        let osd = state.osd.element(renderer, size, scale.x, ring, v.now);
+        let inks = (ring, state.panel_accent());
+        let osd = state.osd.element(renderer, size, scale.x, inks, v.now);
         over_windows.extend(osd.iter().map(|osd| osd.geometry(scale)));
         elements.extend(osd.map(OutputElement::Memory));
     }
@@ -1355,6 +1361,7 @@ fn window_marks(
                     v.now - at,
                     drawn.scale,
                     state.clock.reduced_motion,
+                    v.accent,
                 )
                 .map(OutputElement::Memory),
         );
