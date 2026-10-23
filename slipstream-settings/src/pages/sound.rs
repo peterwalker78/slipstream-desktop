@@ -43,19 +43,6 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         let on = blip.is_active();
         blip_store.change(move |settings| settings.sound.volume_blip = on);
     });
-    let click = sound_choice(
-        store,
-        sounds::CLICKS,
-        false,
-        |settings| settings.sound.click.clone(),
-        |settings, choice| settings.sound.click = choice,
-    );
-    row(
-        &keys,
-        "Click sound",
-        Some("A short sound works best: one plays for every step."),
-        &click,
-    );
 
     let current = store.get().sound.volume_step() as u64;
     let steps = choices(&STEP_CHOICES, current);
@@ -74,6 +61,37 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         "Volume key step",
         Some("How far each press of the volume keys turns the sound up or down."),
         &step,
+    );
+
+    let heard = group(&page, "Sounds");
+    let click = sound_choice(
+        store,
+        sounds::CLICKS,
+        false,
+        |settings| settings.sound.click.clone(),
+        |settings, choice| settings.sound.click = choice,
+    );
+    row(
+        &heard,
+        "Volume click",
+        Some("A short sound works best: one plays for every step."),
+        &click,
+    );
+    let ding = sound_choice(
+        store,
+        sounds::DINGS,
+        true,
+        |settings| settings.notifications.ding.clone(),
+        |settings, choice| settings.notifications.ding = choice,
+    );
+    row(
+        &heard,
+        "Notification sound",
+        Some(
+            "Each app's own sound, or one for every notification. With one chosen, \
+             notifications that would be silent make it too.",
+        ),
+        &ding,
     );
 
     let bullet = group(&page, "Bullet time");
@@ -95,10 +113,10 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     page.upcast()
 }
 
-/// A slider for the volume, 0 to 100% as the volume keys go. It reads the level again whenever the
-/// page is shown, so a change made with the keys meanwhile is there. Moving it sets the level once
-/// the slider pauses, so a drag doesn't start a program for every step on the way, and clicks at
-/// the new level as the volume keys do.
+/// A slider for the volume, 0 to 100% as the volume keys go. It follows the volume wherever it's
+/// changed, from the keys, quick settings or another app, as PipeWire reports each change. Moving
+/// it sets the level once the slider pauses, so a drag doesn't start a program for every step on
+/// the way, and clicks at the new level as the volume keys do.
 fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
     let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
     scale.set_round_digits(0);
@@ -108,9 +126,19 @@ fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
     // Set while the slider is being moved to match the speakers, so that isn't sent back to them.
     let reading = Rc::new(Cell::new(false));
     let muted = Rc::new(Cell::new(muted));
-    scale.connect_map({
-        let (reading, muted) = (Rc::clone(&reading), Rc::clone(&muted));
-        move |scale| {
+    // Until when the slider's own last move is still being made: the speakers' reports from in
+    // between would pull it back to an older level.
+    let moved_until = Rc::new(Cell::new(None::<std::time::Instant>));
+    let catch_up = {
+        let (scale, reading) = (scale.downgrade(), Rc::clone(&reading));
+        let (muted, moved_until) = (Rc::clone(&muted), Rc::clone(&moved_until));
+        move || {
+            let moving = moved_until
+                .get()
+                .is_some_and(|until| std::time::Instant::now() < until);
+            let Some(scale) = scale.upgrade().filter(|_| !moving) else {
+                return;
+            };
             if let Some((level, now_muted)) = volume() {
                 muted.set(now_muted);
                 reading.set(true);
@@ -118,11 +146,21 @@ fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
                 reading.set(false);
             }
         }
+    };
+    scale.connect_map({
+        let catch_up = catch_up.clone();
+        move |_| catch_up()
     });
+    follow_changes(&scale, catch_up);
+
     let waiting = Rc::new(Cell::new(false));
     let store = store.clone();
     scale.connect_value_changed(move |scale| {
-        if reading.get() || waiting.replace(true) {
+        if reading.get() {
+            return;
+        }
+        moved_until.set(Some(std::time::Instant::now() + MOVE_SETTLES));
+        if waiting.replace(true) {
             return;
         }
         let (scale, waiting) = (scale.downgrade(), Rc::clone(&waiting));
@@ -136,6 +174,49 @@ fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
         });
     });
     scale
+}
+
+/// How long after the slider last moved the speakers' reports are left alone.
+const MOVE_SETTLES: Duration = Duration::from_millis(800);
+
+/// Calls `catch_up` soon after each change PipeWire reports to the speakers in use, or to which
+/// speakers those are, for as long as `scale` is there. Without `pactl` the slider still reads
+/// the volume each time the page is shown.
+fn follow_changes(scale: &gtk::Scale, catch_up: impl Fn() + Clone + 'static) {
+    let Ok(watch) = gtk::gio::Subprocess::newv(
+        &[
+            std::ffi::OsStr::new("pactl"),
+            std::ffi::OsStr::new("subscribe"),
+        ],
+        gtk::gio::SubprocessFlags::STDOUT_PIPE | gtk::gio::SubprocessFlags::STDERR_SILENCE,
+    ) else {
+        return;
+    };
+    scale.connect_destroy({
+        let watch = watch.clone();
+        move |_| watch.force_exit()
+    });
+    let Some(events) = watch.stdout_pipe() else {
+        return;
+    };
+    let lines = gtk::gio::DataInputStream::new(&events);
+    gtk::glib::spawn_future_local(async move {
+        // A burst of reports, as from a drag in quick settings, is read once.
+        let due = Rc::new(Cell::new(false));
+        while let Ok(Some(line)) = lines
+            .read_line_utf8_future(gtk::glib::Priority::DEFAULT)
+            .await
+        {
+            if !(line.contains(" on sink ") || line.contains(" on server")) || due.replace(true) {
+                continue;
+            }
+            let (due, catch_up) = (Rc::clone(&due), catch_up.clone());
+            gtk::glib::timeout_add_local_once(Duration::from_millis(50), move || {
+                due.set(false);
+                catch_up();
+            });
+        }
+    });
 }
 
 /// The volume now, in percent, and whether it's muted, or `None` without PipeWire's `wpctl` to
@@ -188,7 +269,7 @@ const PICK_A_FILE: &str = "";
 
 /// A choice of sound: `presets` (after each app's own, with `apps_own`), a file of one's own, and a
 /// button to hear it. Picking one plays it.
-pub(super) fn sound_choice(
+fn sound_choice(
     store: &Store,
     presets: &'static [Preset],
     apps_own: bool,

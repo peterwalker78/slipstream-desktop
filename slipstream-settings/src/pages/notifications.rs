@@ -81,22 +81,6 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         ),
         &sounds,
     );
-    let ding = super::sound::sound_choice(
-        store,
-        slipstream_config::sounds::DINGS,
-        true,
-        |settings| settings.notifications.ding.clone(),
-        |settings, choice| settings.notifications.ding = choice,
-    );
-    row(
-        &heard,
-        "Notification sound",
-        Some(
-            "Each app's own sound, or one for every notification. With one chosen, \
-             notifications that would be silent make it too.",
-        ),
-        &ding,
-    );
 
     let quiet = group(&page, "Do not disturb");
     let dnd = gtk::Switch::new();

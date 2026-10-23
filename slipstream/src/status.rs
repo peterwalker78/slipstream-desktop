@@ -93,9 +93,14 @@ pub fn start() -> Arc<Mutex<Reading>> {
         let mut reading = Reading::default();
         let mut estimate = slipstream_config::battery::Estimate::default();
         let started = Instant::now();
-        let mut tick = 0u64;
+        let mut rarely: Option<Instant> = None;
         loop {
-            let everything = EVERYTHING.swap(false, Ordering::Relaxed) || tick % 5 == 0;
+            // Timed rather than counted, since a volume change wakes the reader early.
+            let everything = EVERYTHING.swap(false, Ordering::Relaxed)
+                || rarely.is_none_or(|then| then.elapsed() >= RARELY);
+            if everything {
+                rarely = Some(Instant::now());
+            }
             read_often(&mut reading, &mut estimate, started.elapsed().as_secs_f64());
             // NetworkManager, BlueZ and the power profile change rarely; ask them every 10 s.
             if everything {
@@ -108,12 +113,50 @@ pub fn start() -> Arc<Mutex<Reading>> {
             if !held {
                 *writer.lock().unwrap() = reading.clone();
             }
-            tick += 1;
             std::thread::park_timeout(Duration::from_secs(2));
         }
     });
     let _ = READER.set(reader.thread().clone());
+    std::thread::spawn(follow_sound);
     shared
+}
+
+/// How often NetworkManager, BlueZ and the power profile are asked again.
+const RARELY: Duration = Duration::from_secs(10);
+/// How many times `pactl subscribe` is started again after it ends, as when PipeWire restarts.
+const FOLLOW_TRIES: usize = 20;
+
+/// Volume changes made anywhere else, from Settings, another app or a headset's buttons, reach
+/// the reading at once rather than at the next read: `pactl subscribe` reports each change to the
+/// speakers in use, or to which speakers those are, and the reader reads again. Without `pactl`,
+/// the reads every 2 s still catch them.
+fn follow_sound() {
+    use std::io::BufRead;
+    for _ in 0..FOLLOW_TRIES {
+        let child = crate::launch::command("pactl")
+            .arg("subscribe")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn();
+        let Ok(mut child) = child else {
+            return;
+        };
+        if let Some(events) = child.stdout.take() {
+            for line in std::io::BufReader::new(events).lines() {
+                let Ok(line) = line else {
+                    break;
+                };
+                if (line.contains(" on sink ") || line.contains(" on server"))
+                    && let Some(reader) = READER.get()
+                {
+                    reader.unpark();
+                }
+            }
+        }
+        let _ = child.wait();
+        std::thread::sleep(Duration::from_secs(5));
+    }
 }
 
 /// A change was shown before it's made (a toggle flipped on the keypress): keep showing it for a

@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- **Sounds of your own choosing.** Settings › Notifications picks one sound for every notification, from Chime, Glass, Droplets, Marimba and Signal or a file of your own, or leaves each app to its own as before. Settings › Sound does the same for the volume's click, with Tap, Tick, Wood, Bubble and Pop. Picking one plays it, and a button beside it plays it again.
-- **More on the Sound page.** A volume slider, which clicks as the volume keys do; how far each press of the volume keys goes, 2, 5 or 10%; and whether bullet time muffles what's playing.
+- **Every volume control moves together.** A change from the volume keys, quick settings, Settings or another app shows on all the others at once, rather than after a couple of seconds.
+- **Sounds of your own choosing.** Settings › Sound picks one sound for every notification, from Chime, Glass, Droplets, Marimba and Signal or a file of your own, or leaves each app to its own as before, and the same for the volume's click, with Tap, Tick, Wood, Bubble and Pop. Picking one plays it, and a button beside it plays it again.
+- **More on the Sound page.** A volume slider, which clicks as the volume keys do and moves with every other volume control; how far each press of the volume keys goes, 2, 5 or 10%; and whether bullet time muffles what's playing.
 - **A colour picker of Slipstream's own.** The primary, secondary and tertiary colours open a small window that starts on the colour you have, with hue, saturation and lightness sliders and its hex code, and changes nothing until Select.
 - **Settings fits a half-screen tile,** whichever page it's on, and Tab moves from the sidebar to the page, as it does in any list, with the arrow keys moving through the pages.
 - **A plugin that has updated says so plainly.** Settings › Plugins gives one line saying it is off until you switch it on again, then what changed and where it came from in small print, instead of a block of warnings.
