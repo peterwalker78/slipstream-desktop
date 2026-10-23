@@ -13,5 +13,4 @@ Before=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
 
-Wants=xdg-desktop-autostart.target
-Before=xdg-desktop-autostart.target
+# The autostart apps come up later, from slipstream-autostart.target, once X11 apps can connect.

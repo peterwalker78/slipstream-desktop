@@ -315,6 +315,7 @@ settings_entry_name=io.github.peterwalker78.SlipstreamSettings.desktop
 settings_entry=/usr/local/share/applications/$settings_entry_name
 session_target=/usr/local/lib/systemd/user/slipstream-session.target
 shutdown_target=/usr/local/lib/systemd/user/slipstream-shutdown.target
+autostart_target=/usr/local/lib/systemd/user/slipstream-autostart.target
 portals_conf=/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
 # Slipstream's own portal backend: the compositor answers the settings portal, which is how apps
 # are told dark or light. xdg-desktop-portal finds this in any of XDG_DATA_DIRS, /usr/local/share
@@ -327,7 +328,7 @@ ours() {
         "$session_launcher" | */wayland-sessions/slipstream.desktop | "$pam_file" \
             | /etc/lightdm/lightdm.conf.d/50-slipstream.conf | "$manifest" \
             | "$installed_bin" | "$installed_settings" | "$settings_entry" \
-            | "$session_target" | "$shutdown_target" \
+            | "$session_target" | "$shutdown_target" | "$autostart_target" \
             | "$portals_conf" | "$portal_backend" | "$wlr_conf") return 0 ;;
     esac
     return 1
@@ -1028,7 +1029,7 @@ if [ "$mode" = uninstall ]; then
                 "$session_entry" "$pam_file" "$portals_conf" "$portal_backend" \
                 "$wlr_conf" "$installed_bin" \
                 "$installed_settings" "$settings_entry" "$session_target" "$shutdown_target" \
-                "$manifest"
+                "$autostart_target" "$manifest"
         } | sed '/^$/d' | sort -u
     )
     system_files=
@@ -1050,6 +1051,7 @@ $HOME/.local/bin/slipstream-settings
 $data/applications/io.github.peterwalker78.SlipstreamSettings.desktop
 $config/systemd/user/slipstream-session.target
 $config/systemd/user/slipstream-shutdown.target
+$config/systemd/user/slipstream-autostart.target
 $config/xdg-desktop-portal/slipstream-portals.conf
 $data/xdg-desktop-portal/portals/slipstream.portal
 $config/xdg-desktop-portal-wlr/Slipstream"
@@ -1200,6 +1202,7 @@ if [ -n "$programs" ]; then
     put 644 "$repo/slipstream-settings/$settings_entry_name" "$settings_entry"
     put 644 "$repo/session/slipstream-session.target" "$session_target"
     put 644 "$repo/session/slipstream-shutdown.target" "$shutdown_target"
+    put 644 "$repo/session/slipstream-autostart.target" "$autostart_target"
     write_portals_conf >"$scratch/portals.conf"
     put 644 "$scratch/portals.conf" "$portals_conf"
     # Slipstream's own settings portal backend, so apps can be told dark or light.

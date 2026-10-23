@@ -1,0 +1,12 @@
+[Unit]
+Description=Apps that start with the Slipstream session
+Documentation=man:systemd.special(7)
+
+# Started by the compositor once XWayland is ready and DISPLAY is in the user manager's
+# environment (or once it gives up on XWayland). A unit's environment is fixed when it starts, so
+# an X11 app autostarted any earlier never finds the display.
+BindsTo=slipstream-session.target
+After=slipstream-session.target
+
+Wants=xdg-desktop-autostart.target
+Before=xdg-desktop-autostart.target

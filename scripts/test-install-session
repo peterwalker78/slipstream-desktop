@@ -311,6 +311,7 @@ PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
 [ -f "$installed_settings" ] || fail "$case_name: no Settings program"
 [ -f "$r/usr/local/share/applications/$settings_entry_name" ] || fail "$case_name: no Settings entry"
 [ -f "$unit" ] || fail "$case_name: no session unit"
+[ -f "${unit%/*}/slipstream-autostart.target" ] || fail "$case_name: no autostart unit"
 grep -q "^default=kde;gtk$" "$portals_conf" || fail "$case_name: portals default is $(grep '^default' "$portals_conf")"
 grep -q "^chooser_cmd=/usr/local/bin/slipstream --choose-share$" "$wlr_conf" \
     || fail "$case_name: the sharing picker isn't the installed program"

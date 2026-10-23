@@ -178,6 +178,7 @@ put 644 "$repo/slipstream-settings/$entry" "$data/applications/$entry"
 # user manager searches, so this needs no root.
 put 644 "$repo/session/slipstream-session.target" "$config/systemd/user/slipstream-session.target"
 put 644 "$repo/session/slipstream-shutdown.target" "$config/systemd/user/slipstream-shutdown.target"
+put 644 "$repo/session/slipstream-autostart.target" "$config/systemd/user/slipstream-autostart.target"
 systemctl --user daemon-reload 2>/dev/null || true
 # Which portal backend answers what under Slipstream, and screen sharing's picker. All of it is
 # per-user and named for Slipstream, so no root is needed and no other desktop's session is

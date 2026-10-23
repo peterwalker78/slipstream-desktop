@@ -46,6 +46,7 @@ impl Slipstream {
             Ok(spawned) => spawned,
             Err(err) => {
                 tracing::warn!("couldn't start XWayland, so X11 apps won't open: {err}");
+                crate::start_autostart(None);
                 return;
             }
         };
@@ -68,6 +69,7 @@ impl Slipstream {
                             Ok(wm) => wm,
                             Err(err) => {
                                 tracing::warn!("couldn't start the X11 window manager: {err}");
+                                crate::start_autostart(None);
                                 return;
                             }
                         };
@@ -81,28 +83,14 @@ impl Slipstream {
                         state.xwm = Some(wm);
                         let x_display = format!(":{display_number}");
                         tracing::info!(x_display, "XWayland ready");
-                        launch::set_x_display(x_display);
-                        if state.session {
-                            // DISPLAY isn't in the session's first import: XWayland only picks
-                            // its number now. Both places, as `import_environment` does — the
-                            // user manager for units, dbus-daemon for what it activates itself.
-                            // `launch::spawn` puts DISPLAY in each child's environment, which is
-                            // where both commands read it from.
-                            let _ = launch::spawn(&[
-                                "systemctl".to_string(),
-                                "--user".to_string(),
-                                "import-environment".to_string(),
-                                "DISPLAY".to_string(),
-                            ]);
-                            let _ = launch::spawn(&[
-                                "dbus-update-activation-environment".to_string(),
-                                "--systemd".to_string(),
-                                "DISPLAY".to_string(),
-                            ]);
-                        }
+                        launch::set_x_display(x_display.clone());
+                        // DISPLAY isn't in the session's first import: XWayland only picks
+                        // its number now. The autostart apps wait for it.
+                        crate::start_autostart(Some(x_display));
                     }
                     XWaylandEvent::Error => {
-                        tracing::warn!("XWayland exited while starting, so X11 apps won't open")
+                        tracing::warn!("XWayland exited while starting, so X11 apps won't open");
+                        crate::start_autostart(None);
                     }
                 });
         if let Err(err) = inserted {

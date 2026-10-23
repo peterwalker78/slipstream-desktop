@@ -124,6 +124,12 @@ pub use state::Slipstream;
 const SESSION_TARGET: &str = "slipstream-session.target";
 /// Torn down with `--job-mode=replace-irreversibly` on the way out.
 const SHUTDOWN_TARGET: &str = "slipstream-shutdown.target";
+/// The apps that start with the session (`xdg-desktop-autostart.target`), held back until X11
+/// apps can connect: a unit's environment is fixed when it starts, so an X11 app started before
+/// XWayland imported `DISPLAY` never finds the display.
+const AUTOSTART_TARGET: &str = "slipstream-autostart.target";
+/// How long the autostart apps wait for XWayland before starting without it.
+const AUTOSTART_WAIT: Duration = Duration::from_secs(10);
 
 /// What the user manager and D-Bus need to know about the session. `DISPLAY` isn't here: XWayland
 /// picks its number later and imports it itself.
@@ -142,6 +148,7 @@ const SESSION_VARS: [&str; 8] = [
 /// thread with no `Slipstream` to hand.
 static SESSION: AtomicBool = AtomicBool::new(false);
 static SESSION_ENDED: AtomicBool = AtomicBool::new(false);
+static AUTOSTARTED: AtomicBool = AtomicBool::new(false);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -210,6 +217,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // X11 apps: Steam, and Flatpaks without Wayland access. SLIPSTREAM_XWAYLAND=0 turns it off.
     if std::env::var("SLIPSTREAM_XWAYLAND").as_deref() != Ok("0") {
         state.start_xwayland();
+        if session {
+            event_loop
+                .handle()
+                .insert_source(Timer::from_duration(AUTOSTART_WAIT), |_, _, _| {
+                    start_autostart(None);
+                    TimeoutAction::Drop
+                })
+                .map_err(|err| err.error)?;
+        }
+    } else if session {
+        start_autostart(None);
     }
 
     state.concentration.asked(std::time::Instant::now());
@@ -597,6 +615,37 @@ fn start_session_target() {
         Ok(status) => tracing::warn!("couldn't start {SESSION_TARGET}: {status}"),
         Err(err) => tracing::warn!("couldn't run systemctl: {err}"),
     }
+}
+
+/// Starts the session's autostart apps, once: when XWayland is ready, with its `DISPLAY`
+/// imported first so they all have it, or without one when XWayland is off, failed or slow. Off
+/// the event loop, since the import waits on the user manager and on D-Bus.
+pub(crate) fn start_autostart(display: Option<String>) {
+    if !SESSION.load(Ordering::Relaxed) || AUTOSTARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        if let Some(display) = &display {
+            // Both places, as `import_environment` does: the user manager for units, dbus-daemon
+            // for what it activates itself.
+            let _ = launch::command("systemctl")
+                .args(["--user", "import-environment", "DISPLAY"])
+                .env("DISPLAY", display)
+                .status();
+            let _ = launch::command("dbus-update-activation-environment")
+                .args(["--systemd", "DISPLAY"])
+                .env("DISPLAY", display)
+                .status();
+        }
+        let result = launch::command("systemctl")
+            .args(["--user", "start", "--no-block", AUTOSTART_TARGET])
+            .status();
+        match result {
+            Ok(status) if status.success() => tracing::info!("the autostart apps are starting"),
+            Ok(status) => tracing::warn!("couldn't start {AUTOSTART_TARGET}: {status}"),
+            Err(err) => tracing::warn!("couldn't run systemctl: {err}"),
+        }
+    });
 }
 
 /// The other end of `import_environment` and `start_session_target`, on every way out: the
