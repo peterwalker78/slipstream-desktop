@@ -96,6 +96,7 @@
 
 pub mod battery;
 pub mod card;
+pub mod click;
 pub mod command;
 mod display;
 mod file;
@@ -382,8 +383,8 @@ impl Notifications {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Sound {
-    /// A short click at the new level whenever the volume changes, from the keys or from quick
-    /// settings' slider, as macOS and Windows do, so the setting can be heard as well as seen.
+    /// A short click at the new level whenever the volume changes, from the keys or from a volume
+    /// slider, as macOS and Windows do, so the setting can be heard as well as seen.
     /// Never on mute, never on brightness.
     pub volume_blip: bool,
     /// How far each press of the volume keys moves the volume, in percent.

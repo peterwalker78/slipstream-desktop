@@ -14,8 +14,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     );
     let keys = group(&page, "Volume");
 
-    if let Some(level) = volume() {
-        let slider = volume_slider(level);
+    if let Some(reading) = volume() {
+        let slider = volume_slider(reading, store);
         row(
             &keys,
             "Volume",
@@ -30,9 +30,9 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &keys,
         "Click when the volume changes",
         Some(
-            "A short click through the speakers at the new level, from the volume keys or quick \
-             settings' slider, as macOS and Windows do, so the volume can be heard as well as \
-             seen. Never on mute, and never on brightness.",
+            "A short click through the speakers at the new level, from the volume keys or a \
+             volume slider, as macOS and Windows do, so the volume can be heard as well as seen. \
+             Never on mute, and never on brightness.",
         ),
         &blip,
     );
@@ -82,8 +82,9 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
 
 /// A slider for the volume, 0 to 100% as the volume keys go. It reads the level again whenever the
 /// page is shown, so a change made with the keys meanwhile is there. Moving it sets the level once
-/// the slider pauses, so a drag doesn't start a program for every step on the way.
-fn volume_slider(level: u8) -> gtk::Scale {
+/// the slider pauses, so a drag doesn't start a program for every step on the way, and clicks at
+/// the new level as the volume keys do.
+fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
     let scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 1.0);
     scale.set_round_digits(0);
     scale.set_draw_value(false);
@@ -91,10 +92,12 @@ fn volume_slider(level: u8) -> gtk::Scale {
     scale.set_value(level as f64);
     // Set while the slider is being moved to match the speakers, so that isn't sent back to them.
     let reading = Rc::new(Cell::new(false));
+    let muted = Rc::new(Cell::new(muted));
     scale.connect_map({
-        let reading = Rc::clone(&reading);
+        let (reading, muted) = (Rc::clone(&reading), Rc::clone(&muted));
         move |scale| {
-            if let Some(level) = volume() {
+            if let Some((level, now_muted)) = volume() {
+                muted.set(now_muted);
                 reading.set(true);
                 scale.set_value(level as f64);
                 reading.set(false);
@@ -102,23 +105,26 @@ fn volume_slider(level: u8) -> gtk::Scale {
         }
     });
     let waiting = Rc::new(Cell::new(false));
+    let store = store.clone();
     scale.connect_value_changed(move |scale| {
         if reading.get() || waiting.replace(true) {
             return;
         }
         let (scale, waiting) = (scale.downgrade(), Rc::clone(&waiting));
+        let click = store.get().sound.volume_blip && !muted.get();
         gtk::glib::timeout_add_local_once(Duration::from_millis(60), move || {
             waiting.set(false);
             if let Some(scale) = scale.upgrade() {
-                set_volume(scale.value().round() as u8);
+                set_volume(scale.value().round() as u8, click);
             }
         });
     });
     scale
 }
 
-/// The volume now, in percent, or `None` without PipeWire's `wpctl` to ask.
-fn volume() -> Option<u8> {
+/// The volume now, in percent, and whether it's muted, or `None` without PipeWire's `wpctl` to
+/// ask.
+fn volume() -> Option<(u8, bool)> {
     let output = Command::new("wpctl")
         .args(["get-volume", SINK])
         .output()
@@ -127,14 +133,16 @@ fn volume() -> Option<u8> {
     parse_volume(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// `Volume: 0.75 [MUTED]` is 75%.
-fn parse_volume(text: &str) -> Option<u8> {
+/// `Volume: 0.75 [MUTED]` is 75%, muted.
+fn parse_volume(text: &str) -> Option<(u8, bool)> {
     let level: f64 = text.split_whitespace().nth(1)?.parse().ok()?;
-    Some((level * 100.0).round().clamp(0.0, 100.0) as u8)
+    let percent = (level * 100.0).round().clamp(0.0, 100.0) as u8;
+    Some((percent, text.contains("[MUTED]")))
 }
 
-/// Sets the volume, on a thread of its own so the slider doesn't wait for `wpctl`.
-fn set_volume(percent: u8) {
+/// Sets the volume, on a thread of its own so the slider doesn't wait for `wpctl`, then clicks if
+/// `click`, so the click sounds at the level just set.
+fn set_volume(percent: u8, click: bool) {
     let level = format!("{:.2}", percent.min(100) as f64 / 100.0);
     std::thread::spawn(move || {
         let set = Command::new("wpctl")
@@ -142,6 +150,13 @@ fn set_volume(percent: u8) {
             .status();
         if let Err(err) = set {
             eprintln!("slipstream-settings: couldn't set the volume: {err}");
+            return;
+        }
+        if click
+            && slipstream_config::click::due()
+            && let Some(path) = slipstream_config::click::file()
+        {
+            let _ = Command::new("pw-play").arg(path).status();
         }
     });
 }
@@ -155,9 +170,9 @@ mod tests {
 
     #[test]
     fn the_volume_is_read_from_wpctl() {
-        assert_eq!(parse_volume("Volume: 0.75\n"), Some(75));
-        assert_eq!(parse_volume("Volume: 0.40 [MUTED]\n"), Some(40));
-        assert_eq!(parse_volume("Volume: 1.30\n"), Some(100));
+        assert_eq!(parse_volume("Volume: 0.75\n"), Some((75, false)));
+        assert_eq!(parse_volume("Volume: 0.40 [MUTED]\n"), Some((40, true)));
+        assert_eq!(parse_volume("Volume: 1.30\n"), Some((100, false)));
         assert_eq!(parse_volume("nothing"), None);
     }
 }
