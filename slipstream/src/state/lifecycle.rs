@@ -188,13 +188,23 @@ impl Slipstream {
     /// has that window alone: a process with more than one window can't say which of them a shell
     /// belongs to.
     pub(super) fn agent_session(&self, window: &Window) -> Option<resume::Session> {
-        let pid = self.window_pid(window)?;
+        self.agent_session_or_why(window).ok()
+    }
+
+    /// `agent_session`, or why there is none.
+    fn agent_session_or_why(&self, window: &Window) -> Result<resume::Session, resume::Miss> {
+        let Some(pid) = self.window_pid(window) else {
+            return Err(resume::Miss::NoShell);
+        };
         let windows = self
             .all_open_windows()
             .iter()
             .filter(|other| self.window_pid(other) == Some(pid))
             .count();
-        (windows == 1).then(|| resume::in_terminal(pid)).flatten()
+        if windows > 1 {
+            return Err(resume::Miss::Windows(windows));
+        }
+        resume::in_terminal(pid)
     }
 
     /// Ends the process of a terminal whose agent's session comes back with the layout, as a logout
@@ -862,7 +872,19 @@ impl Slipstream {
             Act::Close(windows) => {
                 let remember = self.exit.as_ref().is_some_and(Exit::remember);
                 let (ask, end) = crate::exit::split_closing(windows, remember, |window| {
-                    self.agent_session(window).is_some()
+                    match self.agent_session_or_why(window) {
+                        Ok(_) => true,
+                        Err(resume::Miss::NoShell) => false,
+                        // Said for every terminal, so one that should have come back and didn't
+                        // can be told from one that never had an agent in it.
+                        Err(why) => {
+                            tracing::info!(
+                                window = logged_app(window),
+                                "a terminal that doesn't come back with an agent's session: {why}"
+                            );
+                            false
+                        }
+                    }
                 });
                 for window in ask {
                     self.close_window(&window);

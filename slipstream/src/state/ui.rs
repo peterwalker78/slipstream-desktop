@@ -28,6 +28,7 @@ impl Slipstream {
         }
         self.agents_read = Some(now);
         self.scope.follow(&crate::working::at_work());
+        crate::resume::sweep_notes();
     }
 
     /// Tells `ext-idle-notify` about the input this pass brought, if any.

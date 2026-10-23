@@ -81,41 +81,142 @@ pub fn make_notes_dir() {
     }
 }
 
-/// The session to reopen in the terminal whose process is `pid`. Nothing, unless that process
-/// is a terminal with exactly one shell and something under the shell has left a note.
-pub fn in_terminal(pid: u32) -> Option<Session> {
-    let notes = notes_dir()?;
+/// Why a window's terminal has no agent's session to bring back, for the log: a window that ought
+/// to have come back attached and didn't can then say why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Miss {
+    /// Its process has no shell on a terminal under it: it isn't a terminal.
+    NoShell,
+    /// Its process has this many windows, and which shell is whose can't be told.
+    Windows(usize),
+    /// Its process has this many shells, one for each tab, and which is the window's can't be
+    /// told.
+    Shells(usize),
+    /// Nothing under its shell has left a note: a terminal with no agent in it.
+    NoNote,
+    /// This many notes were left under its shell as near to it as each other, so none is chosen.
+    Notes(usize),
+    /// A process under its shell has a note that isn't taken: written before the process started
+    /// (by whatever had its number before), or not one plain line in a file of this user's.
+    Refused(u32),
+}
+
+impl std::fmt::Display for Miss {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Miss::NoShell => write!(f, "no shell runs in it"),
+            Miss::Windows(n) => write!(f, "its process has {n} windows"),
+            Miss::Shells(n) => write!(f, "its process has {n} shells"),
+            Miss::NoNote => write!(f, "nothing under its shell left a note"),
+            Miss::Notes(n) => write!(f, "{n} notes under its shell, none nearer it than the rest"),
+            Miss::Refused(pid) => write!(f, "the note of process {pid} is stale or malformed"),
+        }
+    }
+}
+
+/// The session to reopen in the terminal whose process is `pid`, if that process is a terminal
+/// with exactly one shell and something under the shell has left a note; or why not.
+pub fn in_terminal(pid: u32) -> Result<Session, Miss> {
+    let Some(notes) = notes_dir() else {
+        return Err(Miss::NoNote);
+    };
+    let (uid, ticks) = kernel_values();
+    look(Path::new("/proc"), &notes, pid, uid, ticks)
+}
+
+/// This user's id and the kernel's clock ticks a second.
+fn kernel_values() -> (u32, u64) {
     // SAFETY: both only read values the kernel holds for this process.
     let (uid, ticks) = unsafe { (libc::getuid(), libc::sysconf(libc::_SC_CLK_TCK)) };
-    look(Path::new("/proc"), &notes, pid, uid, ticks.max(1) as u64)
+    (uid, ticks.max(1) as u64)
 }
 
 /// `in_terminal` over any process table and notes folder, so it can be tested on made-up ones.
-fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Option<Session> {
-    let mut shells = children(proc, pid)
+fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Result<Session, Miss> {
+    let shells: Vec<u32> = children(proc, pid)
         .into_iter()
-        .filter(|&child| leads_a_terminal(proc, child));
-    let (Some(shell), None) = (shells.next(), shells.next()) else {
-        return None;
+        .filter(|&child| leads_a_terminal(proc, child))
+        .collect();
+    let shell = match shells[..] {
+        [shell] => shell,
+        [] => return Err(Miss::NoShell),
+        _ => return Err(Miss::Shells(shells.len())),
     };
-    let mut left = tree(proc, shell).into_iter().filter_map(|process| {
-        note(proc, notes, process, uid, ticks).map(|command| (process, command))
-    });
-    // Two sessions under one shell can't both have the window, so neither is guessed at.
-    let (Some((agent, command)), None) = (left.next(), left.next()) else {
-        return None;
+    let mut refused = None;
+    let mut left = Vec::new();
+    for (depth, process) in tree(proc, shell) {
+        match note(proc, notes, process, uid, ticks) {
+            Some(command) => left.push((depth, process, command)),
+            None if refused.is_none() && notes.join(process.to_string()).exists() => {
+                refused = Some(process);
+            }
+            None => {}
+        }
+    }
+    // The note nearest the shell is the window's: one further down was left by an agent that one
+    // started for itself, which isn't what the window shows. Two as near as each other can't both
+    // have the window, so neither is guessed at.
+    let Some(nearest) = left.iter().map(|(depth, ..)| *depth).min() else {
+        return Err(refused.map_or(Miss::NoNote, Miss::Refused));
+    };
+    left.retain(|(depth, ..)| *depth == nearest);
+    let [(_, agent, command)] = &left[..] else {
+        return Err(Miss::Notes(left.len()));
     };
     let directory = fs::read_link(proc.join(shell.to_string()).join("cwd"))
         .ok()
         .and_then(|dir| dir.to_str().map(String::from))
         // A folder deleted from under the shell reads back with a suffix in place of a path.
         .filter(|dir| dir.starts_with('/') && !dir.ends_with(" (deleted)"));
-    Some(Session {
-        command,
+    Ok(Session {
+        command: command.clone(),
         directory,
         shell: interactive_shell(proc, shell),
-        search_path: search_path(proc, agent),
+        search_path: search_path(proc, *agent),
     })
+}
+
+/// Removes the notes in `notes` whose process has gone, or that were written before their
+/// process started and so were left by whatever had its number before. The runtime folder
+/// outlives a login whenever something of the person's keeps running, so without this the notes
+/// of every earlier session gather there.
+pub fn sweep(proc: &Path, notes: &Path, uid: u32, ticks: u64) {
+    let Ok(dir) = fs::read_dir(notes) else {
+        return;
+    };
+    for entry in dir.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if !meta.is_file() || meta.uid() != uid {
+            continue;
+        }
+        let written = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|since| since.as_secs());
+        let current = started(proc, pid, ticks)
+            .is_some_and(|start| written.is_some_and(|written| written + 2 >= start));
+        if !current {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Tidies the resume notes, as `sweep` says.
+pub fn sweep_notes() {
+    if let Some(notes) = notes_dir() {
+        let (uid, ticks) = kernel_values();
+        sweep(Path::new("/proc"), &notes, uid, ticks);
+    }
 }
 
 /// `PATH` as `pid` was started with it, and nothing else from its environment.
@@ -189,13 +290,14 @@ fn children(proc: &Path, pid: u32) -> Vec<u32> {
         .collect()
 }
 
-/// `pid` and everything started beneath it.
-fn tree(proc: &Path, pid: u32) -> Vec<u32> {
-    let mut tree = vec![pid];
+/// `pid` and everything started beneath it, each with how far below `pid` it is, nearest first.
+fn tree(proc: &Path, pid: u32) -> Vec<(usize, u32)> {
+    let mut tree = vec![(0, pid)];
     let mut at = 0;
     while at < tree.len() && tree.len() < MOST_PROCESSES {
-        let below = children(proc, tree[at]);
-        tree.extend(below);
+        let (depth, process) = tree[at];
+        let below = children(proc, process);
+        tree.extend(below.into_iter().map(|child| (depth + 1, child)));
         at += 1;
     }
     tree
@@ -267,13 +369,18 @@ mod tests {
 
         /// A process under `parent`. A `shell` leads its own session on a terminal.
         fn process(&self, pid: u32, parent: u32, shell: bool, cwd: &str) {
+            self.process_at(pid, parent, shell, cwd, 100);
+        }
+
+        /// `process`, started `after` seconds after boot.
+        fn process_at(&self, pid: u32, parent: u32, shell: bool, cwd: &str, after: u64) {
             let dir = self.root.join(format!("proc/{pid}"));
             fs::create_dir_all(dir.join(format!("task/{pid}"))).unwrap();
             fs::write(dir.join(format!("task/{pid}/children")), "").unwrap();
             let (session, terminal) = if shell { (pid, 34816) } else { (parent, 0) };
             let fields = format!(
                 "S {parent} {pid} {session} {terminal} -1 0 0 0 0 0 0 0 0 0 20 0 1 0 {} 0 0",
-                100 * TICKS
+                after * TICKS
             );
             fs::write(dir.join("stat"), format!("{pid} (a (odd) name) {fields}\n")).unwrap();
             symlink(cwd, dir.join("cwd")).unwrap();
@@ -313,6 +420,10 @@ mod tests {
         }
 
         fn look(&self, pid: u32) -> Option<Session> {
+            self.why(pid).ok()
+        }
+
+        fn why(&self, pid: u32) -> Result<Session, Miss> {
             // SAFETY: reads this process's own user id.
             let uid = unsafe { libc::getuid() };
             look(
@@ -322,6 +433,37 @@ mod tests {
                 uid,
                 TICKS,
             )
+        }
+
+        /// Every process ends, as at a logout; the notes folder stays, as the runtime folder
+        /// does while anything of the person's keeps running.
+        fn log_out(&self) {
+            for entry in fs::read_dir(self.root.join("proc")).unwrap().flatten() {
+                if entry.file_type().unwrap().is_dir() {
+                    fs::remove_dir_all(entry.path()).unwrap();
+                }
+            }
+        }
+
+        fn sweep(&self) {
+            // SAFETY: reads this process's own user id.
+            let uid = unsafe { libc::getuid() };
+            sweep(
+                &self.root.join("proc"),
+                &self.root.join("notes"),
+                uid,
+                TICKS,
+            );
+        }
+
+        fn notes(&self) -> Vec<String> {
+            let mut notes: Vec<String> = fs::read_dir(self.root.join("notes"))
+                .unwrap()
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            notes.sort();
+            notes
         }
     }
 
@@ -462,7 +604,91 @@ mod tests {
         machine.process(14, 11, false, "/work/site");
         machine.note(12, "agent --resume 7", 200);
         machine.note(14, "agent --resume 8", 200);
-        assert_eq!(machine.look(10), None);
+        assert_eq!(machine.why(10), Err(Miss::Notes(2)));
+    }
+
+    #[test]
+    fn the_note_nearest_the_shell_is_the_windows() {
+        let machine = one_terminal("resume-nested");
+        machine.note(12, "agent attach 7", 200);
+        // An agent the window's agent started for itself, further down.
+        machine.process(13, 12, false, "/work/site");
+        machine.note(13, "agent --resume 99", 200);
+        assert_eq!(command(&machine).as_deref(), Some("agent attach 7"));
+    }
+
+    #[test]
+    fn a_terminal_that_isnt_brought_back_says_why() {
+        let machine = one_terminal("resume-why");
+        assert_eq!(machine.why(10), Err(Miss::NoNote));
+        machine.note(12, "agent --resume 7", 50);
+        assert_eq!(
+            machine.why(10),
+            Err(Miss::Refused(12)),
+            "older than its process"
+        );
+        machine.process(13, 10, true, "/work/other");
+        assert_eq!(machine.why(10), Err(Miss::Shells(2)));
+        assert_eq!(machine.why(4242), Err(Miss::NoShell));
+    }
+
+    #[test]
+    fn notes_whose_process_has_gone_or_came_before_it_are_swept() {
+        let machine = one_terminal("resume-sweep");
+        machine.note(12, "agent --resume 7", 200);
+        machine.note(11, "agent --resume 6", 50);
+        machine.note(77, "agent --resume 5", 200);
+        fs::write(machine.root.join("notes/not-a-process"), "x").unwrap();
+        machine.sweep();
+        assert_eq!(machine.notes(), ["12", "not-a-process"]);
+    }
+
+    #[test]
+    fn a_terminal_comes_back_with_its_session_after_any_number_of_logouts() {
+        let machine = Machine::new("resume-cycles");
+        for login in 0..12u32 {
+            let start = 1000 * u64::from(login) + 1000;
+            // Process numbers come round again: every other login, each terminal's agent has the
+            // number the other's had, and the plain terminal's shell has one that has a note
+            // left from before it started.
+            let (a, b) = if login % 2 == 0 { (12, 22) } else { (22, 12) };
+            let plain_shell = if login % 2 == 0 { 32 } else { 132 };
+            machine.process_at(10, 1, false, "/", start);
+            machine.process_at(11, 10, true, "/work/a", start);
+            machine.process_at(a, 11, false, "/work/a", start);
+            machine.process_at(20, 1, false, "/", start);
+            machine.process_at(21, 20, true, "/work/b", start);
+            machine.process_at(b, 21, false, "/work/b", start);
+            machine.process_at(30, 1, false, "/", start);
+            machine.process_at(plain_shell, 30, true, "/work/c", start);
+            machine.note(a, "agent attach a", start + 1);
+            machine.note(b, "agent attach b", start + 1);
+            machine.note(132, "agent attach gone", start - 500);
+            if login % 3 == 0 {
+                // The window's agent started one of its own further down.
+                machine.process_at(40, a, false, "/work/a", start + 5);
+                machine.note(40, "agent --resume inner", start + 6);
+            }
+            assert_eq!(
+                command(&machine).as_deref(),
+                Some("agent attach a"),
+                "login {login}"
+            );
+            let b_came_back = machine.look(20).map(|session| session.command);
+            assert_eq!(
+                b_came_back.as_deref(),
+                Some("agent attach b"),
+                "login {login}"
+            );
+            assert!(machine.look(30).is_none(), "login {login}");
+            machine.sweep();
+            assert!(
+                machine.notes().len() <= 3,
+                "login {login}: {:?}",
+                machine.notes()
+            );
+            machine.log_out();
+        }
     }
 
     #[test]

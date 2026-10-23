@@ -57,39 +57,6 @@ pub fn notes_dir() -> Option<PathBuf> {
     resume::notes_about("working")
 }
 
-/// Removes notes that belong to processes that are no longer running, to keep the folder tidy
-/// across a long session.
-fn clean_stale(notes: &Path, uid: u32, ticks: u64) {
-    let Ok(dir) = fs::read_dir(notes) else {
-        return;
-    };
-    for entry in dir.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
-            continue;
-        };
-        if !meta.is_file() || meta.uid() != uid {
-            continue;
-        }
-        let written = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs());
-        let started = resume::started(Path::new("/proc"), pid, ticks);
-        let alive = started.is_some_and(|s| written.is_some_and(|w| w + 2 >= s));
-        if !alive {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-}
-
 /// Every agent with an open session now.
 pub fn at_work() -> Vec<Agent> {
     let Some(notes) = notes_dir() else {
@@ -98,7 +65,7 @@ pub fn at_work() -> Vec<Agent> {
     // SAFETY: both only read values the kernel holds for this process.
     let (uid, ticks) = unsafe { (libc::getuid(), libc::sysconf(libc::_SC_CLK_TCK)) };
     let agents = read(Path::new("/proc"), &notes, uid, ticks.max(1) as u64);
-    clean_stale(&notes, uid, ticks.max(1) as u64);
+    resume::sweep(Path::new("/proc"), &notes, uid, ticks.max(1) as u64);
     agents
 }
 
