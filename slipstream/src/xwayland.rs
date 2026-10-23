@@ -442,25 +442,16 @@ impl Slipstream {
     fn x11_layer(&self, window: &Window) -> Option<RenderZindex> {
         let surface = window.x11_surface()?;
         let kind = own_kind(surface)?;
-        let covered = match self.fullscreen_over(surface.geometry()) {
-            None => Covered::No,
-            Some(full) if self.is_fullscreen_apps(surface, &full) => Covered::ByItsApp,
-            Some(_) => Covered::ByOther,
-        };
+        let screens: Vec<(Rect, Option<Window>)> = (0..self.screens.len())
+            .filter_map(|index| {
+                let rect = self.screen_rect(index)?;
+                Some((rect, self.fullscreen_at(self.screens.get(index)?.workspace)))
+            })
+            .collect();
+        let covered = fullscreen_over(surface.geometry(), screens, |full| {
+            self.is_fullscreen_apps(surface, full)
+        });
         Some(layer_for(kind, covered))
-    }
-
-    /// The window filling the screen `geometry`'s middle is on, if one is.
-    fn fullscreen_over(&self, geometry: Rectangle<i32, Logical>) -> Option<Window> {
-        let (x, y) = (
-            geometry.loc.x + geometry.size.w / 2,
-            geometry.loc.y + geometry.size.h / 2,
-        );
-        let screen = (0..self.screens.len()).find(|index| {
-            self.screen_rect(*index)
-                .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
-        })?;
-        self.fullscreen_at(self.screens.get(screen)?.workspace)
     }
 
     /// Whether `surface` is the fullscreen window's app's: the same X client's, or a process it
@@ -471,6 +462,29 @@ impl Slipstream {
             _ => false,
         }
     }
+}
+
+/// Whether a fullscreen window covers any screen `geometry` reaches, from each screen's rectangle
+/// and the window filling it, if one is: by its app only when every one it reaches is its app's
+/// (`its_app`). Any part on a screen counts, so a window can't slip out from under by putting its
+/// middle off it.
+fn fullscreen_over<W>(
+    geometry: Rectangle<i32, Logical>,
+    screens: impl IntoIterator<Item = (Rect, Option<W>)>,
+    its_app: impl Fn(&W) -> bool,
+) -> Covered {
+    let (x, y) = (geometry.loc.x, geometry.loc.y);
+    let (w, h) = (geometry.size.w.max(1), geometry.size.h.max(1));
+    let mut covered = Covered::No;
+    for (r, full) in screens {
+        let reaches = x < r.x + r.w && r.x < x + w && y < r.y + r.h && r.y < y + h;
+        match full {
+            Some(full) if reaches && !its_app(&full) => return Covered::ByOther,
+            Some(_) if reaches => covered = Covered::ByItsApp,
+            _ => {}
+        }
+    }
+    covered
 }
 
 /// What an X11 window that places itself is, for where it stacks.
@@ -622,6 +636,63 @@ mod tests {
             let kind = kind_for(window_type, false, true).unwrap();
             assert!((layer_for(kind, Covered::ByOther) as u8) < FULLSCREEN as u8);
         }
+    }
+
+    /// Two screens side by side, the left one filled by the app `"game"` and the right by
+    /// nothing, or by `right`.
+    fn side_by_side(right: Option<&'static str>) -> [(Rect, Option<&'static str>); 2] {
+        [
+            (
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 1920,
+                    h: 1080,
+                },
+                Some("game"),
+            ),
+            (
+                Rect {
+                    x: 1920,
+                    y: 0,
+                    w: 1920,
+                    h: 1080,
+                },
+                right,
+            ),
+        ]
+    }
+
+    #[test]
+    fn another_app_s_window_reaching_a_fullscreen_screen_is_covered() {
+        let at = |x, y, w, h| Rectangle::<i32, Logical>::new((x, y).into(), (w, h).into());
+        let its_app = |app: &&str| *app == "game";
+        let screens = side_by_side(None);
+        assert_eq!(
+            fullscreen_over(at(-3000, 0, 4000, 1080), screens, |_| false),
+            Covered::ByOther,
+            "its middle off every screen"
+        );
+        assert_eq!(
+            fullscreen_over(at(0, 0, 4000, 1080), screens, |_| false),
+            Covered::ByOther,
+            "its middle on the screen beside"
+        );
+        assert_eq!(
+            fullscreen_over(at(2200, 100, 300, 200), screens, |_| false),
+            Covered::No,
+            "wholly on the screen beside"
+        );
+        assert_eq!(
+            fullscreen_over(at(1800, 100, 300, 200), screens, its_app),
+            Covered::ByItsApp,
+            "the fullscreen app's own popup stays on top"
+        );
+        assert_eq!(
+            fullscreen_over(at(1800, 100, 300, 200), side_by_side(Some("chat")), its_app),
+            Covered::ByOther,
+            "across its app's screen and another app's"
+        );
     }
 
     #[test]
