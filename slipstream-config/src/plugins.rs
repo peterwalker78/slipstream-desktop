@@ -27,8 +27,8 @@
 //!  "buttons": [{"id": "refresh", "label": "Refresh"}], "attention": false}
 //! ```
 //!
-//! Every field is optional. `sections` are a meter's report (`meter`): named groups of
-//! percentages, each with when it starts over. A pressed button runs the plugin's own program
+//! Every field is optional. `sections` are named groups of gauges (`card`), each with when it
+//! starts over. A pressed button runs the plugin's own program
 //! again with `press <id>` after it, and that is the only thing anything on a card can do: a card
 //! is shown, as text and gauges in Slipstream's own style, and nothing in it is ever run.
 //!
@@ -50,12 +50,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::meter::{Report, Section};
+use crate::card::{Report, Section};
 
 /// The file in a plugin's folder that says what it is.
 pub const MANIFEST: &str = "plugin.toml";
-/// The `[meter]` setting, shown as a plugin of its own while it has a command.
-pub const METER_ID: &str = "meter";
 /// The most lines, sections and buttons a card shows.
 pub const MAX_LINES: usize = 6;
 pub const MAX_SECTIONS: usize = 4;
@@ -64,7 +62,7 @@ pub const MAX_BUTTONS: usize = 3;
 const LINE_CHARS: usize = 80;
 const GLANCE_CHARS: usize = 12;
 const LABEL_CHARS: usize = 20;
-/// A gauge this full or fuller asks for attention, as the meter's amber does.
+/// A gauge this full or fuller asks for attention.
 pub const ATTENTION_PERCENT: u8 = 75;
 /// The most a plugin's folder may hold, all its files together, in bytes.
 const MOST_BYTES: u64 = 64 << 20;
@@ -133,6 +131,27 @@ impl Plugins {
                 }
             }
         }
+    }
+
+    /// The plugin whose headline is on the chip, while it is on.
+    pub fn glance(&self) -> Option<&str> {
+        self.glance.as_deref().filter(|id| self.is_on(id))
+    }
+
+    /// The sections of plugin `id`'s card not to show.
+    pub fn hidden(&self, id: &str) -> &[String] {
+        self.hidden.get(id).map_or(&[], Vec::as_slice)
+    }
+
+    /// Shows plugin `id`'s section `name` if it was hidden, or hides it.
+    pub fn toggle_hidden(&mut self, id: &str, name: &str) {
+        let list = self.hidden.entry(id.to_string()).or_default();
+        if list.iter().any(|hidden| hidden == name) {
+            list.retain(|hidden| hidden != name);
+        } else {
+            list.push(name.to_string());
+        }
+        self.hidden.retain(|_, list| !list.is_empty());
     }
 
     /// Whether `plugin` may run: it's on, and its folder is as it was when it was turned on.
@@ -227,9 +246,6 @@ pub struct Plugin {
     pub own: bool,
     /// What its folder holds now (`fingerprint`).
     pub fingerprint: String,
-    /// The settings file's own command (`meter_plugin`): run with `sh -c` and the session's
-    /// environment, as it always was, rather than as a plugin's program is.
-    pub settings_command: bool,
 }
 
 /// Whether `id` can name a plugin: a folder name of letters, digits, `.`, `-` and `_`, starting
@@ -293,7 +309,6 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
         manifest,
         own: dir.starts_with(own_dir()),
         fingerprint,
-        settings_command: false,
     })
 }
 
@@ -381,12 +396,6 @@ pub fn find_in(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
         folders.sort();
         for folder in folders {
             match read(&folder) {
-                Ok(plugin) if plugin.id == METER_ID => {
-                    problems.push(format!(
-                        "{}: the id \"{METER_ID}\" is kept",
-                        folder.display()
-                    ));
-                }
                 Ok(plugin) if found.iter().any(|other| other.id == plugin.id) => {}
                 Ok(plugin) => found.push(plugin),
                 Err(why) => problems.push(format!("{}: {why}", folder.display())),
@@ -402,63 +411,77 @@ pub fn find() -> (Vec<Plugin>, Vec<String>) {
     find_in(&dirs())
 }
 
-/// The `[meter]` setting as a plugin, while it has a command: on, since it was set up to show.
-pub fn meter_plugin(meter: &crate::Meter) -> Option<Plugin> {
-    let command = meter.command.trim();
-    (!command.is_empty()).then(|| Plugin {
-        id: METER_ID.into(),
-        dir: PathBuf::new(),
-        manifest: Manifest {
-            name: "Meter".into(),
-            description: "The command in the settings file's [meter]".into(),
-            exec: vec![command.into()],
-            every_secs: Some(meter.every().as_secs()),
-            read: Vec::new(),
-        },
-        own: false,
-        fingerprint: String::new(),
-        settings_command: true,
-    })
+/// Moves a `[meter] command` from a settings file from before plugins into a plugin of its own,
+/// once: the first start that finds one writes it out as `meter/` in the person's plugins folder,
+/// where it waits to be turned on like any other plugin. Says where it went, or why it couldn't
+/// go, when there was one to move.
+pub fn move_meter_once() -> Option<Result<PathBuf, String>> {
+    let record = crate::xdg_home("XDG_STATE_HOME", ".local/state")
+        .join("slipstream")
+        .join("meter-moved");
+    move_meter(&crate::path(), &own_dir(), &record)
 }
 
-/// The sections of plugin `id`'s card not to show: the meter keeps its own list.
-pub fn hidden<'a>(settings: &'a crate::Settings, id: &str) -> &'a [String] {
-    if id == METER_ID {
-        return &settings.meter.hidden;
+/// `move_meter_once`, reading `settings`, writing into `plugins`, and keeping `record` to say it
+/// has. The command runs as `sh -c <command> meter`, so a button's words reach it as `$1` and `$2`
+/// and nothing is added to the line it was written as.
+pub fn move_meter(
+    settings: &Path,
+    plugins: &Path,
+    record: &Path,
+) -> Option<Result<PathBuf, String>> {
+    if record.exists() {
+        return None;
     }
-    settings.plugins.hidden.get(id).map_or(&[], Vec::as_slice)
-}
-
-/// Shows plugin `id`'s section `name` if it was hidden, or hides it.
-pub fn toggle_hidden(settings: &mut crate::Settings, id: &str, name: &str) {
-    let list = if id == METER_ID {
-        &mut settings.meter.hidden
+    let text = std::fs::read_to_string(settings).ok()?;
+    let table: toml::Table = toml::from_str(&text).ok()?;
+    let meter = table.get("meter")?.as_table()?;
+    let command = meter.get("command")?.as_str()?.trim();
+    if command.is_empty() {
+        return None;
+    }
+    let every = meter
+        .get("every-secs")
+        .and_then(toml::Value::as_integer)
+        .unwrap_or(60)
+        .clamp(10, 86_400);
+    let dir = plugins.join("meter");
+    let written = if dir.exists() {
+        Err(format!("{} is there already", dir.display()))
     } else {
-        settings.plugins.hidden.entry(id.to_string()).or_default()
+        let mut manifest = toml::Table::new();
+        manifest.insert("name".into(), "Meter".into());
+        manifest.insert(
+            "description".into(),
+            "The command from the settings file's [meter]".into(),
+        );
+        manifest.insert(
+            "exec".into(),
+            toml::Value::Array(vec![
+                "sh".into(),
+                "-c".into(),
+                command.into(),
+                "meter".into(),
+            ]),
+        );
+        manifest.insert("every-secs".into(), every.into());
+        let text = toml::to_string(&manifest).map_err(|err| err.to_string());
+        let wrote = text.and_then(|text| {
+            std::fs::create_dir_all(&dir)
+                .and_then(|()| std::fs::write(dir.join(MANIFEST), text))
+                .map_err(|err| err.to_string())
+        });
+        // Tried again at the next start, when it couldn't be written.
+        if let Err(why) = wrote {
+            return Some(Err(why));
+        }
+        Ok(dir)
     };
-    if list.iter().any(|hidden| hidden == name) {
-        list.retain(|hidden| hidden != name);
-    } else {
-        list.push(name.to_string());
+    if let Some(parent) = record.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
-    settings.plugins.hidden.retain(|_, list| !list.is_empty());
-}
-
-/// Whether `id` is on: as `[plugins] on` says, and the meter whenever it has a command.
-pub fn is_on(settings: &crate::Settings, id: &str) -> bool {
-    if id == METER_ID {
-        return !settings.meter.command.trim().is_empty();
-    }
-    settings.plugins.is_on(id)
-}
-
-/// The plugin whose headline is on the chip: the one chosen, while it is on, else the meter, as it
-/// was on the bar before plugins.
-pub fn glance(settings: &crate::Settings) -> Option<String> {
-    match &settings.plugins.glance {
-        Some(id) => is_on(settings, id).then(|| id.clone()),
-        None => is_on(settings, METER_ID).then(|| METER_ID.to_string()),
-    }
+    let _ = std::fs::write(record, "");
+    Some(written)
 }
 
 /// A button on a card.
@@ -633,7 +656,6 @@ mod tests {
             "name = \"Disk space\"\nexec = [\"df\"]\nevery-secs = 60\n",
         );
         plugin(&shared, "broken", "name = \"\"\nexec = [\"x\"]\n");
-        plugin(&shared, "meter", "name = \"Mine\"\nexec = [\"x\"]\n");
         std::fs::create_dir_all(shared.join("bad name")).unwrap();
         let (found, problems) = find_in(&[own.clone(), shared.clone()]);
         let names: Vec<_> = found.iter().map(|p| p.manifest.name.as_str()).collect();
@@ -643,7 +665,7 @@ mod tests {
             Some(std::time::Duration::from_secs(60))
         );
         assert_eq!(found[1].manifest.every(), None);
-        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert_eq!(problems.len(), 2, "{problems:?}");
     }
 
     #[test]
@@ -725,18 +747,16 @@ mod tests {
     }
 
     #[test]
-    fn hiding_a_section_is_kept_for_each_plugin_and_the_meter_keeps_its_own_list() {
-        let mut settings = crate::Settings::default();
-        toggle_hidden(&mut settings, "agents", "Codex");
-        toggle_hidden(&mut settings, METER_ID, "Codex");
-        assert_eq!(hidden(&settings, "agents"), ["Codex"]);
-        assert_eq!(settings.meter.hidden, ["Codex"]);
-        toggle_hidden(&mut settings, "agents", "Codex");
-        assert!(hidden(&settings, "agents").is_empty());
-        assert!(
-            settings.plugins.hidden.is_empty(),
-            "no empty lists left in the file"
-        );
+    fn hiding_a_section_is_kept_for_each_plugin() {
+        let mut plugins = Plugins::default();
+        plugins.toggle_hidden("tides", "Harbour");
+        plugins.toggle_hidden("kettle", "Harbour");
+        assert_eq!(plugins.hidden("tides"), ["Harbour"]);
+        plugins.toggle_hidden("tides", "Harbour");
+        assert!(plugins.hidden("tides").is_empty());
+        assert_eq!(plugins.hidden("kettle"), ["Harbour"]);
+        plugins.toggle_hidden("kettle", "Harbour");
+        assert!(plugins.hidden.is_empty(), "no empty lists left in the file");
     }
 
     #[test]
@@ -779,18 +799,57 @@ mod tests {
         assert!(read(&root.join("timer")).unwrap_err().contains("link"));
     }
 
+    /// The promise in the guide: a `[meter]` from before plugins becomes a plugin of its own,
+    /// once, and waits to be turned on.
     #[test]
-    fn the_meter_setting_is_a_plugin_while_it_has_a_command() {
-        let mut settings = crate::Settings::default();
-        assert_eq!(meter_plugin(&settings.meter), None);
-        assert_eq!(glance(&settings), None);
-        settings.meter.command = "usage".into();
-        let meter = meter_plugin(&settings.meter).unwrap();
-        assert_eq!(meter.id, METER_ID);
-        assert!(is_on(&settings, METER_ID));
-        assert_eq!(glance(&settings).as_deref(), Some(METER_ID));
-        settings.plugins.set_on("disk", Some("a".into()));
-        settings.plugins.glance = Some("disk".into());
-        assert_eq!(glance(&settings).as_deref(), Some("disk"));
+    fn a_meter_command_becomes_a_plugin_folder_once() {
+        let root = scratch("meter");
+        let settings = root.join("settings.toml");
+        let record = root.join("state").join("meter-moved");
+        let own = root.join("plugins");
+        std::fs::write(
+            &settings,
+            "[meter]\ncommand = \"if true; then printf '{}'; fi # done\"\nevery-secs = 120\n",
+        )
+        .unwrap();
+        let moved = move_meter(&settings, &own, &record).unwrap().unwrap();
+        let meter = read(&moved).unwrap();
+        assert_eq!(meter.id, "meter");
+        assert_eq!(
+            meter.manifest.exec,
+            ["sh", "-c", "if true; then printf '{}'; fi # done", "meter"]
+        );
+        assert_eq!(meter.manifest.every_secs, Some(120));
+        let parsed = crate::read(&settings).unwrap();
+        assert!(
+            !parsed.plugins.is_on("meter"),
+            "it waits to be turned on, like any plugin"
+        );
+        std::fs::remove_dir_all(&moved).unwrap();
+        assert_eq!(move_meter(&settings, &own, &record), None);
+        assert!(!moved.exists(), "a second start leaves it removed");
+    }
+
+    #[test]
+    fn a_settings_file_from_before_plugins_still_loads() {
+        let settings: crate::Settings = toml::from_str(
+            "[meter]\ncommand = \"quota\"\nhidden = [\"Mail\"]\n\n[plugins]\nglance = \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            settings.plugins.glance(),
+            None,
+            "an empty glance is nothing on the chip"
+        );
+    }
+
+    #[test]
+    fn an_empty_meter_command_moves_nothing() {
+        let root = scratch("no-meter");
+        let settings = root.join("settings.toml");
+        std::fs::write(&settings, "[meter]\ncommand = \"\"\n").unwrap();
+        let record = root.join("meter-moved");
+        assert_eq!(move_meter(&settings, &root.join("plugins"), &record), None);
+        assert!(!root.join("plugins").exists());
     }
 }

@@ -476,6 +476,16 @@ impl Slipstream {
             })
             .expect("a channel source always inserts");
 
+        match slipstream_config::plugins::move_meter_once() {
+            Some(Ok(dir)) => tracing::info!(
+                "the settings file's [meter] is a plugin now, in {}, off until it is turned on",
+                dir.display()
+            ),
+            Some(Err(why)) => {
+                tracing::warn!("the settings file's [meter] couldn't be moved: {why}")
+            }
+            None => {}
+        }
         let mut plugins = crate::plugins::Plugins::default();
         plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();

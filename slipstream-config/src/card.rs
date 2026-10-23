@@ -1,5 +1,5 @@
-//! The bar's meter: the JSON report its command prints, and what that report shows. The compositor
-//! runs the command every so often; Settings runs it once to try it out (both through `command`).
+//! A plugin card's sections: named groups of gauges, each saying how much of some allowance is
+//! used, as the card's `sections` give them (`plugins::Card` reads the rest of a card).
 //!
 //! ```json
 //! {"sections": [{"name": "Storage", "detail": "Pro", "note": null, "stale": false,
@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-/// A command still running after this long is stopped.
+/// A plugin's program still running after this long is stopped.
 pub const RUN_LIMIT: Duration = Duration::from_secs(30);
 
 /// What a report shows.
@@ -30,7 +30,7 @@ pub struct Section {
     pub gauges: Vec<Gauge>,
     /// Why the numbers are what they are, e.g. that they couldn't be refreshed.
     pub note: Option<String>,
-    /// The numbers are old: the report says so, or the command has stopped answering.
+    /// The numbers are old: the card says so, or its program has stopped answering.
     pub stale: bool,
 }
 
@@ -44,7 +44,7 @@ pub struct Gauge {
     pub through: Option<f32>,
 }
 
-/// A report as the command printed it.
+/// The sections as a plugin printed them.
 #[derive(Debug, Deserialize)]
 pub struct Report {
     #[serde(default)]
@@ -205,7 +205,7 @@ mod tests {
                 .sections
                 .iter()
                 .all(|section| section.stale),
-            "a failing command dims everything"
+            "a failing program dims everything"
         );
         assert!(Report::parse("not json").is_err());
         assert!(

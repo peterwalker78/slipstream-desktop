@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use slipstream_config::plugins::{self, METER_ID, Plugin, approval};
+use slipstream_config::plugins::{self, Plugin, approval};
 
 use super::*;
 
@@ -32,22 +32,18 @@ fn fill(list: &gtk::Box, store: &Store) {
     let settings = store.get();
     let refill = refiller(list, store, fill);
     let (found, problems) = plugins::find();
-    let meter = plugins::meter_plugin(&settings.meter);
 
     let add = group(list, "Add a plugin");
     add_rows(&add, refill.clone());
 
     let yours = group(list, "Your plugins");
-    if found.is_empty() && meter.is_none() {
+    if found.is_empty() {
         row(
             &yours,
             "No plugins yet",
             Some("Add one above. It starts off, so you can read its files before turning it on."),
             &gtk::Box::new(gtk::Orientation::Horizontal, 0),
         );
-    }
-    if let Some(meter) = &meter {
-        meter_row(&yours, store, meter, &settings, refill.clone());
     }
     for plugin in &found {
         plugin_row(&yours, store, plugin, &settings, refill.clone());
@@ -159,36 +155,6 @@ fn add_rows(card: &gtk::Box, refill: impl Fn() + Clone + 'static) {
     });
 }
 
-/// The settings file's `[meter]` command, shown as the plugin it runs as.
-fn meter_row(
-    card: &gtk::Box,
-    store: &Store,
-    meter: &Plugin,
-    settings: &Settings,
-    refill: impl Fn() + Clone + 'static,
-) {
-    let controls = gtk::Box::builder().spacing(10).build();
-    controls.append(&glance_choice(store, METER_ID, settings, refill.clone()));
-    let remove = remove_button();
-    let (store_c, refill_c) = (store.clone(), refill.clone());
-    remove.connect_clicked(move |button| {
-        if confirmed(button) {
-            store_c.change(|settings| settings.meter.command.clear());
-            refill_c();
-        }
-    });
-    controls.append(&remove);
-    row(
-        card,
-        &meter.manifest.name,
-        Some(&format!(
-            "The command in your settings file's [meter]: {}",
-            meter.manifest.exec.join(" ")
-        )),
-        &controls,
-    );
-}
-
 /// A plugin's row: what it is and what it runs, then where its headline goes, removing it, and
 /// its switch.
 fn plugin_row(
@@ -296,7 +262,7 @@ fn glance_choice(
     settings: &Settings,
     refill: impl Fn() + 'static,
 ) -> gtk::CheckButton {
-    let shown = plugins::glance(settings).as_deref() == Some(id);
+    let shown = settings.plugins.glance() == Some(id);
     let choice = gtk::CheckButton::builder()
         .label("On the chip")
         .active(shown)
@@ -308,9 +274,8 @@ fn glance_choice(
         store.change(|settings| {
             if on {
                 settings.plugins.glance = Some(id.clone());
-            } else if plugins::glance(settings).as_deref() == Some(id.as_str()) {
-                // Nothing on the chip: no plugin has the id "".
-                settings.plugins.glance = Some(String::new());
+            } else if settings.plugins.glance() == Some(id.as_str()) {
+                settings.plugins.glance = None;
             }
         });
         refill();

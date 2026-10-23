@@ -19,10 +19,10 @@ use smithay::{
 };
 
 use crate::{
-    Slipstream, icons, meter,
+    Slipstream, icons,
     paint::{Painted, Painter},
     panel::{self, DESIGN_PX, GAP, INK, PADDING},
-    plugins::Shown,
+    plugins::{Shown, card},
     text::{self, Face, Style},
 };
 
@@ -596,7 +596,7 @@ fn paint_front(
     let inner = w - 2.0 * CARD_PAD;
     let mut y = y + CARD_PAD;
     let stale = shown.problem.is_some();
-    let shade = |rgba: u32| if stale { meter::dim(rgba) } else { rgba };
+    let shade = |rgba: u32| if stale { card::dim(rgba) } else { rgba };
     let has_sections = shown
         .card
         .as_ref()
@@ -651,7 +651,7 @@ fn paint_front(
     for section in &card.sections {
         let shade = |rgba: u32| {
             if stale || section.stale {
-                meter::dim(rgba)
+                card::dim(rgba)
             } else {
                 rgba
             }
@@ -790,7 +790,7 @@ fn paint_gauge(
             used.max(H),
             H,
             H / 2.0,
-            shade(meter::ink(percent, facts.ahead)),
+            shade(card::ink(percent, facts.ahead)),
         );
     }
     if let Some(through) = through {
@@ -899,7 +899,7 @@ fn paint_back(
 /// A gauge's number: in `attention` and hotter as its allowance runs out, quiet otherwise.
 fn meter_text(percent: u8, attention: u32) -> u32 {
     match percent {
-        75.. => meter::ink(percent, attention),
+        75.. => card::ink(percent, attention),
         _ => panel::SECONDARY,
     }
 }
@@ -970,7 +970,7 @@ impl Slipstream {
             Request::Close => self.plugin_panel.close(),
             Request::Press { plugin, button } => self.plugins.press(&plugin, &button),
             Request::Toggle { plugin, section } => self.change_settings(|settings| {
-                slipstream_config::plugins::toggle_hidden(settings, &plugin, &section);
+                settings.plugins.toggle_hidden(&plugin, &section);
             }),
             Request::Settings => {
                 self.plugin_panel.close();
@@ -983,7 +983,7 @@ impl Slipstream {
 #[cfg(test)]
 mod tests {
     use slipstream_config::{
-        meter::{Gauge, Section},
+        card::{Gauge, Section},
         plugins::{Button, Card},
     };
 

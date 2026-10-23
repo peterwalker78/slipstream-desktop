@@ -64,11 +64,6 @@
 //! after-idle-mins = 0
 //! before-sleep = true
 //!
-//! [meter]
-//! command = ""
-//! every-secs = 60
-//! hidden = []
-//!
 //! [plugins]
 //! on = ["disk-space"]
 //! glance = "disk-space"
@@ -98,11 +93,11 @@
 //! reads a newer file.
 
 pub mod battery;
+pub mod card;
 pub mod command;
 mod display;
 mod file;
 mod input;
-pub mod meter;
 mod pages;
 pub mod plugins;
 pub mod screens;
@@ -111,8 +106,6 @@ pub mod sun;
 mod wallpaper;
 pub mod weight;
 mod workspaces;
-
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -146,7 +139,6 @@ pub struct Settings {
     pub sound: Sound,
     pub clipboard: Clipboard,
     pub privacy: Privacy,
-    pub meter: Meter,
     /// Which plugins are on, and the one whose headline is on the chip.
     pub plugins: plugins::Plugins,
     pub workspaces: Workspaces,
@@ -397,43 +389,6 @@ pub struct Sound {
 impl Default for Sound {
     fn default() -> Self {
         Self { volume_blip: true }
-    }
-}
-
-/// A command reporting how much of some allowance is used: a quota, a plan's limits, a disk. It
-/// prints the JSON report described in [`meter`], and shows as a plugin of its own
-/// ([`plugins::meter_plugin`]) while it is set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "kebab-case")]
-pub struct Meter {
-    /// Run with `sh -c`. Empty means no meter.
-    pub command: String,
-    /// How often the command runs, in seconds. At least 10, at most a day.
-    pub every_secs: u64,
-    /// Sections of the report not to show, by name.
-    pub hidden: Vec<String>,
-}
-
-impl Default for Meter {
-    fn default() -> Self {
-        Self {
-            command: String::new(),
-            every_secs: 60,
-            hidden: Vec::new(),
-        }
-    }
-}
-
-impl Meter {
-    /// Whether the section called `name` is shown.
-    pub fn shows(&self, name: &str) -> bool {
-        !self.hidden.iter().any(|hidden| hidden == name)
-    }
-
-    /// `every_secs`, kept between 10 s and a day: a hand-edited huge value would otherwise
-    /// overflow the meter's next deadline.
-    pub fn every(&self) -> Duration {
-        Duration::from_secs(self.every_secs.clamp(10, 86_400))
     }
 }
 
@@ -730,11 +685,6 @@ mod tests {
             clipboard: Clipboard { history: false },
             privacy: Privacy {
                 screen_capture_allowed: vec!["/usr/bin/made-up-recorder".into()],
-            },
-            meter: Meter {
-                command: "df --output=pcent /home | report".into(),
-                every_secs: 300,
-                hidden: vec!["Mail".into()],
             },
             plugins: plugins::Plugins {
                 on: vec!["made-up-timer".into()],

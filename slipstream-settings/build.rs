@@ -121,7 +121,6 @@ const PARTS: &[(&str, &[&str])] = &[
             "notify",
             "shell/notices",
             "alert",
-            "meter",
             "shell/osd",
             "shell/toast",
             "shell/history",

@@ -59,9 +59,23 @@ The program runs as you, from its own folder. It doesn't get your session's envi
 
 A program that fails, takes longer than 30 seconds or prints something that isn't a card leaves its last card on show, dimmed and saying why. One that keeps running and exits is started again, waiting longer each time it keeps exiting straight away.
 
-## The meter
+## A meter
 
-A `[meter]` command in the settings file shows as a plugin called Meter, with its headline on the chip unless you choose another. It runs with `sh -c` and your session's environment, as it always has. Its report is a card with only `sections`.
+A meter is a plugin whose card has only `sections`:
+
+```toml
+name = "Disk space"
+exec = ["./disk.sh"]
+every-secs = 60
+```
+
+```sh
+#!/bin/sh
+used=$(df --output=pcent / | tail -n 1 | tr -dc 0-9)
+printf '{"sections": [{"name": "Disk", "meters": [{"label": "/", "percent": %s}]}]}\n' "$used"
+```
+
+A `[meter]` command in a settings file from before plugins becomes a plugin like this, called Meter, the first time Slipstream starts. It waits until you turn it on, and runs as any plugin does, without your session's environment.
 
 ## A whole plugin, packaged
 

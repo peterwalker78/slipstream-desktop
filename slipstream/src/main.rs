@@ -50,7 +50,6 @@ mod live;
 mod lock;
 mod logind;
 mod media;
-mod meter;
 mod motion;
 mod nightlight;
 mod notify;

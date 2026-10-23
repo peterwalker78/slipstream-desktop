@@ -14,8 +14,8 @@ use std::{
 };
 
 use slipstream_config::{
+    card::{RUN_LIMIT, unix_now},
     command::{self, Lines, Run, Said},
-    meter::{RUN_LIMIT, unix_now},
     plugins::{self, Card, Plugin},
 };
 
@@ -298,20 +298,10 @@ impl Job {
     }
 }
 
-/// The plugin's program, with `args` after its own words. A plugin's program is run as its
-/// manifest writes it, in its folder, from a cleared environment (`plugins::ENVIRONMENT`). The
-/// settings file's own command is run with `sh -c` and the session's environment, as it always
-/// was, `args` after it as `"$@"`: never pasted into the line, so the shell reads nothing in them.
+/// The plugin's program, with `args` after its own words: run as its manifest writes it, in its
+/// folder, from a cleared environment (`plugins::ENVIRONMENT`).
 pub fn program(plugin: &Plugin, args: &[&str]) -> Command {
     let exec = &plugin.manifest.exec;
-    if plugin.settings_command {
-        let mut sh = crate::launch::command("sh");
-        sh.arg("-c")
-            .arg(format!("{} \"$@\"", exec.join(" ")))
-            .arg(&plugin.id)
-            .args(args);
-        return sh;
-    }
     let program = &exec[0];
     let mut command = if program.contains('/') {
         Command::new(plugin.dir.join(program))

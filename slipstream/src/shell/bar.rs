@@ -19,9 +19,10 @@ use smithay::{
 };
 
 use crate::{
-    icons, meter,
+    icons,
     paint::{self, Painter},
     panel::{self, ink_on},
+    plugins::card,
     status::Reading,
     text::{self, Face, Style},
 };
@@ -423,7 +424,7 @@ fn chip_glance(
         .iter()
         .max()
         .map_or(INK, |percent| match percent {
-            75.. => meter::ink(*percent, attention),
+            75.. => card::ink(*percent, attention),
             _ => INK,
         });
     let style = Style {
@@ -535,7 +536,7 @@ fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, content: &Content, x
                         filled.max(h),
                         h,
                         h / 2.0,
-                        meter::ink(percent, content.bullet),
+                        card::ink(percent, content.bullet),
                     );
                 }
             };

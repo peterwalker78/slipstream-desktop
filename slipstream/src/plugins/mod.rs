@@ -4,14 +4,15 @@
 //! nothing of a plugin's is ever loaded into the compositor. What a program prints is only ever
 //! shown, and a button on its card only runs that same program again, with the button's id.
 
+pub mod card;
 mod worker;
 
 pub use slipstream_config::plugins::Glance;
 
 use slipstream_config::{
     Settings,
+    card::RUN_LIMIT,
     command::Run,
-    meter::RUN_LIMIT,
     plugins::{self, Card, Plugin},
 };
 
@@ -87,10 +88,9 @@ impl Plugins {
             }
             self.reported = problems;
         }
-        let meter = plugins::meter_plugin(&settings.meter);
-        self.installed = found.len() + usize::from(meter.is_some());
-        // The meter first, as it was the first thing of its kind; then in the order turned on.
-        let mut wanted: Vec<Plugin> = meter.into_iter().collect();
+        self.installed = found.len();
+        // In the order they were turned on.
+        let mut wanted: Vec<Plugin> = Vec::new();
         self.held.clear();
         for id in &settings.plugins.on {
             if let Some(plugin) = found.iter().find(|plugin| plugin.id == *id) {
@@ -108,7 +108,7 @@ impl Plugins {
         let mut old = std::mem::take(&mut self.running);
         for plugin in wanted {
             // Which sections show is only the panel's business: the program carries on.
-            let hidden = plugins::hidden(settings, &plugin.id).to_vec();
+            let hidden = settings.plugins.hidden(&plugin.id).to_vec();
             let kept = old
                 .iter()
                 .position(|running| running.plugin == plugin)
@@ -125,7 +125,7 @@ impl Plugins {
             self.running.push(running);
         }
         // Whatever is left in `old` is dropped here, which stops it.
-        self.glance = plugins::glance(settings);
+        self.glance = settings.plugins.glance().map(str::to_string);
     }
 
     /// The cards of the plugins that are on, in order.
@@ -203,7 +203,10 @@ impl Plugins {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
 
     use super::*;
 
@@ -218,18 +221,44 @@ mod tests {
         }
     }
 
-    fn meter(command: &str) -> Settings {
+    /// A scratch folder of plugins holding `id`, whose manifest runs `sh -c script`, with the
+    /// settings that turn it on.
+    fn turned_on(name: &str, id: &str, script: &str, every: Option<u64>) -> (PathBuf, Settings) {
+        let root =
+            std::env::temp_dir().join(format!("slipstream-plugins-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(id)).unwrap();
+        let mut manifest = toml::Table::new();
+        manifest.insert("name".into(), id.into());
+        manifest.insert(
+            "exec".into(),
+            toml::Value::Array(vec!["sh".into(), "-c".into(), script.into(), id.into()]),
+        );
+        if let Some(every) = every {
+            manifest.insert("every-secs".into(), (every as i64).into());
+        }
+        std::fs::write(
+            root.join(id).join(plugins::MANIFEST),
+            toml::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        let plugin = plugins::read(&root.join(id)).unwrap();
         let mut settings = Settings::default();
-        settings.meter.command = command.into();
-        settings
+        settings.plugins.set_on(id, Some(plugin.fingerprint));
+        (root, settings)
     }
 
     #[test]
-    fn the_meter_setting_runs_as_a_plugin_and_its_glance_is_on_the_chip() {
-        let mut plugins = Plugins::default();
-        plugins.configure_from(&meter(
+    fn a_plugin_runs_and_its_glance_is_on_the_chip() {
+        let (root, mut settings) = turned_on(
+            "glance",
+            "allowance",
             r#"printf '{"sections":[{"name":"Disk","meters":[{"label":"Home","percent":81}]},{"name":"Mail","meters":[]}]}'"#,
-        ), &[]);
+            Some(60),
+        );
+        settings.plugins.glance = Some("allowance".into());
+        let mut plugins = Plugins::default();
+        plugins.configure_from(&settings, std::slice::from_ref(&root));
         let shown = settle(&plugins, |shown| shown[0].card.is_some());
         let card = shown[0].card.as_ref().unwrap();
         assert_eq!(card.sections.len(), 2);
@@ -237,7 +266,7 @@ mod tests {
         assert_eq!(chip.glance.unwrap().text, "81%");
         assert!(chip.attention);
         assert_eq!((chip.installed, chip.on), (1, 1));
-        plugins.configure_from(&Settings::default(), &[]);
+        plugins.configure_from(&Settings::default(), &[root]);
         assert!(plugins.shown().is_empty());
     }
 
@@ -249,23 +278,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let said = dir.join("said");
-        let mut plugins = Plugins::default();
-        plugins.configure_from(
-            &meter(&format!(
+        let (root, settings) = turned_on(
+            "press",
+            "kettle",
+            &format!(
                 r#"[ "$1" = press ] && printf '%s' "$2" > '{}'; printf '{{}}'"#,
                 said.display()
-            )),
-            &[],
+            ),
+            Some(60),
         );
+        let mut plugins = Plugins::default();
+        plugins.configure_from(&settings, &[root]);
         settle(&plugins, |shown| shown[0].card.is_some());
-        plugins.press(plugins::METER_ID, "$(touch nope)");
-        plugins.press(plugins::METER_ID, "go");
+        plugins.press("kettle", "$(touch nope)");
+        plugins.press("kettle", "go");
         let deadline = Instant::now() + Duration::from_secs(5);
         while !said.exists() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(std::fs::read_to_string(&said).unwrap(), "go");
         assert!(!std::path::Path::new("nope").exists());
+    }
+
+    /// A `[meter]` moved into a plugin runs its command as it was written: a line ending in a
+    /// keyword or a comment still works, since nothing is added to it.
+    #[test]
+    fn a_moved_meter_runs_its_command_as_written() {
+        let root =
+            std::env::temp_dir().join(format!("slipstream-moved-meter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let settings_file = root.join("settings.toml");
+        std::fs::write(
+            &settings_file,
+            r#"[meter]
+command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word'''
+"#,
+        )
+        .unwrap();
+        let moved = plugins::move_meter(&settings_file, &root, &root.join("moved"))
+            .unwrap()
+            .unwrap();
+        let meter = plugins::read(&moved).unwrap();
+        let out = worker::program(&meter, &[]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), r#"{"lines":["ran"]}"#);
+        let out = worker::program(&meter, &["press", "go"]).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            r#"{"lines":["press"]}"#,
+            "a button's words reach it as $1 and $2"
+        );
     }
 
     /// The promise in the guide: a plugin's program is given only the environment that says who
@@ -300,8 +362,9 @@ mod tests {
 
     #[test]
     fn a_program_that_fails_says_why() {
+        let (root, settings) = turned_on("fails", "ferry", "echo gone >&2; exit 3", Some(60));
         let mut plugins = Plugins::default();
-        plugins.configure_from(&meter("echo gone >&2; exit 3"), &[]);
+        plugins.configure_from(&settings, &[root]);
         let shown = settle(&plugins, |shown| shown[0].problem.is_some());
         assert_eq!(shown[0].problem.as_deref(), Some("exit Some(3): gone"));
         assert!(shown[0].card.is_none());
