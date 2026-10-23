@@ -1287,9 +1287,10 @@ fi
 
 if [ -z "$root" ]; then
     systemctl --user daemon-reload 2>/dev/null || true
-    # Apps that come with Slipstream but are projects of their own, as Flatpaks for you alone.
-    # Without flatpak it says so and changes nothing, and nothing here depends on them.
-    if [ -n "$programs" ] && [ -x "$repo/scripts/install-extras" ] && have flatpak; then
+    # Apps and plugins that come with Slipstream but are projects of their own, for you alone: the
+    # apps as Flatpaks, which without flatpak it says it can't install. Nothing here depends on
+    # them.
+    if [ -n "$programs" ] && [ -x "$repo/scripts/install-extras" ]; then
         echo
         # Each one is asked about first, unless --yes already answered.
         extras_ask=--ask

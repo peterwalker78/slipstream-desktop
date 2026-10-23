@@ -1,6 +1,7 @@
 #!/bin/sh
-# Installs or updates apps that belong with your Slipstream desktop but are projects of their own,
-# as Flatpaks for your user. Each app is described by a file: Slipstream ships some in extras/, and
+# Installs or updates apps and plugins that belong with your Slipstream desktop but are projects of
+# their own, for your user: apps as Flatpaks, plugins in ~/.local/share/slipstream/plugins. Each is
+# described by a file: Slipstream ships some in extras/, and
 # a file of your own in ~/.config/slipstream/extras/ adds another or, with the same name, replaces a
 # shipped one (install=no alone leaves it out). update-session runs this after installing Slipstream;
 # it can also be run on its own.
@@ -13,20 +14,27 @@
 # A file is lines of KEY=value, with no quotes. Blank lines, lines starting with #, and anything after
 # a space and a # are skipped.
 #
-#   app_id=org.example.App             the Flatpak's app ID (required)
-#   checkout=~/Projects/app            a local checkout of the app's project, and the command, run
-#   build=scripts/flatpak              in it, that builds the Flatpak and installs it for this user
-#   bundle_url=https://.../app.flatpak otherwise, a single-file Flatpak bundle to download, and the
-#   bundle_sha256=0123...              SHA-256 it must have (or bundle_sha256_url= to fetch it)
+#   app_id=org.example.App             an app: the Flatpak's app ID
+#   plugin=example                     or a plugin: its ID, which is the name of its folder
+#   checkout=~/Projects/app            a local checkout of the project, and the command, run in it,
+#   build=scripts/flatpak              that builds the Flatpak and installs it for this user, or
+#   built=dist/example                 for a plugin, the folder in the checkout the build makes
+#   bundle_url=https://.../app.flatpak otherwise, a single-file Flatpak bundle, or a .tar.gz holding
+#   bundle_sha256=0123...              a plugin's folder, to download, and the SHA-256 it must have
+#                                      (or bundle_sha256_url= to fetch it)
+#   commands=bin/example               a plugin's programs to link into ~/.local/bin, by their paths
+#                                      in its folder, separated by spaces
+#   then=Run example setup             what to say once a plugin is first installed
 #   default_browser=yes                make it the default web browser, once
-#   install=no                         don't install this app at all
+#   install=no                         don't install it at all
 #   about=Name, what it is: URL        what --ask says about it
 #
 # A checkout is built when the app isn't installed or the checkout's commit has changed since it was
 # last built here (uncommitted changes don't count); if that build fails and the app isn't installed,
 # the bundle is installed instead, when there is one. A bundle is installed when the app isn't
 # installed or the bundle's checksum has changed. The default browser is set the first time only,
-# so choosing another browser afterwards sticks.
+# so choosing another browser afterwards sticks. A plugin is installed off, and Settings › Plugins
+# turns it on once you have looked at what it is.
 set -eu
 umask 022
 
@@ -37,7 +45,7 @@ while [ $# -gt 0 ]; do
         --check) check=yes ;;
         --ask) ask=yes ;;
         -h | --help)
-            sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -60,6 +68,7 @@ fi
 extras=${XDG_CONFIG_HOME:-$HOME/.config}/slipstream/extras
 state=${XDG_STATE_HOME:-$HOME/.local/state}/slipstream/extras
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/slipstream/extras
+plugins=${XDG_DATA_HOME:-$HOME/.local/share}/slipstream/plugins
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # The apps Slipstream ships, beside this script. Tests point it elsewhere.
@@ -79,10 +88,6 @@ for file in "$defaults"/*.conf; do
 done
 if [ $# -eq 0 ]; then
     exit 0
-fi
-if ! have flatpak; then
-    echo "install-extras: there are apps to install, but flatpak isn't installed." >&2
-    exit 1
 fi
 
 failed=0
@@ -173,7 +178,13 @@ from_checkout() {
         say "$1" "the build failed; the installed version, if any, is unchanged" >&2
         return 1
     fi
-    if ! flatpak info --user "$app_id" >/dev/null 2>&1; then
+    if [ -n "$plugin" ]; then
+        if [ -z "$built" ]; then
+            say "$1" "a plugin's checkout needs built, the folder its build makes" >&2
+            return 1
+        fi
+        put_plugin "$1" "$checkout/$built" || return 1
+    elif ! flatpak info --user "$app_id" >/dev/null 2>&1; then
         say "$1" "the build finished but $app_id isn't installed for this user" >&2
         return 1
     fi
@@ -205,7 +216,7 @@ from_bundle() {
         return 0
     fi
     mkdir -p "$cache"
-    bundle=$cache/$name.flatpak
+    bundle=$cache/$name.bundle
     say "$1" "downloading $bundle_url"
     if ! fetch "$bundle_url" "$bundle.part"; then
         rm -f "$bundle.part"
@@ -219,12 +230,59 @@ from_bundle() {
         return 1
     fi
     mv -f "$bundle.part" "$bundle"
-    if ! flatpak install --user --noninteractive --reinstall --bundle "$bundle"; then
+    if [ -n "$plugin" ]; then
+        unpacked=$cache/$name.unpacked
+        rm -rf "$unpacked"
+        mkdir -p "$unpacked"
+        if ! tar -xzf "$bundle" -C "$unpacked" --no-same-owner; then
+            rm -rf "$unpacked"
+            say "$1" "the bundle isn't a .tar.gz that could be unpacked" >&2
+            return 1
+        fi
+        if ! put_plugin "$1" "$unpacked/$plugin"; then
+            rm -rf "$unpacked"
+            return 1
+        fi
+        rm -rf "$unpacked"
+    elif ! flatpak install --user --noninteractive --reinstall --bundle "$bundle"; then
         say "$1" "flatpak couldn't install the bundle" >&2
         return 1
     fi
     record "$record_file" bundle "$want"
     say "$1" "installed"
+}
+
+# `put_plugin NAME FOLDER`: puts the plugin in FOLDER in place of the one installed, and links its
+# commands. FOLDER must hold a plugin.toml and no symbolic links, as Slipstream asks of a plugin.
+put_plugin() {
+    if ! [ -f "$2/plugin.toml" ]; then
+        say "$1" "$2 has no plugin.toml, so it isn't a plugin" >&2
+        return 1
+    fi
+    if [ -n "$(find "$2" -type l | head -n 1)" ]; then
+        say "$1" "$2 holds symbolic links, which Slipstream won't load" >&2
+        return 1
+    fi
+    mkdir -p "$plugins" "$cache"
+    rm -rf "${cache:?}/$plugin.new" "${cache:?}/$plugin.old"
+    cp -R "$2" "$cache/$plugin.new"
+    if [ -d "$plugins/$plugin" ]; then
+        mv "$plugins/$plugin" "$cache/$plugin.old"
+    fi
+    mv "$cache/$plugin.new" "$plugins/$plugin"
+    rm -rf "${cache:?}/$plugin.old"
+    for put_command in $commands; do
+        put_target=$plugins/$plugin/$put_command
+        put_link=$HOME/.local/bin/${put_command##*/}
+        if ! [ -f "$put_target" ] || ! [ -x "$put_target" ]; then
+            say "$1" "$put_command isn't a program in the plugin, so it wasn't linked" >&2
+        elif [ -e "$put_link" ] && ! [ -L "$put_link" ]; then
+            say "$1" "left $put_link as it is; remove it to use the plugin's ${put_command##*/}"
+        else
+            mkdir -p "$HOME/.local/bin"
+            ln -sf "$put_target" "$put_link"
+        fi
+    done
 }
 
 # `make_default_browser NAME` for the app read into the variables below.
@@ -255,8 +313,8 @@ make_default_browser() {
 for file in "$@"; do
     name=$(basename "$file" .conf)
     record_file=$state/$name
-    app_id='' checkout='' build='' bundle_url='' bundle_sha256='' bundle_sha256_url=''
-    default_browser=no install=yes about=''
+    app_id='' plugin='' checkout='' build='' built='' bundle_url='' bundle_sha256=''
+    bundle_sha256_url='' commands='' then='' default_browser=no install=yes about=''
     bad=no
     while IFS= read -r line || [ -n "$line" ]; do
         # Carriage returns from a file saved on Windows, and spaces round the edges.
@@ -278,8 +336,12 @@ for file in "$@"; do
         esac
         case $key in
             app_id) app_id=$value ;;
+            plugin) plugin=$value ;;
             checkout) checkout=$value ;;
             build) build=$value ;;
+            built) built=$value ;;
+            commands) commands=$value ;;
+            then) then=$value ;;
             bundle_url) bundle_url=$value ;;
             bundle_sha256) bundle_sha256=$value ;;
             bundle_sha256_url) bundle_sha256_url=$value ;;
@@ -294,8 +356,22 @@ for file in "$@"; do
         say "$name" "left out (install=no in $file)"
         continue
     fi
-    if [ -z "$app_id" ]; then
-        say "$name" "no app_id in $file" >&2
+    if [ -z "$app_id" ] && [ -z "$plugin" ]; then
+        say "$name" "neither app_id nor plugin in $file" >&2
+        bad=yes
+    elif [ -n "$app_id" ] && [ -n "$plugin" ]; then
+        say "$name" "both app_id and plugin in $file, when it is one or the other" >&2
+        bad=yes
+    elif [ -n "$plugin" ]; then
+        # A folder name of letters, digits, '.', '-' and '_', starting with a letter or digit.
+        case $plugin in
+            [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*)
+                say "$name" "plugin can only have letters, digits, '.', '-' and '_'" >&2
+                bad=yes
+                ;;
+        esac
+    elif ! have flatpak; then
+        say "$name" "flatpak isn't installed, so this app can't be" >&2
         bad=yes
     fi
     if [ -n "$checkout" ] && [ -z "$build" ]; then
@@ -308,7 +384,11 @@ for file in "$@"; do
     fi
 
     installed=no
-    if flatpak info --user "$app_id" >/dev/null 2>&1; then
+    if [ -n "$plugin" ]; then
+        if [ -f "$plugins/$plugin/plugin.toml" ]; then
+            installed=yes
+        fi
+    elif flatpak info --user "$app_id" >/dev/null 2>&1; then
         installed=yes
     fi
     # Asked first: a shipped app that isn't installed yet, with no file of your own deciding.
@@ -342,6 +422,9 @@ for file in "$@"; do
     fi
     if [ "$default_browser" = yes ]; then
         make_default_browser "$name" || failed=$((failed + 1))
+    fi
+    if [ -n "$plugin" ] && [ "$installed" = no ] && [ "$check" = no ]; then
+        say "$name" "turn it on in Settings › Plugins${then:+. $then}"
     fi
 done
 

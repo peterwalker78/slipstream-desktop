@@ -1,6 +1,7 @@
 #!/bin/sh
 # Tests for install-extras, with a scratch home, a stand-in flatpak and xdg-settings that only
-# record what they're asked, a scratch git checkout, and bundles fetched from file:// URLs.
+# record what they're asked, a scratch git checkout, and bundles and plugins fetched from file://
+# URLs.
 #
 #   scripts/test-install-extras          with sh
 #   SHELL_UNDER_TEST=dash scripts/test-install-extras
@@ -68,7 +69,7 @@ commit_checkout() {
 conf() { cat >"$work/home/.config/slipstream/extras/browser.conf"; }
 
 run() {
-    env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME \
+    env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME -u XDG_DATA_HOME \
         HOME="$work/home" \
         PATH="$stubs:$PATH" \
         STUB_LOG="$work/log" \
@@ -195,7 +196,7 @@ expect_status 0
 expect_count 'flatpak install' 1
 expect_status 0
 expect_count 'flatpak install' 1
-[ -e "$work/home/.cache/slipstream/extras/browser.flatpak" ] || fail "$case_name: not in the cache"
+[ -e "$work/home/.cache/slipstream/extras/browser.bundle" ] || fail "$case_name: not in the cache"
 
 case_name="a checksum fetched beside the bundle works too"
 fresh
@@ -292,7 +293,7 @@ printf 'checkout=%s\nnonsense line\n' "$work/checkout" \
     >"$work/home/.config/slipstream/extras/broken.conf"
 expect_status 1
 expect_count '^built' 1
-grep -q "broken: no app_id" "$work/out" || fail "$case_name: didn't name the broken file"
+grep -q "broken: neither app_id nor plugin" "$work/out" || fail "$case_name: didn't name the broken file"
 grep -q "not KEY=value" "$work/out" || fail "$case_name: didn't flag the bad line"
 
 # A shipped app described in the defaults, from a bundle, as Slipstream ships them.
@@ -348,6 +349,120 @@ build=./build.sh
 EOF
 SLIPSTREAM_TEST_REPLY=n expect_status 0 --ask
 expect_count '^built' 1
+
+# Plugins: a folder with a plugin.toml, packed as a .tar.gz or built in a checkout.
+plugins_dir=$work/home/.local/share/slipstream/plugins
+
+# `plugin_bundle VERSION`: packs a plugin called example, whose bin/tool says VERSION, as
+# $work/bundles/example.tar.gz, and sets sha to its checksum.
+plugin_bundle() {
+    rm -rf "$work/pack"
+    mkdir -p "$work/pack/example/bin"
+    printf 'name = "Example"\nexec = ["bin/tool", "card"]\n' >"$work/pack/example/plugin.toml"
+    printf '#!/bin/sh\necho %s\n' "$1" >"$work/pack/example/bin/tool"
+    chmod +x "$work/pack/example/bin/tool"
+    echo "$1" >"$work/pack/example/only-in-$1"
+    tar -czf "$work/bundles/example.tar.gz" -C "$work/pack" example
+    sha=$(sha256sum "$work/bundles/example.tar.gz" | cut -d ' ' -f 1)
+}
+
+plugin_conf() {
+    cat >"$work/home/.config/slipstream/extras/example.conf" <<EOF
+plugin=example
+bundle_url=file://$work/bundles/example.tar.gz
+bundle_sha256=$sha
+commands=bin/tool
+then=Then run tool setup.
+EOF
+}
+
+case_name="a plugin's bundle is unpacked into the plugins folder, its command linked, once"
+fresh
+plugin_bundle one
+plugin_conf
+expect_status 0
+[ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: no plugin.toml in place"
+[ "$("$work/home/.local/bin/tool")" = one ] || fail "$case_name: the command isn't linked"
+grep -q "turn it on in Settings › Plugins. Then run tool setup." "$work/out" ||
+    fail "$case_name: didn't say how to turn it on"
+expect_count 'flatpak' 0
+expect_status 0
+grep -q "up to date with its bundle" "$work/out" || fail "$case_name: installed it again"
+if grep -q "turn it on" "$work/out"; then fail "$case_name: said to turn it on again"; else ok; fi
+
+case_name="a new release of a plugin replaces its whole folder"
+plugin_bundle two
+plugin_conf
+expect_status 0
+[ "$("$work/home/.local/bin/tool")" = two ] || fail "$case_name: still the old program"
+if [ -e "$plugins_dir/example/only-in-one" ]; then
+    fail "$case_name: kept a file of the old release"
+else
+    ok
+fi
+
+case_name="a plugin with a symbolic link in it is refused, and the old one kept"
+mkdir -p "$work/pack/example"
+ln -s /etc/passwd "$work/pack/example/sneaky"
+tar -czf "$work/bundles/example.tar.gz" -C "$work/pack" example
+sha=$(sha256sum "$work/bundles/example.tar.gz" | cut -d ' ' -f 1)
+plugin_conf
+expect_status 1
+[ "$("$work/home/.local/bin/tool")" = two ] || fail "$case_name: the old release went"
+
+case_name="a bundle that holds no plugin is refused"
+fresh
+rm -rf "$work/pack"
+mkdir -p "$work/pack/example"
+echo hello >"$work/pack/example/readme"
+tar -czf "$work/bundles/example.tar.gz" -C "$work/pack" example
+sha=$(sha256sum "$work/bundles/example.tar.gz" | cut -d ' ' -f 1)
+plugin_conf
+expect_status 1
+if [ -e "$plugins_dir/example" ]; then fail "$case_name: installed it"; else ok; fi
+
+case_name="a program of your own of the same name is left alone"
+fresh
+plugin_bundle one
+plugin_conf
+mkdir -p "$work/home/.local/bin"
+printf '#!/bin/sh\necho mine\n' >"$work/home/.local/bin/tool"
+chmod +x "$work/home/.local/bin/tool"
+expect_status 0
+[ "$("$work/home/.local/bin/tool")" = mine ] || fail "$case_name: replaced it"
+grep -q "left .*/.local/bin/tool as it is" "$work/out" || fail "$case_name: didn't say so"
+
+case_name="a plugin is built from its checkout when its commit changes"
+fresh
+# shellcheck disable=SC2016 # expanded when the build script runs
+printf '#!/bin/sh\necho built >>"$STUB_LOG"\nmkdir -p dist/example\nprintf "name = \\"Example\\"\\nexec = [\\"x\\"]\\n" >dist/example/plugin.toml\n' \
+    >"$work/checkout/build.sh"
+commit_checkout "plugin"
+cat >"$work/home/.config/slipstream/extras/example.conf" <<EOF
+plugin=example
+checkout=$work/checkout
+build=./build.sh
+built=dist/example
+EOF
+expect_status 0
+expect_count '^built' 1
+[ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: not installed"
+expect_status 0
+expect_count '^built' 1
+commit_checkout "plugin again"
+expect_status 0
+expect_count '^built' 2
+
+case_name="a plugin ID that could name another folder is refused"
+fresh
+plugin_bundle one
+cat >"$work/home/.config/slipstream/extras/example.conf" <<EOF
+plugin=../example
+bundle_url=file://$work/bundles/example.tar.gz
+bundle_sha256=$sha
+EOF
+expect_status 1
+if [ -e "$work/home/.local/share/slipstream/example" ]; then fail "$case_name: wrote outside"; else ok; fi
 
 echo "$passed passed, $failures failed ($shell)"
 [ "$failures" -eq 0 ]

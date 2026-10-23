@@ -18,7 +18,7 @@ from=${SLIPSTREAM_PACKAGE_FROM:-${CARGO_TARGET_DIR:-$repo/target}/release}
 out=${1:-$repo/target/dist}
 name=slipstream-$version-linux-$arch
 
-for program in slipstream slipstream-settings agent-notify; do
+for program in slipstream slipstream-settings; do
     [ -x "$from/$program" ] || { echo "package-release: $from/$program isn't built" >&2; exit 1; }
 done
 built_version=$("$from/slipstream" --version)
@@ -33,7 +33,7 @@ rm -rf "$stage"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/$name/bin" "$stage/$name/scripts" "$stage/$name/session" \
     "$stage/$name/slipstream-settings" "$stage/$name/licences" "$stage/$name/extras"
-cp "$from/slipstream" "$from/slipstream-settings" "$from/agent-notify" "$stage/$name/bin/"
+cp "$from/slipstream" "$from/slipstream-settings" "$stage/$name/bin/"
 cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$repo/scripts/install-extras" \
     "$repo/scripts/try-slipstream" "$stage/$name/scripts/"
 cp "$repo"/session/* "$stage/$name/session/"

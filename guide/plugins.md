@@ -62,6 +62,10 @@ A program that fails, takes longer than 30 seconds or prints something that isn'
 
 A `[meter]` command in the settings file shows as a plugin called Meter, with its headline on the chip unless you choose another. It runs with `sh -c` and your session's environment, as it always has. Its report is a card with only `sections`.
 
+## A whole plugin, packaged
+
+[agent-notify](https://github.com/peterwalker78/agent-notify) is a complete plugin with releases of its own. Its card program only reads the folders its `read` names, and it leaves anything that needs the network or the session bus to programs that already run with your access. Each release is the plugin's folder packed as a `.tar.gz`, with its SHA-256 beside it, which `scripts/install-extras` installs from a file in `extras/` naming `plugin=`, `bundle_url=` and `bundle_sha256_url=`.
+
 ## Trying one out
 
 Run the program yourself and check it prints one line of JSON. `~/.local/state/slipstream/slipstream.log` says why a plugin has nothing to show, along with anything its program writes to standard error.

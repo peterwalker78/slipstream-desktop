@@ -16,7 +16,7 @@ set -eu
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 profile=debug
 action=build
-cargo_args="--locked -p slipstream -p slipstream-settings -p agent-notify"
+cargo_args="--locked -p slipstream -p slipstream-settings"
 case ${1:-} in
     "") ;;
     --release)
@@ -84,5 +84,5 @@ export PKG_CONFIG_PATH SYSTEM_DEPS_LIBDISPLAY_INFO_LINK
 
 if [ "$action" = build ]; then
     built=${CARGO_TARGET_DIR:-$repo/target}/$profile
-    "$repo/scripts/check-portable" "$built/slipstream" "$built/slipstream-settings" "$built/agent-notify"
+    "$repo/scripts/check-portable" "$built/slipstream" "$built/slipstream-settings"
 fi
