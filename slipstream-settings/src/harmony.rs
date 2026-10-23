@@ -1,15 +1,22 @@
 //! Slipstream's three colours, chosen together: the focus ring anywhere round the colour wheel,
 //! and bullet time's and the accent from it by colour theory.
 //!
-//! The wheel is OKLCH's, where hues the same distance apart look the same distance apart and a
-//! change of hue keeps a colour's lightness. Slipstream's own ice cyan and amber already sit
-//! there as a split complement: the same lightness and colourfulness, 210° apart.
+//! The wheel is OKLCH's, where hues the same distance apart look the same distance apart.
+//! Slipstream's own ice cyan and amber already sit there as a split complement, 210° apart.
+//!
+//! A screen can't show every hue equally light and vivid: a red as light as ice cyan is only
+//! salmon, and a deep blue can't be light at all. So each colour on the wheel is the most vivid
+//! its hue can be within a band of lightness that still reads on Slipstream's dark surfaces.
 
-/// How light and how colourful every colour picked off the wheel is: Slipstream's ice cyan.
-const LIGHTNESS: f64 = 0.81;
-const CHROMA: f64 = 0.14;
-/// Below this a colour is grey enough that its hue says nothing, so its partners are taken from
-/// the wheel instead.
+/// The band of lightness the wheel's colours keep to, and the lightness preferred within it when
+/// several are as vivid.
+const DARKEST: f64 = 0.65;
+const LIGHTEST: f64 = 0.85;
+const LIGHTNESS: f64 = 0.80;
+/// How vivid the wheel's colours get, at most.
+const MOST_CHROMA: f64 = 0.20;
+/// Below this a colour is grey enough that its hue says nothing, so its partners are as vivid as
+/// the wheel's own.
 const GREY: f64 = 0.04;
 
 /// Three colours that go together, each `#rrggbb`.
@@ -63,7 +70,7 @@ const fn theme(
 
 /// The colour at `hue` degrees round the wheel, each channel 0–1.
 pub fn on_wheel(hue: f64) -> [f32; 3] {
-    from_oklch(LIGHTNESS, CHROMA, hue)
+    vivid(hue, MOST_CHROMA)
 }
 
 /// Where `rgb` sits on the wheel, in degrees.
@@ -72,17 +79,12 @@ pub fn hue(rgb: [f32; 3]) -> f64 {
 }
 
 /// Bullet time's colour and the accent for a focus ring of `rgb`: the two either side of its
-/// opposite, 30° away from it, as light and as colourful as it is. Bullet time takes the one
-/// 210° on, which from ice cyan is Slipstream's amber.
+/// opposite, 30° away from it, no more vivid than it is. Bullet time takes the one 210° on,
+/// which from ice cyan is Slipstream's amber.
 pub fn partners(rgb: [f32; 3]) -> ([f32; 3], [f32; 3]) {
-    let (lightness, chroma, hue) = match oklch(rgb) {
-        (_, chroma, hue) if chroma < GREY => (LIGHTNESS, CHROMA, hue),
-        held => held,
-    };
-    (
-        from_oklch(lightness, chroma, hue + 210.0),
-        from_oklch(lightness, chroma, hue + 150.0),
-    )
+    let (_, chroma, hue) = oklch(rgb);
+    let chroma = if chroma < GREY { MOST_CHROMA } else { chroma };
+    (vivid(hue + 210.0, chroma), vivid(hue + 150.0, chroma))
 }
 
 /// `rgb` as `#rrggbb`.
@@ -123,26 +125,61 @@ fn oklch(rgb: [f32; 3]) -> (f64, f64, f64) {
     )
 }
 
-/// The colour at that lightness and hue, as colourful as it can be up to `chroma` without falling
-/// outside what a screen shows.
-fn from_oklch(lightness: f64, chroma: f64, hue: f64) -> [f32; 3] {
-    let (sin, cos) = hue.to_radians().sin_cos();
-    let mut chroma = chroma;
-    loop {
-        let (a, b) = (chroma * cos, chroma * sin);
-        let l = (lightness + 0.3963377774 * a + 0.2158037573 * b).powi(3);
-        let m = (lightness - 0.1055613458 * a - 0.0638541728 * b).powi(3);
-        let s = (lightness - 0.0894841775 * a - 1.2914855480 * b).powi(3);
-        let rgb = [
-            4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
-        ];
-        if chroma <= 0.0 || rgb.iter().all(|c| (-1e-4..=1.0 + 1e-4).contains(c)) {
-            return rgb.map(|c| encoded(c.clamp(0.0, 1.0)) as f32);
-        }
-        chroma -= 0.002;
+/// The most vivid colour of `hue`, up to `chroma`, within the wheel's band of lightness, at the
+/// preferred lightness where several are as vivid.
+fn vivid(hue: f64, chroma: f64) -> [f32; 3] {
+    let steps = ((LIGHTEST - DARKEST) / 0.005).round() as usize;
+    let (lightness, chroma) = (0..=steps)
+        .map(|step| {
+            let lightness = DARKEST + step as f64 * 0.005;
+            (lightness, most_chroma(lightness, hue, chroma))
+        })
+        .max_by(|(one, c1), (other, c2)| {
+            let rounded = |c: f64| (c * 1000.0).round();
+            rounded(*c1).total_cmp(&rounded(*c2)).then(
+                (other - LIGHTNESS)
+                    .abs()
+                    .total_cmp(&(one - LIGHTNESS).abs()),
+            )
+        })
+        .expect("a band of lightness");
+    linear_rgb(lightness, chroma, hue).map(|c| encoded(c.clamp(0.0, 1.0)) as f32)
+}
+
+/// How vivid `hue` can be at `lightness`, up to `chroma`, and still be shown on a screen.
+fn most_chroma(lightness: f64, hue: f64, chroma: f64) -> f64 {
+    let shown = |chroma| {
+        linear_rgb(lightness, chroma, hue)
+            .iter()
+            .all(|c| (-1e-4..=1.0 + 1e-4).contains(c))
+    };
+    if shown(chroma) {
+        return chroma;
     }
+    let (mut low, mut high) = (0.0, chroma);
+    for _ in 0..18 {
+        let middle = (low + high) / 2.0;
+        if shown(middle) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
+
+/// The OKLCH colour as linear red, green and blue, which may fall outside 0–1.
+fn linear_rgb(lightness: f64, chroma: f64, hue: f64) -> [f64; 3] {
+    let (sin, cos) = hue.to_radians().sin_cos();
+    let (a, b) = (chroma * cos, chroma * sin);
+    let l = (lightness + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+    let m = (lightness - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+    let s = (lightness - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    [
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    ]
 }
 
 #[cfg(test)]
@@ -170,14 +207,13 @@ mod tests {
     #[test]
     fn slipstreams_amber_is_its_cyans_split_complement() {
         let (bullet, _) = partners(rgb(slipstream_config::SELECTED_TILE));
-        assert!(apart(hue(bullet), hue(rgb(slipstream_config::BULLET_TIME))) < 3.0);
-        for (one, other) in bullet.iter().zip(rgb(slipstream_config::BULLET_TIME)) {
-            assert!(
-                (one - other).abs() < 0.07,
-                "{} against #ffb547",
-                hex(bullet)
-            );
-        }
+        let amber = rgb(slipstream_config::BULLET_TIME);
+        assert!(apart(hue(bullet), hue(amber)) < 3.0, "{}", hex(bullet));
+        assert!(
+            (oklch(bullet).0 - oklch(amber).0).abs() < 0.05,
+            "{}",
+            hex(bullet)
+        );
     }
 
     #[test]
@@ -213,17 +249,36 @@ mod tests {
     }
 
     #[test]
-    fn every_colour_is_as_light_as_slipstreams_own() {
+    fn every_theme_colour_reads_on_the_dark() {
         for theme in THEMES {
             for hex in [theme.focus, theme.bullet, theme.accent] {
                 let (lightness, ..) = oklch(rgb(hex));
                 assert!(
-                    (lightness - LIGHTNESS).abs() < 0.03,
+                    (DARKEST - 0.01..=LIGHTEST + 0.01).contains(&lightness),
                     "{}: {hex}",
                     theme.name
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_wheel_keeps_to_its_band_of_lightness() {
+        for degree in (0..360).step_by(5) {
+            let (lightness, ..) = oklch(on_wheel(degree as f64));
+            assert!(
+                (DARKEST - 0.01..=LIGHTEST + 0.01).contains(&lightness),
+                "{degree}°"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wheel_has_a_real_red_and_a_deep_blue() {
+        let [r, g, b] = on_wheel(29.0);
+        assert!(r > 0.95 && g < 0.45 && b < 0.4, "{}", hex([r, g, b]));
+        let [r, g, b] = on_wheel(265.0);
+        assert!(b > 0.95 && r < 0.5 && g < 0.6, "{}", hex([r, g, b]));
     }
 
     #[test]

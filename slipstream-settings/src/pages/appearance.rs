@@ -227,7 +227,9 @@ struct Colours {
     theme: gtk::DropDown,
     names: gtk::StringList,
     shown: Cell<Three>,
-    wheel: gtk::Scale,
+    wheel: gtk::DrawingArea,
+    /// The whole degree the wheel was last turned to, until something else chooses.
+    turned: Cell<Option<i32>>,
     focus: gtk::ColorDialogButton,
     bullet: gtk::ColorDialogButton,
     accent: gtk::ColorDialogButton,
@@ -247,6 +249,7 @@ impl Colours {
 
     /// Saves `three` and shows it on every row.
     fn choose(&self, three: Three) {
+        self.turned.set(None);
         let [focus, bullet, accent] = three.map(harmony::hex);
         self.store.change(|settings| {
             settings.borders.selected_tile = focus;
@@ -260,6 +263,17 @@ impl Colours {
     fn choose_focus(&self, focus: [f32; 3]) {
         let (bullet, accent) = harmony::partners(focus);
         self.choose([focus, bullet, accent]);
+    }
+
+    /// The wheel turned to `hue`. Saved only on reaching another whole degree, so a drag doesn't
+    /// write the file for every pixel the pointer moves.
+    fn turn_to(&self, hue: f64) {
+        let whole = hue.round().rem_euclid(360.0) as i32;
+        if self.turned.get() == Some(whole) {
+            return;
+        }
+        self.choose_focus(harmony::on_wheel(whole as f64));
+        self.turned.set(Some(whole));
     }
 
     fn show(&self, three: Three) {
@@ -280,11 +294,12 @@ impl Colours {
                 self.theme.set_selected(sets);
             }
         }
-        // The rainbow moves to the focus ring's hue, unless it's already within a step of it.
-        let hue = harmony::hue(three[0]);
-        if (self.wheel.value() - hue).abs() >= 1.0 {
-            self.wheel.set_value(hue.round());
-        }
+        let hue = harmony::hue(three[0]).round();
+        self.wheel.update_property(&[
+            gtk::accessible::Property::ValueNow(hue),
+            gtk::accessible::Property::ValueText(&format!("{hue} degrees")),
+        ]);
+        self.wheel.queue_draw();
         for (button, rgb) in [&self.focus, &self.bullet, &self.accent].iter().zip(three) {
             button.set_rgba(&rgba(rgb));
         }
@@ -313,7 +328,9 @@ fn colour_button(title: &str) -> gtk::ColorDialogButton {
         .with_alpha(false)
         .modal(true)
         .build();
-    gtk::ColorDialogButton::new(Some(dialog))
+    let button = gtk::ColorDialogButton::new(Some(dialog));
+    button.set_valign(gtk::Align::Center);
+    button
 }
 
 /// The theme list's entries: a set's three colours as dots, then its name.
@@ -368,18 +385,152 @@ fn theme_entries() -> gtk::SignalListItemFactory {
     factory
 }
 
-/// The theme, the focus ring on a rainbow with the other two following it, and each colour on
-/// its own for a choice of one's own.
+/// The colour wheel's size, and the width of its band of colour, in pixels.
+const WHEEL: i32 = 168;
+const BAND: f64 = 16.0;
+/// How far an arrow key turns the wheel, and with Shift.
+const STEP: f64 = 5.0;
+const BIG_STEP: f64 = 30.0;
+
+/// The hue at (`x`, `y`) on a wheel `width` × `height`: 0° at the top, going clockwise. Nothing
+/// near the middle, where no direction is clear.
+fn hue_at(x: f64, y: f64, width: f64, height: f64) -> Option<f64> {
+    let (dx, dy) = (x - width / 2.0, y - height / 2.0);
+    (dx.hypot(dy) > 12.0).then(|| dx.atan2(-dy).to_degrees().rem_euclid(360.0))
+}
+
+/// The wheel's band of colours, one a degree, with a marker on it for each of `three` and a spoke
+/// from the middle to each, so the shape the colour theory makes can be seen. The focus ring's
+/// marker is the largest, and drawn on top.
+fn paint_wheel(
+    cairo: &gtk::cairo::Context,
+    (width, height): (f64, f64),
+    band: &[[f32; 3]],
+    three: Three,
+) {
+    let (cx, cy) = (width / 2.0, height / 2.0);
+    let outer = cx.min(cy) - 12.0;
+    let inner = outer - BAND;
+    for (degree, [r, g, b]) in band.iter().enumerate() {
+        // A little over a degree each, so no seam shows between them.
+        let from = (degree as f64 - 90.5).to_radians();
+        let to = (degree as f64 - 89.0).to_radians();
+        cairo.arc(cx, cy, outer, from, to);
+        cairo.arc_negative(cx, cy, inner, to, from);
+        cairo.close_path();
+        cairo.set_source_rgb(*r as f64, *g as f64, *b as f64);
+        let _ = cairo.fill();
+    }
+    let middle = outer - BAND / 2.0;
+    let at = |rgb| {
+        let (sin, cos) = harmony::hue(rgb).to_radians().sin_cos();
+        (cx + middle * sin, cy - middle * cos)
+    };
+    cairo.set_line_width(1.5);
+    for [r, g, b] in three {
+        let (x, y) = at([r, g, b]);
+        cairo.move_to(cx, cy);
+        cairo.line_to(x, y);
+        cairo.set_source_rgba(r as f64, g as f64, b as f64, 0.7);
+        let _ = cairo.stroke();
+    }
+    for (n, [r, g, b]) in three.into_iter().enumerate().rev() {
+        let (x, y) = at([r, g, b]);
+        let radius = if n == 0 { 10.0 } else { 7.0 };
+        cairo.arc(x, y, radius, 0.0, std::f64::consts::TAU);
+        cairo.set_source_rgb(r as f64, g as f64, b as f64);
+        let _ = cairo.fill_preserve();
+        cairo.set_source_rgb(0.09, 0.1, 0.12);
+        cairo.set_line_width(3.0);
+        let _ = cairo.stroke();
+        cairo.arc(x, y, radius + 1.5, 0.0, std::f64::consts::TAU);
+        cairo.set_source_rgb(0.9, 0.91, 0.93);
+        cairo.set_line_width(1.5);
+        let _ = cairo.stroke();
+    }
+    let [r, g, b] = three[0];
+    cairo.arc(cx, cy, 4.0, 0.0, std::f64::consts::TAU);
+    cairo.set_source_rgb(r as f64, g as f64, b as f64);
+    let _ = cairo.fill();
+}
+
+/// Turns the wheel by dragging round it, or a click, and by the arrow keys.
+fn wheel_handlers(colours: &Rc<Colours>) {
+    let band: Vec<[f32; 3]> = (0..360)
+        .map(|degree| harmony::on_wheel(degree as f64))
+        .collect();
+    let painted = Rc::clone(colours);
+    colours.wheel.set_draw_func(move |_, cairo, width, height| {
+        paint_wheel(
+            cairo,
+            (width as f64, height as f64),
+            &band,
+            painted.shown.get(),
+        );
+    });
+    let drag = gtk::GestureDrag::new();
+    let pressed = Rc::clone(colours);
+    drag.connect_drag_begin(move |gesture, x, y| {
+        let Some(wheel) = gesture.widget() else {
+            return;
+        };
+        wheel.grab_focus();
+        let (width, height) = (wheel.width() as f64, wheel.height() as f64);
+        if let Some(hue) = hue_at(x, y, width, height) {
+            pressed.turn_to(hue);
+        }
+    });
+    let dragged = Rc::clone(colours);
+    drag.connect_drag_update(move |gesture, dx, dy| {
+        let (Some(wheel), Some((x, y))) = (gesture.widget(), gesture.start_point()) else {
+            return;
+        };
+        let (width, height) = (wheel.width() as f64, wheel.height() as f64);
+        if let Some(hue) = hue_at(x + dx, y + dy, width, height) {
+            dragged.turn_to(hue);
+        }
+    });
+    colours.wheel.add_controller(drag);
+    let keys = gtk::EventControllerKey::new();
+    let keyed = Rc::clone(colours);
+    keys.connect_key_pressed(move |_, key, _, state| {
+        use gtk::gdk::Key;
+        let step = if state.contains(gtk::gdk::ModifierType::SHIFT_MASK) {
+            BIG_STEP
+        } else {
+            STEP
+        };
+        let turn = match key {
+            Key::Right | Key::Up => step,
+            Key::Left | Key::Down => -step,
+            _ => return gtk::glib::Propagation::Proceed,
+        };
+        keyed.turn_to(harmony::hue(keyed.shown.get()[0]) + turn);
+        gtk::glib::Propagation::Stop
+    });
+    colours.wheel.add_controller(keys);
+}
+
+/// The theme, the focus ring on a colour wheel with the other two following it, and each colour
+/// on its own for a choice of one's own.
 fn colours(card: &gtk::Box, store: &Store) {
     let names: Vec<&str> = harmony::THEMES.iter().map(|theme| theme.name).collect();
     let names = gtk::StringList::new(&names);
     let theme = gtk::DropDown::new(Some(names.clone()), gtk::Expression::NONE);
     theme.set_factory(Some(&theme_entries()));
-    let wheel = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 360.0, 1.0);
-    wheel.set_round_digits(0);
-    wheel.set_draw_value(false);
-    wheel.set_width_request(200);
-    wheel.add_css_class("hue");
+    let wheel = gtk::DrawingArea::builder()
+        .content_width(WHEEL)
+        .content_height(WHEEL)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .focusable(true)
+        .accessible_role(gtk::AccessibleRole::Slider)
+        .css_classes(["wheel"])
+        .build();
+    wheel.update_property(&[
+        gtk::accessible::Property::ValueMin(0.0),
+        gtk::accessible::Property::ValueMax(359.0),
+    ]);
     // The handlers hold it; GTK lets them go with the widgets when the window closes.
     let colours = Rc::new(Colours {
         store: store.clone(),
@@ -387,6 +538,7 @@ fn colours(card: &gtk::Box, store: &Store) {
         names,
         shown: Cell::new(Colours::current_of(&store.get())),
         wheel,
+        turned: Cell::new(None),
         focus: colour_button("Focus ring"),
         bullet: colour_button("Bullet time highlight"),
         accent: colour_button("Accent"),
@@ -404,12 +556,7 @@ fn colours(card: &gtk::Box, store: &Store) {
             chosen.choose(three);
         }
     });
-    let turned = Rc::clone(&colours);
-    colours.wheel.connect_value_changed(move |wheel| {
-        if !turned.syncing.get() {
-            turned.choose_focus(harmony::on_wheel(wheel.value()));
-        }
-    });
+    wheel_handlers(&colours);
     let picked = Rc::clone(&colours);
     colours.focus.connect_rgba_notify(move |button| {
         if !picked.syncing.get() {
@@ -444,7 +591,8 @@ fn colours(card: &gtk::Box, store: &Store) {
         "Focus ring",
         Some(
             "The ring around the focused window, and the keyboard's ring in quick settings and the \
-             notification centre. Pick any colour, and the two below are chosen to go with it.",
+             notification centre. Turn the wheel, by dragging or with the arrow keys, and the two \
+             below are chosen to go with it.",
         ),
         &focus_control,
     );

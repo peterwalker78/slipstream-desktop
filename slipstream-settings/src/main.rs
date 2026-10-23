@@ -207,20 +207,8 @@ fn focus_css(rgb: [f32; 3]) -> String {
     format!(
         ".side > row:focus-visible, .row switch:focus-visible, .row checkbutton:focus-visible, \
          .row button:focus-visible, dropdown > button:focus-visible, \
+         .row drawingarea.wheel:focus-visible, \
          .note > button:focus-visible {{ outline-color: #{r:02x}{g:02x}{b:02x}; }}"
-    )
-}
-
-/// The rainbow the focus ring is picked from: the colour wheel in steps of 30°.
-fn hue_css() -> String {
-    let stops: Vec<String> = (0..=12)
-        .map(|step| harmony::hex(harmony::on_wheel(step as f64 * 30.0)))
-        .collect();
-    format!(
-        ".row scale.hue trough {{ min-height: 10px; border-radius: 5px; \
-         background-image: linear-gradient(to right, {}); }} \
-         .row scale.hue highlight {{ background: none; }}",
-        stops.join(", ")
     )
 }
 
@@ -242,7 +230,7 @@ fn style() {
         .borders
         .selected_tile_rgb();
     let focus = gtk::CssProvider::new();
-    focus.load_from_string(&(focus_css(ring) + &hue_css()));
+    focus.load_from_string(&focus_css(ring));
     gtk::style_context_add_provider_for_display(
         &display,
         &focus,
