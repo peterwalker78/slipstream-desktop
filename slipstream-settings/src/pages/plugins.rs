@@ -46,27 +46,11 @@ fn fill(list: &gtk::Box, store: &Store) {
             &gtk::Box::new(gtk::Orientation::Horizontal, 0),
         );
     }
-    // The radio buttons that choose the chip's headline share one group.
-    let glance_group: Rc<RefCell<Option<gtk::CheckButton>>> = Rc::default();
     if let Some(meter) = &meter {
-        meter_row(
-            &yours,
-            store,
-            meter,
-            &settings,
-            &glance_group,
-            refill.clone(),
-        );
+        meter_row(&yours, store, meter, &settings, refill.clone());
     }
     for plugin in &found {
-        plugin_row(
-            &yours,
-            store,
-            plugin,
-            &settings,
-            &glance_group,
-            refill.clone(),
-        );
+        plugin_row(&yours, store, plugin, &settings, refill.clone());
     }
 
     if !problems.is_empty() {
@@ -181,12 +165,11 @@ fn meter_row(
     store: &Store,
     meter: &Plugin,
     settings: &Settings,
-    glance_group: &Rc<RefCell<Option<gtk::CheckButton>>>,
     refill: impl Fn() + Clone + 'static,
 ) {
     let controls = gtk::Box::builder().spacing(10).build();
-    controls.append(&glance_choice(store, METER_ID, settings, glance_group));
-    let remove = gtk::Button::with_label("Remove");
+    controls.append(&glance_choice(store, METER_ID, settings, refill.clone()));
+    let remove = remove_button();
     let (store_c, refill_c) = (store.clone(), refill.clone());
     remove.connect_clicked(move |button| {
         if confirmed(button) {
@@ -213,7 +196,6 @@ fn plugin_row(
     store: &Store,
     plugin: &Plugin,
     settings: &Settings,
-    glance_group: &Rc<RefCell<Option<gtk::CheckButton>>>,
     refill: impl Fn() + Clone + 'static,
 ) {
     let on = settings.plugins.is_on(&plugin.id);
@@ -231,17 +213,17 @@ fn plugin_row(
     }
     if held {
         about.push(
-            "It has changed since you turned it on, so it waits. Turn it off and on again to run \
-             the new version."
+            "It has changed since you turned it on, so it waits. Turn it on again to run the new \
+             version."
                 .into(),
         );
     }
     let controls = gtk::Box::builder().spacing(10).build();
     if on && !held {
-        controls.append(&glance_choice(store, &plugin.id, settings, glance_group));
+        controls.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
     }
     if plugin.own {
-        let remove = gtk::Button::with_label("Remove");
+        let remove = remove_button();
         let (store_c, refill_c, id, dir) = (
             store.clone(),
             refill.clone(),
@@ -259,7 +241,12 @@ fn plugin_row(
         });
         controls.append(&remove);
     }
-    let switch = gtk::Switch::builder().active(on && !held).build();
+    // Centred, as every control in the row is: the Remove button beside it is taller, and a
+    // switch left to fill the row's height is drawn stretched.
+    let switch = gtk::Switch::builder()
+        .active(on && !held)
+        .valign(gtk::Align::Center)
+        .build();
     let (store_c, dir) = (store.clone(), plugin.dir.clone());
     let id = plugin.id.clone();
     switch.connect_state_set(move |_, turned_on| {
@@ -287,29 +274,42 @@ fn plugin_row(
     }
 }
 
-/// The radio button that puts plugin `id`'s headline on the chip.
+/// The box that puts plugin `id`'s headline on the chip, or takes it off. Only one plugin's can
+/// be there, so the page is built again after a change, untick the one that was.
 fn glance_choice(
     store: &Store,
     id: &str,
     settings: &Settings,
-    group: &Rc<RefCell<Option<gtk::CheckButton>>>,
+    refill: impl Fn() + 'static,
 ) -> gtk::CheckButton {
     let shown = plugins::glance(settings).as_deref() == Some(id);
     let choice = gtk::CheckButton::builder()
         .label("On the chip")
         .active(shown)
+        .valign(gtk::Align::Center)
         .build();
-    if let Some(first) = &*group.borrow() {
-        choice.set_group(Some(first));
-    }
-    group.borrow_mut().get_or_insert_with(|| choice.clone());
     let (store, id) = (store.clone(), id.to_string());
     choice.connect_toggled(move |choice| {
-        if choice.is_active() {
-            store.change(|settings| settings.plugins.glance = Some(id.clone()));
-        }
+        let on = choice.is_active();
+        store.change(|settings| {
+            if on {
+                settings.plugins.glance = Some(id.clone());
+            } else if plugins::glance(settings).as_deref() == Some(id.as_str()) {
+                // Nothing on the chip: no plugin has the id "".
+                settings.plugins.glance = Some(String::new());
+            }
+        });
+        refill();
     });
     choice
+}
+
+/// A Remove button, centred in its row.
+fn remove_button() -> gtk::Button {
+    gtk::Button::builder()
+        .label("Remove")
+        .valign(gtk::Align::Center)
+        .build()
 }
 
 /// Whether a Remove button's press is the second within a few seconds: the first only asks.
