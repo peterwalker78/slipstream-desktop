@@ -21,9 +21,12 @@
 #   built=dist/example                 for a plugin, the folder in the checkout the build makes
 #   bundle_url=https://.../app.flatpak otherwise, a single-file Flatpak bundle, or a .tar.gz holding
 #   bundle_sha256=0123...              a plugin's folder, to download, and the SHA-256 it must have
-#                                      (or bundle_sha256_url= to fetch it)
+#                                      (or bundle_sha256_url= to fetch it); https only
+#   bundle_signer=ssh-ed25519 AAAA...  the public key the bundle is signed with: the .sig beside it,
+#                                      made by ssh-keygen -Y sign -n slipstream-extra, must match
 #   commands=bin/example               a plugin's programs to link into ~/.local/bin, by their paths
-#                                      in its folder, separated by spaces
+#                                      in its folder, separated by spaces; each link leads to the
+#                                      copy of the plugin you approved in Settings
 #   then=Run example setup             what to say once a plugin is first installed
 #   default_browser=yes                make it the default web browser, once
 #   install=no                         don't install it at all
@@ -46,7 +49,7 @@ while [ $# -gt 0 ]; do
         --check) check=yes ;;
         --ask) ask=yes ;;
         -h | --help)
-            sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -70,6 +73,8 @@ extras=${XDG_CONFIG_HOME:-$HOME/.config}/slipstream/extras
 state=${XDG_STATE_HOME:-$HOME/.local/state}/slipstream/extras
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/slipstream/extras
 plugins=${XDG_DATA_HOME:-$HOME/.local/share}/slipstream/plugins
+# Where Slipstream keeps the copy of each plugin you approved, behind a link called current.
+approved=${XDG_STATE_HOME:-$HOME/.local/state}/slipstream/plugins
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # The apps Slipstream ships, beside this script. Tests point it elsewhere.
@@ -147,12 +152,25 @@ agreed() {
 # `sha_of FILE`: its SHA-256.
 sha_of() { sha256sum "$1" | cut -d ' ' -f 1; }
 
-# `fetch URL FILE`: downloads URL to FILE.
+# `fetch URL FILE`: downloads URL to FILE, over https only, redirects included. Tests may also
+# fetch file:// URLs, through SLIPSTREAM_TEST_FILE_URLS.
 fetch() {
+    fetch_protos='=https'
+    if [ -n "${SLIPSTREAM_TEST_EXTRAS:-}" ] && [ -n "${SLIPSTREAM_TEST_FILE_URLS:-}" ]; then
+        fetch_protos='=https,file'
+    fi
+    case $fetch_protos:$1 in
+        *:https://* | *file:file://*) ;;
+        *)
+            echo "won't download $1: only https:// addresses are used" >&2
+            return 1
+            ;;
+    esac
     if have curl; then
-        curl --fail --silent --show-error --location --output "$2" "$1"
+        curl --fail --silent --show-error --location --proto "$fetch_protos" --proto-redir =https \
+            --output "$2" "$1"
     elif have wget; then
-        wget --quiet --output-document="$2" "$1"
+        wget --quiet --https-only --output-document="$2" "$1"
     else
         echo "neither curl nor wget is installed to download with" >&2
         return 1
@@ -217,6 +235,10 @@ from_bundle() {
         say "$1" "would download and install $bundle_url"
         return 0
     fi
+    if [ -n "$bundle_signer" ] && ! have ssh-keygen; then
+        say "$1" "ssh-keygen, which comes with OpenSSH, isn't installed to check who signed the bundle; nothing was installed" >&2
+        return 1
+    fi
     mkdir -p "$cache"
     bundle=$cache/$name.bundle
     say "$1" "downloading $bundle_url"
@@ -229,6 +251,10 @@ from_bundle() {
     if [ "$got" != "$want" ]; then
         rm -f "$bundle.part"
         say "$1" "the download's SHA-256 is $got, not $want; nothing was installed" >&2
+        return 1
+    fi
+    if [ -n "$bundle_signer" ] && ! signed_by_signer "$1" "$bundle.part"; then
+        rm -f "$bundle.part"
         return 1
     fi
     mv -f "$bundle.part" "$bundle"
@@ -255,6 +281,25 @@ from_bundle() {
     say "$1" "installed"
 }
 
+# `signed_by_signer NAME FILE`: whether the .sig published beside the bundle shows FILE was signed
+# with the key in bundle_signer. Says why not when it wasn't.
+signed_by_signer() {
+    if ! fetch "$bundle_url.sig" "$cache/$name.sig"; then
+        say "$1" "couldn't download the bundle's signature from $bundle_url.sig; nothing was installed" >&2
+        rm -f "$cache/$name.sig"
+        return 1
+    fi
+    printf 'extra %s\n' "$bundle_signer" >"$cache/$name.signers"
+    signed_status=0
+    ssh-keygen -Y verify -f "$cache/$name.signers" -I extra -n slipstream-extra \
+        -s "$cache/$name.sig" <"$2" >/dev/null 2>&1 || signed_status=$?
+    rm -f "$cache/$name.sig" "$cache/$name.signers"
+    if [ "$signed_status" -ne 0 ]; then
+        say "$1" "the download isn't signed with the key in bundle_signer; nothing was installed" >&2
+        return 1
+    fi
+}
+
 # `put_plugin NAME FOLDER`: puts the plugin in FOLDER in place of the one installed, and links its
 # commands. FOLDER must hold a plugin.toml and no symbolic links, as Slipstream asks of a plugin.
 put_plugin() {
@@ -274,16 +319,28 @@ put_plugin() {
     fi
     mv "$cache/$plugin.new" "$plugins/$plugin"
     rm -rf "${cache:?}/$plugin.old"
+    # Each command leads through the current link, which Slipstream moves to the copy you approved,
+    # so a command never runs a plugin you haven't seen. A file left there by an older install is
+    # moved aside into the cache.
     for put_command in $commands; do
-        put_target=$plugins/$plugin/$put_command
         put_link=$HOME/.local/bin/${put_command##*/}
-        if ! [ -f "$put_target" ] || ! [ -x "$put_target" ]; then
+        if ! [ -f "$plugins/$plugin/$put_command" ] || ! [ -x "$plugins/$plugin/$put_command" ]; then
             say "$1" "$put_command isn't a program in the plugin, so it wasn't linked" >&2
-        elif [ -e "$put_link" ] && ! [ -L "$put_link" ]; then
-            say "$1" "left $put_link as it is; remove it to use the plugin's ${put_command##*/}"
-        else
-            mkdir -p "$HOME/.local/bin"
-            ln -sf "$put_target" "$put_link"
+            continue
+        fi
+        if [ -d "$put_link" ] && ! [ -L "$put_link" ]; then
+            say "$1" "left $put_link as it is, a folder where the plugin's ${put_command##*/} would go" >&2
+            continue
+        fi
+        if [ -e "$put_link" ] && ! [ -L "$put_link" ]; then
+            mkdir -p "$cache/replaced"
+            mv -f "$put_link" "$cache/replaced/${put_command##*/}"
+            say "$1" "moved the old $put_link to $cache/replaced"
+        fi
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$approved/$plugin/current/$put_command" "$put_link"
+        if ! [ -e "$put_link" ]; then
+            unapproved=yes
         fi
     done
 }
@@ -317,7 +374,8 @@ for file in "$@"; do
     name=$(basename "$file" .conf)
     record_file=$state/$name
     app_id='' plugin='' checkout='' build='' built='' bundle_url='' bundle_sha256=''
-    bundle_sha256_url='' commands='' then='' default_browser=no install=yes about=''
+    bundle_sha256_url='' bundle_signer='' commands='' then='' default_browser=no install=yes about=''
+    unapproved=''
     bad=no
     while IFS= read -r line || [ -n "$line" ]; do
         # Carriage returns from a file saved on Windows, and spaces round the edges.
@@ -348,6 +406,7 @@ for file in "$@"; do
             bundle_url) bundle_url=$value ;;
             bundle_sha256) bundle_sha256=$value ;;
             bundle_sha256_url) bundle_sha256_url=$value ;;
+            bundle_signer) bundle_signer=$value ;;
             default_browser) default_browser=$value ;;
             install) install=$value ;;
             about) about=$value ;;
@@ -426,8 +485,11 @@ for file in "$@"; do
     if [ "$default_browser" = yes ]; then
         make_default_browser "$name" || failed=$((failed + 1))
     fi
+    # Its commands lead nowhere until it is turned on.
     if [ -n "$plugin" ] && [ "$installed" = no ] && [ "$check" = no ]; then
-        say "$name" "turn it on in Settings › Plugins${then:+. $then}"
+        say "$name" "turn it on in Settings › Plugins${unapproved:+ to finish}${then:+. $then}"
+    elif [ -n "$unapproved" ]; then
+        say "$name" "turn it on in Settings › Plugins to finish"
     fi
 done
 

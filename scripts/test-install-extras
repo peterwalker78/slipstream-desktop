@@ -75,6 +75,7 @@ run() {
         STUB_LOG="$work/log" \
         STUB_INSTALLED="$work/installed" \
         SLIPSTREAM_TEST_EXTRAS=yes \
+        SLIPSTREAM_TEST_FILE_URLS=yes \
         SLIPSTREAM_EXTRAS_DEFAULTS="$work/defaults" \
         ${SLIPSTREAM_TEST_REPLY+SLIPSTREAM_TEST_REPLY="$SLIPSTREAM_TEST_REPLY"} \
         "$shell" "$repo/scripts/install-extras" "$@" >"$work/out" 2>&1
@@ -376,24 +377,41 @@ then=Then run tool setup.
 EOF
 }
 
+# `approve`: what Slipstream does when the plugin is turned on: points current at the copy approved,
+# here the installed folder itself.
+current=$work/home/.local/state/slipstream/plugins/example/current
+approve() {
+    mkdir -p "${current%/*}"
+    ln -sfn "$plugins_dir/example" "$current"
+}
+
 case_name="a plugin's bundle is unpacked into the plugins folder, its command linked, once"
 fresh
 plugin_bundle one
 plugin_conf
 expect_status 0
 [ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: no plugin.toml in place"
-[ "$("$work/home/.local/bin/tool")" = one ] || fail "$case_name: the command isn't linked"
-grep -q "turn it on in Settings › Plugins. Then run tool setup." "$work/out" ||
+grep -q "turn it on in Settings › Plugins to finish. Then run tool setup." "$work/out" ||
     fail "$case_name: didn't say how to turn it on"
 expect_count 'flatpak' 0
 expect_status 0
 grep -q "up to date with its bundle" "$work/out" || fail "$case_name: installed it again"
 if grep -q "turn it on" "$work/out"; then fail "$case_name: said to turn it on again"; else ok; fi
 
+case_name="a plugin's command leads to the copy that was approved"
+if [ "$(readlink "$work/home/.local/bin/tool")" = "$current/bin/tool" ]; then
+    ok
+else
+    fail "$case_name: linked to $(readlink "$work/home/.local/bin/tool")"
+fi
+approve
+[ "$("$work/home/.local/bin/tool")" = one ] || fail "$case_name: the command doesn't run"
+
 case_name="a new release of a plugin replaces its whole folder"
 plugin_bundle two
 plugin_conf
 expect_status 0
+if grep -q "turn it on" "$work/out"; then fail "$case_name: said to turn it on again"; else ok; fi
 [ "$("$work/home/.local/bin/tool")" = two ] || fail "$case_name: still the old program"
 if [ -e "$plugins_dir/example/only-in-one" ]; then
     fail "$case_name: kept a file of the old release"
@@ -421,16 +439,22 @@ plugin_conf
 expect_status 1
 if [ -e "$plugins_dir/example" ]; then fail "$case_name: installed it"; else ok; fi
 
-case_name="a program of your own of the same name is left alone"
+case_name="a program left by an older install is moved aside for the link"
 fresh
 plugin_bundle one
 plugin_conf
 mkdir -p "$work/home/.local/bin"
-printf '#!/bin/sh\necho mine\n' >"$work/home/.local/bin/tool"
+printf '#!/bin/sh\necho old\n' >"$work/home/.local/bin/tool"
 chmod +x "$work/home/.local/bin/tool"
 expect_status 0
-[ "$("$work/home/.local/bin/tool")" = mine ] || fail "$case_name: replaced it"
-grep -q "left .*/.local/bin/tool as it is" "$work/out" || fail "$case_name: didn't say so"
+if [ "$(readlink "$work/home/.local/bin/tool")" = "$current/bin/tool" ]; then
+    ok
+else
+    fail "$case_name: not linked"
+fi
+grep -q "echo old" "$work/home/.cache/slipstream/extras/replaced/tool" 2>/dev/null ||
+    fail "$case_name: the old program wasn't kept"
+grep -q "moved the old .*/.local/bin/tool" "$work/out" || fail "$case_name: didn't say so"
 
 case_name="a plugin is built from its checkout when its commit changes"
 fresh
@@ -473,6 +497,79 @@ bundle_sha256=$sha
 EOF
 expect_status 1
 if [ -e "$work/home/.local/share/slipstream/example" ]; then fail "$case_name: wrote outside"; else ok; fi
+
+# Signatures, made with ssh-keygen as a release makes them.
+mkdir -p "$work/keys"
+ssh-keygen -q -t ed25519 -N '' -C signer -f "$work/keys/signer"
+ssh-keygen -q -t ed25519 -N '' -C other -f "$work/keys/other"
+
+# `sign KEY [NAMESPACE]`: signs the plugin bundle with KEY beside it, as the release does.
+sign() {
+    rm -f "$work/bundles/example.tar.gz.sig"
+    ssh-keygen -q -Y sign -f "$work/keys/$1" -n "${2:-slipstream-extra}" \
+        "$work/bundles/example.tar.gz" >/dev/null 2>&1
+}
+
+# `signed_conf KEY`: the plugin's file, naming KEY's public half as its signer.
+signed_conf() {
+    plugin_conf
+    echo "bundle_signer=$(cat "$work/keys/$1.pub")" >>"$work/home/.config/slipstream/extras/example.conf"
+}
+
+not_installed() {
+    if [ -e "$plugins_dir/example" ]; then fail "$case_name: installed it"; else ok; fi
+}
+
+case_name="a bundle signed by its signer installs"
+fresh
+plugin_bundle one
+sign signer
+signed_conf signer
+expect_status 0
+[ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: not installed"
+
+case_name="a bundle signed with another key isn't installed"
+fresh
+plugin_bundle one
+sign other
+signed_conf signer
+expect_status 1
+not_installed
+grep -q "isn't signed with the key in bundle_signer" "$work/out" || fail "$case_name: didn't say why"
+
+case_name="a bundle signed for another purpose isn't installed"
+fresh
+plugin_bundle one
+sign signer file
+signed_conf signer
+expect_status 1
+not_installed
+
+case_name="a bundle with no signature isn't installed when its file names a signer"
+fresh
+plugin_bundle one
+rm -f "$work/bundles/example.tar.gz.sig"
+signed_conf signer
+expect_status 1
+not_installed
+grep -q "couldn't download the bundle's signature" "$work/out" || fail "$case_name: didn't say why"
+
+case_name="without a signer, the SHA-256 alone decides"
+fresh
+plugin_bundle one
+rm -f "$work/bundles/example.tar.gz.sig"
+plugin_conf
+expect_status 0
+[ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: not installed"
+
+case_name="an http address isn't downloaded"
+fresh
+plugin_bundle one
+printf 'plugin=example\nbundle_url=http://example.org/example.tar.gz\nbundle_sha256=%s\n' "$sha" \
+    >"$work/home/.config/slipstream/extras/example.conf"
+expect_status 1
+grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
+not_installed
 
 echo "$passed passed, $failures failed ($shell)"
 [ "$failures" -eq 0 ]

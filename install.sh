@@ -1,6 +1,7 @@
 #!/bin/sh
 # Downloads the newest Slipstream release for this machine, checks it against its published
-# checksum, and runs its installer, which tells you what it will do before it writes anything.
+# checksum and signature, and runs its installer, which tells you what it will do before it writes
+# anything.
 #
 #   sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
 #
@@ -15,6 +16,9 @@ set -eu
 
 project=peterwalker78/slipstream-desktop
 releases_api=https://api.github.com/repos/$project/releases
+# The public key releases are signed with. It is read from the repository, not the release, so
+# whoever could change a release's files couldn't change the key too.
+key_url=https://raw.githubusercontent.com/$project/main/release-key.pub
 
 mode=install
 version=
@@ -39,7 +43,7 @@ while [ $# -gt 0 ]; do
         -h | --help)
             # Run as sh -c "$(curl ...)", $0 is no file, so there's no header to show.
             if [ -f "$0" ]; then
-                sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+                sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
             else
                 echo "install.sh [--check] [--try] [--version vX.Y.Z] [--dir DIR] [--yes] [--uninstall [--purge]]"
             fi
@@ -78,9 +82,28 @@ token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if have curl; then
     fetch() { curl -fsSL ${token:+-H "Authorization: Bearer $token"} "$1"; }
     fetch_to() { curl -fL --progress-bar -o "$2" "$1"; }
+    # `fetch_key URL FILE`: 0 when it downloaded, 1 when there's nothing there, 2 when it couldn't
+    # tell.
+    fetch_key() {
+        key_code=$(curl -sSL -o "$2" -w '%{http_code}' "$1") || return 2
+        case $key_code in
+            200) return 0 ;;
+            404) return 1 ;;
+        esac
+        return 2
+    }
 elif have wget; then
     fetch() { wget -qO- ${token:+--header="Authorization: Bearer $token"} "$1"; }
     fetch_to() { wget -q --show-progress -O "$2" "$1"; }
+    fetch_key() {
+        if key_said=$(wget -S -O "$2" "$1" 2>&1); then
+            return 0
+        fi
+        case $key_said in
+            *" 404 "*) return 1 ;;
+        esac
+        return 2
+    }
 else
     echo "install.sh: neither curl nor wget is installed, so nothing can be downloaded." >&2
     exit 1
@@ -142,6 +165,41 @@ if [ -z "$want" ] || [ "$got" != "$want" ]; then
     exit 1
 fi
 echo "Checksum matches."
+
+# Once the repository holds a key, a release has to be signed with it to be unpacked.
+key_status=0
+fetch_key "$key_url" release-key.pub || key_status=$?
+case $key_status in
+    0) signer=$(sed -n '/^[[:space:]]*#/d; /[^[:space:]]/{p;q;}' release-key.pub) ;;
+    1) signer= ;;
+    *)
+        echo "install.sh: couldn't fetch the key releases are signed with, from $key_url." >&2
+        echo "Try again in a few minutes." >&2
+        exit 1
+        ;;
+esac
+rm -f release-key.pub
+if [ -n "$signer" ]; then
+    if ! have ssh-keygen; then
+        echo "install.sh: ssh-keygen isn't installed, and it's needed to check who signed the" >&2
+        echo "download. It comes with OpenSSH: install the openssh or openssh-client package." >&2
+        exit 1
+    fi
+    if ! fetch_to "$base/$name.sig" "$name.sig"; then
+        echo "install.sh: release $tag has no signature, so it wasn't unpacked." >&2
+        exit 1
+    fi
+    printf 'slipstream %s\n' "$signer" >allowed-signers
+    if ! ssh-keygen -Y verify -f allowed-signers -I slipstream -n slipstream-extra \
+        -s "$name.sig" <"$name" >/dev/null 2>&1; then
+        rm -f allowed-signers
+        echo "install.sh: $name isn't signed with Slipstream's key, so it wasn't unpacked." >&2
+        echo "Delete $work and try again." >&2
+        exit 1
+    fi
+    rm -f allowed-signers
+    echo "Signature matches."
+fi
 
 folder=${name%.tar.gz}
 rm -rf "$folder"

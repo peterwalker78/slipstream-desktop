@@ -41,8 +41,11 @@ A plugin names its folder with `plugin=` instead, and its release is that folder
 plugin=weather
 bundle_url=https://example.org/weather.tar.gz
 bundle_sha256_url=https://example.org/weather.tar.gz.sha256
-commands=bin/weather             # linked into ~/.local/bin, unless a program of yours is there already
+bundle_signer=ssh-ed25519 AAAA…  # then the release must carry a .sig made with this key
+commands=bin/weather             # linked into ~/.local/bin, to the copy you turned on
 ```
+
+Downloads are over https only. With `bundle_signer=`, a bundle is installed only when the `.sig` published beside it shows it was signed with that key (`ssh-keygen -Y sign -n slipstream-extra`), which needs `ssh-keygen` from OpenSSH. A plugin's commands run the copy you approved in Settings, so they lead nowhere until you turn it on there.
 
 `scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
 

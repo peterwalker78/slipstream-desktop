@@ -1,0 +1,145 @@
+#!/bin/sh
+# Tests for install.sh's checks on a download, with a stand-in curl that serves a scratch copy of
+# GitHub and a made-up release whose installer only says it ran.
+#
+#   scripts/test-install-sh          with sh
+#   SHELL_UNDER_TEST=dash scripts/test-install-sh
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+shell=${SHELL_UNDER_TEST:-sh}
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+failures=0
+passed=0
+
+fail() {
+    echo "FAIL: $*" >&2
+    failures=$((failures + 1))
+}
+ok() { passed=$((passed + 1)); }
+
+stubs=$work/stubs
+web=$work/web
+mkdir -p "$stubs"
+# curl: serves https://HOST/PATH from $STUB_WEB/HOST/PATH. Missing files answer 404, which -f
+# turns into exit 22, as curl does.
+cat >"$stubs/curl" <<'EOF'
+#!/bin/sh
+out= code= fail= url=
+while [ $# -gt 0 ]; do
+    case $1 in
+        -o) out=$2; shift ;;
+        -w) code=yes; shift ;;
+        -H) shift ;;
+        -f*) fail=yes ;;
+        https://*) url=$1 ;;
+    esac
+    shift
+done
+file=$STUB_WEB/${url#https://}
+if [ -f "$file" ]; then
+    if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi
+    if [ -n "$code" ]; then printf 200; fi
+    exit 0
+fi
+if [ -n "$code" ]; then printf 404; exit 0; fi
+if [ -n "$fail" ]; then exit 22; fi
+exit 0
+EOF
+# CI runs the tests as root, which install.sh refuses.
+printf '#!/bin/sh\necho 1000\n' >"$stubs/id"
+printf '#!/bin/sh\necho x86_64\n' >"$stubs/uname"
+chmod +x "$stubs/curl" "$stubs/id" "$stubs/uname"
+
+tag=v9.9.9
+name=slipstream-9.9.9-linux-x86_64
+release=$web/github.com/peterwalker78/slipstream-desktop/releases/download/$tag
+key_file=$web/raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/release-key.pub
+
+mkdir -p "$work/keys"
+ssh-keygen -q -t ed25519 -N '' -C release -f "$work/keys/release"
+ssh-keygen -q -t ed25519 -N '' -C other -f "$work/keys/other"
+
+# A release whose download is packed and checksummed, unsigned, with no key in the repository.
+fresh() {
+    rm -rf "${web:?}" "${work:?}/home" "${work:?}/pack"
+    mkdir -p "$release" "$work/home" "$work/pack/$name/scripts"
+    printf '#!/bin/sh\necho "installer ran $*"\n' >"$work/pack/$name/scripts/install-session"
+    tar -czf "$release/$name.tar.gz" -C "$work/pack" "$name"
+    (cd "$release" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
+}
+
+# `sign KEY`: signs the download with KEY, as the release workflow does.
+sign() {
+    ssh-keygen -q -Y sign -f "$work/keys/$1" -n slipstream-extra "$release/$name.tar.gz" \
+        >/dev/null 2>&1
+}
+
+# `key KEY`: puts KEY's public half in the repository, under a comment.
+key() {
+    mkdir -p "${key_file%/*}"
+    printf '# The key releases are signed with.\n%s\n' "$(cat "$work/keys/$1.pub")" >"$key_file"
+}
+
+# `expect STATUS`: runs install.sh --check for the release, and wants STATUS from it.
+expect() {
+    status=0
+    env -u GH_TOKEN -u GITHUB_TOKEN -u XDG_CACHE_HOME HOME="$work/home" PATH="$stubs:$PATH" \
+        STUB_WEB="$web" "$shell" "$repo/install.sh" --check --version "$tag" \
+        >"$work/out" 2>&1 || status=$?
+    if [ "$status" -ne "$1" ]; then
+        fail "$case_name: exit $status, wanted $1"
+        sed 's/^/    | /' "$work/out" >&2
+    else
+        ok
+    fi
+}
+
+ran() {
+    if grep -q "installer ran --check" "$work/out"; then
+        ok
+    else
+        fail "$case_name: the installer didn't run"
+    fi
+}
+
+not_ran() {
+    if grep -q "installer ran" "$work/out"; then fail "$case_name: the installer ran"; else ok; fi
+}
+
+case_name="with no key in the repository, the checksum alone decides"
+fresh
+expect 0
+ran
+
+case_name="a download that doesn't match its checksum isn't unpacked"
+fresh
+echo nonsense >"$release/$name.tar.gz.sha256"
+expect 1
+not_ran
+
+case_name="with a key in the repository, a release signed with it installs"
+fresh
+key release
+sign release
+expect 0
+ran
+grep -q "Signature matches" "$work/out" || fail "$case_name: didn't say so"
+
+case_name="a release signed with another key isn't unpacked"
+fresh
+key release
+sign other
+expect 1
+not_ran
+grep -q "isn't signed with Slipstream's key" "$work/out" || fail "$case_name: didn't say why"
+
+case_name="a release with no signature isn't unpacked once there is a key"
+fresh
+key release
+expect 1
+not_ran
+grep -q "has no signature" "$work/out" || fail "$case_name: didn't say why"
+
+echo "$passed passed, $failures failed ($shell)"
+[ "$failures" -eq 0 ]

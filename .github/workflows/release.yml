@@ -39,7 +39,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
             mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
-            libgtk-4-dev gh tar gzip
+            libgtk-4-dev gh tar gzip openssh-client
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
 
@@ -68,6 +68,23 @@ jobs:
         with:
           subject-path: dist/*.tar.gz
 
+      # install.sh and install-extras check the download against this signature once the
+      # repository carries the public key. Without the secret the release still goes out, unsigned.
+      - name: Sign
+        env:
+          EXTRA_SIGNING_KEY: ${{ secrets.EXTRA_SIGNING_KEY }}
+        run: |
+          if [ -z "$EXTRA_SIGNING_KEY" ]; then
+            echo "::warning::EXTRA_SIGNING_KEY isn't set, so the download goes out unsigned"
+            exit 0
+          fi
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$EXTRA_SIGNING_KEY" >"$key"
+          for file in dist/*.tar.gz; do
+            ssh-keygen -q -Y sign -f "$key" -n slipstream-extra "$file"
+          done
+
       - name: Attach to the release
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -87,7 +104,11 @@ jobs:
           # got as far as uploading could never be re-run. Deleting first doesn't help either —
           # GitHub can go on reporting an asset that has just been removed. What matters is that
           # the file ends up on the release, so "it is already there" is success, not failure.
-          for file in dist/*.tar.gz dist/*.sha256; do
+          # The download goes up last, so it is never there without its checksum and signature.
+          for file in dist/*.sig dist/*.sha256 dist/*.tar.gz; do
+            if ! [ -e "$file" ]; then
+              continue
+            fi
             name=$(basename "$file")
             if out=$(gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "$file" 2>&1); then
               echo "uploaded $name"
