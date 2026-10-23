@@ -221,18 +221,19 @@ impl Centre {
         self.chosen_at = None;
     }
 
-    /// A menu entry has been chosen (and sent to its app): the centre closes once the entry has
-    /// flashed.
+    /// A menu entry has been chosen (and sent to its app): the menu closes once the entry has
+    /// flashed. The centre stays open until it is closed itself.
     pub fn menu_chosen(&mut self, now: f64) {
         self.chosen_at.get_or_insert(now);
     }
 
-    /// Closes the centre once a chosen menu entry's flash has shown.
+    /// Closes the menu once a chosen entry's flash has shown.
     pub fn finish_menu_choice(&mut self, now: f64) {
         if let Some(at) = self.chosen_at
             && now - at >= tray_menu::confirm_length(self.reduced_motion)
         {
-            self.close();
+            self.chosen_at = None;
+            self.close_menu(now);
         }
     }
 
@@ -1162,25 +1163,31 @@ mod tests {
     }
 
     #[test]
-    fn a_chosen_menu_entry_closes_the_centre_once_it_has_flashed() {
+    fn a_chosen_menu_entry_closes_its_menu_but_not_the_centre() {
         for reduced_motion in [false, true] {
+            let notices = Notices::default();
             let mut centre = Centre {
                 reduced_motion,
                 ..Centre::default()
             };
             centre.open(0.0, &[]);
+            centre.chips = vec![chip("Sync", Some("item"))];
+            let look = look(&centre, &notices);
+            centre.repaint(&look, &notices).unwrap();
+            centre.open_menu("item".into(), 0, true, 0.0);
             centre.menu_chosen(0.0);
             let length = tray_menu::confirm_length(reduced_motion);
             centre.finish_menu_choice(length - 0.01);
-            assert!(centre.is_open(), "open while the entry flashes");
+            assert!(centre.menu_open(), "open while the entry flashes");
             centre.menu_chosen(0.1);
             centre.finish_menu_choice(length);
-            assert!(!centre.is_open(), "timed from the first choice");
-            centre.open(5.0, &[]);
+            assert!(!centre.menu_open(), "timed from the first choice");
+            assert!(centre.is_open(), "the centre stays until it is closed");
+            centre.open_menu("item".into(), 0, true, 5.0);
             centre.finish_menu_choice(9.0);
             assert!(
-                centre.is_open(),
-                "a choice doesn't outlive the centre it closed"
+                centre.menu_open(),
+                "a choice doesn't outlive the menu it closed"
             );
         }
     }
