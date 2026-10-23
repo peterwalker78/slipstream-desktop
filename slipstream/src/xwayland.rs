@@ -4,7 +4,7 @@
 use std::{os::unix::io::OwnedFd, process::Stdio};
 
 use smithay::{
-    desktop::Window,
+    desktop::{Window, space::RenderZindex},
     utils::{Logical, Rectangle},
     wayland::{
         compositor::CompositorHandler,
@@ -23,11 +23,18 @@ use smithay::{
     },
     xwayland::{
         X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler,
-        xwm::{Reorder, ResizeEdge, XwmId},
+        xwm::{Reorder, ResizeEdge, WmWindowProperty, WmWindowType, XwmId},
     },
 };
 
-use crate::{Slipstream, cursor::Cursor, focus::KeyboardFocus, launch, screenshot::Selection};
+use crate::{
+    Slipstream,
+    cursor::Cursor,
+    focus::KeyboardFocus,
+    launch,
+    screenshot::Selection,
+    state::{PlacesItself, places_itself},
+};
 
 impl Slipstream {
     /// Starts XWayland. X11 apps can connect once it reports ready, a moment later.
@@ -121,6 +128,17 @@ impl XwmHandler for Slipstream {
             tracing::warn!("couldn't map an X11 window: {err}");
             return;
         }
+        // A dock, a desktop widget or a notification keeps the place it picked, above or below
+        // the tiles, and doesn't take the keyboard by appearing.
+        if let Some(layer) = own_layer(&surface) {
+            let geometry = surface.geometry();
+            let _ = surface.configure(geometry);
+            let window = Window::new_x11_window(surface);
+            window.override_z_index(layer as u8);
+            window.user_data().insert_if_missing(|| PlacesItself);
+            self.space.map_element(window, geometry.loc, false);
+            return;
+        }
         // Games often ask for fullscreen before their window appears.
         let fullscreen = surface.is_fullscreen();
         let window = Window::new_x11_window(surface);
@@ -138,7 +156,7 @@ impl XwmHandler for Slipstream {
 
     fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(window) = self.x11_window(&surface) {
-            if surface.is_override_redirect() {
+            if places_itself(&window) {
                 self.space.unmap_elem(&window);
             } else {
                 self.remove_window(&window);
@@ -155,18 +173,20 @@ impl XwmHandler for Slipstream {
         &mut self,
         _xwm: XwmId,
         surface: X11Surface,
-        _x: Option<i32>,
-        _y: Option<i32>,
+        x: Option<i32>,
+        y: Option<i32>,
         width: Option<u32>,
         height: Option<u32>,
         _reorder: Option<Reorder>,
     ) {
-        // A tiled window keeps its tile. Anything else gets the size it asked for.
+        // A tiled window keeps its tile. Anything else gets the size it asked for, and a window
+        // that places itself the place too.
         let tiled = self
             .workspaces
             .all_windows()
             .iter()
             .any(|window| window.x11_surface() == Some(&surface));
+        let own_place = self.x11_window(&surface).filter(places_itself);
         let mut geometry = surface.last_configure();
         if !tiled {
             if let Some(width) = width {
@@ -176,7 +196,25 @@ impl XwmHandler for Slipstream {
                 geometry.size.h = height as i32;
             }
         }
+        if own_place.is_some() {
+            if let Some(x) = x {
+                geometry.loc.x = x;
+            }
+            if let Some(y) = y {
+                geometry.loc.y = y;
+            }
+        }
         let _ = surface.configure(geometry);
+        if let Some(window) = own_place {
+            self.space.map_element(window, geometry.loc, false);
+        }
+    }
+
+    fn property_notify(&mut self, _xwm: XwmId, _surface: X11Surface, property: WmWindowProperty) {
+        // A new opacity changes nothing the window draws, so nothing else would show it.
+        if matches!(property, WmWindowProperty::Opacity) {
+            self.something_changed();
+        }
     }
 
     fn configure_notify(
@@ -352,5 +390,61 @@ impl Slipstream {
             return None;
         }
         Some((window, pointer.current_location()))
+    }
+}
+
+/// Whether an X11 window keeps the place it picks rather than being one of your windows, and
+/// whether it goes above or below them, from what it says it is (EWMH's window types and states).
+/// `None` for an app's own window, which is tiled or floats.
+fn own_layer(surface: &X11Surface) -> Option<RenderZindex> {
+    layer_for(
+        surface.window_type(),
+        surface.is_below() && surface.is_skip_taskbar() && surface.is_skip_pager(),
+    )
+}
+
+/// `own_layer`'s rule. `kept_out` is a window kept below the others and left out of the taskbar
+/// and the pager: a desktop widget, or a helper window that isn't meant to be seen.
+fn layer_for(window_type: Option<WmWindowType>, kept_out: bool) -> Option<RenderZindex> {
+    use WmWindowType::*;
+    match window_type {
+        Some(Desktop) => Some(RenderZindex::Bottom),
+        // Menus and tooltips are nearly always override-redirect; the few that aren't go here.
+        Some(Dock | Notification | Menu | DropdownMenu | PopupMenu | Tooltip | Combo | Dnd) => {
+            Some(RenderZindex::Top)
+        }
+        _ => kept_out.then_some(RenderZindex::Bottom),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_windows_are_left_to_the_layout() {
+        for window_type in [None, Some(WmWindowType::Normal), Some(WmWindowType::Dialog)] {
+            assert_eq!(layer_for(window_type, false), None);
+        }
+    }
+
+    #[test]
+    fn a_window_kept_out_of_every_list_goes_under_the_tiles() {
+        // What KDE's XWayland video bridge and a conky desktop widget both ask for.
+        assert_eq!(
+            layer_for(Some(WmWindowType::Normal), true),
+            Some(RenderZindex::Bottom)
+        );
+        assert_eq!(
+            layer_for(Some(WmWindowType::Desktop), false),
+            Some(RenderZindex::Bottom)
+        );
+    }
+
+    #[test]
+    fn docks_and_notifications_go_over_the_tiles() {
+        for window_type in [WmWindowType::Dock, WmWindowType::Notification] {
+            assert_eq!(layer_for(Some(window_type), false), Some(RenderZindex::Top));
+        }
     }
 }

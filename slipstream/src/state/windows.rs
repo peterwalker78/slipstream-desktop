@@ -59,9 +59,9 @@ impl Slipstream {
         let offscreen: Vec<Window> = self
             .space
             .elements()
-            // X11 menus and tooltips aren't tiled; they go when their app unmaps them.
+            // X11 windows that place themselves aren't tiled; they go when their app unmaps them.
             .filter(|w| {
-                !is_override_redirect(w)
+                !places_itself(w)
                     && !rects.iter().any(|(on, _)| on == *w)
                     && !floats.iter().any(|(on, ..)| on == *w)
                     && docked.as_ref() != Some(*w)

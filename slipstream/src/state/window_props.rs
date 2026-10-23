@@ -96,11 +96,33 @@ pub(crate) fn is_child_of(window: &Window, parent: &Window) -> bool {
     false
 }
 
-/// X11 menus, tooltips and drag images: they place themselves and are never tiled.
-pub(super) fn is_override_redirect(window: &Window) -> bool {
+/// X11 windows that place themselves and are never tiled: menus, tooltips and drag images, and the
+/// docks, desktop widgets and notifications `xwayland::own_layer` picks out when they map.
+pub(crate) fn places_itself(window: &Window) -> bool {
     window
         .x11_surface()
         .is_some_and(|surface| surface.is_override_redirect())
+        || window.user_data().get::<PlacesItself>().is_some()
+}
+
+/// Marks a managed X11 window that keeps the place it picks, in `places_itself`.
+pub(crate) struct PlacesItself;
+
+/// How opaque an X11 window asks to be drawn (`_NET_WM_WINDOW_OPACITY`, which compositing window
+/// managers honour), from 0 to 1. A Wayland window, or one that doesn't say, is opaque.
+pub(crate) fn own_opacity(window: &Window) -> f32 {
+    window
+        .x11_surface()
+        .and_then(|surface| surface.opacity())
+        .map_or(1.0, |opacity| (opacity as f64 / u32::MAX as f64) as f32)
+}
+
+/// An X11 window that takes no keyboard input at all: ICCCM's "no input" model, which neither
+/// accepts focus nor asks for `WM_TAKE_FOCUS`.
+pub(crate) fn takes_no_input(window: &Window) -> bool {
+    window
+        .x11_surface()
+        .is_some_and(|surface| surface.input_model() == smithay::xwayland::xwm::WmInputModel::None)
 }
 
 /// Tells a window it isn't the active one any more, and sends that to its client.

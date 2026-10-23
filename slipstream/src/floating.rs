@@ -280,7 +280,8 @@ fn max_size(window: &Window) -> (i32, i32) {
     })
 }
 
-/// Whether a new window opens floating: one with a parent (a dialog), or one whose height is
+/// Whether a new window opens floating: one with a parent (a dialog), an X11 window that says it
+/// is a dialog, a palette, a toolbar or a splash screen, or is modal, or one whose height is
 /// fixed (a splash screen). Firefox's picture-in-picture player floats too.
 pub fn opens_floating(window: &Window) -> bool {
     let picture_in_picture = window_app_id(window).is_some_and(|id| id.ends_with("firefox"))
@@ -294,6 +295,16 @@ pub fn opens_floating(window: &Window) -> bool {
         _ => false,
     };
     if has_parent {
+        return true;
+    }
+    if window.x11_surface().is_some_and(|surface| {
+        use smithay::xwayland::xwm::WmWindowType::*;
+        surface.is_modal()
+            || matches!(
+                surface.window_type(),
+                Some(Dialog | Utility | Toolbar | Splash)
+            )
+    }) {
         return true;
     }
     let (min, max) = (min_size(window).1, max_size(window).1);

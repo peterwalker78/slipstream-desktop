@@ -1070,8 +1070,11 @@ fn draw_window(
     // The docked pane hangs from the bar, which stays upright in bullet time: it is drawn on the
     // screen itself, at the screen's own density, not in the overview's world.
     let world_scale = if docked { v.scale } else { v.world_scale };
+    // An X11 window that places itself is drawn where it put itself, under the bar or not.
     let area = if docked {
         state.screen_area(0)
+    } else if crate::state::places_itself(&window) {
+        None
     } else {
         home.and_then(|index| state.area_for_workspace(index))
             .or_else(|| state.output_area())
@@ -1144,13 +1147,14 @@ fn draw_window(
     let location = (shown.loc - own.loc.to_f64())
         .to_physical(world_scale)
         .to_i32_round();
+    // The window's own see-through-ness is its content's alone: its ring and shadow stay.
     let surfaces: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
         AsRenderElements::<GlesRenderer>::render_elements(
             &window,
             renderer,
             location,
             world_scale,
-            drawn.alpha,
+            drawn.alpha * crate::state::own_opacity(&window),
         );
     // A handle on what it was just drawn from, so it can fade out if it closes.
     if let Some(picture) = crate::ghost::Picture::of(&window, &renderer.context_id()) {

@@ -122,10 +122,11 @@ mod windows;
 mod workspaces;
 
 pub use screens::is_internal_panel;
-use window_props::{configure, is_override_redirect, pretty_name, toplevel_data};
 pub(crate) use window_props::{
-    deactivate, is_child_of, logged_app, min_size, window_app_id, window_title,
+    PlacesItself, deactivate, is_child_of, logged_app, min_size, own_opacity, places_itself,
+    takes_no_input, window_app_id, window_title,
 };
+use window_props::{configure, pretty_name, toplevel_data};
 
 /// How long the recorded layout waits for the desktop entries to be read before giving up on
 /// this login. The scan takes a fraction of a second; this is only a backstop.
