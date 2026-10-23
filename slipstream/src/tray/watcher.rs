@@ -18,7 +18,8 @@ pub const FREEDESKTOP: &str = "org.freedesktop.StatusNotifierWatcher";
 pub const PATH: &str = "/StatusNotifierWatcher";
 /// Where an item lives when it registers by bus name alone.
 const ITEM_PATH: &str = "/StatusNotifierItem";
-/// The most items one app may register, however many connections it opens, and hosts in all.
+/// The most items one app may register, however many connections and processes it opens, and
+/// hosts in all.
 const PER_PEER: usize = 8;
 const MAX_HOSTS: usize = 16;
 
@@ -53,11 +54,14 @@ impl Address {
     }
 }
 
-/// Who is behind a connection, for the limit on items: the Flatpak it runs in, else its process.
-/// A connection the bus can say nothing about is taken on its own.
+/// Who is behind a connection, for the limit on items: the Flatpak it runs in, else the systemd
+/// scope or service its app was started in, else its process. A connection the bus can say
+/// nothing about is taken on its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Peer {
     Flatpak(String),
+    /// An app's scope or service, by its cgroup's path: every process the app starts is in it.
+    Unit(String),
     /// A process by its pidfd's inode, which no other process ever has.
     Process(u64),
     /// A process by its pid, where pidfds aren't told apart by inode.
@@ -86,11 +90,33 @@ impl Peer {
             return Self::Flatpak(app);
         }
         let pidfd = credentials.process_fd();
+        // Read by pid, so it counts only while the process the pidfd holds is still the one.
+        let cgroup = |of: &str| {
+            crate::files::read_small_text(std::path::Path::new(&format!("/proc/{of}/cgroup")), 4096)
+        };
+        if let Some(unit) = pid.and_then(|pid| {
+            app_unit(
+                &cgroup(&pid.to_string())?,
+                &cgroup("self").unwrap_or_default(),
+            )
+        }) && pidfd.is_none_or(|fd| crate::capture::still_running(std::os::fd::AsFd::as_fd(fd)))
+        {
+            return Self::Unit(unit);
+        }
         if let Some(inode) = pidfd.and_then(|fd| pidfs_inode(std::os::fd::AsFd::as_fd(fd))) {
             return Self::Process(inode);
         }
         pid.map_or_else(alone, Self::Pid)
     }
+}
+
+/// The scope or service the desktop started an app in, from the text of `/proc/<pid>/cgroup`;
+/// none for a process left in the session's own cgroup, or in Slipstream's own (`ours`), or with
+/// no cgroup to go by.
+fn app_unit(cgroup: &str, ours: &str) -> Option<String> {
+    let path = crate::usage::cgroup_path(cgroup)?.trim_end();
+    let own = crate::usage::cgroup_path(ours).map(str::trim_end);
+    (crate::usage::is_app_cgroup(path) && own != Some(path)).then(|| path.to_string())
 }
 
 /// A pidfd's inode, when pidfds live on pidfs (Linux 6.9 on), which gives each process its
@@ -404,5 +430,28 @@ mod tests {
         assert_eq!((20..40).filter(|n| add(*n, &flatpak)).count(), PER_PEER);
         // Another app still has room.
         assert!(add(40, &Peer::Process(78)));
+    }
+
+    #[test]
+    fn an_app_s_processes_share_its_room_in_the_tray() {
+        let scope = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/\
+                     app-org.example.Chat-4242.scope\n";
+        let unit = Peer::Unit(app_unit(scope, "0::/slipstream.service\n").unwrap());
+        let mut registry = Registry::default();
+        let added = (0..20)
+            .filter(|n| {
+                let sender = format!(":1.{n}");
+                registry.add_item(&address(&sender, "/StatusNotifierItem"), &sender, &unit)
+            })
+            .count();
+        assert_eq!(added, PER_PEER, "however many processes it starts");
+        assert_eq!(
+            app_unit("0::/user.slice/user-1000.slice/session-2.scope\n", ""),
+            None,
+            "the session's own cgroup is no app's"
+        );
+        assert_eq!(app_unit(scope, scope), None, "nor Slipstream's own");
+        assert_eq!(app_unit("0::/init.scope\n", ""), None);
+        assert_eq!(app_unit("", ""), None);
     }
 }

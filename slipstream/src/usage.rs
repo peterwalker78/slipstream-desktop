@@ -366,7 +366,7 @@ fn source(pid: u32) -> Source {
 }
 
 /// The unified hierarchy's path from `/proc/<pid>/cgroup`.
-fn cgroup_path(text: &str) -> Option<&str> {
+pub(crate) fn cgroup_path(text: &str) -> Option<&str> {
     text.lines().find_map(|line| line.strip_prefix("0::"))
 }
 
