@@ -90,7 +90,7 @@ else
     built=${CARGO_TARGET_DIR:-$repo/target}/session
 fi
 
-for program in slipstream slipstream-settings; do
+for program in slipstream slipstream-settings agent-notify; do
     if ! [ -x "$built/$program" ]; then
         echo "update-session: $built/$program isn't there, so nothing was installed." >&2
         exit 1
@@ -100,7 +100,7 @@ done
 # A binary built in a box links the box's libraries, and a release's links the system it was built
 # for: say so now rather than at the next login.
 if have ldd; then
-    for program in slipstream slipstream-settings; do
+    for program in slipstream slipstream-settings agent-notify; do
         libs=$(ldd "$built/$program" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
         if [ -n "$libs" ]; then
             echo "update-session: $program links libraries this system doesn't have: $libs" >&2
@@ -167,6 +167,9 @@ launcher=${SLIPSTREAM_TEST_ROOT:-}/usr/local/bin/slipstream-session
 
 put 755 "$built/slipstream" "$bin_dir/slipstream"
 put 755 "$built/slipstream-settings" "$bin_dir/slipstream-settings"
+# The agent hooks' program, where the hooks it sets up call it. A link there (to the shell script
+# it replaced, say) is itself replaced by the move, and the file it pointed to is left alone.
+put 755 "$built/agent-notify" "$bin_dir/agent-notify"
 # The Settings app's entry, so the explorer lists it (in Slipstream only).
 entry=io.github.peterwalker78.SlipstreamSettings.desktop
 put 644 "$repo/slipstream-settings/$entry" "$data/applications/$entry"

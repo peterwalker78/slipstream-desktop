@@ -37,7 +37,7 @@ jobs:
             scripts/test-install-session scripts/install-extras scripts/test-install-extras \
             scripts/build-portable scripts/check-portable scripts/try-slipstream \
             scripts/test-on-distro scripts/stubborn scripts/nested install.sh \
-            session/slipstream-session extras/agent-notify
+            session/slipstream-session
           scripts/test-install-session
           SHELL_UNDER_TEST=dash scripts/test-install-session
           scripts/test-install-extras

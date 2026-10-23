@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["slipstream", "slipstream-config", "slipstream-settings"]
+members = ["slipstream", "slipstream-config", "slipstream-settings", "extras/agent-notify"]
 
 [workspace.package]
 version = "1.0.0-rc.1"
