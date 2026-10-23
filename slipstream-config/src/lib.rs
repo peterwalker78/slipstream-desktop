@@ -30,9 +30,11 @@
 //! longest-wait-mins = 15
 //! sounds = true
 //! sound-theme = "ocean"
+//! ding = "app"
 //!
 //! [sound]
 //! volume-blip = true
+//! click = "tap"
 //! volume-step = 5
 //! muffle-bullet-time = true
 //!
@@ -96,7 +98,6 @@
 
 pub mod battery;
 pub mod card;
-pub mod click;
 pub mod command;
 mod display;
 mod file;
@@ -105,6 +106,7 @@ mod pages;
 pub mod plugins;
 pub mod screens;
 pub mod shortcuts;
+pub mod sounds;
 pub mod sun;
 mod wallpaper;
 pub mod weight;
@@ -358,6 +360,9 @@ pub struct Notifications {
     /// The freedesktop sound theme sound names are looked up in, falling back through the
     /// themes it inherits from to `freedesktop`.
     pub sound_theme: String,
+    /// What a notification sounds like: `app` for the sound each app asks for, or one sound for
+    /// them all, a preset from `sounds::DINGS` by its id or a file by its full path.
+    pub ding: String,
 }
 
 impl Default for Notifications {
@@ -368,6 +373,7 @@ impl Default for Notifications {
             longest_wait_mins: 15,
             sounds: true,
             sound_theme: "ocean".into(),
+            ding: sounds::APPS_OWN.into(),
         }
     }
 }
@@ -391,6 +397,9 @@ pub struct Sound {
     pub volume_step: u8,
     /// Muffle what's playing while bullet time is open: quieter, with the highs rolled off.
     pub muffle_bullet_time: bool,
+    /// What the volume's click sounds like: a preset from `sounds::CLICKS` by its id, or a file
+    /// by its full path.
+    pub click: String,
 }
 
 impl Default for Sound {
@@ -399,6 +408,7 @@ impl Default for Sound {
             volume_blip: true,
             volume_step: 5,
             muffle_bullet_time: true,
+            click: "tap".into(),
         }
     }
 }
@@ -693,6 +703,7 @@ mod tests {
                 longest_wait_mins: 30,
                 sounds: false,
                 sound_theme: "freedesktop".into(),
+                ding: "/home/someone/ding.ogg".into(),
             },
             borders: Borders {
                 selected_tile: "#b794ff".into(),
@@ -703,6 +714,7 @@ mod tests {
                 volume_blip: false,
                 volume_step: 2,
                 muffle_bullet_time: false,
+                click: "wood".into(),
             },
             clipboard: Clipboard { history: false },
             privacy: Privacy {

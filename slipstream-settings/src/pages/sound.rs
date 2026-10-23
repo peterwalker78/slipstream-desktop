@@ -1,6 +1,8 @@
 //! The volume, and the sounds Slipstream makes itself.
 
-use std::process::Command;
+use std::{path::Path, process::Command};
+
+use slipstream_config::sounds::{self, Preset};
 
 use super::*;
 
@@ -41,6 +43,19 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         let on = blip.is_active();
         blip_store.change(move |settings| settings.sound.volume_blip = on);
     });
+    let click = sound_choice(
+        store,
+        sounds::CLICKS,
+        false,
+        |settings| settings.sound.click.clone(),
+        |settings, choice| settings.sound.click = choice,
+    );
+    row(
+        &keys,
+        "Click sound",
+        Some("A short sound works best: one plays for every step."),
+        &click,
+    );
 
     let current = store.get().sound.volume_step() as u64;
     let steps = choices(&STEP_CHOICES, current);
@@ -111,7 +126,8 @@ fn volume_slider((level, muted): (u8, bool), store: &Store) -> gtk::Scale {
             return;
         }
         let (scale, waiting) = (scale.downgrade(), Rc::clone(&waiting));
-        let click = store.get().sound.volume_blip && !muted.get();
+        let sound = store.get().sound;
+        let click = (sound.volume_blip && !muted.get()).then_some(sound.click);
         gtk::glib::timeout_add_local_once(Duration::from_millis(60), move || {
             waiting.set(false);
             if let Some(scale) = scale.upgrade() {
@@ -140,9 +156,9 @@ fn parse_volume(text: &str) -> Option<(u8, bool)> {
     Some((percent, text.contains("[MUTED]")))
 }
 
-/// Sets the volume, on a thread of its own so the slider doesn't wait for `wpctl`, then clicks if
-/// `click`, so the click sounds at the level just set.
-fn set_volume(percent: u8, click: bool) {
+/// Sets the volume, on a thread of its own so the slider doesn't wait for `wpctl`, then plays
+/// `click` if there is one, so it sounds at the level just set.
+fn set_volume(percent: u8, click: Option<String>) {
     let level = format!("{:.2}", percent.min(100) as f64 / 100.0);
     std::thread::spawn(move || {
         let set = Command::new("wpctl")
@@ -152,13 +168,131 @@ fn set_volume(percent: u8, click: bool) {
             eprintln!("slipstream-settings: couldn't set the volume: {err}");
             return;
         }
-        if click
-            && slipstream_config::click::due()
-            && let Some(path) = slipstream_config::click::file()
+        if let Some(click) = click
+            && sounds::due()
         {
-            let _ = Command::new("pw-play").arg(path).status();
+            play(&click, sounds::CLICKS);
         }
     });
+}
+
+/// Plays `choice`, one of `presets` or a file, and waits for it to finish.
+fn play(choice: &str, presets: &[Preset]) {
+    if let Some(path) = sounds::file(choice, presets) {
+        let _ = Command::new("pw-play").arg(path).status();
+    }
+}
+
+/// What the list of sounds holds, row by row, as the settings file says each.
+const PICK_A_FILE: &str = "";
+
+/// A choice of sound: `presets` (after each app's own, with `apps_own`), a file of one's own, and a
+/// button to hear it. Picking one plays it.
+pub(super) fn sound_choice(
+    store: &Store,
+    presets: &'static [Preset],
+    apps_own: bool,
+    get: fn(&Settings) -> String,
+    set: fn(&mut Settings, String),
+) -> gtk::Box {
+    let names = gtk::StringList::new(&[]);
+    let list = gtk::DropDown::new(Some(names.clone()), gtk::Expression::NONE);
+    let hear = gtk::Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .tooltip_text("Play")
+        .valign(gtk::Align::Center)
+        .build();
+    // Each row's choice, as the settings file says it.
+    let choices: Rc<RefCell<Vec<String>>> = Rc::default();
+    // Set while the list is being changed to match, so its handler stays quiet.
+    let syncing = Rc::new(Cell::new(false));
+    let fill = {
+        let (names, list, hear) = (names.clone(), list.clone(), hear.clone());
+        let (choices, syncing) = (Rc::clone(&choices), Rc::clone(&syncing));
+        move |current: &str| {
+            let mut rows: Vec<(String, String)> = Vec::new();
+            if apps_own {
+                rows.push((sounds::APPS_OWN.into(), "Each app's own".into()));
+            }
+            rows.extend(
+                presets
+                    .iter()
+                    .map(|preset| (preset.id.to_string(), preset.name.to_string())),
+            );
+            if sounds::is_own_file(current) {
+                let name = Path::new(current)
+                    .file_name()
+                    .map_or_else(|| current.to_string(), |name| name.to_string_lossy().into());
+                rows.push((current.to_string(), name));
+            }
+            rows.push((PICK_A_FILE.into(), "Choose a file…".into()));
+            syncing.set(true);
+            let shown: Vec<&str> = rows.iter().map(|(_, name)| name.as_str()).collect();
+            names.splice(0, names.n_items(), &shown);
+            list.set_selected(
+                rows.iter()
+                    .position(|(choice, _)| choice == current)
+                    .unwrap_or(0) as u32,
+            );
+            syncing.set(false);
+            hear.set_sensitive(current != sounds::APPS_OWN);
+            *choices.borrow_mut() = rows.into_iter().map(|(choice, _)| choice).collect();
+        }
+    };
+    fill(&get(&store.get()));
+
+    let hear_store = store.clone();
+    hear.connect_clicked(move |_| {
+        let choice = get(&hear_store.get());
+        std::thread::spawn(move || play(&choice, presets));
+    });
+    let store = store.clone();
+    list.connect_selected_notify(move |list| {
+        if syncing.get() {
+            return;
+        }
+        let Some(choice) = choices.borrow().get(list.selected() as usize).cloned() else {
+            return;
+        };
+        if choice != PICK_A_FILE {
+            fill(&choice);
+            let saved = choice.clone();
+            store.change(move |settings| set(settings, saved));
+            std::thread::spawn(move || play(&choice, presets));
+            return;
+        }
+        // A file of one's own. Turning away from the dialog leaves the sound as it was.
+        let window = list.root().and_downcast::<gtk::Window>();
+        let (store, fill) = (store.clone(), fill.clone());
+        gtk::glib::spawn_future_local(async move {
+            let audio = gtk::FileFilter::new();
+            audio.set_name(Some("Sounds"));
+            audio.add_mime_type("audio/*");
+            let dialog = gtk::FileDialog::builder()
+                .title("Choose a sound")
+                .modal(true)
+                .default_filter(&audio)
+                .build();
+            let path = dialog
+                .open_future(window.as_ref())
+                .await
+                .ok()
+                .and_then(|file| file.path());
+            let Some(path) = path.map(|path| path.to_string_lossy().into_owned()) else {
+                fill(&get(&store.get()));
+                return;
+            };
+            fill(&path);
+            let saved = path.clone();
+            store.change(move |settings| set(settings, saved));
+            std::thread::spawn(move || play(&path, presets));
+        });
+    });
+
+    let control = gtk::Box::builder().spacing(8).build();
+    control.append(&list);
+    control.append(&hear);
+    control
 }
 
 /// The steps offered for the volume keys, in percent.

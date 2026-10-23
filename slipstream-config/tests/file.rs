@@ -51,6 +51,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             longest_wait_mins: 5,
             sounds: false,
             sound_theme: "harbour".into(),
+            ding: "glass".into(),
         },
         borders: Borders {
             selected_tile: "#3cf0c0".into(),
@@ -69,6 +70,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             volume_blip: false,
             volume_step: 10,
             muffle_bullet_time: false,
+            click: "pop".into(),
         },
         clipboard: Clipboard { history: false },
         privacy: Default::default(),

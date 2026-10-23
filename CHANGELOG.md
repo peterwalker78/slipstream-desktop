@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Sounds of your own choosing.** Settings › Notifications picks one sound for every notification, from Chime, Glass, Droplets, Marimba and Signal or a file of your own, or leaves each app to its own as before. Settings › Sound does the same for the volume's click, with Tap, Tick, Wood, Bubble and Pop. Picking one plays it, and a button beside it plays it again.
+- **More on the Sound page.** A volume slider, which clicks as the volume keys do; how far each press of the volume keys goes, 2, 5 or 10%; and whether bullet time muffles what's playing.
+- **A colour picker of Slipstream's own.** The primary, secondary and tertiary colours open a small window that starts on the colour you have, with hue, saturation and lightness sliders and its hex code, and changes nothing until Select.
+- **Settings fits a half-screen tile,** whichever page it's on, and Tab moves from the sidebar to the page, as it does in any list, with the arrow keys moving through the pages.
 - **A plugin that has updated says so plainly.** Settings › Plugins gives one line saying it is off until you switch it on again, then what changed and where it came from in small print, instead of a block of warnings.
 - **X11 popups stay on the screen.** On a scaled screen, newer XWayland tells X11 apps the screen is bigger than it is, so a popup aimed at a corner, such as Steam's, landed partly or wholly off the edge. Popups, notifications and menus that would run off the screens are moved back in, into the corner they were aiming for.
 - **A window an app has hidden no longer leaves an empty frame behind.** KDE apps keep a closed dialog hidden for next time; it stayed on its workspace, counted and framed in bullet time with a close button that did nothing. It now leaves until the app shows it again.

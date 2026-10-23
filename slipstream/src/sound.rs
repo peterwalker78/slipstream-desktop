@@ -252,13 +252,14 @@ fn output(program: &str, args: &[&str]) -> Option<String> {
 
 /// A short click through the speakers, at whatever level the volume keys have just set, so the
 /// level is heard as well as seen. Volume only: never on mute, which is the absence of sound, and
-/// never on brightness, which makes none.
-pub fn blip() {
+/// never on brightness, which makes none. `choice` is the sound settings' click.
+pub fn blip(choice: &str) {
+    use slipstream_config::sounds;
     // A nested run's click would play on the speakers of the desktop around it.
-    if crate::launch::machine_commands_held() || !slipstream_config::click::due() {
+    if crate::launch::machine_commands_held() || !sounds::due() {
         return;
     }
-    let Some(path) = slipstream_config::click::file() else {
+    let Some(path) = sounds::file(choice, sounds::CLICKS) else {
         return;
     };
     // Without waiting, since the keypress has already done its work, and reaped when it ends.

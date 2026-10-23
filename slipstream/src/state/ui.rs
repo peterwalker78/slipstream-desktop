@@ -171,7 +171,7 @@ impl Slipstream {
         // The click is played through the speakers after the change, so it sounds at the level
         // that was just set. Muted, there would be nothing to hear.
         if self.settings.sound.volume_blip && !muted {
-            crate::sound::blip();
+            crate::sound::blip(&self.settings.sound.click);
         }
     }
 

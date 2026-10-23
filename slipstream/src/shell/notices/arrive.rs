@@ -101,7 +101,13 @@ impl Slipstream {
             self.idle.wake(now);
         }
         let settings = &self.settings.notifications;
-        if let Some(sound) = incoming.sound.clone()
+        // Each app's own sound, or one chosen for them all, which every notification makes.
+        let sound = match settings.ding.as_str() {
+            slipstream_config::sounds::APPS_OWN => incoming.sound.clone(),
+            choice => slipstream_config::sounds::file(choice, slipstream_config::sounds::DINGS)
+                .map(crate::alert::Sound::File),
+        };
+        if let Some(sound) = sound
             && crate::alert::wanted(
                 settings.sounds,
                 incoming.suppress_sound,

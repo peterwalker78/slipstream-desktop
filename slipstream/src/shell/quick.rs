@@ -880,7 +880,7 @@ impl Slipstream {
                 // be heard as well as seen. Dragging it asks only when the level changes, and the
                 // click keeps its own minimum spacing, so a drag ticks rather than buzzes.
                 if self.settings.sound.volume_blip {
-                    crate::sound::blip();
+                    crate::sound::blip(&self.settings.sound.click);
                 }
             }
             Request::Brightness(percent) => {
