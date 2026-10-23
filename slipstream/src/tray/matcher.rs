@@ -7,8 +7,8 @@
 //! it, its names (`owner`). A Flatpak app's bus connection is usually its sandbox's D-Bus proxy,
 //! a cousin of the app's processes under the sandbox's outermost bwrap, so that is looked for
 //! too. The proxy's bwrap is often orphaned to init, though, which leaves the two with no
-//! ancestor in common; then the Flatpak's own scope (`app-flatpak-<app id>-<n>.scope`), which
-//! the proxy and the app share, says which app it is.
+//! ancestor in common; then the Flatpak each runs in, which the sandbox's `.flatpak-info` names
+//! for the proxy and the app alike, says which app it is.
 
 use std::path::Path;
 
@@ -28,7 +28,7 @@ pub struct Process {
     pub sandbox: Option<u32>,
     /// Its name, as the kernel keeps it (at most 15 characters).
     pub name: String,
-    /// The app ID of the Flatpak it runs in, from its cgroup.
+    /// The app ID of the Flatpak it runs in (`flatpak_of`).
     pub flatpak: Option<String>,
 }
 
@@ -56,22 +56,64 @@ impl Process {
     }
 }
 
-/// The app ID of the Flatpak `pid` runs in, read from its cgroup under `proc`.
+/// The app ID of the Flatpak `pid` runs in, read as the desktop portal reads it: from the
+/// `.flatpak-info` Flatpak puts at the root of every sandbox, its bus proxy's included, seen
+/// through `proc`'s `<pid>/root`. Not from the process's scope, whose name any process can pick
+/// for itself. The process is held by a pidfd while it is looked at, so a pid handed to another
+/// process meanwhile reads as no Flatpak, as does anything that can't be read.
 pub fn flatpak_of(proc: &Path, pid: u32) -> Option<String> {
-    let text = crate::files::read_small_text(&proc.join(pid.to_string()).join("cgroup"), 4096)?;
-    flatpak_scope(&text).map(str::to_string)
+    use smithay::reexports::rustix::{
+        self,
+        fs::{Mode, OFlags},
+    };
+    let pidfd = crate::capture::pidfd_open(pid)?;
+    let root = rustix::fs::open(
+        proc.join(pid.to_string()).join("root"),
+        OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let info = rustix::fs::openat(
+        &root,
+        ".flatpak-info",
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()?;
+    let mut file = std::fs::File::from(info);
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::Read::take(&mut file, 64 << 10), &mut text).ok()?;
+    if !crate::capture::still_running(&pidfd) {
+        return None;
+    }
+    flatpak_app(&text).map(str::to_string)
 }
 
-/// The app ID in a Flatpak's scope, `app-flatpak-<app id>-<n>.scope`, from the text of
-/// `/proc/<pid>/cgroup`.
-fn flatpak_scope(text: &str) -> Option<&str> {
-    let path = text.lines().find_map(|line| line.strip_prefix("0::"))?;
-    let leaf = path.trim_end().rsplit('/').next()?;
-    let (app, n) = leaf
-        .strip_prefix("app-flatpak-")?
-        .strip_suffix(".scope")?
-        .rsplit_once('-')?;
-    (!app.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).then_some(app)
+/// The app ID in the text of a `.flatpak-info`: `name` in its `[Application]` group.
+fn flatpak_app(text: &str) -> Option<&str> {
+    let mut group = "";
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line
+            .strip_prefix('[')
+            .and_then(|line| line.strip_suffix(']'))
+        {
+            group = name;
+        } else if group == "Application"
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "name"
+        {
+            let app = value.trim();
+            let valid = !app.is_empty()
+                && app
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+            return valid.then_some(app);
+        }
+    }
+    None
 }
 
 /// The outermost bwrap above a Flatpak sandbox's bus proxy: walking up from `xdg-dbus-proxy`
@@ -274,8 +316,8 @@ mod tests {
     #[test]
     fn an_orphaned_bus_proxy_finds_the_app_by_its_flatpak() {
         // The proxy's bwrap (2210) was reparented to init, so it shares no ancestor with the app
-        // (2120, under bwraps 2105 and 2100, started by flatpak run's parent 2000). Only their
-        // scope says they are the same app's.
+        // (2120, under bwraps 2105 and 2100, started by flatpak run's parent 2000). Only the Flatpak
+        // they both run in says they are the same app's.
         let proxy = Process {
             lineage: vec![2211, 2210],
             sandbox: Some(2210),
@@ -284,53 +326,80 @@ mod tests {
         };
         let lineage = [2120, 2115, 2105, 2100, 2000, 10];
         let terminal = [900, 10];
-        let mut by_scope = [
+        let mut by_flatpak = [
             client(&terminal, "org.example.Terminal"),
             client(&lineage, "chat"),
         ];
         // The app's window gives an app ID of its own, not the Flatpak's.
         assert_eq!(
-            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_flatpak),
             Some(1),
             "by the client's app ID"
         );
-        by_scope[1].app_id = "unrelated";
-        by_scope[1].flatpak = Some("com.example.Chat");
+        by_flatpak[1].app_id = "unrelated";
+        by_flatpak[1].flatpak = Some("com.example.Chat");
         assert_eq!(
-            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_flatpak),
             Some(1),
-            "by the client's own scope"
+            "by the client's own Flatpak"
         );
-        by_scope[1].flatpak = Some("com.example.Other");
+        by_flatpak[1].flatpak = Some("com.example.Other");
         assert_eq!(
-            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_flatpak),
             None,
             "another Flatpak's client"
         );
     }
 
+    /// A made-up `/proc` under `target/test-scratch`, where this test process's own pid has
+    /// `cgroup` and `root` as given, so it can be held by a pidfd like a real one.
+    fn fake_proc(name: &str, cgroup: &str, flatpak_info: Option<&str>) -> std::path::PathBuf {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let proc = manifest
+            .parent()
+            .unwrap_or(manifest)
+            .join("target/test-scratch")
+            .join(format!("matcher-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proc);
+        let pid = proc.join(std::process::id().to_string());
+        std::fs::create_dir_all(pid.join("root")).unwrap();
+        std::fs::write(pid.join("cgroup"), cgroup).unwrap();
+        if let Some(info) = flatpak_info {
+            std::fs::write(pid.join("root/.flatpak-info"), info).unwrap();
+        }
+        proc
+    }
+
     #[test]
-    fn a_flatpaks_app_id_is_read_from_its_scope() {
-        let cgroup = |leaf: &str| {
-            format!("0::/user.slice/user-1000.slice/user@1000.service/app.slice/{leaf}\n")
-        };
+    fn a_flatpaks_app_id_is_read_from_its_sandbox() {
+        let proc = fake_proc(
+            "sandboxed",
+            "0::/\n",
+            Some("[Application]\nname=com.example.Chat\nruntime=runtime/x\n"),
+        );
         assert_eq!(
-            flatpak_scope(&cgroup("app-flatpak-com.example.Chat-1234567890.scope")),
+            flatpak_of(&proc, std::process::id()).as_deref(),
             Some("com.example.Chat")
         );
         assert_eq!(
-            flatpak_scope(&cgroup("app-flatpak-org.example.two-words-42.scope")),
+            flatpak_app("[Instance]\nname=x\n[Application]\nname = org.example.two-words\n"),
             Some("org.example.two-words")
         );
-        assert_eq!(
-            flatpak_scope(&cgroup("app-org.example.Editor-77.scope")),
-            None
+        assert_eq!(flatpak_app("[Runtime]\nname=org.example.Platform\n"), None);
+        assert_eq!(flatpak_app("[Application]\nname=../x\n"), None);
+    }
+
+    /// Any process can start itself in a scope named like a Flatpak's; that alone makes it no
+    /// Flatpak.
+    #[test]
+    fn a_host_process_in_a_flatpak_looking_scope_isnt_that_flatpak() {
+        let proc = fake_proc(
+            "posing",
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/\
+             app-flatpak-com.example.Chat-1234567890.scope\n",
+            None,
         );
-        assert_eq!(
-            flatpak_scope(&cgroup("app-flatpak-com.example.Chat.scope")),
-            None
-        );
-        assert_eq!(flatpak_scope("0::/\n"), None);
+        assert_eq!(flatpak_of(&proc, std::process::id()), None);
     }
 
     #[test]
@@ -459,9 +528,9 @@ mod tests {
     }
 
     #[test]
-    fn a_discord_shaped_flatpak_finds_its_x11_window_by_scope() {
+    fn a_discord_shaped_flatpak_finds_its_x11_window_by_flatpak() {
         // The item comes from the sandbox's bus proxy, orphaned to init; the window is the X11
-        // client's, whose real pid is in the same Flatpak's scope.
+        // client's, whose real pid runs in the same Flatpak.
         let proxy = Process {
             lineage: vec![3011, 3010],
             sandbox: Some(3010),
@@ -483,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chrome_shaped_flatpak_finds_its_wayland_window_by_scope() {
+    fn a_chrome_shaped_flatpak_finds_its_wayland_window_by_flatpak() {
         let proxy = Process {
             lineage: vec![4011, 4010],
             sandbox: Some(4010),
