@@ -439,6 +439,35 @@ plugin_conf
 expect_status 1
 if [ -e "$plugins_dir/example" ]; then fail "$case_name: installed it"; else ok; fi
 
+case_name="an older install's link keeps working until the plugin is turned on, then leads to its copy"
+fresh
+plugin_bundle one
+plugin_conf
+expect_status 0
+ln -sfn "$plugins_dir/example/bin/tool" "$work/home/.local/bin/tool"
+expect_status 0
+if [ "$(readlink "$work/home/.local/bin/tool")" = "$plugins_dir/example/bin/tool" ]; then
+    ok
+else
+    fail "$case_name: took the working link away before there was a copy to lead to"
+fi
+approve
+expect_status 0
+if [ "$(readlink "$work/home/.local/bin/tool")" = "$current/bin/tool" ]; then
+    ok
+else
+    fail "$case_name: still leads to $(readlink "$work/home/.local/bin/tool")"
+fi
+
+case_name="an up-to-date plugin's missing command link is put back"
+rm -f "$work/home/.local/bin/tool"
+expect_status 0
+if [ "$(readlink "$work/home/.local/bin/tool")" = "$current/bin/tool" ]; then
+    ok
+else
+    fail "$case_name: not linked"
+fi
+
 case_name="a program of your own with a plugin command's name is left alone"
 fresh
 plugin_bundle one

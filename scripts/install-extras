@@ -191,6 +191,10 @@ from_checkout() {
     fi
     if [ "$installed" = yes ] && [ "$(recorded "$record_file" built)" = "$commit" ]; then
         say "$1" "up to date with its checkout"
+        if [ -n "$plugin" ] && [ "$check" = no ]; then
+            link_commands "$1"
+            unapproved=''
+        fi
         return 0
     fi
     if [ "$check" = yes ]; then
@@ -234,6 +238,10 @@ from_bundle() {
     fi
     if [ "$installed" = yes ] && [ "$(recorded "$record_file" bundle)" = "$want" ]; then
         say "$1" "up to date with its bundle"
+        if [ -n "$plugin" ] && [ "$check" = no ]; then
+            link_commands "$1"
+            unapproved=''
+        fi
         return 0
     fi
     if [ "$check" = yes ]; then
@@ -324,9 +332,15 @@ put_plugin() {
     fi
     mv "$cache/$plugin.new" "$plugins/$plugin"
     rm -rf "${cache:?}/$plugin.old"
-    # Each command leads through the current link, which Slipstream moves to the copy you approved,
-    # so a command never runs a plugin you haven't seen. A program of the same name that isn't a
-    # link is someone's own, and is left alone.
+    link_commands "$1"
+}
+
+# `link_commands NAME`: links the installed plugin's commands into ~/.local/bin. Each leads through
+# the current link, which Slipstream moves to the copy you approved, so a command never runs a
+# plugin you haven't seen. A program of the same name that isn't a link is someone's own, and is
+# left alone. A link from an older install that still leads to a program is kept until there is
+# an approved copy to lead to, so the command keeps working until the plugin is turned on.
+link_commands() {
     for put_command in $commands; do
         put_link=$HOME/.local/bin/${put_command##*/}
         if ! [ -f "$plugins/$plugin/$put_command" ] || ! [ -x "$plugins/$plugin/$put_command" ]; then
@@ -337,8 +351,14 @@ put_plugin() {
             say "$1" "left $put_link as it is; remove it to use the plugin's ${put_command##*/}" >&2
             continue
         fi
+        put_target=$approved/$plugin/current/$put_command
+        if [ -L "$put_link" ] && [ "$(readlink "$put_link")" != "$put_target" ] &&
+            [ -e "$put_link" ] && ! [ -e "$put_target" ]; then
+            unapproved=yes
+            continue
+        fi
         mkdir -p "$HOME/.local/bin"
-        ln -sf "$approved/$plugin/current/$put_command" "$put_link"
+        ln -sf "$put_target" "$put_link"
         if ! [ -e "$put_link" ]; then
             unapproved=yes
         fi
