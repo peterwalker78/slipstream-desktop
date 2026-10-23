@@ -108,16 +108,31 @@ pub(crate) fn places_itself(window: &Window) -> bool {
 /// Marks a managed X11 window that keeps the place it picks, in `places_itself`.
 pub(crate) struct PlacesItself;
 
+/// How many times a pid the X server couldn't give is asked for again before it is given up on.
+const PID_TRIES: u8 = 3;
+
 /// The pid of the X11 client behind `surface`, as the X server knows it from the client's socket
-/// (the X-Resource extension), asked once and kept. Never `_NET_WM_PID`, which a client sets for
-/// itself and can set to any other process's. `None` when the server can't say.
+/// (the X-Resource extension), kept once known. Never `_NET_WM_PID`, which a client sets for
+/// itself and can set to any other process's. `None` when the server can't say; it is asked again
+/// at the next lookup, a few times at most. The reply is waited for: Smithay has no other way to
+/// ask, and its window manager waits on the server's replies the same way.
 pub(crate) fn x11_client_pid(surface: &smithay::xwayland::X11Surface) -> Option<u32> {
-    struct ClientPid(Option<u32>);
-    surface.user_data().insert_if_missing(|| {
-        // Smithay answers 0 when it couldn't ask.
-        ClientPid(surface.get_client_pid().ok().filter(|pid| *pid > 0))
-    });
-    surface.user_data().get::<ClientPid>().and_then(|pid| pid.0)
+    /// The pid once known, else how many times it couldn't be had.
+    struct ClientPid(std::cell::Cell<Result<u32, u8>>);
+    surface
+        .user_data()
+        .insert_if_missing(|| ClientPid(std::cell::Cell::new(Err(0))));
+    let kept = surface.user_data().get::<ClientPid>()?;
+    match kept.0.get() {
+        Ok(pid) => Some(pid),
+        Err(tries) if tries >= PID_TRIES => None,
+        Err(tries) => {
+            // Smithay answers 0 when it couldn't ask.
+            let pid = surface.get_client_pid().ok().filter(|pid| *pid > 0);
+            kept.0.set(pid.ok_or(tries + 1));
+            pid
+        }
+    }
 }
 
 /// How opaque an X11 window asks to be drawn (`_NET_WM_WINDOW_OPACITY`, which compositing window
