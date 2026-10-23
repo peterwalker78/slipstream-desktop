@@ -1,10 +1,12 @@
 //! One plugin's thread: it runs the plugin's program as its manifest says, reads the cards it
 //! prints, and publishes what the panel should show. Nothing here runs on the event loop, and
-//! nothing waits on it: stopping is a flag the thread looks at every so often, and the thread ends
-//! the program's whole process group on its way out. Before each start of the program, its
+//! nothing waits on it: stopping is a flag the thread is woken to look at, and the thread ends
+//! the program's whole process group on its way out. A button pressed on the card is run by the
+//! same thread, in its turn, so it never overlaps a run of the program and stops with it. Before each start of the program, its
 //! approved copy is checked against the fingerprint it was approved with.
 
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -17,7 +19,7 @@ use std::{
 
 use slipstream_config::{
     card::{RUN_LIMIT, unix_now},
-    command::{self, Lines, Run, Said},
+    command::{self, Lines, Run, Said, Waker},
     plugins::{self, Card, Plugin, store},
 };
 
@@ -62,19 +64,31 @@ pub struct Published {
     pub problem: Option<String>,
 }
 
+/// The most presses waiting to be run; more are dropped.
+const MOST_PRESSES: usize = 8;
+
 /// Why a rest ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Woken {
     Stop,
-    Again,
+    Pressed,
     Waited,
 }
 
-/// How a worker is told to stop or to run again.
-#[derive(Debug, Default)]
+/// How a worker is told to stop, or to run a button's press.
+#[derive(Default)]
 struct Control {
     stop: AtomicBool,
-    again: AtomicBool,
+    /// Buttons pressed and not yet run, oldest first.
+    presses: Mutex<VecDeque<String>>,
+    /// Cuts short the wait for a line from a program that keeps running, while one runs.
+    waker: Mutex<Option<Waker>>,
+}
+
+impl Control {
+    fn pressed(&self) -> bool {
+        !self.presses.lock().unwrap().is_empty()
+    }
 }
 
 /// A running worker, and what it last published. Dropping it stops the worker.
@@ -113,18 +127,29 @@ impl Worker {
         self.published.lock().unwrap().clone()
     }
 
-    /// What runs the program again now, for a plugin that runs every so often, from any thread.
-    pub fn again_handle(&self) -> impl Fn() + Send + 'static {
-        let (control, thread) = (self.control.clone(), self.thread.clone());
-        move || {
-            control.again.store(true, Ordering::Relaxed);
-            thread.unpark();
+    /// Button `button` was pressed: the program runs with `press <button>` after it, in its
+    /// turn, and then as usual again for one that runs every so often.
+    pub fn press(&self, button: &str) {
+        {
+            let mut presses = self.control.presses.lock().unwrap();
+            if presses.len() < MOST_PRESSES {
+                presses.push_back(button.to_string());
+            }
         }
+        self.nudge();
     }
 
     fn stop(&self) {
-        self.control.stop.store(true, Ordering::Relaxed);
+        self.control.stop.store(true, Ordering::SeqCst);
+        self.nudge();
+    }
+
+    /// Wakes the thread, whether it rests or waits for a line.
+    fn nudge(&self) {
         self.thread.unpark();
+        if let Some(waker) = &*self.control.waker.lock().unwrap() {
+            waker.wake();
+        }
     }
 }
 
@@ -163,7 +188,29 @@ impl Job {
     }
 
     fn stopped(&self) -> bool {
-        self.control.stop.load(Ordering::Relaxed)
+        self.control.stop.load(Ordering::SeqCst)
+    }
+
+    /// Runs the presses waiting, oldest first. False when told to stop, which ends the one
+    /// running.
+    fn run_presses(&mut self) -> bool {
+        loop {
+            let Some(button) = self.control.presses.lock().unwrap().pop_front() else {
+                return true;
+            };
+            let program = match self.program(&["press", &button]) {
+                Ok(program) => program,
+                Err(why) => {
+                    self.failed(&why);
+                    continue;
+                }
+            };
+            match command::run_tidily(program, RUN_LIMIT, &|| self.stopped()) {
+                None => return false,
+                Some(Run::Printed(_)) => {}
+                Some(ran) => self.failed(&format!("a press: {}", why(&ran))),
+            }
+        }
     }
 
     /// Publishes the last card read, `stale` when its program has since failed, with `problem`.
@@ -189,8 +236,8 @@ impl Job {
             if self.stopped() {
                 return Woken::Stop;
             }
-            if self.control.again.swap(false, Ordering::Relaxed) {
-                return Woken::Again;
+            if self.control.pressed() {
+                return Woken::Pressed;
             }
             let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() {
@@ -242,7 +289,9 @@ impl Job {
                 }
                 match self.rest(left.min(RECOUNT)) {
                     Woken::Stop => return,
-                    Woken::Again => break,
+                    Woken::Pressed if !self.run_presses() => return,
+                    // Run again, to show what the press changed.
+                    Woken::Pressed => break,
                     // Only time to count the card's times left down.
                     Woken::Waited => self.publish(stale, problem.clone()),
                 }
@@ -267,8 +316,10 @@ impl Job {
             );
             self.failed(&problem);
             self.publish(true, Some(problem));
-            if self.rest(backoff) == Woken::Stop {
-                return;
+            match self.rest(backoff) {
+                Woken::Stop => return,
+                Woken::Pressed if !self.run_presses() => return,
+                Woken::Pressed | Woken::Waited => {}
             }
         }
     }
@@ -304,10 +355,23 @@ impl Job {
                 return !self.stopped();
             }
         };
+        // So that being stopped, or a press, doesn't wait for the program's next line.
+        *self.control.waker.lock().unwrap() = Some(lines.waker());
+        let followed = self.follow_lines(&lines);
+        *self.control.waker.lock().unwrap() = None;
+        followed
+    }
+
+    /// Reads the cards a program that keeps running prints, until it exits (true) or the worker
+    /// is told to stop (false), running presses as they come.
+    fn follow_lines(&mut self, lines: &Lines) -> bool {
         let mut waiting = false;
         let mut last = Instant::now() - UPDATE_GAP;
         loop {
             if self.stopped() {
+                return false;
+            }
+            if self.control.pressed() && !self.run_presses() {
                 return false;
             }
             let wait = if waiting {
@@ -323,7 +387,7 @@ impl Job {
                     }
                     false
                 }
-                Said::Line(_) => false,
+                Said::Line(_) | Said::Woken => false,
                 Said::Nothing => {
                     // Quiet a while: the times left on the card still count down.
                     if !waiting && last.elapsed() >= RECOUNT {
@@ -404,7 +468,7 @@ fn next_backoff(backoff: Duration, ran: Duration) -> Duration {
 }
 
 /// Why a run has nothing new to show.
-pub fn why(run: &Run) -> String {
+fn why(run: &Run) -> String {
     match run {
         Run::Printed(_) => "it ran".into(),
         Run::Failed { code, error } if error.is_empty() => format!("exit {code:?}"),

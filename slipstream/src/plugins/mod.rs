@@ -18,7 +18,6 @@ pub use slipstream_config::plugins::Glance;
 
 use slipstream_config::{
     Settings,
-    command::Run,
     plugins::{self, Card},
 };
 
@@ -202,29 +201,19 @@ impl Plugins {
     }
 
     /// Button `button` on plugin `id`'s card was pressed: its program runs with `press <button>`
-    /// after it, off the event loop, and then runs as usual again to show what changed.
+    /// after it, on the plugin's own thread and in its turn, and then runs as usual again to
+    /// show what changed.
     pub fn press(&self, id: &str, button: &str) {
-        let Some(running) = self
-            .running
-            .iter()
-            .find(|running| running.approved.plugin.id == id)
-        else {
-            return;
-        };
         if !plugins::valid_id(button) {
             return;
         }
-        let approved = &running.approved;
-        let command = worker::program(&approved.plugin, &approved.state, &["press", button]);
-        let plugin = id.to_string();
-        let again = running.worker.again_handle();
-        std::thread::spawn(move || {
-            let ran = slipstream_config::command::run(command, slipstream_config::card::RUN_LIMIT);
-            if !matches!(ran, Run::Printed(_)) {
-                tracing::warn!("plugin {plugin}: a press: {}", worker::why(&ran));
-            }
-            again();
-        });
+        if let Some(running) = self
+            .running
+            .iter()
+            .find(|running| running.approved.plugin.id == id)
+        {
+            running.worker.press(button);
+        }
     }
 
     /// Stops every plugin, now: the compositor is on its way out.
@@ -533,6 +522,122 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(&said).unwrap(), "go");
         assert!(!Path::new("nope").exists());
+    }
+
+    /// Starts a worker for `plugin` straight from its folder.
+    fn worker(root: &Path, plugin: Plugin) -> Worker {
+        Worker::start(Approved {
+            plugin,
+            state: root.join("state"),
+            store: None,
+        })
+    }
+
+    /// Whether anything is left in process group `group`.
+    fn alive(group: i32) -> bool {
+        // SAFETY: kill takes no pointers; signal 0 only asks whether the group is there.
+        unsafe { libc::kill(-group, 0) == 0 }
+    }
+
+    /// Waits up to five seconds for `file` to say something, and returns it.
+    fn said_in(file: &Path, until: impl Fn(&str) -> bool) -> String {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let said = std::fs::read_to_string(file).unwrap_or_default();
+            if until(&said) || Instant::now() > deadline {
+                return said;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Turning off a plugin whose program keeps running ends it at once, not at its next line.
+    #[test]
+    fn a_plugin_that_keeps_running_stops_at_once_when_turned_off() {
+        let root = scratch("off");
+        let pid = root.join("pid");
+        let plugin = install(
+            &root,
+            "beacon",
+            &format!(
+                "echo $$ > '{}'; printf '{{}}\\n'; while :; do sleep 1; done",
+                pid.display()
+            ),
+            None,
+        );
+        let worker = worker(&root, plugin);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while worker.published().card.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Well into its wait for the next line.
+        std::thread::sleep(Duration::from_millis(300));
+        let leader: i32 = said_in(&pid, |said| said.ends_with('\n'))
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(alive(leader));
+        let started = Instant::now();
+        drop(worker);
+        while alive(leader) && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            started.elapsed() < Duration::from_millis(300),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A press while the program runs waits for that run to finish.
+    #[test]
+    fn a_press_during_a_run_waits_its_turn() {
+        let root = scratch("turn");
+        let log = root.join("log");
+        let plugin = install(
+            &root,
+            "mill",
+            &format!(
+                r#"if [ "$1" = press ]; then echo press >> '{0}'; else echo start >> '{0}'; sleep 0.5; echo end >> '{0}'; fi; printf '{{}}'"#,
+                log.display()
+            ),
+            Some(60),
+        );
+        let worker = worker(&root, plugin);
+        said_in(&log, |said| said.contains("start"));
+        worker.press("grind");
+        let said = said_in(&log, |said| said.matches("start").count() == 2);
+        let order: Vec<&str> = said.lines().collect();
+        assert_eq!(order, ["start", "end", "press", "start"], "{said}");
+    }
+
+    /// A press that leaves something running leaves nothing once its plugin is stopped.
+    #[test]
+    fn a_press_that_leaves_a_program_running_leaves_nothing_once_stopped() {
+        let root = scratch("left");
+        let pid = root.join("pid");
+        let plugin = install(
+            &root,
+            "sluice",
+            &format!(
+                r#"if [ "$1" = press ]; then echo $$ > '{}'; sleep 30 & wait; fi; printf '{{}}'"#,
+                pid.display()
+            ),
+            Some(60),
+        );
+        let worker = worker(&root, plugin);
+        worker.press("open");
+        let leader: i32 = said_in(&pid, |said| said.ends_with('\n'))
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(alive(leader));
+        drop(worker);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while alive(leader) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!alive(leader), "the press's whole group was ended");
     }
 
     /// A `[meter]` moved into a plugin runs its command as it was written: a line ending in a

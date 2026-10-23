@@ -225,7 +225,18 @@ fn gather(chunks: &mpsc::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
 pub struct Lines {
     child: Child,
     group: Group,
-    lines: mpsc::Receiver<String>,
+    lines: mpsc::Receiver<Message>,
+    /// For `waker`: kept here, the channel stays open until the reader says the output ended.
+    sender: mpsc::SyncSender<Message>,
+}
+
+/// What comes over a running command's channel.
+enum Message {
+    Line(String),
+    /// Its output has closed.
+    Ended,
+    /// Something else wants the reader to look up (`Waker`).
+    Wake,
 }
 
 /// What a running command has said since it was last asked.
@@ -236,6 +247,20 @@ pub enum Said {
     Nothing,
     /// Its output has closed: it has exited, or as good as.
     Ended,
+    /// A `Waker` cut the wait short.
+    Woken,
+}
+
+/// Cuts short a wait in `Lines::next` from another thread, so whoever waits can look up at once,
+/// to stop or to do something else.
+#[derive(Clone)]
+pub struct Waker(mpsc::SyncSender<Message>);
+
+impl Waker {
+    pub fn wake(&self) {
+        // A full channel already has the reader's attention.
+        let _ = self.0.try_send(Message::Wake);
+    }
 }
 
 /// How many lines may wait to be taken before the command is held up writing more.
@@ -257,8 +282,10 @@ impl Lines {
         // filling memory.
         let (sender, lines) = mpsc::sync_channel(WAITING_LINES);
         if let Some(stdout) = child.stdout.take() {
+            let sender = sender.clone();
             std::thread::spawn(move || {
-                read_lines(stdout, |line| sender.send(line).is_ok());
+                read_lines(stdout, |line| sender.send(Message::Line(line)).is_ok());
+                let _ = sender.send(Message::Ended);
             });
         }
         if let Some(stderr) = child.stderr.take() {
@@ -273,6 +300,7 @@ impl Lines {
             child,
             group,
             lines,
+            sender,
         })
     }
 
@@ -280,12 +308,18 @@ impl Lines {
         &self.group
     }
 
+    /// What wakes a wait in `next` from another thread.
+    pub fn waker(&self) -> Waker {
+        Waker(self.sender.clone())
+    }
+
     /// The next line, waiting up to `wait` for it.
     pub fn next(&self, wait: Duration) -> Said {
         match self.lines.recv_timeout(wait) {
-            Ok(line) => Said::Line(line),
+            Ok(Message::Line(line)) => Said::Line(line),
+            Ok(Message::Wake) => Said::Woken,
+            Ok(Message::Ended) | Err(mpsc::RecvTimeoutError::Disconnected) => Said::Ended,
             Err(mpsc::RecvTimeoutError::Timeout) => Said::Nothing,
-            Err(mpsc::RecvTimeoutError::Disconnected) => Said::Ended,
         }
     }
 }
@@ -489,6 +523,30 @@ mod tests {
         let (leader, child) = (lines.group().id(), pid_in(&file));
         drop(lines);
         assert!(!alive(leader) && gone_soon(child), "nothing is orphaned");
+    }
+
+    #[test]
+    fn a_waker_cuts_a_wait_short_and_the_end_still_comes() {
+        let lines = Lines::start(sh("echo up; sleep 30"), |_| {}).unwrap();
+        assert_eq!(lines.next(Duration::from_secs(5)), Said::Line("up".into()));
+        let waker = lines.waker();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            waker.wake();
+        });
+        let started = Instant::now();
+        assert_eq!(lines.next(Duration::from_secs(30)), Said::Woken);
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        let lines = Lines::start(sh("echo last"), |_| {}).unwrap();
+        let _waker = lines.waker();
+        let wait = Duration::from_secs(5);
+        assert_eq!(lines.next(wait), Said::Line("last".into()));
+        assert_eq!(
+            lines.next(wait),
+            Said::Ended,
+            "the end is said, though a waker keeps the channel open"
+        );
     }
 
     #[test]
