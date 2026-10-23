@@ -209,7 +209,7 @@ impl Slipstream {
                     let (key, shift) = shifted_key(&name);
                     self.centre_key(key, shift);
                 }
-                debug::Step::CentreClick(x, y) => self.centre_click(x, y),
+                debug::Step::CentreClick(x, y) => self.centre_click(x, y, crate::input::BTN_LEFT),
                 debug::Step::Notify(app_name, summary, body, actions) => {
                     self.notification_arrived(crate::notify::Incoming {
                         app_name,

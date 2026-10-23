@@ -106,6 +106,7 @@ use crate::{
 
 mod app_shortcuts;
 mod arrangements;
+mod background;
 mod bullet_time;
 mod debug_steps;
 mod protocols;
@@ -125,15 +126,6 @@ use window_props::{configure, is_override_redirect, pretty_name, toplevel_data};
 pub(crate) use window_props::{
     deactivate, is_child_of, logged_app, min_size, window_app_id, window_title,
 };
-
-/// An app with no visible window: it closed its last window but its Wayland client is still
-/// running. Shown in the notification centre so the user knows it's still there.
-pub struct BackgroundApp {
-    pub name: String,
-    pub app_id: String,
-    pub client_id: ClientId,
-    pub icon: Option<resvg::tiny_skia::Pixmap>,
-}
 
 /// How long the recorded layout waits for the desktop entries to be read before giving up on
 /// this login. The scan takes a fraction of a second; this is only a backstop.
@@ -291,11 +283,9 @@ pub struct Slipstream {
     /// Toplevels a client has created but not yet shown. They take no tile and no focus until
     /// their first buffer arrives, and plenty never arrive at all.
     pub unmapped: Vec<Window>,
-    /// Apps whose last window closed but whose Wayland client is still running. Shown in the
-    /// notification centre. Entries are pruned when the client disconnects or opens a new window.
-    pub background_apps: Vec<BackgroundApp>,
-    /// Incremented each time a background app's icon loads, so the centre repaints.
-    pub background_icon_rev: u64,
+    /// Apps running with no window up, for the notification centre: clients whose windows have
+    /// all closed, and tray items.
+    pub background: background::Background,
     /// Windows that asked for fullscreen before they had anything to show — players and games
     /// usually do — and get it the moment they map.
     pub fullscreen_on_map: Vec<Window>,
@@ -562,8 +552,7 @@ impl Slipstream {
             exit: None,
             hidden: None,
             unmapped: Vec::new(),
-            background_apps: Vec::new(),
-            background_icon_rev: 0,
+            background: background::Background::default(),
             fullscreen_on_map: Vec::new(),
             restoring: None,
             offer: None,
@@ -1048,23 +1037,6 @@ impl Slipstream {
                     "Sharing stopped",
                     "Nothing on this desktop is being shared now.",
                 );
-            }
-        }
-    }
-
-    /// Loads missing icons for background apps at the current screen scale.
-    /// Called once per frame while the notification centre is open.
-    pub fn load_background_app_icons(&mut self, scale: f64) {
-        let px = (22.0 * crate::panel::DESIGN_PX as f64 * scale)
-            .round()
-            .max(1.0) as u32;
-        for app in &mut self.background_apps {
-            if app.icon.is_none() {
-                let loaded = self.explorer.app_icon(&app.app_id, px);
-                if loaded.is_some() {
-                    app.icon = loaded;
-                    self.background_icon_rev += 1;
-                }
             }
         }
     }

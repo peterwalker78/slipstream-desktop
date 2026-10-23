@@ -78,6 +78,7 @@ mod status;
 mod takeback;
 mod tcp;
 mod text;
+mod tray;
 mod udev;
 mod usage;
 mod vrr;
@@ -93,8 +94,9 @@ use effects::{
     bullet, deck, fx, ghost, glass, glmatrix, overview, pane, rain, saver, scope, streaks, tilt,
 };
 use shell::{
-    arrange, bar, calendar, card, centre, connect, exit, explorer, history, miniature, notices,
-    offer, osd, panel, quick, share, sheet, slot, stream_tip, switcher, toast, tour,
+    arrange, bar, calendar, card, centre, chips, connect, exit, explorer, history, miniature,
+    notices, offer, osd, panel, quick, share, sheet, slot, stream_tip, switcher, toast, tour,
+    tray_menu,
 };
 
 use std::{
@@ -386,6 +388,10 @@ fn start_services(
     // The session's notification server.
     if wanted("SLIPSTREAM_NOTIFICATIONS") {
         notify::serve(channel_into(event_loop, Slipstream::notification_event)?);
+    }
+    // The tray's watcher and host: apps' tray icons, as background apps in the centre.
+    if wanted("SLIPSTREAM_TRAY") {
+        tray::serve(channel_into(event_loop, Slipstream::tray_event)?);
     }
     // The portal backend: dark or light, shortcuts apps keep while another app has the keyboard,
     // and apps asking the desktop to stay awake or not to log out yet.

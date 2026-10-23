@@ -273,17 +273,17 @@ impl Slipstream {
             }
             return true;
         }
-        // The key list and the notification centre: a click outside closes them.
-        let clicked: Option<fn(&mut Self, f64, f64)> = if self.sheet.is_open() {
-            Some(Self::sheet_click)
-        } else if self.centre.is_open() {
-            Some(Self::centre_click)
-        } else {
-            None
-        };
-        if let Some(clicked) = clicked {
+        // The key list: a click outside closes it.
+        if self.sheet.is_open() {
             if let Some(pos) = at {
-                clicked(self, pos.x, pos.y);
+                self.sheet_click(pos.x, pos.y);
+            }
+            return true;
+        }
+        // The notification centre: the button matters on a background app's chip.
+        if self.centre.is_open() {
+            if let Some(pos) = at {
+                self.centre_click(pos.x, pos.y, button);
             }
             return true;
         }

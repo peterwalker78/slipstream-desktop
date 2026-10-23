@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Tray icons, in the notification centre.** Apps that keep an icon in the system tray are listed under Background Apps, even ones that never opened a window. A click asks the app to show itself rather than starting it again, a right-click, the Menu key or Shift+F10 opens its menu, drawn in Slipstream's own style and fully usable from the keyboard, and an app wanting your attention gets an amber ring. [How it works](guide/help.md#apps-running-in-the-background).
+
 ## 1.0.0-rc.1 - 2026-10-21
 
 - **Shortcuts of your own.** Settings › Shortcuts gives an app keys that open it: choose the app, then press the keys. Keys your style already uses, and keys kept for typing aids, screen readers and games, are refused with the reason. Changing style keeps them, and Super+/ lists the ones that work.

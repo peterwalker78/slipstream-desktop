@@ -458,6 +458,58 @@ impl Icons {
         }
     }
 
+    /// Icon `name` at `px` pixels in an app's own theme folder (a tray item's `IconThemePath`):
+    /// in a theme inside it, laid out as hicolor or Breeze are, in any category, or loose in the
+    /// folder itself. The app chose the folder, so only files with that name are looked at, and
+    /// only so many folders.
+    pub fn in_theme_path(dir: &Path, name: &str, px: u32) -> Option<PathBuf> {
+        const FOLDERS: usize = 64;
+        if name.is_empty() || name.contains('/') || name.starts_with('.') {
+            return None;
+        }
+        let folders = |dir: &Path| -> Vec<PathBuf> {
+            fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .take(FOLDERS)
+                        .map(|entry| entry.path())
+                        .filter(|path| path.is_dir())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut icons = Self::default();
+        icons.add_named(1, 48, dir, name);
+        for theme in folders(dir).into_iter().take(16) {
+            for a in folders(&theme) {
+                for b in folders(&a) {
+                    let size = a
+                        .file_name()
+                        .and_then(|a| icon_dir_size(&a.to_string_lossy()))
+                        .or_else(|| {
+                            b.file_name()
+                                .and_then(|b| icon_dir_size(&b.to_string_lossy()))
+                        });
+                    if let Some(size) = size {
+                        icons.add_named(0, size, &b, name);
+                    }
+                }
+            }
+        }
+        icons.find(name, px)
+    }
+
+    /// `name`'s bitmap and scalable files in `dir`, if it has them.
+    fn add_named(&mut self, theme: u8, size: u32, dir: &Path, name: &str) {
+        for (ext, size) in [("png", size), ("svg", 0)] {
+            let path = dir.join(format!("{name}.{ext}"));
+            if path.is_file() {
+                self.add(name, theme, size, path);
+            }
+        }
+    }
+
     fn add(&mut self, name: &str, theme: u8, size: u32, path: PathBuf) {
         self.files
             .entry(name.to_string())
@@ -751,6 +803,35 @@ Exec=firefox --new-window
         assert_eq!(names("dlp"), ["Dolphin"]);
         assert_eq!(names("  ").len(), 4);
         assert!(names("xyz").is_empty());
+    }
+
+    #[test]
+    fn a_tray_items_own_theme_folder_is_searched_for_that_icon_alone() {
+        let dir = crate::files::test_scratch("theme-path");
+        let file = |path: &str| {
+            let path = dir.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"").unwrap();
+        };
+        file("loose-1.png");
+        file("hicolor/22x22/status/synced.png");
+        file("hicolor/64x64/status/synced.png");
+        file("Breeze/panel/22/paused.svg");
+        assert_eq!(
+            Icons::in_theme_path(&dir, "loose-1", 22),
+            Some(dir.join("loose-1.png"))
+        );
+        assert_eq!(
+            Icons::in_theme_path(&dir, "synced", 44),
+            Some(dir.join("hicolor/64x64/status/synced.png"))
+        );
+        assert_eq!(
+            Icons::in_theme_path(&dir, "paused", 22),
+            Some(dir.join("Breeze/panel/22/paused.svg"))
+        );
+        assert_eq!(Icons::in_theme_path(&dir, "../loose-1", 22), None);
+        assert_eq!(Icons::in_theme_path(&dir, "missing", 22), None);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

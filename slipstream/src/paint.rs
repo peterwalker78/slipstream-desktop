@@ -663,9 +663,9 @@ impl Painted {
 pub fn load_image(path: &Path, px: u32) -> Option<Pixmap> {
     // The path comes from an app or a desktop entry, so it may name anything at all.
     let data = crate::files::read_small(path, crate::files::IMAGE_LIMIT).ok()?;
-    let mut out = Pixmap::new(px, px)?;
-    let side = px as f32;
     if path.extension().is_some_and(|ext| ext == "svg") {
+        let mut out = Pixmap::new(px, px)?;
+        let side = px as f32;
         // An `<image>` naming a file would be read whole, however big, and a FIFO would never
         // finish, so only images embedded in the SVG itself are drawn.
         let options = usvg::Options {
@@ -687,18 +687,24 @@ pub fn load_image(path: &Path, px: u32) -> Option<Pixmap> {
             (side - size.height() * k) / 2.0,
         );
         resvg::render(&tree, transform, &mut out.as_mut());
+        Some(out)
     } else {
-        let source = decode_png(&data)?;
-        let (w, h) = (source.width() as f32, source.height() as f32);
-        let k = side / w.max(h);
-        let paint = PixmapPaint {
-            quality: FilterQuality::Bicubic,
-            ..PixmapPaint::default()
-        };
-        let transform =
-            Transform::from_row(k, 0.0, 0.0, k, (side - w * k) / 2.0, (side - h * k) / 2.0);
-        out.draw_pixmap(0, 0, source.as_ref(), &paint, transform, None);
+        fit(&decode_png(&data)?, px)
     }
+}
+
+/// A picture drawn into a `px`-pixel square, keeping its proportions.
+pub fn fit(source: &Pixmap, px: u32) -> Option<Pixmap> {
+    let mut out = Pixmap::new(px, px)?;
+    let side = px as f32;
+    let (w, h) = (source.width() as f32, source.height() as f32);
+    let k = side / w.max(h);
+    let paint = PixmapPaint {
+        quality: FilterQuality::Bicubic,
+        ..PixmapPaint::default()
+    };
+    let transform = Transform::from_row(k, 0.0, 0.0, k, (side - w * k) / 2.0, (side - h * k) / 2.0);
+    out.draw_pixmap(0, 0, source.as_ref(), &paint, transform, None);
     Some(out)
 }
 

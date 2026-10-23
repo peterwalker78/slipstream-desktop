@@ -243,23 +243,25 @@ fn card_elements(
         );
     }
     if state.centre.is_open() {
-        state.load_background_app_icons(scale);
+        let chips = state.background_chips(scale);
         let facts = state.centre_facts();
+        let explorer = &mut state.explorer;
+        let mut icon = |name: &str, px: u32| explorer.named_icon(name, px);
         elements.extend(
             state
                 .centre
-                .element(
+                .elements(
                     renderer,
                     frame(now),
                     facts,
                     &state.notices,
-                    &state.background_apps,
+                    chips,
+                    &mut icon,
                 )
+                .into_iter()
                 .map(OutputElement::Memory),
         );
-        if let Some(app_id) = state.centre.take_launch(now) {
-            state.activate_background_app(&app_id);
-        }
+        state.finish_chip_launch(now);
     }
     if state.history.is_open() {
         let ring = state.panel_ring();

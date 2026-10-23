@@ -40,9 +40,8 @@ impl XdgShellHandler for Slipstream {
         self.fullscreen_on_map
             .retain(|window| window.toplevel() != Some(&surface));
         if let Some(window) = self.toplevel_window(&surface) {
-            let wl_surface = surface.wl_surface().clone();
             self.remove_window(&window);
-            self.track_closed_app(&wl_surface);
+            self.track_closed_app(&window);
         }
     }
 
