@@ -1,9 +1,13 @@
-//! What Slipstream's panels share, quick settings and the notification centre: a glass card at the
-//! top right, just below the bar, that slides down into place as it opens. Only one panel, or the
-//! explorer, is open at a time.
+//! What Slipstream's panels share: the glass card quick settings and the notification centre drop
+//! at the top right, just below the bar, sliding down into place as they open; and the `Panel`
+//! trait every panel answers to, the explorer, the plugin panel, the shortcut sheet and clipboard
+//! history too, so that closing them, or asking whether one is open, goes through one list.
 
 use crate::motion::REDUCED_FADE;
-use crate::{Slipstream, motion::HYPR, paint::Painter};
+use crate::{
+    Slipstream, centre::Centre, explorer::Explorer, history::History, keys::Action,
+    motion::HYPR, paint::Painter, plugin_panel::PluginPanel, quick::QuickSettings, sheet::Sheet,
+};
 
 /// What a card is drawn for: the screen's logical size and scale, the time on whichever clock
 /// the card animates by, and two of the colours from the settings: the accent, for what's on, and
@@ -303,18 +307,82 @@ pub fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
     }
 }
 
-impl Slipstream {
-    /// Closes the explorer, quick settings, the notification centre and the shortcut sheet, before
-    /// another opens.
-    pub fn close_panels(&mut self) {
-        if self.explorer.is_open() {
-            self.explorer.close();
+/// A panel that drops over the desktop: the explorer, quick settings, the plugin panel, the
+/// notification centre, the shortcut sheet and clipboard history. One is open at a time.
+pub trait Panel {
+    fn is_open(&self) -> bool;
+    fn close(&mut self);
+    /// Paints its text again next frame: a face for characters it lacked has landed.
+    fn forget_painted_text(&mut self);
+    /// The binding that opens and closes it, which therefore doesn't close it on the way.
+    fn binding(&self) -> Action;
+    /// Whether volume, brightness and media keys leave it open, showing the change there or
+    /// keeping a half-typed query.
+    fn stays_for_media(&self) -> bool;
+}
+
+macro_rules! panel {
+    ($panel:ty, $binding:expr, stays_for_media: $stays:expr) => {
+        impl Panel for $panel {
+            fn is_open(&self) -> bool {
+                <$panel>::is_open(self)
+            }
+            fn close(&mut self) {
+                <$panel>::close(self)
+            }
+            fn forget_painted_text(&mut self) {
+                <$panel>::forget_painted_text(self)
+            }
+            fn binding(&self) -> Action {
+                $binding
+            }
+            fn stays_for_media(&self) -> bool {
+                $stays
+            }
         }
-        self.quick.close();
-        self.plugin_panel.close();
-        self.centre.close();
-        self.sheet.close();
-        self.history.close();
+    };
+}
+
+panel!(Explorer, Action::Explorer, stays_for_media: true);
+panel!(QuickSettings, Action::QuickSettings, stays_for_media: true);
+panel!(PluginPanel, Action::Plugins, stays_for_media: true);
+panel!(Centre, Action::NotificationCentre, stays_for_media: false);
+panel!(Sheet, Action::ShortcutSheet, stays_for_media: true);
+panel!(History, Action::ClipboardHistory, stays_for_media: true);
+
+impl Slipstream {
+    /// Every panel, open or not.
+    pub fn panels(&self) -> [&dyn Panel; 6] {
+        [
+            &self.explorer,
+            &self.quick,
+            &self.plugin_panel,
+            &self.centre,
+            &self.sheet,
+            &self.history,
+        ]
+    }
+
+    pub fn panels_mut(&mut self) -> [&mut dyn Panel; 6] {
+        [
+            &mut self.explorer,
+            &mut self.quick,
+            &mut self.plugin_panel,
+            &mut self.centre,
+            &mut self.sheet,
+            &mut self.history,
+        ]
+    }
+
+    pub fn panel_open(&self) -> bool {
+        self.panels().iter().any(|panel| panel.is_open())
+    }
+
+    /// Closes every panel, before another opens or something else takes the screen.
+    pub fn close_panels(&mut self) {
+        for panel in self.panels_mut() {
+            panel.close();
+        }
     }
 }
 

@@ -709,10 +709,7 @@ impl Slipstream {
             .collect();
         tracing::info!(choices = choices.len(), "an app asked to share the screen");
         let now = self.wall();
-        self.explorer.close();
-        self.quick.close();
-        self.plugin_panel.close();
-        self.centre.close();
+        self.close_panels();
         self.share = Some(Picker::new(
             choices,
             rows,

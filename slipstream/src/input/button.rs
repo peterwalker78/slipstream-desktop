@@ -25,13 +25,7 @@ impl Slipstream {
             || self.bullet.is_some()
         {
             Overlay::Card
-        } else if self.explorer.is_open()
-            || self.quick.is_open()
-            || self.plugin_panel.is_open()
-            || self.centre.is_open()
-            || self.sheet.is_open()
-            || self.history.is_open()
-        {
+        } else if self.panel_open() {
             Overlay::Panel
         } else {
             Overlay::None

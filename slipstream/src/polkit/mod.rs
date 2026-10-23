@@ -661,10 +661,7 @@ impl Slipstream {
             return;
         };
         let now = self.wall();
-        self.explorer.close();
-        self.quick.close();
-        self.plugin_panel.close();
-        self.centre.close();
+        self.close_panels();
         self.shots.snip = None;
         // SAFETY: getuid has no failure mode.
         let me = unsafe { libc::getuid() };

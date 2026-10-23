@@ -316,6 +316,11 @@ impl History {
         self.painted = None;
     }
 
+    /// Paints its text again next frame: a face for characters it lacked has landed.
+    pub fn forget_painted_text(&mut self) {
+        self.painted = None;
+    }
+
     pub fn is_empty(&self) -> bool {
         self.clips.is_empty()
     }

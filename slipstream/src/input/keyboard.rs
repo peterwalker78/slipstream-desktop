@@ -177,18 +177,10 @@ impl Slipstream {
             }
         }
         // Alt+F4 with a panel open closes the panel, never the window behind it.
-        let panel_open = self.explorer.is_open()
-            || self.quick.is_open()
-            || self.plugin_panel.is_open()
-            || self.centre.is_open()
-            || self.sheet.is_open()
-            || self.history.is_open();
-        if action == Action::Close && panel_open {
+        if action == Action::Close && self.panel_open() {
             self.close_panels();
             return;
         }
-        // Volume and brightness keys leave quick settings and the explorer open, showing the
-        // change there or keeping a half-typed query.
         let media = matches!(
             action,
             Action::Volume(_)
@@ -196,23 +188,10 @@ impl Slipstream {
                 | Action::Brightness(_)
                 | Action::Media(_)
         );
-        if self.quick.is_open() && !media && action != Action::QuickSettings {
-            self.quick.close();
-        }
-        if self.centre.is_open() && action != Action::NotificationCentre {
-            self.centre.close();
-        }
-        if self.plugin_panel.is_open() && !media && action != Action::Plugins {
-            self.plugin_panel.close();
-        }
-        if self.explorer.is_open() && !media && action != Action::Explorer {
-            self.explorer.close();
-        }
-        if self.sheet.is_open() && !media && action != Action::ShortcutSheet {
-            self.sheet.close();
-        }
-        if self.history.is_open() && !media && action != Action::ClipboardHistory {
-            self.history.close();
+        for panel in self.panels_mut() {
+            if panel.is_open() && action != panel.binding() && !(media && panel.stays_for_media()) {
+                panel.close();
+            }
         }
         self.run_action(action)
     }

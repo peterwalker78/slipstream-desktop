@@ -96,12 +96,10 @@ impl Slipstream {
         for chrome in self.drawn.chromes.values_mut() {
             chrome.forget_painted_text();
         }
+        for panel in self.panels_mut() {
+            panel.forget_painted_text();
+        }
         self.notices.forget_painted_text();
-        self.centre.forget_painted_text();
-        self.explorer.forget_painted_text();
-        self.quick.forget_painted_text();
-        self.plugin_panel.forget_painted_text();
-        self.sheet.forget_painted_text();
         self.toast.forget_painted_text();
         self.rain.forget_painted_text();
         if let Some(exit) = self.exit.as_mut() {
@@ -122,15 +120,13 @@ impl Slipstream {
     }
 
     /// How visible the UI is now. It fades after a while with no input, unless Awake is on,
-    /// a window fills the screen, or the explorer is open.
+    /// a window fills the screen, or a panel is open.
     pub fn ui_opacity(&mut self, now: f64) -> f32 {
         let keep_up = self.awake
             || self.fullscreen_on_screen()
             // A launcher or picker drawn by another program, while it has the keyboard.
             || self.keyboard_layer().is_some()
-            || self.explorer.is_open()
-            || self.quick.is_open()
-            || self.centre.is_open()
+            || self.panel_open()
             || self.bullet.is_some()
             // The ask card waits as long as it takes; the wallpaper mustn't swallow it. The
             // offer at login is the same, and so is a layout still coming back.
@@ -140,7 +136,6 @@ impl Slipstream {
             || self.polkit.is_up()
             || self.shots.snip.is_some()
             || self.battery.card.is_some()
-            || self.history.is_open()
             || self.restoring.is_some()
             || self.lock.is_some()
             || self.unlocking.is_some();
