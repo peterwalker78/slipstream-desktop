@@ -173,6 +173,10 @@ impl Slipstream {
         if takes_no_input(window) || unseen(window) {
             return;
         }
+        // Nor is a dock or a notification, though a click on one still reaches it.
+        if crate::xwayland::never_takes_keyboard(window) {
+            return;
+        }
         let Some(target) = KeyboardFocus::for_window(window) else {
             return;
         };

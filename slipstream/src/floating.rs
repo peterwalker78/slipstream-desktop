@@ -302,7 +302,8 @@ pub fn opens_floating(window: &Window) -> bool {
         surface.is_modal()
             || matches!(
                 surface.window_type(),
-                Some(Dialog | Utility | Toolbar | Splash)
+                // A dock reaches here only when it sits along no screen's edge.
+                Some(Dialog | Utility | Toolbar | Splash | Dock)
             )
     }) {
         return true;

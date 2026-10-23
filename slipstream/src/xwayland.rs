@@ -1,11 +1,20 @@
 //! X11 apps (Steam, and Flatpaks without Wayland access) through XWayland. Their windows tile
 //! like any other; menus and tooltips (override-redirect windows) sit where the app puts them.
+//!
+//! The windows that place themselves stack as KWin stacks them. Docks and notifications go over
+//! the tiles but under a fullscreen window on their screen, and never take the keyboard. Menus,
+//! tooltips and override-redirect windows go over a fullscreen window only when they are its own
+//! app's; another app's stay under it, so nothing can be drawn over a game or a video by an app
+//! that merely says it is a menu.
 
 use std::{os::unix::io::OwnedFd, process::Stdio};
 
 use smithay::{
-    desktop::{Window, space::RenderZindex},
-    utils::{Logical, Rectangle},
+    desktop::{
+        Window,
+        space::{RenderZindex, SpaceElement},
+    },
+    utils::{Logical, Point, Rectangle},
     wayland::{
         compositor::CompositorHandler,
         selection::{
@@ -32,8 +41,9 @@ use crate::{
     cursor::Cursor,
     focus::KeyboardFocus,
     launch,
+    layout::Rect,
     screenshot::Selection,
-    state::{PlacesItself, places_itself},
+    state::{PlacesItself, places_itself, x11_client_pid},
 };
 
 impl Slipstream {
@@ -129,14 +139,19 @@ impl XwmHandler for Slipstream {
             return;
         }
         // A dock, a desktop widget or a notification keeps the place it picked, above or below
-        // the tiles, and doesn't take the keyboard by appearing.
-        if let Some(layer) = own_layer(&surface) {
+        // the tiles, and doesn't take the keyboard by appearing. A dock along no screen's edge is
+        // no panel, and is an ordinary floating window.
+        let screens: Vec<Rect> = (0..self.screens.len())
+            .filter_map(|index| self.screen_rect(index))
+            .collect();
+        let kind = own_kind(&surface)
+            .filter(|kind| *kind != Own::Dock || touches_edge(surface.geometry(), &screens));
+        if kind.is_some() {
             let geometry = surface.geometry();
             let _ = surface.configure(geometry);
             let window = Window::new_x11_window(surface);
-            window.override_z_index(layer as u8);
             window.user_data().insert_if_missing(|| PlacesItself);
-            self.space.map_element(window, geometry.loc, false);
+            self.place_x11(window, geometry.loc, false);
             return;
         }
         // Games often ask for fullscreen before their window appears.
@@ -150,8 +165,7 @@ impl XwmHandler for Slipstream {
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {
         let location = surface.last_configure().loc;
-        self.space
-            .map_element(Window::new_x11_window(surface), location, true);
+        self.place_x11(Window::new_x11_window(surface), location, true);
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, surface: X11Surface) {
@@ -206,7 +220,7 @@ impl XwmHandler for Slipstream {
         }
         let _ = surface.configure(geometry);
         if let Some(window) = own_place {
-            self.space.map_element(window, geometry.loc, false);
+            self.place_x11(window, geometry.loc, false);
         }
     }
 
@@ -227,7 +241,7 @@ impl XwmHandler for Slipstream {
         // Only menus and tooltips place themselves.
         if surface.is_override_redirect() {
             if let Some(window) = self.x11_window(&surface) {
-                self.space.map_element(window, geometry.loc, false);
+                self.place_x11(window, geometry.loc, false);
             }
         }
     }
@@ -393,58 +407,259 @@ impl Slipstream {
     }
 }
 
-/// Whether an X11 window keeps the place it picks rather than being one of your windows, and
-/// whether it goes above or below them, from what it says it is (EWMH's window types and states).
-/// `None` for an app's own window, which is tiled or floats.
-fn own_layer(surface: &X11Surface) -> Option<RenderZindex> {
-    layer_for(
+impl Slipstream {
+    /// Puts an X11 window that places itself at `at`, stacked for what it is and what is
+    /// fullscreen on its screen (`layer_for`).
+    fn place_x11(&mut self, window: Window, at: Point<i32, Logical>, activate: bool) {
+        if let Some(layer) = self.x11_layer(&window) {
+            window.override_z_index(layer as u8);
+        }
+        self.space.map_element(window, at, activate);
+    }
+
+    /// Stacks the X11 windows that place themselves again, now that what is fullscreen may have
+    /// changed.
+    pub(crate) fn restack_x11(&mut self) {
+        let moved: Vec<Window> = self
+            .space
+            .elements()
+            .filter(|window| places_itself(window))
+            .filter_map(|window| {
+                let layer = self.x11_layer(window)? as u8;
+                (window.z_index() != layer).then(|| {
+                    window.override_z_index(layer);
+                    window.clone()
+                })
+            })
+            .collect();
+        // The space puts its windows in order of their layers as one is raised.
+        for window in moved {
+            self.space.raise_element(&window, false);
+        }
+    }
+
+    /// Where `window`, an X11 window that places itself, stacks.
+    fn x11_layer(&self, window: &Window) -> Option<RenderZindex> {
+        let surface = window.x11_surface()?;
+        let kind = own_kind(surface)?;
+        let covered = match self.fullscreen_over(surface.geometry()) {
+            None => Covered::No,
+            Some(full) if self.is_fullscreen_apps(surface, &full) => Covered::ByItsApp,
+            Some(_) => Covered::ByOther,
+        };
+        Some(layer_for(kind, covered))
+    }
+
+    /// The window filling the screen `geometry`'s middle is on, if one is.
+    fn fullscreen_over(&self, geometry: Rectangle<i32, Logical>) -> Option<Window> {
+        let (x, y) = (
+            geometry.loc.x + geometry.size.w / 2,
+            geometry.loc.y + geometry.size.h / 2,
+        );
+        let screen = (0..self.screens.len()).find(|index| {
+            self.screen_rect(*index)
+                .is_some_and(|r| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+        })?;
+        self.fullscreen_at(self.screens.get(screen)?.workspace)
+    }
+
+    /// Whether `surface` is the fullscreen window's app's: the same X client's, or a process it
+    /// started, as the X server knows the client's process. An app's own claim isn't asked.
+    fn is_fullscreen_apps(&self, surface: &X11Surface, full: &Window) -> bool {
+        match (x11_client_pid(surface), self.window_pid(full)) {
+            (Some(pid), Some(full_pid)) => crate::concentration::descends_from(pid, full_pid),
+            _ => false,
+        }
+    }
+}
+
+/// What an X11 window that places itself is, for where it stacks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Own {
+    /// A desktop widget, or a helper window kept below the others and out of every list.
+    Desktop,
+    Dock,
+    Notification,
+    /// A menu, a tooltip, a drag image, or any override-redirect window.
+    Popup,
+}
+
+/// Whether a fullscreen window covers the screen a window is on, and whose it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Covered {
+    No,
+    ByItsApp,
+    ByOther,
+}
+
+/// What an X11 window that keeps the place it picks is, from what it says it is (EWMH's window
+/// types and states). `None` for an app's own window, which is tiled or floats.
+fn own_kind(surface: &X11Surface) -> Option<Own> {
+    kind_for(
         surface.window_type(),
         surface.is_below() && surface.is_skip_taskbar() && surface.is_skip_pager(),
+        surface.is_override_redirect(),
     )
 }
 
-/// `own_layer`'s rule. `kept_out` is a window kept below the others and left out of the taskbar
+/// `own_kind`'s rule. `kept_out` is a window kept below the others and left out of the taskbar
 /// and the pager: a desktop widget, or a helper window that isn't meant to be seen.
-fn layer_for(window_type: Option<WmWindowType>, kept_out: bool) -> Option<RenderZindex> {
+fn kind_for(window_type: Option<WmWindowType>, kept_out: bool, unmanaged: bool) -> Option<Own> {
     use WmWindowType::*;
-    match window_type {
-        Some(Desktop) => Some(RenderZindex::Bottom),
-        // Menus and tooltips are nearly always override-redirect; the few that aren't go here.
-        Some(Dock | Notification | Menu | DropdownMenu | PopupMenu | Tooltip | Combo | Dnd) => {
-            Some(RenderZindex::Top)
-        }
-        _ => kept_out.then_some(RenderZindex::Bottom),
+    if unmanaged {
+        return Some(Own::Popup);
     }
+    match window_type {
+        Some(Desktop) => Some(Own::Desktop),
+        Some(Dock) => Some(Own::Dock),
+        Some(Notification) => Some(Own::Notification),
+        // Menus and tooltips are nearly always override-redirect; the few that aren't go here.
+        Some(Menu | DropdownMenu | PopupMenu | Tooltip | Combo | Dnd) => Some(Own::Popup),
+        _ => kept_out.then_some(Own::Desktop),
+    }
+}
+
+/// Where a window of `kind` stacks. Over the tiles, except for desktop widgets; a fullscreen
+/// window is in the space's own layer above the tiles, so under one means beneath that layer.
+fn layer_for(kind: Own, covered: Covered) -> RenderZindex {
+    match (kind, covered) {
+        (Own::Desktop, _) => RenderZindex::Bottom,
+        (Own::Dock | Own::Notification, Covered::No) => RenderZindex::Top,
+        (Own::Dock | Own::Notification, _) => RenderZindex::Bottom,
+        (Own::Popup, Covered::No | Covered::ByItsApp) => RenderZindex::Top,
+        (Own::Popup, Covered::ByOther) => RenderZindex::Bottom,
+    }
+}
+
+/// Whether an X11 window that places itself never takes the keyboard: a dock or a notification.
+/// A click on one still reaches it.
+pub(crate) fn never_takes_keyboard(window: &Window) -> bool {
+    places_itself(window)
+        && window.x11_surface().is_some_and(|surface| {
+            matches!(
+                kind_for(surface.window_type(), false, surface.is_override_redirect()),
+                Some(Own::Dock | Own::Notification)
+            )
+        })
+}
+
+/// Whether `window` lies along an edge of one of the `screens`, as a panel does.
+fn touches_edge(window: Rectangle<i32, Logical>, screens: &[Rect]) -> bool {
+    let (x, y, w, h) = (window.loc.x, window.loc.y, window.size.w, window.size.h);
+    screens.iter().any(|s| {
+        let overlaps = x < s.x + s.w && s.x < x + w && y < s.y + s.h && s.y < y + h;
+        overlaps && (x == s.x || y == s.y || x + w == s.x + s.w || y + h == s.y + s.h)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A fullscreen window's layer: the space's own, which tiles share.
+    const FULLSCREEN: RenderZindex = RenderZindex::Shell;
+
     #[test]
     fn app_windows_are_left_to_the_layout() {
         for window_type in [None, Some(WmWindowType::Normal), Some(WmWindowType::Dialog)] {
-            assert_eq!(layer_for(window_type, false), None);
+            assert_eq!(kind_for(window_type, false, false), None);
         }
     }
 
     #[test]
     fn a_window_kept_out_of_every_list_goes_under_the_tiles() {
         // What KDE's XWayland video bridge and a conky desktop widget both ask for.
-        assert_eq!(
-            layer_for(Some(WmWindowType::Normal), true),
-            Some(RenderZindex::Bottom)
-        );
-        assert_eq!(
-            layer_for(Some(WmWindowType::Desktop), false),
-            Some(RenderZindex::Bottom)
-        );
+        for kept_out in [
+            kind_for(Some(WmWindowType::Normal), true, false),
+            kind_for(Some(WmWindowType::Desktop), false, false),
+        ] {
+            assert_eq!(kept_out, Some(Own::Desktop));
+            for covered in [Covered::No, Covered::ByItsApp, Covered::ByOther] {
+                assert_eq!(layer_for(Own::Desktop, covered), RenderZindex::Bottom);
+            }
+        }
     }
 
     #[test]
-    fn docks_and_notifications_go_over_the_tiles() {
-        for window_type in [WmWindowType::Dock, WmWindowType::Notification] {
-            assert_eq!(layer_for(Some(window_type), false), Some(RenderZindex::Top));
+    fn docks_and_notifications_go_over_the_tiles_but_under_a_fullscreen_window() {
+        for kind in [Own::Dock, Own::Notification] {
+            assert_eq!(layer_for(kind, Covered::No), RenderZindex::Top);
+            assert!((layer_for(kind, Covered::No) as u8) > FULLSCREEN as u8);
+            // Even the fullscreen app's own, as on KWin.
+            for covered in [Covered::ByItsApp, Covered::ByOther] {
+                assert!((layer_for(kind, covered) as u8) < FULLSCREEN as u8);
+            }
         }
+    }
+
+    #[test]
+    fn menus_and_tooltips_go_over_a_fullscreen_window_only_if_they_are_its_apps() {
+        for window_type in [
+            WmWindowType::Menu,
+            WmWindowType::DropdownMenu,
+            WmWindowType::PopupMenu,
+            WmWindowType::Tooltip,
+            WmWindowType::Combo,
+            WmWindowType::Dnd,
+        ] {
+            let kind = kind_for(Some(window_type), false, false).unwrap();
+            assert_eq!(kind, Own::Popup);
+            assert_eq!(layer_for(kind, Covered::No), RenderZindex::Top);
+            assert!((layer_for(kind, Covered::ByItsApp) as u8) > FULLSCREEN as u8);
+            assert!((layer_for(kind, Covered::ByOther) as u8) < FULLSCREEN as u8);
+        }
+    }
+
+    #[test]
+    fn an_override_redirect_window_from_another_app_stays_below_fullscreen() {
+        // Whatever type it claims, or none: skipping the dock type gains nothing.
+        for window_type in [
+            None,
+            Some(WmWindowType::Normal),
+            Some(WmWindowType::Dock),
+            Some(WmWindowType::Notification),
+        ] {
+            let kind = kind_for(window_type, false, true).unwrap();
+            assert!((layer_for(kind, Covered::ByOther) as u8) < FULLSCREEN as u8);
+        }
+    }
+
+    #[test]
+    fn a_dock_is_a_panel_only_along_a_screen_edge() {
+        let screens = [
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1920,
+                h: 1080,
+            },
+            Rect {
+                x: 1920,
+                y: 0,
+                w: 1280,
+                h: 800,
+            },
+        ];
+        let at = |x, y, w, h| Rectangle::<i32, Logical>::new((x, y).into(), (w, h).into());
+        assert!(
+            touches_edge(at(0, 1040, 1920, 40), &screens),
+            "along the bottom"
+        );
+        assert!(
+            touches_edge(at(1920, 300, 48, 200), &screens),
+            "down the side"
+        );
+        assert!(
+            touches_edge(at(3152, 0, 48, 800), &screens),
+            "the second screen's right"
+        );
+        assert!(
+            !touches_edge(at(600, 400, 300, 64), &screens),
+            "floating mid-screen"
+        );
+        assert!(
+            !touches_edge(at(5000, 0, 48, 800), &screens),
+            "on no screen"
+        );
     }
 }

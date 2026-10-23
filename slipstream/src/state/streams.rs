@@ -298,7 +298,7 @@ impl Slipstream {
     /// the Wayland socket's. Its app's meter is read from there (`usage::Meter`).
     pub fn window_pid(&self, window: &Window) -> Option<u32> {
         if let Some(surface) = window.x11_surface() {
-            return super::window_props::x11_client_pid(surface);
+            return x11_client_pid(surface);
         }
         let client = window.toplevel()?.wl_surface().client()?;
         client

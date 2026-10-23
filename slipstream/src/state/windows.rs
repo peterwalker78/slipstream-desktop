@@ -138,6 +138,8 @@ impl Slipstream {
         for (window, _) in &fullscreens {
             self.space.raise_element(window, false);
         }
+        // X11 docks, notifications and other apps' menus go under a fullscreen window.
+        self.restack_x11();
         // Workspaces no screen is showing follow too, so a change to a tiling area (the code
         // rain taking or giving back width) reaches their windows before bullet time shows them.
         for index in 0..self.workspaces.count() {
