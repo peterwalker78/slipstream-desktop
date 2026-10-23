@@ -5,8 +5,8 @@
 
 use crate::motion::REDUCED_FADE;
 use crate::{
-    Slipstream, centre::Centre, explorer::Explorer, history::History, keys::Action,
-    motion::HYPR, paint::Painter, plugin_panel::PluginPanel, quick::QuickSettings, sheet::Sheet,
+    Slipstream, centre::Centre, explorer::Explorer, history::History, keys::Action, motion::HYPR,
+    paint::Painter, plugin_panel::PluginPanel, quick::QuickSettings, sheet::Sheet,
 };
 
 /// What a card is drawn for: the screen's logical size and scale, the time on whichever clock

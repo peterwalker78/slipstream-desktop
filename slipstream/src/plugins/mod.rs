@@ -537,10 +537,24 @@ mod tests {
         })
     }
 
-    /// Whether anything is left in process group `group`.
+    /// Whether anything is still running in process group `group`. One that has ended stays in
+    /// the group until it is reaped, which in a container with no init to adopt it is never.
     fn alive(group: i32) -> bool {
-        // SAFETY: kill takes no pointers; signal 0 only asks whether the group is there.
-        unsafe { libc::kill(-group, 0) == 0 }
+        let Ok(processes) = std::fs::read_dir("/proc") else {
+            return false;
+        };
+        processes.flatten().any(|process| {
+            let stat = std::fs::read_to_string(process.path().join("stat")).unwrap_or_default();
+            // After the name in brackets: the state, the parent and the group.
+            let mut fields = stat
+                .rsplit_once(')')
+                .unwrap_or_default()
+                .1
+                .split_whitespace();
+            let state = fields.next();
+            state.is_some_and(|state| state != "Z")
+                && fields.nth(1).and_then(|pgrp| pgrp.parse().ok()) == Some(group)
+        })
     }
 
     /// Waits up to five seconds for `file` to say something, and returns it.
