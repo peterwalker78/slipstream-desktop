@@ -31,6 +31,7 @@ These are the Windows style's keys, which Slipstream starts with. Settings → S
 | Super+P, Super+Shift+P | Next screen, move the window there |
 | Super+Ctrl+P | Swap workspaces with the next screen, windows and all |
 | Super+A, Super+N | Quick settings, notifications |
+| Super+Y | Your plugins, in the same place in every style |
 | Super+V | Clipboard history |
 | Print, Super+Print, Super+Shift+S | Screenshot of the screen; snip a region or a window |
 | Super+= and Super+-, Super+0 | Zoom in and out around the pointer; back to normal. Super and the wheel zoom too |

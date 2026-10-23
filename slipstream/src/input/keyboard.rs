@@ -156,6 +156,7 @@ impl Slipstream {
             Action::Undock => self.undock(),
             Action::BulletTime => self.toggle_bullet_time(),
             Action::QuickSettings => self.toggle_quick_settings(),
+            Action::Plugins => self.toggle_plugin_panel(),
             Action::NotificationCentre => self.toggle_notification_centre(),
             Action::Maximise => self.toggle_maximise(),
             Action::TakeBack => self.take_back(),
@@ -201,7 +202,7 @@ impl Slipstream {
         if self.centre.is_open() && action != Action::NotificationCentre {
             self.centre.close();
         }
-        if self.plugin_panel.is_open() && !media {
+        if self.plugin_panel.is_open() && !media && action != Action::Plugins {
             self.plugin_panel.close();
         }
         if self.explorer.is_open() && !media && action != Action::Explorer {

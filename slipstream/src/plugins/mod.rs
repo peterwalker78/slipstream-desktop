@@ -65,7 +65,12 @@ impl Plugins {
     /// running; a new or changed one starts; one turned off or gone is stopped, with everything
     /// its program started.
     pub fn configure(&mut self, settings: &Settings) {
-        let (found, problems) = plugins::find();
+        self.configure_from(settings, &plugins::dirs());
+    }
+
+    /// `configure`, looking for plugins in `dirs`.
+    fn configure_from(&mut self, settings: &Settings, dirs: &[std::path::PathBuf]) {
+        let (found, problems) = plugins::find_in(dirs);
         if problems != self.reported {
             for why in &problems {
                 tracing::warn!("plugins: {why}");
@@ -203,9 +208,9 @@ mod tests {
     #[test]
     fn the_meter_setting_runs_as_a_plugin_and_its_glance_is_on_the_chip() {
         let mut plugins = Plugins::default();
-        plugins.configure(&meter(
+        plugins.configure_from(&meter(
             r#"printf '{"sections":[{"name":"Disk","meters":[{"label":"Home","percent":81}]},{"name":"Mail","meters":[]}]}'"#,
-        ));
+        ), &[]);
         let shown = settle(&plugins, |shown| shown[0].card.is_some());
         let card = shown[0].card.as_ref().unwrap();
         assert_eq!(card.sections.len(), 2);
@@ -213,7 +218,7 @@ mod tests {
         assert_eq!(chip.glance.unwrap().text, "81%");
         assert!(chip.attention);
         assert_eq!((chip.installed, chip.on), (1, 1));
-        plugins.configure(&Settings::default());
+        plugins.configure_from(&Settings::default(), &[]);
         assert!(plugins.shown().is_empty());
     }
 
@@ -226,10 +231,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let said = dir.join("said");
         let mut plugins = Plugins::default();
-        plugins.configure(&meter(&format!(
-            r#"[ "$1" = press ] && printf '%s' "$2" > '{}'; printf '{{}}'"#,
-            said.display()
-        )));
+        plugins.configure_from(
+            &meter(&format!(
+                r#"[ "$1" = press ] && printf '%s' "$2" > '{}'; printf '{{}}'"#,
+                said.display()
+            )),
+            &[],
+        );
         settle(&plugins, |shown| shown[0].card.is_some());
         plugins.press(plugins::METER_ID, "$(touch nope)");
         plugins.press(plugins::METER_ID, "go");
@@ -274,7 +282,7 @@ mod tests {
     #[test]
     fn a_program_that_fails_says_why() {
         let mut plugins = Plugins::default();
-        plugins.configure(&meter("echo gone >&2; exit 3"));
+        plugins.configure_from(&meter("echo gone >&2; exit 3"), &[]);
         let shown = settle(&plugins, |shown| shown[0].problem.is_some());
         assert_eq!(shown[0].problem.as_deref(), Some("exit Some(3): gone"));
         assert!(shown[0].card.is_none());

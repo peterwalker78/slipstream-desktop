@@ -74,6 +74,8 @@ pub enum Action {
     QuickSettings,
     /// Open or close the notification centre.
     NotificationCentre,
+    /// Open or close the plugin panel.
+    Plugins,
     /// Move the keyboard to the next screen along.
     NextScreen,
     /// Send the focused window to the next screen along; the keyboard stays where it is.
@@ -177,6 +179,7 @@ impl Action {
             Action::BulletTime => "every workspace at once",
             Action::QuickSettings => "quick settings",
             Action::NotificationCentre => "notifications",
+            Action::Plugins => "your plugins",
             Action::NextScreen => "keyboard to the next screen",
             Action::MoveToNextScreen => "send window to the next screen",
             Action::SwapScreens => "swap workspaces with the next screen",
@@ -234,6 +237,7 @@ impl Action {
             | Action::Brightness(_)
             | Action::QuickSettings
             | Action::NotificationCentre
+            | Action::Plugins
             | Action::Screenshot { .. }
             | Action::ShortcutSheet
             | Action::Lock
@@ -587,6 +591,8 @@ fn windows() -> Vec<Binding> {
         bind(MOD_CTRL, Keysym::p, Action::SwapScreens),
         // Windows' quick settings key.
         bind(MOD, Keysym::a, Action::QuickSettings),
+        // Y for yours: the same in every style, since no system has a key of its own for this.
+        bind(MOD, Keysym::y, Action::Plugins),
         // Windows' screenshot keys: Print and Win+Print for the screen, Win+Shift+S to snip a
         // region or a window (gamescope keeps it while focused, as it does Super+S).
         bind(NONE, Keysym::Print, Action::Screenshot { window: false }),
@@ -698,6 +704,7 @@ fn mac() -> Vec<Binding> {
         bind(MOD_CTRL, Keysym::p, Action::SwapScreens),
         bind(MOD, Keysym::a, Action::QuickSettings),
         bind(MOD, Keysym::n, Action::NotificationCentre),
+        bind(MOD, Keysym::y, Action::Plugins),
         bind(MOD, Keysym::d, Action::ShowDesktop),
         bind(MOD, Keysym::v, Action::ClipboardHistory),
         bind(MOD_SHIFT, Keysym::v, Action::ToggleFloating),
@@ -757,6 +764,8 @@ fn omarchy() -> Vec<Binding> {
         bind(MOD_CTRL, Keysym::a, Action::QuickSettings),
         // Its notification history key.
         bind(MOD_ALT_SHIFT, Keysym::comma, Action::NotificationCentre),
+        // It has no plugin panel key: Y, as in every style.
+        bind(MOD, Keysym::y, Action::Plugins),
         // Print chooses a region or a window, and Enter takes the whole screen.
         bind(NONE, Keysym::Print, Action::Screenshot { window: true }),
         bind(MOD_SHIFT, Keysym::s, Action::Screenshot { window: true }),
@@ -1104,6 +1113,7 @@ mod tests {
                 Action::QuickSettings,
                 Action::ClipboardHistory,
                 Action::NotificationCentre,
+                Action::Plugins,
             ] {
                 assert!(
                     binding_for(&bindings, action).is_some(),

@@ -67,6 +67,8 @@ pub struct Facts {
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
     pub reduced_motion: bool,
+    /// The key that opens and closes the panel.
+    pub key: String,
 }
 
 /// Everything the painted panel depends on.
@@ -295,7 +297,7 @@ impl PluginPanel {
                 Item::Settings,
                 [x0 - 6.0, centre - 13.0, link_w + 12.0, 26.0, 6.0],
             ));
-            let close = panel::key_hint(p, x0 + inner, centre, &["Esc"], "close");
+            let close = panel::key_hint(p, x0 + inner, centre, &[&facts.key, "Esc"], "close");
             panel::key_hint(p, close - panel::HINT_GAP, centre, &["Tab"], "next");
             for (item, [x, y, w, h, radius]) in &shapes {
                 if *item == look.selected {
@@ -571,6 +573,7 @@ impl Slipstream {
             installed,
             ring: self.panel_ring(),
             reduced_motion: self.clock.reduced_motion,
+            key: self.key_label(crate::keys::Action::Plugins),
         }
     }
 
@@ -645,6 +648,7 @@ mod tests {
             cards,
             ring: panel::FOCUS,
             reduced_motion: true,
+            key: "Super+Y".into(),
         }
     }
 
