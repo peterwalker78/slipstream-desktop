@@ -194,13 +194,14 @@ esac"#,
         self.write("config/agent-notify/config", text);
     }
 
-    /// A task that started `ago` seconds before now, by the clock the hooks use.
+    /// A task that started `ago` seconds before now, by the clock the hooks use (seconds since
+    /// boot), or at boot on a machine that has been up for less.
     pub fn started(&self, agent: &str, session: &str, ago: u64) {
         let uptime = fs::read_to_string("/proc/uptime").unwrap();
         let now: u64 = uptime.split('.').next().unwrap().parse().unwrap();
         self.write(
             &format!("run/agent-notify/{agent}-{session}.started"),
-            &format!("{}\n", now - ago),
+            &format!("{}\n", now.saturating_sub(ago)),
         );
     }
 
@@ -278,16 +279,23 @@ esac"#,
         );
     }
 
-    /// The notification calls made so far.
+    /// The notification calls made so far, with how long a task took written as `<duration>`,
+    /// since a clock that ticks during a run can add a second to it.
     pub fn calls(&self) -> Vec<Call> {
-        match self.imp {
+        let mut calls: Vec<Call> = match self.imp {
             Imp::Binary => recorded(&self.path("logs/record")),
             Imp::Script => self
                 .runs("busctl")
                 .iter()
                 .filter_map(|args| from_busctl(args))
                 .collect(),
+        };
+        for call in &mut calls {
+            if let Call::Notify { body, .. } = call {
+                *body = unduration(body);
+            }
         }
+        calls
     }
 
     /// Every file the run left, by path, with its mode, and the root written as $ROOT.
@@ -325,6 +333,49 @@ fn walk(root: &Path, dir: &Path, files: &mut BTreeMap<String, String>) {
             );
         }
     }
+}
+
+/// Whether `text` is how long a task took: 42s, 7m 12s, 1h 05m or 5d 23h.
+fn is_duration(text: &str) -> bool {
+    let unit = |part: &str, units: &str| {
+        part.len() > 1
+            && part[..part.len() - 1]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit())
+            && units.contains(&part[part.len() - 1..])
+    };
+    match text.split_once(' ') {
+        None => unit(text, "s"),
+        Some((big, small)) => unit(big, "mhd") && unit(small, "smh") && small.len() == 3,
+    }
+}
+
+/// The body with the duration on its first line, after the project or "Resets in", as
+/// `<duration>`.
+fn unduration(body: &str) -> String {
+    if body.strip_prefix("Resets in ").is_some_and(is_duration) {
+        return "Resets in <duration>".into();
+    }
+    let (first, rest) = body
+        .split_once('\n')
+        .map_or((body, None), |(first, rest)| (first, Some(rest)));
+    let (project, last) = first
+        .rsplit_once(" · ")
+        .map_or(("", first), |(project, last)| (project, last));
+    if !is_duration(last) {
+        return body.to_owned();
+    }
+    let mut out = if project.is_empty() {
+        String::new()
+    } else {
+        format!("{project} · ")
+    };
+    out.push_str("<duration>");
+    if let Some(rest) = rest {
+        out.push('\n');
+        out.push_str(rest);
+    }
+    out
 }
 
 fn recorded(path: &Path) -> Vec<Call> {
