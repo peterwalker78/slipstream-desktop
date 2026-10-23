@@ -88,6 +88,14 @@ Slipstream puts your concentration first.
 - **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into a stream at the edge instead, with a quiet toast to say so.
 - **Slipstream can tell that you're typing, so it knows not to interrupt you** - but never what you're typing.
 
+## Plugins beside the clock
+
+**Little apps, your own or other people's, in a panel that drops from the bar.** The weather, a timer, anything a program can report: each plugin adds a card of lines, gauges and buttons, drawn in Slipstream's own style. The chip beside the date shows the headline of the one you choose, and turns amber when one wants your attention. Click it, or press Super+Y.
+
+**Write one in anything.** If it can print a line of JSON, it can be a plugin: a shell script, Python, a compiled program. [Writing a plugin →](guide/plugins.md)
+
+**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first. Turning it on runs a read-only copy of what you saw, and if it changes after that, it waits for you to turn it on again.
+
 ## New to tiling? Take the tour
 
 <img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, gravity arranging them round the one in use, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
