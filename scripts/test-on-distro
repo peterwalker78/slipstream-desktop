@@ -165,6 +165,17 @@ fi
 [ -x /usr/local/bin/slipstream-session ] || fail "the session launcher isn't installed"
 [ -r /etc/pam.d/slipstream ] || fail "the lock screen's PAM service isn't installed"
 
+# The plugin that comes with Slipstream, installed from its own release: a download from before it
+# came along has no file describing it.
+if [ -f "$folder/extras/agent-notify.conf" ]; then
+    plugin=$home/.local/share/slipstream/plugins/agent-notify
+    if ! [ -f "$plugin/plugin.toml" ]; then
+        fail "the agent-notify plugin isn't installed"
+    elif ! as_user "\$HOME/.local/bin/agent-notify --help" >/dev/null 2>&1; then
+        fail "agent-notify, installed as a plugin, doesn't run here"
+    fi
+fi
+
 if ! as_user "cd '$folder' && sh scripts/install-session --check" >"$home/check.log" 2>&1; then
     fail "install-session --check reports a problem after installing"
 fi

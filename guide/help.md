@@ -24,7 +24,7 @@ Screen *sharing*, for a call through the portal, is a separate thing, with its o
 
 ## Adding apps that come with your desktop
 
-Apps that go with your desktop but are projects of their own are installed as Flatpaks by `scripts/install-extras`. The installer runs it at the end and asks about each one first; a no is remembered, and `--yes` answers yes. Running the install command again brings them up to date, and `update-session` does the same on every rebuild. Slipstream ships two, the Glimmerwood browser and the Westering stargazing game, described in `extras/glimmerwood.conf` and `extras/westering.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
+Apps and plugins that go with your desktop but are projects of their own are installed by `scripts/install-extras`: apps as Flatpaks, and plugins into `~/.local/share/slipstream/plugins/`. The installer runs it at the end and asks about each one first; a no is remembered, and `--yes` answers yes. Running the install command again brings them up to date, and `update-session` does the same on every rebuild. Slipstream ships three, the Glimmerwood browser and the Westering stargazing game, described in `extras/glimmerwood.conf` and `extras/westering.conf`, and the agent-notify plugin, in `extras/agent-notify.conf`. Add your own in `~/.config/slipstream/extras/`, say `browser.conf`, and a file there with the same name as a shipped one replaces it (`install=no` on its own leaves it out):
 
 ```sh
 app_id=org.example.Browser
@@ -33,6 +33,15 @@ build=scripts/flatpak
 bundle_url=https://example.org/browser.flatpak       # used without a checkout, or if it fails to build before the app is installed
 bundle_sha256_url=https://example.org/browser.flatpak.sha256
 default_browser=yes              # set once, so choosing another browser later sticks
+```
+
+A plugin names its folder with `plugin=` instead, and its release is that folder packed as a `.tar.gz`. It's checked against its SHA-256, refused if it holds links or no `plugin.toml`, and installed off, like every plugin, until you turn it on in **Settings → Plugins**:
+
+```sh
+plugin=weather
+bundle_url=https://example.org/weather.tar.gz
+bundle_sha256_url=https://example.org/weather.tar.gz.sha256
+commands=bin/weather             # linked into ~/.local/bin, unless a program of yours is there already
 ```
 
 `scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
