@@ -724,6 +724,7 @@ mod tests {
                 on: vec!["made-up-timer".into()],
                 glance: Some("made-up-timer".into()),
                 fingerprints: [("made-up-timer".to_string(), "ab12".to_string())].into(),
+                hidden: [("made-up-timer".to_string(), vec!["Breaks".to_string()])].into(),
             },
             workspaces: Workspaces {
                 list: vec![

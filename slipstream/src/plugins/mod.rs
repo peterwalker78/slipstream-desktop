@@ -29,11 +29,21 @@ struct Running {
 pub struct Shown {
     pub id: String,
     pub name: String,
+    /// Its card as its program printed it, every section included.
     pub card: Option<Card>,
+    /// The card's sections not to show, by name.
+    pub hidden: Vec<String>,
     /// Why there's no card, or why the one shown is old.
     pub problem: Option<String>,
     /// It has changed since it was turned on, so it doesn't run until it is turned on again.
     pub held: bool,
+}
+
+impl Shown {
+    /// Its card with only the sections that show.
+    pub fn visible(&self) -> Option<Card> {
+        self.card.clone().map(|card| card.without(&self.hidden))
+    }
 }
 
 /// What the chip on the bar shows.
@@ -80,15 +90,12 @@ impl Plugins {
         let meter = plugins::meter_plugin(&settings.meter);
         self.installed = found.len() + usize::from(meter.is_some());
         // The meter first, as it was the first thing of its kind; then in the order turned on.
-        let mut wanted: Vec<(Plugin, Vec<String>)> = meter
-            .into_iter()
-            .map(|meter| (meter, settings.meter.hidden.clone()))
-            .collect();
+        let mut wanted: Vec<Plugin> = meter.into_iter().collect();
         self.held.clear();
         for id in &settings.plugins.on {
             if let Some(plugin) = found.iter().find(|plugin| plugin.id == *id) {
                 if settings.plugins.approved(plugin) {
-                    wanted.push((plugin.clone(), Vec::new()));
+                    wanted.push(plugin.clone());
                 } else {
                     tracing::warn!("plugin {id} has changed since it was turned on, so it waits");
                     self.held.push(plugin.clone());
@@ -96,19 +103,22 @@ impl Plugins {
             }
         }
         let mut old = std::mem::take(&mut self.running);
-        for (plugin, hidden) in wanted {
+        for plugin in wanted {
+            // Which sections show is only the panel's business: the program carries on.
+            let hidden = plugins::hidden(settings, &plugin.id).to_vec();
             let kept = old
                 .iter()
-                .position(|running| running.plugin == plugin && running.hidden == hidden)
+                .position(|running| running.plugin == plugin)
                 .map(|at| old.remove(at));
-            let running = kept.unwrap_or_else(|| {
+            let mut running = kept.unwrap_or_else(|| {
                 tracing::debug!("starting plugin {}", plugin.id);
                 Running {
-                    worker: Worker::start(plugin.clone(), hidden.clone()),
+                    worker: Worker::start(plugin.clone()),
                     plugin,
-                    hidden,
+                    hidden: Vec::new(),
                 }
             });
+            running.hidden = hidden;
             self.running.push(running);
         }
         // Whatever is left in `old` is dropped here, which stops it.
@@ -125,6 +135,7 @@ impl Plugins {
                     id: running.plugin.id.clone(),
                     name: running.plugin.manifest.name.clone(),
                     card: published.card,
+                    hidden: running.hidden.clone(),
                     problem: published.problem,
                     held: false,
                 }
@@ -133,6 +144,7 @@ impl Plugins {
                 id: plugin.id.clone(),
                 name: plugin.manifest.name.clone(),
                 card: None,
+                hidden: Vec::new(),
                 problem: None,
                 held: true,
             }))
@@ -145,12 +157,16 @@ impl Plugins {
             installed: self.installed,
             on: self.running.len() + self.held.len(),
             glance: self.glance.as_ref().and_then(|id| {
-                let card = shown.iter().find(|shown| shown.id == *id)?.card.as_ref()?;
-                (!card.glance.text.is_empty()).then(|| card.glance.clone())
+                let glance = shown
+                    .iter()
+                    .find(|shown| shown.id == *id)?
+                    .visible()?
+                    .glance();
+                (!glance.text.is_empty()).then_some(glance)
             }),
             attention: shown
                 .iter()
-                .any(|shown| shown.card.as_ref().is_some_and(|card| card.attention)),
+                .any(|shown| shown.visible().is_some_and(|card| card.attention())),
         })
     }
 

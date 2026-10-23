@@ -1,10 +1,16 @@
-//! The plugin panel, from a click on the chip beside the clock: a glass card hanging under the
-//! chip with a card for each plugin that's on, and the way to the Settings app's Plugins page.
+//! The plugin panel, from a click on the chip beside the clock or Super+Y: a glass card hanging
+//! under the chip with a card for each plugin that's on, and the way to the Settings app's Plugins
+//! page.
 //!
 //! A card shows what its plugin's program last printed (`plugins.rs`): a few lines, named groups of
-//! gauges with the time until each starts over, and up to three buttons. While the panel is open it
-//! takes every key: Tab or the arrows move between the buttons and the settings link, Enter or
-//! Space presses, Esc closes. A ring shows where the keyboard is.
+//! gauges with the time until each starts over, and up to three buttons. A gauge whose allowance
+//! says how long it lasts has the part of that time gone by shaded in the focus ring's colour, and
+//! whatever has been used beyond it in the second colour: used faster than time goes by. A card
+//! with sections has a cog, which slides it across to a switch for each section.
+//!
+//! While the panel is open it takes every key: Tab or the arrows move between the cogs, buttons and
+//! the settings link, Enter or Space presses, Esc slides a card back or closes. A ring shows where
+//! the keyboard is.
 
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
@@ -13,7 +19,7 @@ use smithay::{
 };
 
 use crate::{
-    Slipstream, meter,
+    Slipstream, icons, meter,
     paint::{Painted, Painter},
     panel::{self, DESIGN_PX, GAP, INK, PADDING},
     plugins::Shown,
@@ -26,19 +32,34 @@ const HEAD_H: f32 = 30.0;
 const FOOT_H: f32 = 31.0;
 const CARD_PAD: f32 = 14.0;
 const CARD_GAP: f32 = 10.0;
-const NAME_H: f32 = 22.0;
+const NAME_H: f32 = 24.0;
 const LINE_H: f32 = 21.0;
 const SECTION_HEAD_H: f32 = 24.0;
 const GAUGE_ROW_H: f32 = 24.0;
 const NOTE_H: f32 = 20.0;
 const BUTTON_H: f32 = 30.0;
 const BUTTON_GAP: f32 = 8.0;
+/// The cog, and the way back from a card's switches.
+const ROUND: f32 = 24.0;
+/// A row of a card's switches, and its key to the gauges' colours.
+const CHOICE_H: f32 = 32.0;
+const KEY_H: f32 = 20.0;
 /// The squares beside the panel's name, as on the chip.
 const SQUARE: f32 = 8.0;
+/// How long a card takes to slide between its gauges and its switches.
+const TURN: f64 = 0.3;
+/// How strongly the time gone by is shaded in a gauge's track.
+const TIME_ALPHA: u32 = 0x55;
 
 /// Something the keyboard can be on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item {
+    /// A plugin's cog, by its id.
+    Cog(String),
+    /// The way back from a plugin's switches.
+    Back(String),
+    /// The switch for a plugin's section, by the plugin's id and the section's name.
+    Section(String, String),
     /// A button: its plugin's id and its own.
     Button(String, String),
     Settings,
@@ -54,6 +75,11 @@ pub enum Request {
         plugin: String,
         button: String,
     },
+    /// Show plugin `plugin`'s section `section` if it's hidden, or hide it.
+    Toggle {
+        plugin: String,
+        section: String,
+    },
     /// The Settings app's Plugins page.
     Settings,
 }
@@ -66,9 +92,21 @@ pub struct Facts {
     pub installed: usize,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
+    /// The time gone by in a gauge: the focus ring's colour. Used beyond it: the second colour.
+    pub time: u32,
+    pub ahead: u32,
     pub reduced_motion: bool,
     /// The key that opens and closes the panel.
     pub key: String,
+}
+
+/// A card sliding between its gauges and its switches: the plugin, whether it's going to the
+/// switches, and when it started, on the animation clock (`None` until the next frame stamps it).
+#[derive(Debug, Clone, PartialEq)]
+struct Turn {
+    plugin: String,
+    to_switches: bool,
+    since: Option<f64>,
 }
 
 /// Everything the painted panel depends on.
@@ -77,6 +115,8 @@ struct Look {
     facts: Facts,
     selected: Item,
     under: f64,
+    /// The card turned, or turning, and how far: 0 its gauges, 1 its switches.
+    turned: Option<(String, f32)>,
     width: i32,
     scale: f64,
 }
@@ -89,6 +129,7 @@ pub struct PluginPanel {
     selected: Option<Item>,
     /// The middle of the chip it hangs from, in logical pixels from the screen's left.
     under: f64,
+    turn: Option<Turn>,
     shown: Option<Look>,
     painted: Option<Painted>,
     /// The painted area's corner and the card, in logical pixels from the output's corner.
@@ -97,20 +138,34 @@ pub struct PluginPanel {
     targets: Vec<(Item, Rectangle<f64, Logical>)>,
 }
 
-/// The keyboard's stops, in order: every button, card by card, then the settings link.
-fn items(facts: &Facts) -> Vec<Item> {
-    facts
-        .cards
-        .iter()
-        .flat_map(|shown| {
-            shown
-                .card
+/// The keyboard's stops, in order: card by card its cog and buttons, or on the card showing its
+/// switches the way back and each switch, then the settings link.
+fn items(facts: &Facts, switches: Option<&str>) -> Vec<Item> {
+    let mut items = Vec::new();
+    for shown in &facts.cards {
+        let Some(card) = &shown.card else {
+            continue;
+        };
+        if switches == Some(shown.id.as_str()) {
+            items.push(Item::Back(shown.id.clone()));
+            items.extend(
+                card.sections
+                    .iter()
+                    .map(|section| Item::Section(shown.id.clone(), section.name.clone())),
+            );
+            continue;
+        }
+        if !card.sections.is_empty() {
+            items.push(Item::Cog(shown.id.clone()));
+        }
+        items.extend(
+            card.buttons
                 .iter()
-                .flat_map(|card| &card.buttons)
-                .map(|button| Item::Button(shown.id.clone(), button.id.clone()))
-        })
-        .chain(std::iter::once(Item::Settings))
-        .collect()
+                .map(|button| Item::Button(shown.id.clone(), button.id.clone())),
+        );
+    }
+    items.push(Item::Settings);
+    items
 }
 
 impl PluginPanel {
@@ -129,28 +184,47 @@ impl PluginPanel {
         self.opened_at = now;
         self.under = under;
         self.selected = None;
+        self.turn = None;
         self.shown = None;
     }
 
     pub fn close(&mut self) {
         self.open = false;
+        self.turn = None;
         self.shown = None;
         self.painted = None;
         self.targets.clear();
     }
 
+    /// The plugin whose card shows, or is sliding to show, its switches.
+    fn switches(&self) -> Option<&str> {
+        self.turn
+            .as_ref()
+            .filter(|turn| turn.to_switches)
+            .map(|turn| turn.plugin.as_str())
+    }
+
     /// Where the keyboard is: the one chosen while it's still there, else the first stop.
     fn selected(&self, facts: &Facts) -> Item {
-        let items = items(facts);
+        let items = items(facts, self.switches());
         self.selected
             .clone()
             .filter(|item| items.contains(item))
             .unwrap_or_else(|| items[0].clone())
     }
 
+    /// Slides `plugin`'s card to its switches, or back to its gauges.
+    fn turn(&mut self, plugin: &str, to_switches: bool) {
+        self.turn = Some(Turn {
+            plugin: plugin.to_string(),
+            to_switches,
+            since: None,
+        });
+    }
+
     /// A key while it's open.
     pub fn key(&mut self, sym: Keysym, shift: bool, facts: &Facts) -> Request {
-        let items = items(facts);
+        let items = items(facts, self.switches());
         let at = items
             .iter()
             .position(|item| *item == self.selected(facts))
@@ -163,7 +237,10 @@ impl PluginPanel {
             }
         };
         match sym {
-            Keysym::Escape => return Request::Close,
+            Keysym::Escape => match self.switches().map(str::to_string) {
+                Some(plugin) => return self.press(&Item::Back(plugin)),
+                None => return Request::Close,
+            },
             Keysym::Tab | Keysym::ISO_Left_Tab => {
                 self.selected = Some(items[step(shift || sym == Keysym::ISO_Left_Tab)].clone());
             }
@@ -172,15 +249,31 @@ impl PluginPanel {
             Keysym::Home => self.selected = items.first().cloned(),
             Keysym::End => self.selected = items.last().cloned(),
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                return Self::press(&items[at]);
+                let item = items[at].clone();
+                return self.press(&item);
             }
             _ => {}
         }
         Request::Nothing
     }
 
-    fn press(item: &Item) -> Request {
+    fn press(&mut self, item: &Item) -> Request {
+        self.selected = Some(item.clone());
         match item {
+            Item::Cog(plugin) => {
+                self.turn(plugin, true);
+                self.selected = Some(Item::Back(plugin.clone()));
+                Request::Nothing
+            }
+            Item::Back(plugin) => {
+                self.turn(plugin, false);
+                self.selected = Some(Item::Cog(plugin.clone()));
+                Request::Nothing
+            }
+            Item::Section(plugin, section) => Request::Toggle {
+                plugin: plugin.clone(),
+                section: section.clone(),
+            },
             Item::Button(plugin, button) => Request::Press {
                 plugin: plugin.clone(),
                 button: button.clone(),
@@ -197,10 +290,7 @@ impl PluginPanel {
             .find(|(_, area)| area.contains((x, y)))
             .map(|(item, _)| item.clone());
         match target {
-            Some(item) => {
-                self.selected = Some(item.clone());
-                Self::press(&item)
-            }
+            Some(item) => self.press(&item),
             None if self.frame.contains((x, y)) => Request::Nothing,
             None => Request::Close,
         }
@@ -222,9 +312,25 @@ impl PluginPanel {
             return None;
         }
         let reduced_motion = facts.reduced_motion;
+        let now = frame.time;
+        let turned = self.turn.as_mut().and_then(|turn| {
+            let since = *turn.since.get_or_insert(now);
+            let slid = if reduced_motion {
+                1.0
+            } else {
+                crate::anim::Easing::InOutCubic.at((now - since) / TURN) as f32
+            };
+            let at = if turn.to_switches { slid } else { 1.0 - slid };
+            // Gone back all the way is the only end: a slide out starts at 0 too.
+            (turn.to_switches || slid < 1.0).then(|| (turn.plugin.clone(), at))
+        });
+        if turned.is_none() {
+            self.turn = None;
+        }
         let look = Look {
             selected: self.selected(&facts),
             under: self.under,
+            turned,
             facts,
             width: frame.size.w,
             scale: frame.scale,
@@ -233,7 +339,7 @@ impl PluginPanel {
             self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let (alpha, rise) = panel::opening(frame.time - self.opened_at, reduced_motion);
+        let (alpha, rise) = panel::opening(now - self.opened_at, reduced_motion);
         let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
         self.painted.as_ref()?.element(renderer, at, alpha)
     }
@@ -241,7 +347,20 @@ impl PluginPanel {
     fn repaint(&mut self, look: &Look) -> Option<()> {
         let facts = &look.facts;
         let inner = WIDTH - 2.0 * PADDING;
-        let heights: Vec<f32> = facts.cards.iter().map(card_height).collect();
+        let turned = |shown: &Shown| {
+            look.turned
+                .as_ref()
+                .filter(|(plugin, _)| *plugin == shown.id)
+                .map_or(0.0, |(_, at)| *at)
+        };
+        let heights: Vec<f32> = facts
+            .cards
+            .iter()
+            .map(|shown| {
+                let at = turned(shown);
+                front_height(shown) + (back_height(shown) - front_height(shown)) * at
+            })
+            .collect();
         let cards_h = if heights.is_empty() {
             LINE_H * 2.0
         } else {
@@ -264,6 +383,7 @@ impl PluginPanel {
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
             ((height + 2.0 * panel::MARGIN + panel::BELOW) * DESIGN_PX).ceil() as i32,
         ));
+        let f = look.scale as f32 * DESIGN_PX;
         let mut shapes: Vec<(Item, [f32; 5])> = Vec::new();
         let painted = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
@@ -282,7 +402,42 @@ impl PluginPanel {
                 p.text(said, x0, y + LINE_H, &quiet);
             }
             for (shown, h) in facts.cards.iter().zip(&heights) {
-                paint_card(p, shown, x0, y, inner, *h, &mut shapes);
+                p.fill(x0, y, inner, *h, panel::TILE_RADIUS, panel::TILE);
+                p.border(x0, y, inner, *h, panel::TILE_RADIUS, 1.0, panel::DIVIDER);
+                match turned(shown) {
+                    0.0 => paint_front(p, facts, shown, x0, y, inner, &mut shapes),
+                    1.0 => paint_back(p, facts, shown, x0, y, inner, &mut shapes),
+                    at => {
+                        // Mid-slide, both sides are drawn on a strip the card's size, so
+                        // neither runs past its edges; nothing on it can be pressed.
+                        if let Some(mut strip) = Painter::new(
+                            (inner * f).ceil() as u32,
+                            (h * f).ceil().max(1.0) as u32,
+                            f,
+                        ) {
+                            let mut none = Vec::new();
+                            paint_front(
+                                &mut strip,
+                                facts,
+                                shown,
+                                -inner * at,
+                                0.0,
+                                inner,
+                                &mut none,
+                            );
+                            paint_back(
+                                &mut strip,
+                                facts,
+                                shown,
+                                inner * (1.0 - at),
+                                0.0,
+                                inner,
+                                &mut none,
+                            );
+                            p.image(&strip.pixmap, x0, y);
+                        }
+                    }
+                }
                 y += h + CARD_GAP;
             }
             if !facts.cards.is_empty() {
@@ -352,9 +507,20 @@ fn paint_head(p: &mut Painter, facts: &Facts, x0: f32, y: f32) {
     }
 }
 
-/// A card's height: its name, then what its program printed, or why it printed nothing.
-fn card_height(shown: &Shown) -> f32 {
-    let body = match &shown.card {
+/// How many of a card's sections are hidden.
+fn hidden_count(shown: &Shown) -> usize {
+    shown.card.as_ref().map_or(0, |card| {
+        card.sections
+            .iter()
+            .filter(|section| shown.hidden.contains(&section.name))
+            .count()
+    })
+}
+
+/// A card's height showing its gauges: its name, then what its program printed, or why it printed
+/// nothing.
+fn front_height(shown: &Shown) -> f32 {
+    let body = match shown.visible() {
         Some(card) => {
             let sections: f32 = card
                 .sections
@@ -370,7 +536,8 @@ fn card_height(shown: &Shown) -> f32 {
             } else {
                 BUTTON_GAP + BUTTON_H
             };
-            card.lines.len() as f32 * LINE_H + sections + buttons
+            let hidden = if hidden_count(shown) > 0 { NOTE_H } else { 0.0 };
+            card.lines.len() as f32 * LINE_H + sections + buttons + hidden
         }
         None => LINE_H,
     };
@@ -382,33 +549,77 @@ fn card_height(shown: &Shown) -> f32 {
     CARD_PAD + NAME_H + body + problem + CARD_PAD
 }
 
-/// One plugin's card, `h` tall at (`x`, `y`): its name, its lines, its gauges and its buttons. A
-/// card whose program has stopped answering is dimmed, and says why.
-fn paint_card(
+/// Whether any of a card's gauges, shown or hidden, knows how far through its window it is.
+fn has_time(shown: &Shown) -> bool {
+    shown.card.iter().any(|card| {
+        card.sections
+            .iter()
+            .flat_map(|section| &section.gauges)
+            .any(|gauge| gauge.through.is_some())
+    })
+}
+
+/// A card's height showing its switches: the way back, a row for each section, and the key to the
+/// gauges' colours when they show time.
+fn back_height(shown: &Shown) -> f32 {
+    let rows = shown.card.as_ref().map_or(0, |card| card.sections.len());
+    let key = if has_time(shown) {
+        6.0 + 2.0 * KEY_H
+    } else {
+        0.0
+    };
+    CARD_PAD + NAME_H + 6.0 + rows as f32 * CHOICE_H + key + CARD_PAD
+}
+
+/// A round quiet button at (`x`, `y`) with `icon` in it.
+fn round_button(p: &mut Painter, icon: &str, x: f32, y: f32) {
+    panel::quiet_button(p, x, y, ROUND, ROUND, ROUND / 2.0, false);
+    p.icon(icon, x + 3.0, y + 3.0, 18.0, Some(panel::SECONDARY));
+}
+
+/// One plugin's card showing its gauges, at (`x`, `y`) and `w` wide: its name and cog, its lines,
+/// its gauges and its buttons. A card whose program has stopped answering is dimmed, and says why.
+fn paint_front(
     p: &mut Painter,
+    facts: &Facts,
     shown: &Shown,
     x: f32,
     y: f32,
     w: f32,
-    h: f32,
     shapes: &mut Vec<(Item, [f32; 5])>,
 ) {
-    p.fill(x, y, w, h, panel::TILE_RADIUS, panel::TILE);
-    p.border(x, y, w, h, panel::TILE_RADIUS, 1.0, panel::DIVIDER);
     let x0 = x + CARD_PAD;
     let inner = w - 2.0 * CARD_PAD;
     let mut y = y + CARD_PAD;
     let stale = shown.problem.is_some();
     let shade = |rgba: u32| if stale { meter::dim(rgba) } else { rgba };
+    let has_sections = shown
+        .card
+        .as_ref()
+        .is_some_and(|card| !card.sections.is_empty());
     let name = Style::new(Face::BodyBold, 15.0, INK);
+    let name_room = if has_sections {
+        inner - ROUND - 8.0
+    } else {
+        inner
+    };
     p.text(
-        &text::ellipsize(&shown.name, &name, inner),
+        &text::ellipsize(&shown.name, &name, name_room),
         x0,
         y + NAME_H / 2.0 - 2.0,
         &name,
     );
+    if has_sections {
+        let cog_x = x0 + inner - ROUND;
+        let cog_y = y + (NAME_H - ROUND) / 2.0 - 2.0;
+        round_button(p, icons::COG, cog_x, cog_y);
+        shapes.push((
+            Item::Cog(shown.id.clone()),
+            [cog_x, cog_y, ROUND, ROUND, ROUND / 2.0],
+        ));
+    }
     y += NAME_H;
-    let Some(card) = &shown.card else {
+    let Some(card) = shown.visible() else {
         let note = Style::new(Face::Body, 13.0, 0xd9b27aff);
         let said = match &shown.problem {
             _ if shown.held => "Changed since it was turned on: turn it on again to run it".into(),
@@ -482,18 +693,14 @@ fn paint_card(
             let resets_right = x0 + inner - 46.0;
             let track_x = x0 + 104.0;
             let track_w = resets_right - 96.0 - track_x;
-            p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, shade(0x3a3f4bff));
-            let filled = track_w * gauge.percent as f32 / 100.0;
-            if filled > 0.0 {
-                p.fill(
-                    track_x,
-                    centre - 3.0,
-                    filled.max(6.0),
-                    6.0,
-                    3.0,
-                    shade(meter::ink(gauge.percent)),
-                );
-            }
+            paint_gauge(
+                p,
+                facts,
+                gauge.percent,
+                gauge.through,
+                [track_x, centre - 3.0, track_w],
+                &shade,
+            );
             if let Some(left) = &gauge.resets_in {
                 let small = Style::new(Face::Body, 12.0, shade(panel::HINT));
                 let left = text::ellipsize(left, &small, 88.0);
@@ -517,6 +724,12 @@ fn paint_card(
             y += NOTE_H;
         }
     }
+    let hidden = hidden_count(shown);
+    if hidden > 0 {
+        let quiet = Style::new(Face::Body, 12.5, panel::HINT);
+        p.text(&format!("{hidden} hidden"), x0, y + NOTE_H / 2.0, &quiet);
+        y += NOTE_H;
+    }
     if !card.buttons.is_empty() {
         y += BUTTON_GAP;
         let label = Style::new(Face::Body, 13.5, INK);
@@ -533,13 +746,137 @@ fn paint_card(
         }
         y += BUTTON_H;
     }
-    if let Some(problem) = shown.problem.as_ref().filter(|_| shown.card.is_some()) {
+    if let Some(problem) = &shown.problem {
         let note = Style::new(Face::Body, 12.5, 0xd9b27aff);
         p.text(
             &text::ellipsize(&format!("Not up to date: {problem}"), &note, inner),
             x0,
             y + NOTE_H / 2.0,
             &note,
+        );
+    }
+}
+
+/// A gauge's track at `[x, y, w]`, 6 tall: the time gone by in its window shaded in the time
+/// colour, `percent` used filled over it, and any used beyond the time gone by in the second
+/// colour.
+fn paint_gauge(
+    p: &mut Painter,
+    facts: &Facts,
+    percent: u8,
+    through: Option<f32>,
+    [x, y, w]: [f32; 3],
+    shade: &dyn Fn(u32) -> u32,
+) {
+    const H: f32 = 6.0;
+    p.fill(x, y, w, H, H / 2.0, shade(0x3a3f4bff));
+    if let Some(through) = through.filter(|through| *through > 0.0) {
+        let time = (facts.time & 0xffffff00) | TIME_ALPHA;
+        p.fill(x, y, (w * through).max(H), H, H / 2.0, shade(time));
+    }
+    let used = w * percent as f32 / 100.0;
+    if used > 0.0 {
+        p.fill(x, y, used.max(H), H, H / 2.0, shade(meter::ink(percent)));
+    }
+    if let Some(through) = through {
+        let gone = w * through;
+        if used > gone + 1.0 {
+            p.fill(gone + x, y, used - gone, H, H / 2.0, shade(facts.ahead));
+        }
+    }
+}
+
+/// One plugin's card showing its switches, at (`x`, `y`) and `w` wide: the way back, a switch for
+/// each section the plugin reports, and, when its gauges show time, what their two colours mean.
+fn paint_back(
+    p: &mut Painter,
+    facts: &Facts,
+    shown: &Shown,
+    x: f32,
+    y: f32,
+    w: f32,
+    shapes: &mut Vec<(Item, [f32; 5])>,
+) {
+    let x0 = x + CARD_PAD;
+    let inner = w - 2.0 * CARD_PAD;
+    let mut y = y + CARD_PAD;
+    let back_y = y + (NAME_H - ROUND) / 2.0 - 2.0;
+    round_button(p, icons::BACK, x0, back_y);
+    shapes.push((
+        Item::Back(shown.id.clone()),
+        [x0, back_y, ROUND, ROUND, ROUND / 2.0],
+    ));
+    let name = Style::new(Face::BodyBold, 15.0, INK);
+    p.text(
+        &text::ellipsize(
+            &format!("{} shows", shown.name),
+            &name,
+            inner - ROUND - 10.0,
+        ),
+        x0 + ROUND + 10.0,
+        y + NAME_H / 2.0 - 2.0,
+        &name,
+    );
+    y += NAME_H + 6.0;
+    let label = Style::new(Face::Body, 14.0, INK);
+    for section in shown.card.iter().flat_map(|card| &card.sections) {
+        let on = !shown.hidden.contains(&section.name);
+        let centre = y + CHOICE_H / 2.0;
+        p.text(
+            &text::ellipsize(&section.name, &label, inner - 60.0),
+            x0,
+            centre,
+            &label,
+        );
+        let (sw, sh) = (34.0, 20.0);
+        let sx = x0 + inner - sw;
+        p.fill(
+            sx,
+            centre - sh / 2.0,
+            sw,
+            sh,
+            sh / 2.0,
+            if on { panel::AMBER } else { panel::QUIET_LIT },
+        );
+        let knob = if on { sx + sw - sh + 3.0 } else { sx + 3.0 };
+        p.fill(
+            knob,
+            centre - sh / 2.0 + 3.0,
+            sh - 6.0,
+            sh - 6.0,
+            (sh - 6.0) / 2.0,
+            if on { panel::DARK } else { panel::SECONDARY },
+        );
+        shapes.push((
+            Item::Section(shown.id.clone(), section.name.clone()),
+            [
+                x0 - 6.0,
+                y + 2.0,
+                inner + 12.0,
+                CHOICE_H - 4.0,
+                panel::ROW_RADIUS,
+            ],
+        ));
+        y += CHOICE_H;
+    }
+    if has_time(shown) {
+        y += 6.0;
+        let quiet = Style::new(Face::Body, 12.5, panel::HINT);
+        let swatch = |p: &mut Painter, y: f32, colour: u32, said: &str| {
+            p.fill(x0, y + KEY_H / 2.0 - 3.0, 18.0, 6.0, 3.0, colour);
+            p.text(said, x0 + 28.0, y + KEY_H / 2.0, &quiet);
+        };
+        swatch(
+            p,
+            y,
+            (facts.time & 0xffffff00) | TIME_ALPHA,
+            "Shaded: how much of the period has gone by",
+        );
+        swatch(
+            p,
+            y + KEY_H,
+            facts.ahead,
+            "Used faster than time has gone by",
         );
     }
 }
@@ -552,8 +889,14 @@ fn meter_text(percent: u8) -> u32 {
     }
 }
 
+/// `rgb`, from 0 to 1 a channel, as 0xRRGGBBff.
+fn opaque([r, g, b]: [f32; 3]) -> u32 {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xff
+}
+
 impl Slipstream {
-    /// A click on the chip: opens the panel under it, or closes it.
+    /// A click on the chip, or its key: opens the panel under the chip, or closes it.
     pub fn toggle_plugin_panel(&mut self) {
         if self.plugin_panel.is_open() {
             self.plugin_panel.close();
@@ -572,6 +915,8 @@ impl Slipstream {
             cards,
             installed,
             ring: self.panel_ring(),
+            time: opaque(self.ring_rgb),
+            ahead: opaque(self.bullet_rgb),
             reduced_motion: self.clock.reduced_motion,
             key: self.key_label(crate::keys::Action::Plugins),
         }
@@ -609,6 +954,9 @@ impl Slipstream {
             Request::Nothing => {}
             Request::Close => self.plugin_panel.close(),
             Request::Press { plugin, button } => self.plugins.press(&plugin, &button),
+            Request::Toggle { plugin, section } => self.change_settings(|settings| {
+                slipstream_config::plugins::toggle_hidden(settings, &plugin, &section);
+            }),
             Request::Settings => {
                 self.plugin_panel.close();
                 self.open_slipstream_settings("plugins");
@@ -619,7 +967,10 @@ impl Slipstream {
 
 #[cfg(test)]
 mod tests {
-    use slipstream_config::plugins::{Button, Card};
+    use slipstream_config::{
+        meter::{Gauge, Section},
+        plugins::{Button, Card},
+    };
 
     use super::*;
 
@@ -637,9 +988,30 @@ mod tests {
                     .collect(),
                 ..Card::default()
             }),
+            hidden: Vec::new(),
             problem: None,
             held: false,
         }
+    }
+
+    fn with_sections(id: &str, names: &[&str], through: Option<f32>) -> Shown {
+        let mut shown = shown(id, &[]);
+        shown.card.as_mut().unwrap().sections = names
+            .iter()
+            .map(|name| Section {
+                name: name.to_string(),
+                detail: None,
+                gauges: vec![Gauge {
+                    label: "Week".into(),
+                    percent: 40,
+                    resets_in: None,
+                    through,
+                }],
+                note: None,
+                stale: false,
+            })
+            .collect();
+        shown
     }
 
     fn facts(cards: Vec<Shown>) -> Facts {
@@ -647,6 +1019,8 @@ mod tests {
             installed: cards.len(),
             cards,
             ring: panel::FOCUS,
+            time: 0x42d3ffff,
+            ahead: panel::AMBER,
             reduced_motion: true,
             key: "Super+Y".into(),
         }
@@ -682,15 +1056,60 @@ mod tests {
         assert_eq!(panel.key(Keysym::Return, false, &facts), Request::Settings);
     }
 
+    /// The cog slides a card to a switch for every section, hidden ones included, and Esc slides it
+    /// back before it closes anything.
+    #[test]
+    fn the_cog_leads_to_a_switch_for_every_section_and_esc_comes_back() {
+        let mut usage = with_sections("meter", &["Claude", "Codex", "Antigravity"], None);
+        usage.hidden = vec!["Codex".into(), "Antigravity".into()];
+        let facts = facts(vec![usage]);
+        let mut panel = PluginPanel::default();
+        panel.open(0.0, 800.0);
+        assert_eq!(panel.selected(&facts), Item::Cog("meter".into()));
+        assert_eq!(panel.key(Keysym::Return, false, &facts), Request::Nothing);
+        assert_eq!(panel.switches(), Some("meter"));
+        panel.key(Keysym::Down, false, &facts);
+        panel.key(Keysym::Down, false, &facts);
+        assert_eq!(
+            panel.key(Keysym::space, false, &facts),
+            Request::Toggle {
+                plugin: "meter".into(),
+                section: "Codex".into()
+            },
+            "a hidden section has its switch too"
+        );
+        assert_eq!(panel.key(Keysym::Escape, false, &facts), Request::Nothing);
+        assert_eq!(panel.switches(), None);
+        assert_eq!(panel.selected(&facts), Item::Cog("meter".into()));
+        assert_eq!(panel.key(Keysym::Escape, false, &facts), Request::Close);
+    }
+
     #[test]
     fn a_card_grows_with_what_it_shows() {
-        let bare = card_height(&shown("a", &[]));
-        let buttons = card_height(&shown("a", &["go"]));
+        let bare = front_height(&shown("a", &[]));
+        let buttons = front_height(&shown("a", &["go"]));
         assert!(buttons > bare);
         let quiet = Shown {
             card: None,
             ..shown("a", &[])
         };
-        assert_eq!(card_height(&quiet), bare + LINE_H);
+        assert_eq!(front_height(&quiet), bare + LINE_H);
+        let mut usage = with_sections("meter", &["Claude", "Codex"], None);
+        let both = front_height(&usage);
+        usage.hidden = vec!["Codex".into()];
+        assert!(
+            front_height(&usage) < both,
+            "a hidden section takes no room"
+        );
+        assert_eq!(
+            back_height(&with_sections("meter", &["Claude"], Some(0.5))),
+            back_height(&with_sections("meter", &["Claude"], None)) + 6.0 + 2.0 * KEY_H,
+            "the key to the colours shows only for gauges that show time"
+        );
+    }
+
+    #[test]
+    fn colours_come_from_the_settings_rgb() {
+        assert_eq!(opaque([1.0, 0.5, 0.0]), 0xff8000ff);
     }
 }

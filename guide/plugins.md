@@ -43,8 +43,9 @@ Each time it runs, or each time something changes for a program that keeps runni
 Every field is optional.
 
 - `lines`: up to six lines of text.
-- `sections`: named groups of gauges, up to four. Each gauge has a `label` and a `percent`, and can have `resets`, when it starts over in seconds since the Unix epoch, which shows as the time left. A section can have a `detail` beside its name, a `note` under it, and `stale` to dim it.
+- `sections`: named groups of gauges, up to four. Each gauge has a `label` and a `percent`, and can have `resets`, when it starts over in seconds since the Unix epoch, which shows as the time left, and `window`, how long it lasts in seconds. With both, the part of the window gone by is shaded in the gauge, in the focus ring's colour, and anything used beyond it shows in the bullet-time colour. A section can have a `detail` beside its name, a `note` under it, and `stale` to dim it.
 - `buttons`: up to three. Pressing one runs the plugin's program again with `press` and the button's `id` after its own words: `./weather.sh press refresh`.
+- A card with sections has a cog, which slides it across to a switch for each one, to hide the ones you don't want.
 - `glance`: what the chip shows when this plugin is the one chosen for it. Without it, the chip shows the first section's first two gauges and the larger of their percentages.
 - `attention`: turns the chip amber. A gauge at 75% or more does the same.
 

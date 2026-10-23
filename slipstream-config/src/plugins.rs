@@ -105,6 +105,9 @@ pub struct Plugins {
     /// Each plugin's fingerprint when it was turned on, by id.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub fingerprints: BTreeMap<String, String>,
+    /// The sections of each plugin's card not to show, by plugin id and section name.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub hidden: BTreeMap<String, Vec<String>>,
 }
 
 impl Plugins {
@@ -394,6 +397,29 @@ pub fn meter_plugin(meter: &crate::Meter) -> Option<Plugin> {
     })
 }
 
+/// The sections of plugin `id`'s card not to show: the meter keeps its own list.
+pub fn hidden<'a>(settings: &'a crate::Settings, id: &str) -> &'a [String] {
+    if id == METER_ID {
+        return &settings.meter.hidden;
+    }
+    settings.plugins.hidden.get(id).map_or(&[], Vec::as_slice)
+}
+
+/// Shows plugin `id`'s section `name` if it was hidden, or hides it.
+pub fn toggle_hidden(settings: &mut crate::Settings, id: &str, name: &str) {
+    let list = if id == METER_ID {
+        &mut settings.meter.hidden
+    } else {
+        settings.plugins.hidden.entry(id.to_string()).or_default()
+    };
+    if list.iter().any(|hidden| hidden == name) {
+        list.retain(|hidden| hidden != name);
+    } else {
+        list.push(name.to_string());
+    }
+    settings.plugins.hidden.retain(|_, list| !list.is_empty());
+}
+
 /// Whether `id` is on: as `[plugins] on` says, and the meter whenever it has a command.
 pub fn is_on(settings: &crate::Settings, id: &str) -> bool {
     if id == METER_ID {
@@ -424,10 +450,10 @@ pub struct Card {
     pub lines: Vec<String>,
     pub sections: Vec<Section>,
     pub buttons: Vec<Button>,
-    /// What the chip shows for it, when it is the one chosen.
-    pub glance: Glance,
-    /// Something wants looking at: the chip turns amber.
-    pub attention: bool,
+    /// The headline the plugin gave for the chip, if it gave one (`glance`).
+    pub headline: Option<String>,
+    /// The plugin says something wants looking at (`attention`).
+    pub flagged: bool,
 }
 
 /// A plugin's headline on the chip.
@@ -488,29 +514,6 @@ impl Card {
                 label: clip(&button.label, LABEL_CHARS),
             })
             .collect();
-        let gauges: Vec<u8> = sections
-            .iter()
-            .find(|section| !section.gauges.is_empty())
-            .map(|section| section.gauges.iter().take(2).map(|g| g.percent).collect())
-            .unwrap_or_default();
-        let glance = match printed.glance.filter(|glance| !glance.trim().is_empty()) {
-            Some(text) => Glance {
-                text: clip(&text, GLANCE_CHARS),
-                gauges: Vec::new(),
-            },
-            None => Glance {
-                text: gauges
-                    .iter()
-                    .max()
-                    .map(|percent| format!("{percent}%"))
-                    .unwrap_or_default(),
-                gauges,
-            },
-        };
-        let full = sections
-            .iter()
-            .flat_map(|section| &section.gauges)
-            .any(|gauge| gauge.percent >= ATTENTION_PERCENT);
         Ok(Card {
             lines: printed
                 .lines
@@ -521,8 +524,11 @@ impl Card {
                 .collect(),
             sections,
             buttons,
-            glance,
-            attention: printed.attention || full,
+            headline: printed
+                .glance
+                .filter(|glance| !glance.trim().is_empty())
+                .map(|text| clip(&text, GLANCE_CHARS)),
+            flagged: printed.attention,
         })
     }
 
@@ -531,6 +537,42 @@ impl Card {
         self.sections
             .retain(|section| !hidden.contains(&section.name));
         self
+    }
+
+    /// What the chip shows for it, when it is the one chosen: the headline it gave, else its
+    /// first section's first two gauges and the larger of their percentages.
+    pub fn glance(&self) -> Glance {
+        if let Some(text) = &self.headline {
+            return Glance {
+                text: text.clone(),
+                gauges: Vec::new(),
+            };
+        }
+        let gauges: Vec<u8> = self
+            .sections
+            .iter()
+            .find(|section| !section.gauges.is_empty())
+            .map(|section| section.gauges.iter().take(2).map(|g| g.percent).collect())
+            .unwrap_or_default();
+        Glance {
+            text: gauges
+                .iter()
+                .max()
+                .map(|percent| format!("{percent}%"))
+                .unwrap_or_default(),
+            gauges,
+        }
+    }
+
+    /// Whether something on it wants looking at: the plugin says so, or a gauge is past three
+    /// quarters.
+    pub fn attention(&self) -> bool {
+        self.flagged
+            || self
+                .sections
+                .iter()
+                .flat_map(|section| &section.gauges)
+                .any(|gauge| gauge.percent >= ATTENTION_PERCENT)
     }
 }
 
@@ -619,16 +661,23 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(card.glance.gauges, [62, 81]);
-        assert_eq!(card.glance.text, "81%");
+        assert_eq!(card.glance().gauges, [62, 81]);
+        assert_eq!(card.glance().text, "81%");
         assert!(
-            card.attention,
+            card.attention(),
             "a gauge past three quarters wants looking at"
         );
+        let hidden = card.clone().without(&["Claude".to_string()]);
+        assert_eq!(
+            hidden.glance().text,
+            "",
+            "a hidden section isn't on the chip"
+        );
+        assert!(!hidden.attention(), "nor does it want looking at");
         let card = Card::parse(r#"{"glance": "18:42 left on the clock"}"#, false, 0).unwrap();
-        assert_eq!(card.glance.text, "18:42 left o…");
-        assert!(card.glance.gauges.is_empty());
-        assert!(!card.attention);
+        assert_eq!(card.glance().text, "18:42 left o…");
+        assert!(card.glance().gauges.is_empty());
+        assert!(!card.attention());
     }
 
     /// The promise in the guide: a card is only ever shown. Its buttons carry nothing but an id,
@@ -649,6 +698,21 @@ mod tests {
         let ids: Vec<_> = card.buttons.iter().map(|b| b.id.as_str()).collect();
         assert_eq!(ids, ["pause", "skip"]);
         assert_eq!(card.lines, ["one two", "three"]);
+    }
+
+    #[test]
+    fn hiding_a_section_is_kept_for_each_plugin_and_the_meter_keeps_its_own_list() {
+        let mut settings = crate::Settings::default();
+        toggle_hidden(&mut settings, "agents", "Codex");
+        toggle_hidden(&mut settings, METER_ID, "Codex");
+        assert_eq!(hidden(&settings, "agents"), ["Codex"]);
+        assert_eq!(settings.meter.hidden, ["Codex"]);
+        toggle_hidden(&mut settings, "agents", "Codex");
+        assert!(hidden(&settings, "agents").is_empty());
+        assert!(
+            settings.plugins.hidden.is_empty(),
+            "no empty lists left in the file"
+        );
     }
 
     #[test]

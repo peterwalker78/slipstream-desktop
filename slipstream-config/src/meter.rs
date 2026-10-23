@@ -6,8 +6,9 @@
 //!                "meters": [{"label": "Daily", "percent": 42, "resets": 1790000000}]}]}
 //! ```
 //!
-//! `resets` is when that allowance starts over, in seconds since the Unix epoch. `detail`, `note`,
-//! `stale` and `resets` are optional; `stale` dims a section whose numbers are old.
+//! `resets` is when that allowance starts over, in seconds since the Unix epoch, and `window` how
+//! long it lasts, in seconds, so that how far through it is can be shown. `detail`, `note`,
+//! `stale`, `resets` and `window` are optional; `stale` dims a section whose numbers are old.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -39,6 +40,8 @@ pub struct Gauge {
     pub percent: u8,
     /// How long until it starts over, e.g. `2 h 5 min`.
     pub resets_in: Option<String>,
+    /// How far through its window it is, from 0 to 1, when the report says how long that is.
+    pub through: Option<f32>,
 }
 
 /// A report as the command printed it.
@@ -68,6 +71,9 @@ struct ReportMeter {
     /// Seconds since the Unix epoch.
     #[serde(default)]
     resets: Option<f64>,
+    /// How long the allowance lasts, in seconds.
+    #[serde(default)]
+    window: Option<f64>,
 }
 
 impl Report {
@@ -101,6 +107,7 @@ impl Report {
                                 .map(|at| at as i64 - now)
                                 .filter(|left| *left > 0)
                                 .map(time_left),
+                            through: through(meter.resets, meter.window, now),
                         })
                         .collect(),
                     note: section.note.clone().filter(|note| !note.is_empty()),
@@ -109,6 +116,15 @@ impl Report {
                 .collect(),
         }
     }
+}
+
+/// How far through a window `window` seconds long that ends at `resets` it is at `now`.
+fn through(resets: Option<f64>, window: Option<f64>, now: i64) -> Option<f32> {
+    let (resets, window) = (resets?, window?);
+    if !resets.is_finite() || !window.is_finite() || window <= 0.0 {
+        return None;
+    }
+    Some((1.0 - (resets - now as f64) / window).clamp(0.0, 1.0) as f32)
 }
 
 pub fn unix_now() -> i64 {
@@ -162,10 +178,22 @@ mod tests {
                 label: "Daily".into(),
                 percent: 42,
                 resets_in: Some("2 h".into()),
+                through: None,
             }
         );
         assert_eq!(storage.gauges[1].percent, 100, "clamped");
         assert_eq!(storage.gauges[1].resets_in, None, "already past");
+
+        // A day-long window ending 6 hours from now is three quarters through.
+        let report = Report::parse(
+            r#"{"sections": [{"name": "Day", "meters": [
+                {"label": "Daily", "percent": 10, "resets": 21600, "window": 86400},
+                {"label": "Odd", "percent": 10, "resets": 21600, "window": 0}]}]}"#,
+        )
+        .unwrap();
+        let day = &report.reading(false, 0).sections[0];
+        assert_eq!(day.gauges[0].through, Some(0.75));
+        assert_eq!(day.gauges[1].through, None, "no window, no position in it");
         let mail = &shown.sections[1];
         assert!(mail.stale && mail.gauges.is_empty());
         assert_eq!(mail.detail, None);

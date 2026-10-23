@@ -62,7 +62,7 @@ Slipstream serves the tray itself, through the StatusNotifierItem standard most 
 
 ## Plugins beside the clock
 
-Plugins are little apps that add a card to the panel beside the clock: the weather, a timer, your plan's limits, anything a program can report. The chip right of the date has a square for each plugin, lit for each one that's on, and the headline of the one you choose. It turns amber when a plugin wants your attention. Click it for the panel: Tab moves between the cards' buttons, Enter presses, and Esc closes it.
+Plugins are little apps that add a card to the panel beside the clock: the weather, a timer, your plan's limits, anything a program can report. The chip right of the date has a square for each plugin, lit for each one that's on, and the headline of the one you choose. It turns amber when a plugin wants your attention. Click it, or press Super+Y, for the panel: Tab moves between the cards' cogs and buttons, Enter presses, and Esc closes it. A card's cog chooses which of its sections show. Where a gauge knows how long its allowance lasts, the part of that time gone by is shaded in it, and anything used faster than that shows in your second colour.
 
 Add plugins in **Settings → Plugins**, from a folder or an `https://` git address. A new plugin starts off, so you can read its files before turning it on, and nothing of it runs until you do. Each plugin is a program of its own and runs as you, so only add plugins you trust. One that changes after you turned it on waits until you turn it on again.
 

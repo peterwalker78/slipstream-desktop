@@ -61,15 +61,14 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Starts `plugin`'s worker; `hidden` names sections of its cards not to show.
-    pub fn start(plugin: Plugin, hidden: Vec<String>) -> Worker {
+    /// Starts `plugin`'s worker.
+    pub fn start(plugin: Plugin) -> Worker {
         let control = Arc::new(Control::default());
         let published = Arc::new(Mutex::new(Published::default()));
         let job = Job {
             control: control.clone(),
             published: published.clone(),
             plugin,
-            hidden,
             last: None,
             failures: Throttle::default(),
         };
@@ -112,7 +111,6 @@ impl Drop for Worker {
 /// The worker thread's own state.
 struct Job {
     plugin: Plugin,
-    hidden: Vec<String>,
     control: Arc<Control>,
     published: Arc<Mutex<Published>>,
     /// The last line that read as a card, read again to count its times left down.
@@ -134,11 +132,10 @@ impl Job {
 
     /// Publishes the last card read, `stale` when its program has since failed, with `problem`.
     fn publish(&self, stale: bool, problem: Option<String>) {
-        let card = self.last.as_ref().and_then(|line| {
-            Card::parse(line, stale, unix_now())
-                .ok()
-                .map(|card| card.without(&self.hidden))
-        });
+        let card = self
+            .last
+            .as_ref()
+            .and_then(|line| Card::parse(line, stale, unix_now()).ok());
         *self.published.lock().unwrap() = Published { card, problem };
     }
 
