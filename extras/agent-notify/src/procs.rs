@@ -66,8 +66,16 @@ impl Procs {
     /// script called that, as Gemini CLI is, or a versioned copy of it running in a terminal.
     /// Claude Code runs a background session straight from its versions folder, so the process
     /// is named after the version. The host above it, which keeps the session's terminal, has no
-    /// terminal of its own and isn't counted, or the session would look like a subagent.
+    /// terminal of its own and isn't counted, or the session would look like a subagent. Nor is a
+    /// client such as `claude attach`: the one that started the background service has every
+    /// background session beneath it, and none of them is its own.
     pub fn is_agent(&self, agent: &str, pid: u32) -> bool {
+        if self
+            .script(pid)
+            .is_some_and(|first| crate::agents::subcommands(agent).contains(&first.as_str()))
+        {
+            return false;
+        }
         if self.comm(pid).as_deref() == Some(agent) {
             return true;
         }
@@ -263,6 +271,31 @@ mod tests {
             Procs::at(table.root()).agent_above("claude", 400),
             Some(310)
         );
+    }
+
+    #[test]
+    fn a_client_above_the_background_service_is_not_the_agent() {
+        let table = FakeProcs::new("client");
+        let versions = "/home/sam/.local/share/claude/versions/2.1.0";
+        table.process(200, 1, "zsh", &["zsh"]);
+        table.link(200, "fd/0", "/dev/pts/3");
+        table.process(300, 200, "claude", &["claude", "attach", "a1b2c3d4"]);
+        table.link(300, "exe", versions);
+        table.link(300, "fd/0", "/dev/pts/3");
+        table.process(310, 300, "2.1.0", &[versions, "daemon", "run"]);
+        table.link(310, "exe", versions);
+        table.link(310, "fd/0", "/dev/null");
+        table.process(320, 310, "2.1.0", &[versions, "--session-id", "e5f6"]);
+        table.link(320, "exe", versions);
+        table.link(320, "fd/0", "/dev/pts/7");
+        table.process(400, 320, "sh", &["sh"]);
+        let procs = Procs::at(table.root());
+        assert_eq!(
+            procs.agent_above("claude", 400),
+            Some(320),
+            "not a subagent"
+        );
+        assert!(!procs.is_agent("claude", 300));
     }
 
     #[test]

@@ -25,6 +25,14 @@ pub fn display_name(agent: &str) -> &str {
     }
 }
 
+/// The agent's own subcommands: a process running one is a client of its sessions, not one.
+pub fn subcommands(agent: &str) -> &'static [&'static str] {
+    match agent {
+        "claude" => &claude::COMMANDS,
+        _ => &[],
+    }
+}
+
 /// What a desktop trace calls the agent: one short lowercase word.
 pub fn label(agent: &str) -> &str {
     match agent {
