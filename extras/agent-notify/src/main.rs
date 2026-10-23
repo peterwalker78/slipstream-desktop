@@ -56,7 +56,8 @@ a desktop that shows agents at work.
   agent-notify test [--long]      send a sample notification
   agent-notify usage [--refresh]  plan limits used, as JSON for a desktop meter
   agent-notify bar                a bar module: one line of JSON (Waybar's custom-module format)
-                                  each time the agents at work change, empty while none are
+                                  each time the sessions change: how many are working, else how
+                                  many are idle; empty while none is open
   agent-notify keep claude [ARGS] start a session in the background, attached to this terminal;
                                   alias claude='agent-notify keep claude' makes it the default
   agent-notify hook AGENT EVENT   what the hooks run; EVENT is session_start, start, finish,

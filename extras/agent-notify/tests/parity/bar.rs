@@ -1,4 +1,4 @@
-//! `bar`: a line of JSON each time the agents at work change, for a bar module.
+//! `bar`: a line of JSON each time the agents' sessions change, for a bar module.
 
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
@@ -40,7 +40,7 @@ fn the_bar_module_follows_the_working_notes() {
     assert_eq!(
         next(),
         json!({"text": ""}),
-        "nothing at work: an empty module"
+        "no session open: an empty module"
     );
 
     // This test's own process stands in for an agent's.
@@ -56,6 +56,13 @@ fn the_bar_module_follows_the_working_notes() {
     assert_eq!(
         next(),
         json!({"text": "1 waiting", "tooltip": "claude: Kiln &amp; timer (waiting on you)", "class": "warning"})
+    );
+    std::fs::remove_file(s.path(&format!("run/agent-notify/{pid}.waiting"))).unwrap();
+    s.write(&note, "claude: Kiln & timer\nidle\n");
+    assert_eq!(
+        next(),
+        json!({"text": "1 idle", "tooltip": "claude: Kiln &amp; timer (idle)", "class": "idle"}),
+        "idle, but still open"
     );
     std::fs::remove_file(s.path(&note)).unwrap();
     assert_eq!(next(), json!({"text": ""}));

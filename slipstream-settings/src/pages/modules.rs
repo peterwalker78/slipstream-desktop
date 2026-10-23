@@ -104,15 +104,19 @@ fn module_rows(
 
     let exec = entry(&module.exec, "weather-report --short");
     saved_after_typing(&exec, store, index, |module, text| module.exec = text);
-    row(
-        card,
-        "Command",
-        Some(
-            "Run with sh -c. It prints the text to show, or a line of Waybar's JSON with a \
-             tooltip and a class.",
-        ),
-        &exec,
-    );
+    let about = row(card, "Command", Some(command_note(&module.exec)), &exec)
+        .expect("the row has a line of explanation");
+    // A module with no command shows nothing on the bar, so the row says so until it has one.
+    let needed = move |text: &str| {
+        about.set_label(command_note(text));
+        if text.trim().is_empty() {
+            about.add_css_class("needed");
+        } else {
+            about.remove_css_class("needed");
+        }
+    };
+    needed(&module.exec);
+    exec.connect_changed(move |exec| needed(&exec.text()));
 
     let runs = runs_choices(module.interval);
     let names: Vec<String> = runs.iter().map(|interval| runs_name(*interval)).collect();
@@ -220,6 +224,16 @@ fn entry(text: &str, placeholder: &str) -> gtk::Entry {
         .placeholder_text(placeholder)
         .width_chars(26)
         .build()
+}
+
+/// The Command row's line: what a command does, or that this module still needs one.
+fn command_note(exec: &str) -> &'static str {
+    if exec.trim().is_empty() {
+        "Needs a command: the bar shows nothing for this module until it has one."
+    } else {
+        "Run with sh -c. It prints the text to show, or a line of Waybar's JSON with a tooltip \
+         and a class."
+    }
 }
 
 /// Changes module `index` in the settings, if it is still there.
@@ -392,6 +406,13 @@ mod tests {
             interval: Interval::Once,
             ..Module::default()
         }
+    }
+
+    #[test]
+    fn a_module_with_no_command_is_marked_as_needing_one() {
+        assert!(command_note("").starts_with("Needs a command"));
+        assert!(command_note("  ").starts_with("Needs a command"));
+        assert!(command_note("date +%H:%M").starts_with("Run with sh -c"));
     }
 
     #[test]

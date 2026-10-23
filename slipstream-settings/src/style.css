@@ -104,6 +104,10 @@ window.slipstream-settings headerbar windowcontrols button {
   color: #8b91a0;
 }
 
+.row-sub.needed {
+  color: #ffb547;
+}
+
 .kv {
   font-family: "JetBrains Mono", monospace;
   font-size: 13px;

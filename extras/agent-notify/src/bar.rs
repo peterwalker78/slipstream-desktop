@@ -1,8 +1,9 @@
 //! `agent-notify bar`: a module for a bar that takes Waybar's custom-module format. It runs until
-//! the bar stops it and prints one line of JSON each time the agents at work change: the text
-//! says how many are working (and how many wait on you), the tooltip lists every open session by
-//! its trace's name with its subagents under it, and the class is `warning` while one is waiting
-//! on you. With no agent at work the text is empty, which hides the module.
+//! the bar stops it and prints one line of JSON each time the agents' sessions change: the text
+//! says how many are working, or how many are idle when none is (and how many wait on you), the
+//! tooltip lists every open session by its trace's name with its subagents under it, and the
+//! class is `warning` while one is waiting on you. With no session open the text is empty, which
+//! hides the module.
 //!
 //! It reads the same working notes the hooks write, and watches their folder with inotify, so it
 //! wakes only when a note changes, and every few seconds to notice a session whose process has
@@ -140,18 +141,27 @@ fn sessions(env: &Env, procs: &Procs, clock: &Clock) -> Vec<Session> {
 
 /// The module's line for these sessions.
 fn line(sessions: &[Session]) -> serde_json::Value {
-    let working = sessions.iter().filter(|session| !session.note.idle).count();
-    let waiting = sessions.iter().filter(|session| session.waiting).count();
-    if working == 0 && waiting == 0 {
+    if sessions.is_empty() {
         return json!({"text": ""});
     }
+    let working = sessions.iter().filter(|session| !session.note.idle).count();
+    let waiting = sessions.iter().filter(|session| session.waiting).count();
+    // Idle and not waiting on you; counted only while none is working.
+    let idle = sessions.len() - working - waiting;
     let mut text = Vec::new();
     if working > 0 {
         text.push(format!("{working} working"));
+    } else if idle > 0 {
+        text.push(format!("{idle} idle"));
     }
     if waiting > 0 {
         text.push(format!("{waiting} waiting"));
     }
+    let class = match (waiting, working) {
+        (1.., _) => "warning",
+        (0, 1..) => "working",
+        (0, 0) => "idle",
+    };
     let mut tooltip = Vec::new();
     for session in sessions {
         let status = match (session.waiting, session.note.idle) {
@@ -171,7 +181,7 @@ fn line(sessions: &[Session]) -> serde_json::Value {
     json!({
         "text": escape_markup(&text.join(", ")),
         "tooltip": escape_markup(&tooltip.join("\n")),
-        "class": if waiting > 0 { "warning" } else { "working" },
+        "class": class,
     })
 }
 
@@ -280,11 +290,23 @@ mod tests {
     }
 
     #[test]
-    fn with_no_agent_at_work_the_module_is_empty() {
+    fn with_no_session_open_the_module_is_empty() {
         assert_eq!(line(&[]), json!({"text": ""}));
+    }
+
+    #[test]
+    fn with_every_session_idle_the_line_counts_them() {
+        let sessions = [
+            session(10, "claude: kiln", true, &[], false),
+            session(11, "gemini: ledger", true, &[], false),
+        ];
         assert_eq!(
-            line(&[session(10, "claude: kiln", true, &[], false)]),
-            json!({"text": ""})
+            line(&sessions),
+            json!({
+                "text": "2 idle",
+                "tooltip": "claude: kiln (idle)\ngemini: ledger (idle)",
+                "class": "idle",
+            })
         );
     }
 
@@ -321,6 +343,17 @@ mod tests {
         assert_eq!(line["text"], "1 working, 1 waiting");
         assert_eq!(line["class"], "warning");
         assert_eq!(line["tooltip"], "claude: kiln (waiting on you)\ncodex: x");
+    }
+
+    #[test]
+    fn one_waiting_beside_idle_ones_is_still_a_warning() {
+        let sessions = [
+            session(10, "claude: kiln", true, &[], true),
+            session(11, "codex: x", true, &[], false),
+        ];
+        let line = line(&sessions);
+        assert_eq!(line["text"], "1 idle, 1 waiting");
+        assert_eq!(line["class"], "warning");
     }
 
     #[test]

@@ -284,4 +284,18 @@ mod tests {
         let lines = shown(&module("{}"), &tall).unwrap().tooltip.unwrap();
         assert_eq!(lines.lines().count(), TOOLTIP_LINES);
     }
+
+    #[test]
+    fn escaped_json_output_shows_its_characters_and_no_entities() {
+        let output = Output::json(
+            r#"{"text": "1 idle &amp; 1 &lt;waiting&gt;", "tooltip": "codex: Fish &amp; chips (idle)\nclaude: a &lt;b&gt; c", "class": "warning"}"#,
+        )
+        .unwrap();
+        let shown = shown(&module("{}"), &output).unwrap();
+        assert_eq!(shown.text, "1 idle & 1 <waiting>");
+        assert_eq!(
+            shown.tooltip.as_deref(),
+            Some("codex: Fish & chips (idle)\nclaude: a <b> c")
+        );
+    }
 }

@@ -166,7 +166,7 @@ The note is left in place until the session's process exits; the desktop cleans 
 
 A ready-made hook program for several popular agents comes with Slipstream: `agent-notify`, in the download's `bin/` folder, which `scripts/update-session` installs in `~/.local/bin` (its source is in `extras/agent-notify`). Run `agent-notify setup` to wire up the hooks and `agent-notify status` to see what it has done. It also handles desktop notifications and usage reporting; `agent-notify --help` covers those and lists the agents it supports.
 
-The same notes can show on the bar, as [a module of your own](#your-own-modules-beside-the-clock). `agent-notify bar` keeps running and prints a line whenever the sessions at work change: how many are working as the text, each session's name and its subagents as the tooltip, and the `warning` class, in amber, while one is waiting on you. With none at work the text is empty, which hides the module:
+The same notes can show on the bar, as [a module of your own](#your-own-modules-beside-the-clock). `agent-notify bar` keeps running and prints a line whenever the sessions change: how many are working as the text, or how many are idle when none is, each session's name and its subagents as the tooltip, and the `warning` class, in amber, while one is waiting on you. With no session open the text is empty, which hides the module:
 
 ```toml
 [[bar.modules]]
