@@ -2279,6 +2279,7 @@ dependencies = [
 name = "slipstream-config"
 version = "1.0.0-rc.1"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "toml",

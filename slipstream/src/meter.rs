@@ -12,8 +12,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use slipstream_config::meter::{RUN_LIMIT, Report, Run, unix_now};
 pub use slipstream_config::meter::{Reading, Section};
+use slipstream_config::{
+    command::{self, Run},
+    meter::{RUN_LIMIT, Report, unix_now},
+};
 
 use crate::panel::AMBER;
 
@@ -130,7 +133,7 @@ pub fn shown(reading: &Reading, settings: &slipstream_config::Meter) -> Reading 
 fn read(command: &str) -> Result<Report, String> {
     let mut sh = crate::launch::command("sh");
     sh.args(["-c", command]);
-    match slipstream_config::meter::run(sh, RUN_LIMIT) {
+    match command::run(sh, RUN_LIMIT) {
         Run::Printed(text) => Report::parse(&text).map_err(|err| format!("unreadable: {err}")),
         Run::Failed { code, error } => Err(format!("exit {code:?}: {error}")),
         Run::TimedOut => Err(format!("still running after {} s", RUN_LIMIT.as_secs())),

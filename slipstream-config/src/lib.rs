@@ -93,6 +93,7 @@
 //! reads a newer file.
 
 pub mod battery;
+pub mod command;
 mod display;
 mod file;
 mod input;

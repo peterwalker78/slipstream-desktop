@@ -1,5 +1,5 @@
-//! The bar's meter: the JSON report its command prints, what that report shows, and running the
-//! command. The compositor runs it every so often; Settings runs it once to try it out.
+//! The bar's meter: the JSON report its command prints, and what that report shows. The compositor
+//! runs the command every so often; Settings runs it once to try it out (both through `command`).
 //!
 //! ```json
 //! {"sections": [{"name": "Storage", "detail": "Pro", "note": null, "stale": false,
@@ -9,19 +9,12 @@
 //! `resets` is when that allowance starts over, in seconds since the Unix epoch. `detail`, `note`,
 //! `stale` and `resets` are optional; `stale` dims a section whose numbers are old.
 
-use std::{
-    io::Read,
-    process::{Command, Stdio},
-    sync::mpsc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
 /// A command still running after this long is stopped.
 pub const RUN_LIMIT: Duration = Duration::from_secs(30);
-/// The most of a command's output that's kept.
-const OUTPUT_LIMIT: usize = 64 * 1024;
 
 /// What a report shows.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -145,99 +138,6 @@ pub fn time_left(secs: i64) -> String {
     }
 }
 
-/// How running the command went.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Run {
-    /// It succeeded, and printed this.
-    Printed(String),
-    /// It exited unsuccessfully, with this code (none when a signal ended it) and the last line
-    /// it wrote to standard error.
-    Failed { code: Option<i32>, error: String },
-    /// It was still running at the limit, and was stopped.
-    TimedOut,
-    /// It couldn't be started at all.
-    CouldntStart(String),
-}
-
-/// Runs `command`, whose standard input, output and error this sets, stopping it after `limit`.
-pub fn run(mut command: Command, limit: Duration) -> Run {
-    let mut child = match command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(err) => return Run::CouldntStart(err.to_string()),
-    };
-    let stdout = collect(child.stdout.take());
-    let stderr = collect(child.stderr.take());
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() >= limit => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Run::TimedOut;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(err) => return Run::CouldntStart(err.to_string()),
-        }
-    };
-    // Something the command left running can hold its output open after it's gone, so what has
-    // arrived shortly after it exits is taken as everything.
-    let deadline = Instant::now() + Duration::from_millis(300);
-    let output = gather(&stdout, deadline);
-    if status.success() {
-        return Run::Printed(String::from_utf8_lossy(&output).into_owned());
-    }
-    let error = gather(&stderr, deadline);
-    Run::Failed {
-        code: status.code(),
-        error: String::from_utf8_lossy(&error)
-            .lines()
-            .rev()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .unwrap_or_default()
-            .to_string(),
-    }
-}
-
-/// Reads a pipe on a thread of its own, a chunk at a time, up to the output limit.
-fn collect(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
-    let (sender, receiver) = mpsc::channel();
-    if let Some(mut pipe) = pipe {
-        std::thread::spawn(move || {
-            let mut chunk = [0u8; 4096];
-            let mut kept = 0;
-            while kept < OUTPUT_LIMIT {
-                match pipe.read(&mut chunk) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        kept += n;
-                        if sender.send(chunk[..n].to_vec()).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-    }
-    receiver
-}
-
-/// Everything a pipe's thread sends until it finishes or `deadline` passes.
-fn gather(chunks: &mpsc::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
-    let mut output = Vec::new();
-    while let Ok(chunk) = chunks.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        output.extend_from_slice(&chunk);
-    }
-    output.truncate(OUTPUT_LIMIT);
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,41 +197,5 @@ mod tests {
         assert_eq!(time_left(2 * 3600 + 4 * 60 + 1), "2 h 5 min");
         assert_eq!(time_left(86_400), "1 d");
         assert_eq!(time_left(5 * 86_400 + 23 * 3600 + 59), "5 d 23 h");
-    }
-
-    fn sh(script: &str) -> Command {
-        let mut command = Command::new("sh");
-        command.args(["-c", script]);
-        command
-    }
-
-    #[test]
-    fn a_run_says_what_was_printed_or_why_it_failed() {
-        assert_eq!(run(sh("printf '{}'"), RUN_LIMIT), Run::Printed("{}".into()));
-        assert_eq!(
-            run(
-                sh("echo starting >&2; echo 'no login' >&2; exit 3"),
-                RUN_LIMIT
-            ),
-            Run::Failed {
-                code: Some(3),
-                error: "no login".into()
-            }
-        );
-        assert_eq!(
-            run(sh("sleep 5"), Duration::from_millis(200)),
-            Run::TimedOut
-        );
-        assert!(matches!(
-            run(Command::new("/nonexistent/command"), RUN_LIMIT),
-            Run::CouldntStart(_)
-        ));
-        // Something left running that holds the output open doesn't hold up the answer.
-        let started = Instant::now();
-        assert_eq!(
-            run(sh("printf ok; sleep 5 & exit 0"), RUN_LIMIT),
-            Run::Printed("ok".into())
-        );
-        assert!(started.elapsed() < Duration::from_secs(4));
     }
 }

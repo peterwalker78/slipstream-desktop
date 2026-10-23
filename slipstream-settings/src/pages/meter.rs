@@ -1,6 +1,9 @@
 //! The bar's meter: its command, how often it runs, and trying it out.
 
-use slipstream_config::meter::{self as reports, RUN_LIMIT, Reading, Report, Run, Section};
+use slipstream_config::{
+    command::Run,
+    meter::{self as reports, RUN_LIMIT, Reading, Report, Section},
+};
 
 use super::*;
 
@@ -111,7 +114,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
             let ran = gtk::gio::spawn_blocking(move || {
                 let mut sh = std::process::Command::new("sh");
                 sh.args(["-c", &text]);
-                reports::run(sh, RUN_LIMIT)
+                slipstream_config::command::run(sh, RUN_LIMIT)
             })
             .await;
             button.set_sensitive(true);
