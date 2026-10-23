@@ -226,21 +226,20 @@ fn newest(dir: &Path) -> Option<SystemTime> {
     newest
 }
 
-/// What a held plugin's update means, as lines for Settings to show beside its switch. `change`
-/// is none when nothing was kept of what it was approved with.
+/// What a held plugin's update means, as short lines for Settings to show under the plugin, below
+/// its own line saying it was updated. `change` is none when nothing was kept of what it was
+/// approved with.
 pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec<String> {
     let mut lines = Vec::new();
     match change {
         None => lines.push(format!(
-            "Updated since you turned it on, and it can't be compared: it was turned on before \
-             Slipstream kept a note of what a plugin asks for. It runs {}{}. Read its plugin.toml \
-             before turning it on again.",
+            "Slipstream can't compare it with the version you turned on. It runs {}{}; read its \
+             plugin.toml first.",
             plugin.manifest.exec.join(" "),
             reads(&plugin.manifest.read),
         )),
         Some(change) if change.like_for_like() => lines.push(
-            "Updated since you turned it on, like for like: it runs the same program, as often, \
-             and says it reads the same folders as before."
+            "It does what it did before: the same program, as often, reading the same folders."
                 .to_string(),
         ),
         Some(change) => {
@@ -266,9 +265,9 @@ pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec
                 ));
             }
             let head = if change.asks_for_more() {
-                "Updated since you turned it on, and it asks for more"
+                "It asks for more than before"
             } else {
-                "Updated since you turned it on, and what it asks for has changed"
+                "What it asks for has changed"
             };
             lines.push(format!("{head}: {}.", asks.join("; ")));
         }
@@ -295,34 +294,30 @@ pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec
             if more > 0 {
                 list.push_str(&format!(" and {more} more"));
             }
-            lines.push(format!("Files that changed: {list}."));
+            lines.push(format!("Changed files: {list}."));
         }
     }
     lines.push(match source {
-        Source::Release => "Slipstream's installer put it there from its published release, and \
-                            the download matched the checksum published with it."
-            .to_string(),
+        Source::Release => {
+            "It came from its official release, and the download matched its published checksum."
+                .to_string()
+        }
         Source::Checkout(commit) if !commit.is_empty() => format!(
-            "Slipstream's installer built it from the copy of its source on this computer, at \
-             commit {}.",
+            "It was built on this computer from your copy of its source (commit {}).",
             commit.chars().take(12).collect::<String>()
         ),
         Source::Checkout(_) => {
-            "Slipstream's installer built it from the copy of its source on this computer."
-                .to_string()
+            "It was built on this computer from your copy of its source.".to_string()
         }
         Source::ChangedSince => {
-            "Something changed it after Slipstream's installer put it there.".to_string()
+            "Something changed its files after Slipstream installed it.".to_string()
         }
         Source::Unknown => {
             "Slipstream didn't install this update, so it can't say where it came from.".to_string()
         }
     });
-    lines.push(
-        "Its code runs as you either way, so turn it on again only if you trust where the update \
-         came from."
-            .to_string(),
-    );
+    lines
+        .push("Its code runs as you, so switch it on only if you trust where it came from.".into());
     lines
 }
 
@@ -380,9 +375,9 @@ mod tests {
         assert_eq!(change.files_changed, ["timer"]);
         let plugin = timer(&root, MANIFEST, "echo two");
         let said = explain(&plugin, Some(&change), &Source::Release).join("\n");
-        assert!(said.contains("like for like"), "{said}");
-        assert!(said.contains("Files that changed: timer."), "{said}");
-        assert!(said.contains("matched the checksum"), "{said}");
+        assert!(said.contains("does what it did before"), "{said}");
+        assert!(said.contains("Changed files: timer."), "{said}");
+        assert!(said.contains("matched its published checksum"), "{said}");
     }
 
     /// The promise in the guide: an update that asks for more than was turned on says so.
@@ -398,7 +393,7 @@ mod tests {
         assert_eq!(change.reads_added, ["$HOME/.ssh"]);
         assert_eq!(change.files_changed, ["plugin.toml"]);
         let said = explain(&plugin, Some(&change), &Source::Unknown).join("\n");
-        assert!(said.contains("and it asks for more:"), "{said}");
+        assert!(said.contains("It asks for more than before:"), "{said}");
         assert!(said.contains("it now says it reads $HOME/.ssh"), "{said}");
         assert!(said.contains("it now runs ./timer card --upload"), "{said}");
         assert!(
@@ -423,7 +418,7 @@ mod tests {
         let kept = load_from(&records, "timer").unwrap();
         assert_eq!(kept, Approval::of(&plugin));
         let said = explain(&plugin, None, &Source::Unknown).join("\n");
-        assert!(said.contains("can't be compared"), "{said}");
+        assert!(said.contains("can't compare it"), "{said}");
     }
 
     #[test]

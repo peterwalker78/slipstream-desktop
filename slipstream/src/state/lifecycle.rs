@@ -210,6 +210,10 @@ impl Slipstream {
     /// Ends the process of a terminal whose agent's session comes back with the layout, as a logout
     /// with no desktop to ask it first would. Its "programs are still running" question would only
     /// hold the way out up for an answer the layout has already given.
+    ///
+    /// The program that left the note is told first, with SIGTERM, that the session is ending:
+    /// otherwise all it sees is its terminal hanging up, as when its window is closed, and one
+    /// that winds its session down for a closed window would do that at every logout too.
     fn end_terminal(&mut self, window: &Window) {
         let Some(pid) = self.window_pid(window) else {
             self.close_window(window);
@@ -219,6 +223,10 @@ impl Slipstream {
             window = logged_app(window),
             "closing a terminal whose agent comes back with the layout"
         );
+        if let Some(session) = self.agent_session(window) {
+            // SAFETY: as below; the note's process is one under this terminal's shell.
+            unsafe { libc::kill(session.agent as libc::pid_t, libc::SIGTERM) };
+        }
         // SAFETY: kill takes a pid and a signal and touches no memory of ours. An X11 window's pid
         // is its own claim, but only one naming a terminal with an agent's note gets this far.
         if unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) } != 0 {

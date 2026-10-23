@@ -224,7 +224,12 @@ fn plugin_row(
     if !plugin.manifest.description.trim().is_empty() {
         about.push(plugin.manifest.description.trim().to_string());
     }
-    about.push(format!("Runs {}", plugin.manifest.exec.join(" ")));
+    // What it runs, and what a held update means, go under the rest in smaller print.
+    let mut details = vec![format!("Runs {}", plugin.manifest.exec.join(" "))];
+    details.extend(explained.iter().cloned());
+    if about.is_empty() {
+        about.push(details.remove(0));
+    }
     if !plugin.own {
         about.push(format!(
             "Installed for everyone in {}",
@@ -236,7 +241,6 @@ fn plugin_row(
             "Too big to check: {why}. It can't be turned on until it holds less."
         ));
     }
-    about.extend(explained.iter().cloned());
     let controls = gtk::Box::builder().spacing(10).build();
     if on && !held {
         controls.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
@@ -294,8 +298,21 @@ fn plugin_row(
         &controls,
     )
     .expect("the row has a line of explanation");
+    let Some(text) = sub.parent().and_downcast::<gtk::Box>() else {
+        return;
+    };
     if held {
-        sub.add_css_class("needed");
+        let updated = label(
+            "Updated, so it's off until you switch it on again.",
+            "row-sub",
+        );
+        updated.add_css_class("needed");
+        text.append(&updated);
+    }
+    if !details.is_empty() {
+        let small = label(&details.join("\n"), "row-sub");
+        small.add_css_class("detail");
+        text.append(&small);
     }
 }
 

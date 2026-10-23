@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A plugin that has updated says so plainly.** Settings › Plugins gives one line saying it is off until you switch it on again, then what changed and where it came from in small print, instead of a block of warnings.
 - **X11 popups stay on the screen.** On a scaled screen, newer XWayland tells X11 apps the screen is bigger than it is, so a popup aimed at a corner, such as Steam's, landed partly or wholly off the edge. Popups, notifications and menus that would run off the screens are moved back in, into the corner they were aiming for.
 - **A window an app has hidden no longer leaves an empty frame behind.** KDE apps keep a closed dialog hidden for next time; it stayed on its workspace, counted and framed in bullet time with a close button that did nothing. It now leaves until the app shows it again.
 - **Colour themes.** Settings › Appearance has ten sets of three colours that go together, or pick the primary colour anywhere on a rainbow and the secondary and tertiary colours are chosen to match it. Any of the three can still be changed on its own, and the whole desktop follows them, Settings included. The primary marks where the keyboard is, the workspace you're on and a battery charging; the secondary is bullet time's, and marks what wants your attention, from the notification count to Caps Lock; the tertiary is for what's on, from switches and sliders to the text cursor. Screen sharing stays red.

@@ -43,6 +43,8 @@ pub struct Session {
     /// folders at login that nothing later adds again. Only this of its environment is kept,
     /// which holds no secrets and doesn't go stale from one login to the next.
     pub search_path: Option<String>,
+    /// The process that left the note.
+    pub agent: u32,
 }
 
 /// A search path longer than this is left out rather than written down.
@@ -173,6 +175,7 @@ fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Result<Ses
         directory,
         shell: interactive_shell(proc, shell),
         search_path: search_path(proc, *agent),
+        agent: *agent,
     })
 }
 
@@ -508,6 +511,7 @@ mod tests {
                 directory: Some("/work/site".into()),
                 shell: Some("/usr/bin/zsh".into()),
                 search_path: None,
+                agent: 12,
             })
         );
     }

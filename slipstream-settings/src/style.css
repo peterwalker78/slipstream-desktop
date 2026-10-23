@@ -101,6 +101,17 @@ window.slipstream-settings headerbar windowcontrols button {
   color: #8b91a0;
 }
 
+/* The small print under a row: what a plugin runs, and what its update means. */
+.row-sub.detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #737a88;
+}
+
+.row-sub.needed {
+  margin-top: 4px;
+}
+
 
 
 .kv {
