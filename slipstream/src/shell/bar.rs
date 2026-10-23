@@ -339,7 +339,7 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
         let color = if on {
             panel::lighter(content.ring, 1.0 / 3.0)
         } else if content.occupied.get(index).copied().unwrap_or(false) {
-            0xcdd6f4ff
+            panel::PROSE
         } else {
             panel::PLACEHOLDER
         };

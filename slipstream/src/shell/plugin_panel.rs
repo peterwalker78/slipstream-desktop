@@ -779,7 +779,7 @@ fn paint_gauge(
     shade: &dyn Fn(u32) -> u32,
 ) {
     const H: f32 = 6.0;
-    p.fill(x, y, w, H, H / 2.0, shade(0x3a3f4bff));
+    p.fill(x, y, w, H, H / 2.0, shade(panel::TRACK));
     if let Some(through) = through.filter(|through| *through > 0.0) {
         let time = (facts.time & 0xffffff00) | TIME_ALPHA;
         p.fill(x, y, (w * through).max(H), H, H / 2.0, shade(time));
