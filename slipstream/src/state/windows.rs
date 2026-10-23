@@ -237,6 +237,28 @@ impl Slipstream {
         }
     }
 
+    /// A window that has hidden itself by committing no buffer, as Qt does with a dialog it keeps
+    /// for next time. It leaves its workspace as a closed window would, so neither the tiles nor
+    /// bullet time hold an empty frame for it, and waits with the toplevels not yet shown: its
+    /// next buffer maps it again, into a tile of its own. Returns whether it hid.
+    pub fn unmap_if_hidden(&mut self, surface: &WlSurface, window: &Window) -> bool {
+        if window.toplevel().is_none() {
+            return false;
+        }
+        let has_buffer =
+            with_renderer_surface_state(surface, |state| state.buffer().is_some()).unwrap_or(false);
+        if has_buffer {
+            return false;
+        }
+        tracing::info!(
+            app = window_app_id(window).unwrap_or_default(),
+            "window hid itself"
+        );
+        self.remove_window(window);
+        self.unmapped.push(window.clone());
+        true
+    }
+
     /// Answers a toplevel's commit with its initial configure, if it hasn't had one: the size and
     /// tiled edges of the tile it will be given, so its first buffer fits and it doesn't open at a
     /// size of its own and snap. A window still waiting to map is predicted as `add_window` will

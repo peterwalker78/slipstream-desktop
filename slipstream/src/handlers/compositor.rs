@@ -74,6 +74,7 @@ impl CompositorHandler for Slipstream {
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
         self.something_changed();
+        let mut hid = false;
         if !is_sync_subsurface(surface) {
             let mut root = surface.clone();
             while let Some(parent) = get_parent(&root) {
@@ -86,19 +87,26 @@ impl CompositorHandler for Slipstream {
                 .cloned();
             if let Some(window) = window {
                 window.on_commit();
-                self.retile_if_min_changed(&window);
-                self.retile_if_floating_resized(&window);
+                hid = root == *surface && self.unmap_if_hidden(surface, &window);
+                if !hid {
+                    self.retile_if_min_changed(&window);
+                    self.retile_if_floating_resized(&window);
+                }
             } else if let Some(window) = self.hidden_window(&root) {
                 // A window on a workspace no screen is showing, or in the rain, keeps its size up
                 // to date too: bullet time draws it, and a window whose size reads as nothing is
                 // drawn unscaled, far bigger than its frame.
                 window.on_commit();
+                hid = root == *surface && self.unmap_if_hidden(surface, &window);
             }
         }
 
         // A toplevel's first commit, or its first after unmapping itself, is answered with the
-        // size it will be tiled at.
-        self.send_initial_configure(surface);
+        // size it will be tiled at. The commit that unmaps it isn't one: the toplevel commits again
+        // when it wants to come back.
+        if !hid {
+            self.send_initial_configure(surface);
+        }
 
         xdg_shell::handle_commit(&mut self.popups, surface);
         self.layer_commit(surface);
