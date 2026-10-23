@@ -501,6 +501,10 @@ pub struct Facts {
     pub caps_lock: bool,
     /// The password's caret.
     pub accent: u32,
+    /// Caps Lock's sign and a hint that needs reading: the secondary colour.
+    pub attention: u32,
+    /// A battery on a charger: the primary colour.
+    pub charging: u32,
 }
 
 impl Facts {
@@ -803,6 +807,8 @@ impl Slipstream {
                 .get_keyboard()
                 .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
             accent: self.panel_accent(),
+            attention: self.panel_attention(),
+            charging: crate::panel::opaque(self.ring_rgb),
         }
     }
 }

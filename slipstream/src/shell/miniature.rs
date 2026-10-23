@@ -24,7 +24,8 @@ pub const HEIGHT: f32 = 400.0;
 /// What the miniature follows from the real desktop, and the clock its rain falls by.
 pub struct Look<'a> {
     pub ring: u32,
-    /// Bullet time's colour, for the workspace in front and the windows' letters.
+    /// Bullet time's colour, the secondary: the workspace in front and the windows' letters, and
+    /// the bell when something has come in.
     pub bullet: u32,
     pub effects: Effects,
     pub secs: f32,
@@ -284,7 +285,7 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
         sheet(p, typed, w, h, look.keys);
     }
     if scene.digest > 0.0 {
-        digest(p, scene.digest, w, h);
+        digest(p, scene.digest, w, h, look);
     }
     keys(p, scene, w, h, look);
 }
@@ -354,7 +355,7 @@ fn bar(p: &mut Painter, scene: &Scene, w: f32, look: &Look) {
     );
     p.icon(icons::BELL, w - 13.0, 3.5, 8.0, ink);
     if scene.bell > 0 {
-        p.fill(w - 8.5, 1.8, 6.0, 6.0, 3.0, panel::AMBER);
+        p.fill(w - 8.5, 1.8, 6.0, 6.0, 3.0, look.bullet);
         let count = Style::new(Face::MonoBold, 4.5, panel::DARK);
         let label = scene.bell.to_string();
         let lw = text::width(&label, &count);
@@ -1417,7 +1418,7 @@ fn sheet(p: &mut Painter, typed: Typed, w: f32, h: f32, names: &KeyNames) {
 }
 
 /// The card that comes at a pause with what arrived while typing.
-fn digest(p: &mut Painter, alpha: f32, w: f32, h: f32) {
+fn digest(p: &mut Painter, alpha: f32, w: f32, h: f32, look: &Look) {
     let rows = [
         (0x2fb67cff, "Messages", "Sam: still on for Thursday?"),
         (0xf59e0bff, "Calendar", "Stand-up in 10 minutes"),
@@ -1434,7 +1435,7 @@ fn digest(p: &mut Painter, alpha: f32, w: f32, h: f32) {
         x + 7.0,
         y + 5.0,
         8.0,
-        Some(fade(panel::AMBER, alpha)),
+        Some(fade(look.bullet, alpha)),
     );
     p.text(
         "3 while you were typing",

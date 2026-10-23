@@ -92,7 +92,9 @@ pub struct Facts {
     pub installed: usize,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
-    /// The time gone by in a gauge: the focus ring's colour. Used beyond it: the second colour.
+    /// The time gone by in a gauge: the focus ring's colour, the primary, which also lights a
+    /// plugin that's on. Used beyond it: the secondary colour, which also marks what wants
+    /// attention.
     pub time: u32,
     pub ahead: u32,
     /// The way into the Settings app, as a link.
@@ -481,7 +483,7 @@ fn paint_head(p: &mut Painter, facts: &Facts, x0: f32, y: f32) {
     for index in 0..4 {
         let (column, row) = ((index % 2) as f32, (index / 2) as f32);
         let colour = if index < on.min(shown) {
-            panel::MINT
+            facts.time
         } else if index < shown {
             0xffffff29
         } else {
@@ -622,7 +624,7 @@ fn paint_front(
     }
     y += NAME_H;
     let Some(card) = shown.visible() else {
-        let note = Style::new(Face::Body, 13.0, 0xd9b27aff);
+        let note = Style::new(Face::Body, 13.0, quiet(facts.ahead));
         let said = match &shown.problem {
             _ if shown.held => "Changed since it was turned on: turn it on again to run it".into(),
             Some(problem) => format!("Not answering: {problem}"),
@@ -684,7 +686,11 @@ fn paint_front(
             let percent = format!("{}%", gauge.percent);
             let number = Style {
                 tabular: true,
-                ..Style::new(Face::Mono, 13.0, shade(meter_text(gauge.percent)))
+                ..Style::new(
+                    Face::Mono,
+                    13.0,
+                    shade(meter_text(gauge.percent, facts.ahead)),
+                )
             };
             p.text(
                 &percent,
@@ -716,7 +722,7 @@ fn paint_front(
             y += GAUGE_ROW_H;
         }
         if let Some(note) = &section.note {
-            let style = Style::new(Face::Body, 12.5, 0xd9b27aff);
+            let style = Style::new(Face::Body, 12.5, quiet(facts.ahead));
             p.text(
                 &text::ellipsize(note, &style, inner),
                 x0,
@@ -749,7 +755,7 @@ fn paint_front(
         y += BUTTON_H;
     }
     if let Some(problem) = &shown.problem {
-        let note = Style::new(Face::Body, 12.5, 0xd9b27aff);
+        let note = Style::new(Face::Body, 12.5, quiet(facts.ahead));
         p.text(
             &text::ellipsize(&format!("Not up to date: {problem}"), &note, inner),
             x0,
@@ -778,7 +784,14 @@ fn paint_gauge(
     }
     let used = w * percent as f32 / 100.0;
     if used > 0.0 {
-        p.fill(x, y, used.max(H), H, H / 2.0, shade(meter::ink(percent)));
+        p.fill(
+            x,
+            y,
+            used.max(H),
+            H,
+            H / 2.0,
+            shade(meter::ink(percent, facts.ahead)),
+        );
     }
     if let Some(through) = through {
         let gone = w * through;
@@ -838,7 +851,7 @@ fn paint_back(
             sw,
             sh,
             sh / 2.0,
-            if on { panel::AMBER } else { panel::QUIET_LIT },
+            if on { facts.accent } else { panel::QUIET_LIT },
         );
         let knob = if on { sx + sw - sh + 3.0 } else { sx + 3.0 };
         p.fill(
@@ -883,12 +896,17 @@ fn paint_back(
     }
 }
 
-/// A gauge's number: amber and hotter as its allowance runs out, quiet otherwise.
-fn meter_text(percent: u8) -> u32 {
+/// A gauge's number: in `attention` and hotter as its allowance runs out, quiet otherwise.
+fn meter_text(percent: u8, attention: u32) -> u32 {
     match percent {
-        75.. => meter::ink(percent),
+        75.. => meter::ink(percent, attention),
         _ => panel::SECONDARY,
     }
+}
+
+/// A note that something isn't right: `attention`, a little quieter.
+fn quiet(attention: u32) -> u32 {
+    (attention & 0xffffff00) | 0xc8
 }
 
 impl Slipstream {

@@ -9,7 +9,7 @@ use resvg::tiny_skia::Pixmap;
 
 use crate::{
     paint::Painter,
-    panel::{self, AMBER},
+    panel,
     text::{self, Face, Style},
 };
 
@@ -151,6 +151,8 @@ pub struct Paint<'a> {
     pub menu: Option<usize>,
     pub launching: Option<(usize, f32)>,
     pub ring: u32,
+    /// The dot on a chip that wants attention: the secondary colour.
+    pub attention: u32,
     pub reduced_motion: bool,
     pub boxes: &'a [[f32; 4]],
 }
@@ -167,7 +169,7 @@ pub fn paint(p: &mut Painter, chips: &[Chip], how: &Paint) {
                 p.fill(x, y, w, h, panel::ROW_RADIUS, 0xffffff00 | fill);
                 p.border(x, y, w, h, panel::ROW_RADIUS, 1.0, panel::EDGE);
                 if !how.reduced_motion {
-                    let ring = (panel::FOCUS & 0xffffff00) | (pulse * 0xcc as f32) as u32;
+                    let ring = (how.ring & 0xffffff00) | (pulse * 0xcc as f32) as u32;
                     p.border(
                         x - 3.0,
                         y - 3.0,
@@ -197,7 +199,7 @@ pub fn paint(p: &mut Painter, chips: &[Chip], how: &Paint) {
             // A dot on the icon's corner, ringed in the chip's own fill so it reads on any icon.
             let (dx, dy) = (icon_x + ICON - 3.0, icon_y - 2.0);
             p.fill(dx - 1.5, dy - 1.5, 8.0, 8.0, 4.0, 0x1b1f29ff);
-            p.fill(dx, dy, 5.0, 5.0, 2.5, AMBER);
+            p.fill(dx, dy, 5.0, 5.0, 2.5, how.attention);
         }
         let name = text::ellipsize(&chip.name, &style, w - 2.0 * PAD_X + 1.0);
         let name_w = text::width(&name, &style);
@@ -206,9 +208,9 @@ pub fn paint(p: &mut Painter, chips: &[Chip], how: &Paint) {
     }
 }
 
-/// The rings round the chips that need attention, painted apart from the panel so they can
-/// breathe without repainting it. Returns whether there were any.
-pub fn paint_glow(p: &mut Painter, chips: &[Chip], boxes: &[[f32; 4]]) -> bool {
+/// The rings round the chips that need attention, in `attention`, painted apart from the panel so
+/// they can breathe without repainting it. Returns whether there were any.
+pub fn paint_glow(p: &mut Painter, chips: &[Chip], boxes: &[[f32; 4]], attention: u32) -> bool {
     let mut any = false;
     for (chip, &[x, y, w, h]) in chips.iter().zip(boxes) {
         if chip.attention {
@@ -219,7 +221,7 @@ pub fn paint_glow(p: &mut Painter, chips: &[Chip], boxes: &[[f32; 4]]) -> bool {
                 h + 6.0,
                 panel::ROW_RADIUS + 3.0,
                 1.5,
-                AMBER,
+                attention,
             );
             p.border(
                 x - 1.0,
@@ -228,7 +230,7 @@ pub fn paint_glow(p: &mut Painter, chips: &[Chip], boxes: &[[f32; 4]]) -> bool {
                 h + 2.0,
                 panel::ROW_RADIUS + 1.0,
                 1.0,
-                0xffb54740,
+                (attention & 0xffffff00) | 0x40,
             );
             any = true;
         }

@@ -48,10 +48,7 @@ window.slipstream-settings headerbar windowcontrols button {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.side > row:selected {
-  background: rgba(255, 181, 71, 0.12);
-  color: #ffd08a;
-}
+/* The colours from the settings are added by main.rs (`colours_css`), and change with them. */
 
 /* Pages */
 .main {
@@ -104,9 +101,7 @@ window.slipstream-settings headerbar windowcontrols button {
   color: #8b91a0;
 }
 
-.row-sub.needed {
-  color: #ffb547;
-}
+
 
 .kv {
   font-family: "JetBrains Mono", monospace;
@@ -123,10 +118,6 @@ window.slipstream-settings headerbar windowcontrols button {
   box-shadow: none;
 }
 
-.row switch:checked {
-  border-color: #42d3ff;
-  background: #42d3ff;
-}
 
 .row switch slider {
   min-width: 20px;
@@ -136,9 +127,6 @@ window.slipstream-settings headerbar windowcontrols button {
   box-shadow: none;
 }
 
-.row switch:checked slider {
-  background: #10141c;
-}
 
 /* Tick boxes, in the colour Slipstream marks what's chosen. */
 .row checkbutton check,
@@ -151,12 +139,6 @@ window.slipstream-settings headerbar windowcontrols button {
   box-shadow: none;
 }
 
-.row checkbutton check:checked,
-.variation checkbutton check:checked {
-  border-color: #42d3ff;
-  background: #42d3ff;
-  color: #10141c;
-}
 
 /* A choice of one, round, in the same colours as a tick box. */
 .row checkbutton radio {
@@ -168,17 +150,9 @@ window.slipstream-settings headerbar windowcontrols button {
   box-shadow: none;
 }
 
-.row checkbutton radio:checked {
-  border-color: #42d3ff;
-  background: #42d3ff;
-  color: #10141c;
-}
-
-/* "All of them" when only some are ticked: a dash in the same cyan, on the unticked box. */
+/* "All of them" when only some are ticked: a dash on the unticked box. */
 .row checkbutton check:indeterminate {
-  border-color: #42d3ff;
   background: #23262f;
-  color: #42d3ff;
 }
 
 /* The wallpaper's one moving preview, dark until its frames arrive. */
@@ -199,12 +173,11 @@ picture.preview {
 }
 
 .variations > row:selected {
-  background: rgba(66, 211, 255, 0.10);
   color: inherit;
 }
 
 .variations > row:focus-visible {
-  outline: 2px solid #42d3ff;
+  outline: 2px solid;
   outline-offset: -2px;
 }
 
@@ -224,7 +197,6 @@ picture.preview {
   margin: 0;
   border: none;
   border-radius: 2px;
-  background: #42d3ff;
 }
 
 .row scale slider {
@@ -247,9 +219,6 @@ picture.preview {
   color: #dfe2e9;
 }
 
-.row entry:focus-within {
-  border-color: #42d3ff;
-}
 
 .row button.flat {
   min-width: 30px;
@@ -277,13 +246,13 @@ dropdown > button {
   color: #dfe2e9;
 }
 
-/* Keyboard focus. main.rs (`focus_css`) gives it the focus ring's colour. */
+/* Keyboard focus. main.rs (`colours_css`) gives it the primary colour. */
 .side > row:focus-visible,
 .row switch:focus-visible,
 .row checkbutton:focus-visible,
 .row button:focus-visible,
 dropdown > button:focus-visible {
-  outline: 2px solid #ffb547;
+  outline: 2px solid;
   outline-offset: -2px;
 }
 
@@ -307,11 +276,11 @@ dropdown > button:focus-visible {
 }
 
 .note > button:focus-visible {
-  outline: 2px solid #ffb547;
+  outline: 2px solid;
   outline-offset: -2px;
 }
 
-/* Power: the battery card, with its charge in a mint bar. */
+/* Power: the battery card, with its charge in a bar of the primary colour. */
 .card.batt {
   padding: 16px;
 }
@@ -342,12 +311,10 @@ dropdown > button:focus-visible {
   margin: 0;
   border: none;
   border-radius: 7px;
-  background-image: linear-gradient(90deg, #7fe0a8, #b6f0c8);
 }
 
 /* While charging, a light runs along the charge. Without animations it holds still. */
 .batt progressbar.charging progress {
-  background-image: linear-gradient(90deg, #7fe0a8 0%, #7fe0a8 35%, #e4fff0 50%, #7fe0a8 65%, #b6f0c8 100%);
   background-size: 300% 100%;
   animation: batt-charging 2.4s linear infinite;
 }
@@ -381,9 +348,6 @@ dropdown > button:focus-visible {
   background: #cfd6e2;
 }
 
-.row progressbar.gauge.amber progress {
-  background: #ffb547;
-}
 
 .row progressbar.gauge.hot progress {
   background: #ff7a45;

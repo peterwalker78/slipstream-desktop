@@ -329,7 +329,7 @@ impl Explorer {
                     5.0,
                     5.0,
                     2.5,
-                    0x7fe3ffff,
+                    panel::lighter(look.ring, 1.0 / 3.0),
                 );
             }
             targets.push((Item::App(app.clone()), card.on_screen(x, y, tile_w, TILE_H)));

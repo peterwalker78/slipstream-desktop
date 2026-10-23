@@ -519,19 +519,20 @@ impl Default for Lock {
     }
 }
 
-/// Slipstream's three colours: the rings that mark what's selected, and the accent for what's on.
-/// Each is `#rrggbb`; a value that isn't falls back to the default, so a mistyped hand edit leaves
-/// the desktop usable rather than colourless.
+/// Slipstream's three colours, which Settings calls primary, secondary and tertiary; the keys keep
+/// the names of what they first coloured. Each is `#rrggbb`; a value that isn't falls back to the
+/// default, so a mistyped hand edit leaves the desktop usable rather than colourless.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Borders {
-    /// The focused window's ring, and the keyboard's ring in quick settings and the notification
-    /// centre: one colour for "this is what the keys are aimed at".
+    /// The primary colour, for where the keys are aimed: the focused window's ring and the
+    /// keyboard's ring in the panels, the workspace in front, a battery charging, plugins on.
     pub selected_tile: String,
-    /// Bullet time's rings around the chosen window and workspace, and its workspace frames.
+    /// The secondary colour: bullet time's rings and frames, and whatever wants attention, from
+    /// the notification count to Caps Lock and a low battery.
     pub bullet_time: String,
-    /// What's on or chosen inside the panels: switches and tiles that are on, sliders, the
-    /// default button, today in the calendar, text cursors and toasts.
+    /// The tertiary colour, for what's on or chosen: switches and tiles, sliders, the default
+    /// button, today in the calendar, text cursors and toasts.
     pub accent: String,
 }
 

@@ -550,7 +550,7 @@ fn paint_header(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) 
     let mut text_x = x0;
     if let Some((percent, plugged)) = status.battery {
         p.icon(
-            &icons::battery(percent, plugged),
+            &icons::battery(percent, plugged.then_some(facts.ring | 0xff)),
             x0,
             y + 3.0,
             18.0,

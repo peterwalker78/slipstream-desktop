@@ -63,6 +63,7 @@ pub(super) struct View {
     pub selected: Option<Target<Window>>,
     pub labels: Vec<(Target<Window>, String)>,
     pub accent: u32,
+    pub attention: u32,
 }
 
 impl View {
@@ -181,6 +182,7 @@ impl View {
             selected,
             labels,
             accent: state.panel_accent(),
+            attention: state.panel_attention(),
         }
     }
 
@@ -223,6 +225,7 @@ impl View {
             scale: self.scale.x,
             time,
             accent: self.accent,
+            attention: self.attention,
         }
     }
 
@@ -452,7 +455,10 @@ pub fn output_elements(
                     renderer,
                     &v,
                     (!state.clock.reduced_motion).then_some(v.wall),
-                    &state.key_label(crate::keys::Action::ShortcutSheet),
+                    (
+                        &state.key_label(crate::keys::Action::ShortcutSheet),
+                        crate::panel::opaque(state.ring_rgb),
+                    ),
                 )
                 .map(OutputElement::Memory),
         );

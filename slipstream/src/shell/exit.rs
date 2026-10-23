@@ -24,7 +24,7 @@ use crate::{
     card::{self, Btn, Button, Card, Row},
     motion::{HYPR, REDUCED_FADE},
     paint::Painted,
-    panel::{self, AMBER, BELOW, DESIGN_PX, MARGIN},
+    panel::{self, BELOW, DESIGN_PX, MARGIN},
 };
 
 /// After the close request, before anything left over is named.
@@ -463,11 +463,13 @@ impl<W: Clone + PartialEq> Exit<W> {
     }
 
     /// What the overlay is showing now.
-    fn shape(&self, now: f64, ring: u32) -> Shape {
+    /// The card or the slim note as they stand, with the keyboard's ring and what wants attention
+    /// in the colours given.
+    fn shape(&self, now: f64, (ring, attention): (u32, u32)) -> Shape {
         match self.phase {
             Phase::Choosing { selected } => Shape::Card(self.choose_card(selected, ring)),
-            Phase::Asking => Shape::Card(self.ask_card()),
-            Phase::StillHere => Shape::Card(self.still_here_card()),
+            Phase::Asking => Shape::Card(self.ask_card(attention)),
+            Phase::StillHere => Shape::Card(self.still_here_card(attention)),
             Phase::Closing { until } | Phase::Waiting { until } => {
                 let total = if matches!(self.phase, Phase::Closing { .. }) {
                     GRACE
@@ -529,7 +531,7 @@ impl<W: Clone + PartialEq> Exit<W> {
     /// The first card. It says what is about to happen and nothing else: the windows that matter
     /// are the ones that don't close, which the "still here" card names. Only an app that asked
     /// for the session not to end yet is named here, with its reason.
-    fn ask_card(&self) -> Card {
+    fn ask_card(&self, attention: u32) -> Card {
         let count = self.asked.len();
         let mut note = match count {
             0 => "Nothing is open.".to_string(),
@@ -552,7 +554,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                 .map(|(app, reason)| Row {
                     name: app.clone(),
                     title: reason.clone(),
-                    note: Some(("asks to wait".to_string(), AMBER)),
+                    note: Some(("asks to wait".to_string(), attention)),
                 })
                 .collect(),
             more: None,
@@ -577,7 +579,7 @@ impl<W: Clone + PartialEq> Exit<W> {
         }
     }
 
-    fn still_here_card(&self) -> Card {
+    fn still_here_card(&self, attention: u32) -> Card {
         let count = self.left.len();
         let asking = self.prompting.len();
         let note = if asking > 0 {
@@ -599,7 +601,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                 .map(|open| {
                     let mut row = row(open);
                     if self.prompting.contains(&open.app) {
-                        row.note = Some(("asking to save".to_string(), AMBER));
+                        row.note = Some(("asking to save".to_string(), attention));
                     }
                     row
                 })
@@ -644,16 +646,16 @@ impl<W: Clone + PartialEq> Exit<W> {
         R::TextureId: Send + Clone + 'static,
     {
         let (screen, _scale, now) = (frame.size, frame.scale, frame.time);
-        let shape = self.shape(now, ring);
+        let shape = self.shape(now, (ring, frame.attention));
         if shape == Shape::Blank {
             self.on_screen.clear();
             return None;
         }
         let size = self
             .on_screen
-            .paint(shape, frame, |shape, accent, scale| match shape {
-                Shape::Card(card) => card::paint(card, accent, scale),
-                Shape::Slim(slim) => (paint_slim(slim, accent, scale), Vec::new()),
+            .paint(shape, frame, |shape, inks, scale| match shape {
+                Shape::Card(card) => card::paint(card, inks, scale),
+                Shape::Slim(slim) => (paint_slim(slim, inks.0, scale), Vec::new()),
                 Shape::Blank => (None, Vec::new()),
             })?;
         let at = self.origin(screen, size);
@@ -816,7 +818,7 @@ mod tests {
         // The usual card, now naming where the session is going. Nothing has closed yet.
         assert_eq!(exit.phase, Phase::Asking);
         assert_eq!(exit.intent, Intent::ShutDown);
-        let Shape::Card(card) = exit.shape(0.0, RING) else {
+        let Shape::Card(card) = exit.shape(0.0, (RING, panel::AMBER)) else {
             panic!("the card should be up");
         };
         assert_eq!(card.title, "Shut down");
@@ -864,26 +866,23 @@ mod tests {
     /// screen: what a click is measured against.
     fn laid_out(exit: &mut Exit<u32>) -> Vec<(Button, f64, f64)> {
         let screen = Size::<i32, Logical>::from((1536, 960));
-        let Shape::Card(card) = exit.shape(0.0, RING) else {
+        let Shape::Card(card) = exit.shape(0.0, (RING, panel::AMBER)) else {
             panic!("the card should be up");
         };
-        let (_, hits) = card::paint(&card, panel::ACCENT, 1.25);
+        let (_, hits) = card::paint(&card, (panel::ACCENT, panel::AMBER), 1.25);
         let frame = crate::panel::Frame {
             size: screen,
             scale: 1.25,
             time: 0.0,
             accent: panel::ACCENT,
+            attention: panel::AMBER,
         };
         let size = exit
             .on_screen
-            .paint(
-                Shape::Card(card),
-                frame,
-                |shape, accent, scale| match shape {
-                    Shape::Card(card) => card::paint(card, accent, scale),
-                    _ => (None, Vec::new()),
-                },
-            )
+            .paint(Shape::Card(card), frame, |shape, inks, scale| match shape {
+                Shape::Card(card) => card::paint(card, inks, scale),
+                _ => (None, Vec::new()),
+            })
             .unwrap();
         exit.on_screen.at = exit.origin(screen, size);
         let at = exit.on_screen.at;
@@ -940,7 +939,7 @@ mod tests {
         assert!(!exit.modal());
         exit.tick(GRACE + 0.1, &left);
         assert!(exit.modal());
-        let card = exit.still_here_card();
+        let card = exit.still_here_card(panel::AMBER);
         assert_eq!(card.rows.len(), 1);
         assert_eq!(card.rows[0].name, "Firefox");
         // Esc here is the useful answer: go and deal with the prompt.
@@ -954,7 +953,7 @@ mod tests {
         let open = [open(2, "Firefox"), open(3, "Firefox")];
         exit.tick(GRACE + 0.1, &open);
         assert_eq!(exit.prompting, vec!["Firefox".to_string()]);
-        let card = exit.still_here_card();
+        let card = exit.still_here_card(panel::AMBER);
         assert_eq!(
             card.rows[0].note.as_ref().map(|(text, _)| text.as_str()),
             Some("asking to save")
@@ -1006,7 +1005,7 @@ mod tests {
     #[test]
     fn logging_out_with_nothing_open_needs_one_keypress() {
         let mut exit = Exit::new(Intent::ShutDown, Vec::<Open<u32>>::new(), 0.0, false, false);
-        assert_eq!(exit.ask_card().note, "Nothing is open.");
+        assert_eq!(exit.ask_card(panel::AMBER).note, "Nothing is open.");
         assert_eq!(exit.key(Keysym::Return, 0.0), Act::Close(vec![]));
         assert_eq!(exit.tick(0.01, &[]), Act::Nothing);
         assert!(exit.going());
@@ -1016,7 +1015,7 @@ mod tests {
     fn an_app_holding_off_the_end_is_named_with_its_reason() {
         let exit = Exit::new(Intent::LogOut, vec![open(1, "Burner")], 0.0, false, false)
             .held(vec![("Burner".into(), "Writing a disc".into())]);
-        let card = exit.ask_card();
+        let card = exit.ask_card(panel::AMBER);
         assert!(card.note.ends_with("An app asks you not to log out yet."));
         assert_eq!(card.rows[0].name, "Burner");
         assert_eq!(card.rows[0].title, "Writing a disc");
@@ -1036,14 +1035,14 @@ mod tests {
         );
         // The ask card counts them; only the windows that wouldn't close get named.
         assert_eq!(
-            exit.ask_card().note,
+            exit.ask_card(panel::AMBER).note,
             "11 windows are open. Every app is asked to close first."
         );
-        assert!(exit.ask_card().rows.is_empty());
+        assert!(exit.ask_card(panel::AMBER).rows.is_empty());
         exit.key(Keysym::Return, 0.0);
         let left: Vec<Open<u32>> = (0..11).map(|i| open(i, "Konsole")).collect();
         exit.tick(GRACE + 0.1, &left);
-        let card = exit.still_here_card();
+        let card = exit.still_here_card(panel::AMBER);
         assert_eq!(card.rows.len(), MAX_ROWS);
         assert_eq!(card.more.as_deref(), Some("and 3 more"));
     }
@@ -1053,9 +1052,13 @@ mod tests {
         let mut short = exit();
         short.key(Keysym::Return, 0.0);
         short.tick(GRACE + 0.1, &[open(1, "Konsole")]);
-        let short = card::paint(&short.still_here_card(), panel::ACCENT, 1.25)
-            .0
-            .unwrap();
+        let short = card::paint(
+            &short.still_here_card(panel::AMBER),
+            (panel::ACCENT, panel::AMBER),
+            1.25,
+        )
+        .0
+        .unwrap();
         let mut long = Exit::new(
             Intent::LogOut,
             (0..8).map(|i| open(i, "Konsole")).collect(),
@@ -1066,9 +1069,13 @@ mod tests {
         long.key(Keysym::Return, 0.0);
         let all: Vec<Open<u32>> = (0..8).map(|i| open(i, "Konsole")).collect();
         long.tick(GRACE + 0.1, &all);
-        let long = card::paint(&long.still_here_card(), panel::ACCENT, 1.25)
-            .0
-            .unwrap();
+        let long = card::paint(
+            &long.still_here_card(panel::AMBER),
+            (panel::ACCENT, panel::AMBER),
+            1.25,
+        )
+        .0
+        .unwrap();
         assert_eq!(short.logical.w, long.logical.w);
         assert!(long.logical.h > short.logical.h);
     }
@@ -1120,7 +1127,7 @@ mod tests {
     #[test]
     fn the_switch_is_only_on_the_card_that_still_has_a_choice() {
         let mut exit = exit();
-        assert_eq!(exit.ask_card().remember, Some(false));
+        assert_eq!(exit.ask_card(panel::AMBER).remember, Some(false));
         // Turned on by its key or by clicking its row, and the setting is told either way.
         assert_eq!(exit.key(Keysym::r, 0.1), Act::Remember(true));
         assert!(exit.remember());
@@ -1131,14 +1138,14 @@ mod tests {
         // Once the close requests are out it is too late to change: the record is already taken.
         exit.key(Keysym::Return, 0.3);
         exit.tick(GRACE + 0.1, &[open(2, "Firefox")]);
-        assert_eq!(exit.still_here_card().remember, None);
+        assert_eq!(exit.still_here_card(panel::AMBER).remember, None);
         assert_eq!(exit.key(Keysym::r, GRACE + 0.2), Act::Nothing);
     }
 
     #[test]
     fn the_setting_decides_where_the_switch_starts() {
         let exit = Exit::new(Intent::LogOut, vec![open(1, "Konsole")], 0.0, false, true);
-        assert_eq!(exit.ask_card().remember, Some(true));
+        assert_eq!(exit.ask_card(panel::AMBER).remember, Some(true));
         assert!(exit.remember());
     }
 }

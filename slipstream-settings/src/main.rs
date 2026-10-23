@@ -201,14 +201,66 @@ fn brief(err: &io::Error) -> String {
         .join(": ")
 }
 
-/// The keyboard focus outlines in `rgb`, each channel 0–1.
-fn focus_css(rgb: [f32; 3]) -> String {
-    let [r, g, b] = rgb.map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8);
+thread_local! {
+    /// The stylesheet holding Slipstream's three colours, reloaded when they change.
+    static COLOURS: gtk::CssProvider = gtk::CssProvider::new();
+}
+
+/// The Settings window's own controls in Slipstream's three colours, each channel 0–1: the
+/// primary for the keyboard's outline and what's selected, the secondary for what needs reading,
+/// and the tertiary for what's on, as on the desktop.
+fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
+    let byte = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let hex = |rgb: [f32; 3]| {
+        let [r, g, b] = rgb.map(byte);
+        format!("#{r:02x}{g:02x}{b:02x}")
+    };
+    let faint = |rgb: [f32; 3], alpha: f32| {
+        let [r, g, b] = rgb.map(byte);
+        format!("rgba({r}, {g}, {b}, {alpha})")
+    };
+    let lighter = |rgb: [f32; 3], share: f32| hex(rgb.map(|c| c + (1.0 - c) * share));
+    // Dark ink on a light colour, light ink on a dark one.
+    let ink_on = |[r, g, b]: [f32; 3]| {
+        if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 {
+            "#10141c"
+        } else {
+            "#f2f4f8"
+        }
+    };
+    let (p, s, t) = (hex(primary), hex(secondary), hex(tertiary));
+    let charge = format!("{p}, {}", lighter(primary, 0.45));
+    let shine = lighter(primary, 0.85);
     format!(
         ".side > row:focus-visible, .row switch:focus-visible, .row checkbutton:focus-visible, \
          .row button:focus-visible, dropdown > button:focus-visible, \
-         .note > button:focus-visible {{ outline-color: #{r:02x}{g:02x}{b:02x}; }}"
+         .variations > row:focus-visible, .note > button:focus-visible {{ outline-color: {p}; }}
+         .variations > row:selected {{ background: {}; }}
+         .row entry:focus-within {{ border-color: {p}; }}
+         .batt progressbar progress {{ background-image: linear-gradient(90deg, {charge}); }}
+         .batt progressbar.charging progress {{ background-image: linear-gradient(90deg, \
+         {p} 0%, {p} 35%, {shine} 50%, {p} 65%, {} 100%); }}
+         .row-sub.needed {{ color: {s}; }}
+         .row progressbar.gauge.amber progress {{ background: {s}; }}
+         .side > row:selected {{ background: {}; color: {}; }}
+         .row switch:checked, .row checkbutton check:checked, .variation checkbutton check:checked, \
+         .row checkbutton radio:checked {{ border-color: {t}; background: {t}; color: {}; }}
+         .row switch:checked slider {{ background: {}; }}
+         .row checkbutton check:indeterminate {{ border-color: {t}; color: {t}; }}
+         .row scale highlight {{ background: {t}; }}",
+        faint(primary, 0.10),
+        lighter(primary, 0.45),
+        faint(tertiary, 0.12),
+        lighter(tertiary, 0.36),
+        ink_on(tertiary),
+        ink_on(tertiary),
     )
+}
+
+/// Shows `three`, Slipstream's primary, secondary and tertiary colours, on the window's own
+/// controls.
+pub fn restyle(three: [[f32; 3]; 3]) {
+    COLOURS.with(|provider| provider.load_from_string(&colours_css(three)));
 }
 
 /// The rainbow the focus ring is picked from: the colour wheel in steps of 30°.
@@ -236,18 +288,26 @@ fn style() {
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
-    // The keyboard's outline is the focus ring's colour, as it is on the desktop.
-    let ring = slipstream_config::read(&slipstream_config::path())
+    // The controls take Slipstream's three colours, as the desktop does.
+    let borders = slipstream_config::read(&slipstream_config::path())
         .unwrap_or_default()
-        .borders
-        .selected_tile_rgb();
-    let focus = gtk::CssProvider::new();
-    focus.load_from_string(&(focus_css(ring) + &hue_css()));
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &focus,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
-    );
+        .borders;
+    restyle([
+        borders.selected_tile_rgb(),
+        borders.bullet_time_rgb(),
+        borders.accent_rgb(),
+    ]);
+    let rainbow = gtk::CssProvider::new();
+    rainbow.load_from_string(&hue_css());
+    COLOURS.with(|colours| {
+        for provider in [colours, &rainbow] {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+    });
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_application_prefer_dark_theme(true);
     }

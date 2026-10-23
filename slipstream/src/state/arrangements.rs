@@ -170,6 +170,7 @@ impl Slipstream {
                 scale,
                 time: now,
                 accent: self.panel_accent(),
+                attention: self.panel_attention(),
             };
             arrange.element(renderer, frame, ring, pictures, key)
         } else {

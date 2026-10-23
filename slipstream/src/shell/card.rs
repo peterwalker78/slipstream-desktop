@@ -13,7 +13,7 @@ use smithay::{
 use crate::{
     icons,
     paint::{Painted, Painter},
-    panel::{self, AMBER, BELOW, DESIGN_PX, HINT, INK, MARGIN},
+    panel::{self, BELOW, DESIGN_PX, HINT, INK, MARGIN},
     text::{self, Face, Style},
 };
 
@@ -197,7 +197,12 @@ const FIELD_LINE: f32 = 28.0;
 
 /// The box to type into: dots or text in it, or what it asks for while it's empty, the amber
 /// caret after them, and the line under it.
-fn paint_field(p: &mut Painter, field: &Field, (x, y, w): (f32, f32, f32), accent: u32) {
+fn paint_field(
+    p: &mut Painter,
+    field: &Field,
+    (x, y, w): (f32, f32, f32),
+    (accent, attention): (u32, u32),
+) {
     p.fill(x, y, w, FIELD_H, panel::ROW_RADIUS, 0xffffff14);
     p.border(x, y, w, FIELD_H, panel::ROW_RADIUS, 1.0, panel::EDGE);
     let middle = y + FIELD_H / 2.0;
@@ -224,13 +229,17 @@ fn paint_field(p: &mut Painter, field: &Field, (x, y, w): (f32, f32, f32), accen
     };
     p.fill(end + 2.0, middle - 10.0, 2.0, 20.0, 0.0, accent);
     if let Some((line, warning)) = &field.line {
-        let style = Style::new(Face::Body, 13.0, if *warning { AMBER } else { HINT });
+        let style = Style::new(Face::Body, 13.0, if *warning { attention } else { HINT });
         let line = text::ellipsize(line, &style, w);
         p.text(&line, x, y + FIELD_H + FIELD_LINE / 2.0 + 2.0, &style);
     }
 }
 
-pub fn paint(card: &Card, accent: u32, scale: f64) -> (Option<Painted>, Vec<Hit>) {
+pub fn paint(
+    card: &Card,
+    (accent, attention): (u32, u32),
+    scale: f64,
+) -> (Option<Painted>, Vec<Hit>) {
     let title = Style {
         tracking: 0.02,
         ..Style::new(Face::Display, 27.0, INK)
@@ -310,7 +319,7 @@ pub fn paint(card: &Card, accent: u32, scale: f64) -> (Option<Painted>, Vec<Hit>
         }
         if let Some(field) = &card.field {
             y += 16.0;
-            paint_field(p, field, (x0, y, inner), accent);
+            paint_field(p, field, (x0, y, inner), (accent, attention));
             y += FIELD_H + FIELD_LINE;
         }
         if let Some(on) = card.remember {
@@ -404,9 +413,13 @@ pub struct OnScreen<K = Card> {
     /// waits for it.
     pub at: Point<f64, Logical>,
     hits: Vec<Hit>,
-    shown: Option<(K, Size<i32, Logical>, f64, u32)>,
+    shown: Option<Shown<K>>,
     painted: Option<Painted>,
 }
+
+/// What a card was last painted as: what it showed, the screen, the scale, and its accent and
+/// secondary colour.
+type Shown<K> = (K, Size<i32, Logical>, f64, (u32, u32));
 
 impl<K> Default for OnScreen<K> {
     fn default() -> Self {
@@ -456,26 +469,24 @@ impl<K: PartialEq> OnScreen<K> {
         self.hover_over(self.hit(x, y))
     }
 
-    /// Paints `shows` with `paint`, in the frame's accent, unless it, the screen, the scale and the
-    /// accent are what was last painted. Returns the paint's size.
+    /// Paints `shows` with `paint`, in the frame's accent and secondary colour, unless it, the
+    /// screen, the scale and the colours are what was last painted. Returns the paint's size.
     pub fn paint(
         &mut self,
         shows: K,
         frame: crate::panel::Frame,
-        paint: impl FnOnce(&K, u32, f64) -> (Option<Painted>, Vec<Hit>),
+        paint: impl FnOnce(&K, (u32, u32), f64) -> (Option<Painted>, Vec<Hit>),
     ) -> Option<Size<i32, Logical>> {
+        let inks = (frame.accent, frame.attention);
         let fresh = self
             .shown
             .as_ref()
-            .is_some_and(|(shown, size, scale, accent)| {
-                *shown == shows
-                    && *size == frame.size
-                    && *scale == frame.scale
-                    && *accent == frame.accent
+            .is_some_and(|(shown, size, scale, painted)| {
+                *shown == shows && *size == frame.size && *scale == frame.scale && *painted == inks
             });
         if !fresh {
-            (self.painted, self.hits) = paint(&shows, frame.accent, frame.scale);
-            self.shown = Some((shows, frame.size, frame.scale, frame.accent));
+            (self.painted, self.hits) = paint(&shows, inks, frame.scale);
+            self.shown = Some((shows, frame.size, frame.scale, inks));
         }
         self.painted.as_ref().map(|painted| painted.logical)
     }

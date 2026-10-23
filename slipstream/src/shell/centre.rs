@@ -91,6 +91,8 @@ pub struct Facts {
     pub ring: u32,
     /// Today in the calendar, and Do not disturb's switch when it's on.
     pub accent: u32,
+    /// The ring round a background app that wants attention: the secondary colour.
+    pub attention: u32,
 }
 
 /// Everything the painted panel depends on.
@@ -101,6 +103,7 @@ struct Look {
     do_not_disturb: bool,
     ring: u32,
     accent: u32,
+    attention: u32,
     revision: u64,
     selected: Item,
     action: Option<usize>,
@@ -512,6 +515,7 @@ impl Centre {
             do_not_disturb: facts.do_not_disturb,
             ring: facts.ring,
             accent: facts.accent,
+            attention: facts.attention,
             revision: notices.revision(),
             selected: self.selected,
             action: self.action,
@@ -610,6 +614,7 @@ impl Centre {
                         menu: look.menu_chip,
                         launching: launching.filter(|(_, t)| *t > 0.0),
                         ring: look.ring,
+                        attention: look.attention,
                         reduced_motion: self.reduced_motion,
                         boxes: &boxes,
                     },
@@ -638,7 +643,7 @@ impl Centre {
         let mut any_attention = false;
         let glow = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
-            any_attention = chips::paint_glow(p, &look.chips, &boxes);
+            any_attention = chips::paint_glow(p, &look.chips, &boxes, look.attention);
         });
 
         self.chip_boxes = boxes
@@ -943,6 +948,7 @@ impl Slipstream {
             reduced_motion: self.centre.reduced_motion,
             ring: self.panel_ring(),
             accent: self.panel_accent(),
+            attention: self.panel_attention(),
         }
     }
 
@@ -1088,6 +1094,7 @@ mod tests {
             do_not_disturb: false,
             ring: panel::FOCUS,
             accent: panel::ACCENT,
+            attention: panel::AMBER,
             revision: notices.revision(),
             selected: centre.selected,
             action: centre.action,

@@ -16,7 +16,7 @@ use super::Facts;
 use crate::{
     icons,
     paint::{self, Painter},
-    panel::{self, AMBER, DESIGN_PX},
+    panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
 
@@ -178,23 +178,35 @@ impl Card {
         keep(
             &mut self.pill,
             format!(
-                "{s}|{dots}|{}|{}|{}",
-                view.caret, facts.caps_lock, facts.accent
+                "{s}|{dots}|{}|{}|{}|{}",
+                view.caret, facts.caps_lock, facts.accent, facts.attention
             ),
             |key| {
                 let caret = view.caret.then_some(facts.accent);
-                paint_pill(key, dots, caret, facts.caps_lock, scale)
+                let caps = facts.caps_lock.then_some(facts.attention);
+                paint_pill(key, dots, caret, caps, scale)
             },
         );
         keep(
             &mut self.hint,
-            format!("{s}|{}|{}", view.hint, view.amber),
-            |key| paint_hint(key, &view.hint, view.amber, scale),
+            format!("{s}|{}|{}|{}", view.hint, view.amber, facts.attention),
+            |key| {
+                let ink = view.amber.then_some(facts.attention);
+                paint_hint(key, &view.hint, ink, scale)
+            },
         );
         keep(
             &mut self.status,
-            format!("{s}|{:?}|{:?}", facts.network, facts.battery),
-            |key| paint_status(key, facts.network.as_deref(), facts.battery, scale),
+            format!(
+                "{s}|{:?}|{:?}|{}",
+                facts.network, facts.battery, facts.charging
+            ),
+            |key| {
+                let battery = facts
+                    .battery
+                    .map(|(percent, on)| (percent, on.then_some(facts.charging)));
+                paint_status(key, facts.network.as_deref(), battery, scale)
+            },
         );
 
         let px = DESIGN_PX as f64;
@@ -262,7 +274,7 @@ fn paint_pill(
     key: String,
     dots: usize,
     caret: Option<u32>,
-    caps_lock: bool,
+    caps_lock: Option<u32>,
     scale: f64,
 ) -> Option<Piece> {
     const CAPS_ICON: f32 = 22.0;
@@ -284,7 +296,7 @@ fn paint_pill(
     let label_w = text::width(&label, &style);
     let caret_w = 5.0;
     // Room for the arrow on both sides, so the dots stay in the middle.
-    let caps_room = if caps_lock {
+    let caps_room = if caps_lock.is_some() {
         2.0 * (CAPS_ICON + CAPS_INSET)
     } else {
         0.0
@@ -293,9 +305,9 @@ fn paint_pill(
     Piece::paint(key, w, PILL_H, scale, |p| {
         p.fill(0.0, 0.0, w, PILL_H, 30.0, 0xffffff1f);
         p.border(0.0, 0.0, w, PILL_H, 30.0, 1.0, 0xffffff30);
-        if caps_lock {
+        if let Some(ink) = caps_lock {
             let (x, y) = (w - CAPS_INSET - CAPS_ICON, (PILL_H - CAPS_ICON) / 2.0);
-            p.icon(icons::CAPS_LOCK, x, y, CAPS_ICON, Some(AMBER));
+            p.icon(icons::CAPS_LOCK, x, y, CAPS_ICON, Some(ink));
         }
         let x = (w - label_w - caret_w) / 2.0;
         p.text(&label, x, PILL_H / 2.0, &style);
@@ -307,8 +319,9 @@ fn paint_pill(
     })
 }
 
-fn paint_hint(key: String, hint: &str, amber: bool, scale: f64) -> Option<Piece> {
-    let style = Style::new(Face::Body, HINT_PX, if amber { AMBER } else { 0xb3bbc8ff });
+/// The hint under the password, in `ink` when it needs reading.
+fn paint_hint(key: String, hint: &str, ink: Option<u32>, scale: f64) -> Option<Piece> {
+    let style = Style::new(Face::Body, HINT_PX, ink.unwrap_or(0xb3bbc8ff));
     let hint_w = text::width(hint, &style);
     let w = hint_w.max(1.0) + 8.0;
     Piece::paint(key, w, HINT_H, scale, |p| {
@@ -319,7 +332,7 @@ fn paint_hint(key: String, hint: &str, amber: bool, scale: f64) -> Option<Piece>
 fn paint_status(
     key: String,
     network: Option<&str>,
-    battery: Option<(u8, bool)>,
+    battery: Option<(u8, Option<u32>)>,
     scale: f64,
 ) -> Option<Piece> {
     const INK: u32 = 0xcfd6e2ff;

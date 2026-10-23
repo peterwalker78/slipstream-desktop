@@ -396,13 +396,14 @@ impl Slipstream {
                 })
                 .collect();
             let ring = self.panel_ring();
-            let accent = self.panel_accent();
+            let (accent, attention) = (self.panel_accent(), self.panel_attention());
             let explorer = &mut self.explorer;
             let frame = crate::panel::Frame {
                 size: screen,
                 scale,
                 time: now,
                 accent,
+                attention,
             };
             switcher.element(renderer, frame, ring, tiles, &mut |id, px| {
                 explorer.app_icon(id, px)

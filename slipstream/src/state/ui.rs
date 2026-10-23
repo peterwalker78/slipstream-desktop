@@ -294,9 +294,15 @@ impl Slipstream {
         (channel(r) << 24) | (channel(g) << 16) | (channel(b) << 8) | 0xcc
     }
 
-    /// What's on or chosen inside a panel, as the settings have it.
+    /// What's on or chosen inside a panel, as the settings have it: the tertiary colour.
     pub fn panel_accent(&self) -> u32 {
         crate::panel::opaque(self.accent_rgb)
+    }
+
+    /// What wants attention, from a notification count to Caps Lock: the secondary colour, which
+    /// is bullet time's too.
+    pub fn panel_attention(&self) -> u32 {
+        crate::panel::opaque(self.bullet_rgb)
     }
 
     /// How `action` is pressed, for hints and toasts: `Super+Shift+M`, or `Super` for the

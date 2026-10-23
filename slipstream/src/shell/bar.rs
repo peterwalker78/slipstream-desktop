@@ -21,7 +21,7 @@ use smithay::{
 use crate::{
     icons, meter,
     paint::{self, Painter},
-    panel::{self, AMBER, ink_on},
+    panel::{self, ink_on},
     status::Reading,
     text::{self, Face, Style},
 };
@@ -55,8 +55,10 @@ pub struct Content {
     pub mode: Option<(&'static str, u32)>,
     /// The focused window's ring colour, 0xRRGGBBFF: the workspace in front and Awake's pill.
     pub ring: u32,
-    /// Bullet time's colour, for the ring around the workspace it started on.
+    /// Bullet time's colour, the secondary: the ring around the workspace it started on, and
+    /// what wants attention.
     pub bullet: u32,
+
     pub status: Shown,
     /// Do not disturb is on, so the bell shows its sign instead.
     pub do_not_disturb: bool,
@@ -408,18 +410,20 @@ const SQUARE_GAP: f32 = 2.0;
 const SQUARE_OFF: u32 = 0xffffff29;
 const CHIP_FILL: u32 = 0xffffff0a;
 const CHIP_EDGE: u32 = 0xffffff1c;
-/// The chip's edge and fill while its panel is open: the focus ring's cyan.
-const CHIP_OPEN: u32 = 0x33ccffff;
 
-/// The headline on the chip: its gauges and its text, and their style.
-fn chip_glance(chip: &crate::plugins::Chip) -> Option<(&crate::plugins::Glance, Style)> {
+/// The headline on the chip: its gauges and its text, and their style, warming to `attention`
+/// as a gauge runs out.
+fn chip_glance(
+    chip: &crate::plugins::Chip,
+    attention: u32,
+) -> Option<(&crate::plugins::Glance, Style)> {
     let glance = chip.glance.as_ref()?;
     let ink = glance
         .gauges
         .iter()
         .max()
         .map_or(INK, |percent| match percent {
-            75.. => meter::ink(*percent),
+            75.. => meter::ink(*percent, attention),
             _ => INK,
         });
     let style = Style {
@@ -432,7 +436,8 @@ fn chip_glance(chip: &crate::plugins::Chip) -> Option<(&crate::plugins::Glance, 
 /// The chip's width in the bar's units: its squares, and its headline when it has one.
 fn chip_width(chip: &crate::plugins::Chip) -> f32 {
     let squares = 2.0 * SQUARE + SQUARE_GAP;
-    let glance = chip_glance(chip).map_or(0.0, |(glance, style)| {
+    // The colour makes no difference to the width.
+    let glance = chip_glance(chip, INK).map_or(0.0, |(glance, style)| {
         let gauges = if glance.gauges.is_empty() {
             0.0
         } else {
@@ -468,25 +473,20 @@ fn paint_centre(bar: &mut Strip, content: &Content) -> (f32, f32) {
     );
     bar.target(Target::Clock, centre_x, centre_w);
     if let Some(chip) = &content.plugins {
-        paint_chip(
-            bar,
-            chip,
-            content.plugins_open,
-            centre_x + centre_w + CHIP_GAP,
-            chip_w,
-        );
+        paint_chip(bar, chip, content, centre_x + centre_w + CHIP_GAP, chip_w);
     }
     (centre_x, block_w)
 }
 
 /// The plugin chip from `x`, `w` wide, on the bar's middle: a square for each plugin, lit for each
-/// one on, then the chosen plugin's headline. Amber while a plugin wants looking at, cyan while
-/// its panel is open.
-fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, open: bool, x: f32, w: f32) {
-    let (fill, edge) = if open {
-        ((CHIP_OPEN & 0xffffff00) | 0x1f, CHIP_OPEN)
+/// one on, then the chosen plugin's headline. In the secondary colour while a plugin wants
+/// looking at, the primary while its panel is open.
+fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, content: &Content, x: f32, w: f32) {
+    let (ring, attention) = (content.ring & 0xffffff00, content.bullet & 0xffffff00);
+    let (fill, edge) = if content.plugins_open {
+        (ring | 0x1f, ring | 0xff)
     } else if chip.attention {
-        ((AMBER & 0xffffff00) | 0x1a, (AMBER & 0xffffff00) | 0xbf)
+        (attention | 0x1a, attention | 0xbf)
     } else {
         (CHIP_FILL, CHIP_EDGE)
     };
@@ -501,11 +501,12 @@ fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, open: bool, x: f32, 
         let colour = if index >= shown {
             (SQUARE_OFF & 0xffffff00) | 0x10
         } else if index < lit {
-            // The last lit square carries the amber, so the chip says which way to look.
+            // The last lit square carries the secondary colour, so the chip says which way to
+            // look.
             if chip.attention && index + 1 == lit {
-                AMBER
+                content.bullet
             } else {
-                panel::MINT
+                content.ring
             }
         } else {
             SQUARE_OFF
@@ -519,7 +520,7 @@ fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, open: bool, x: f32, 
             colour,
         );
     }
-    if let Some((glance, style)) = chip_glance(chip) {
+    if let Some((glance, style)) = chip_glance(chip, content.bullet) {
         let mut at = x + CHIP_PAD + squares + 8.0;
         bar.p.fill(at, 13.0, 1.0, 14.0, 0.0, panel::EDGE);
         at += 1.0 + 8.0;
@@ -528,8 +529,14 @@ fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, open: bool, x: f32, 
                 bar.p.fill(at, y, GAUGE_W, h, h / 2.0, 0xffffff26);
                 let filled = GAUGE_W * percent as f32 / 100.0;
                 if filled > 0.0 {
-                    bar.p
-                        .fill(at, y, filled.max(h), h, h / 2.0, meter::ink(percent));
+                    bar.p.fill(
+                        at,
+                        y,
+                        filled.max(h),
+                        h,
+                        h / 2.0,
+                        meter::ink(percent, content.bullet),
+                    );
                 }
             };
             gauge(14.0, 6.0, glance.gauges[0]);
@@ -582,23 +589,23 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
         } else {
             content.unread.to_string()
         };
-        let style = Style::new(Face::MonoBold, 10.0, panel::DARK);
+        let style = Style::new(Face::MonoBold, 10.0, ink_on(content.bullet));
         let count_w = text::width(&count, &style);
         let badge_w = (count_w + 8.0).max(16.0);
         let badge_x = right + 36.0 - 2.0 - badge_w;
-        bar.p.fill(badge_x, 6.0, badge_w, 16.0, 8.0, AMBER);
+        bar.p.fill(badge_x, 6.0, badge_w, 16.0, 8.0, content.bullet);
         bar.p
             .text(&count, badge_x + (badge_w - count_w) / 2.0, 14.0, &style);
     }
 
     let battery = status.battery.map(|(percent, charging)| {
         let ink = match (percent, charging) {
-            (_, true) => panel::MINT,
-            (..=15, false) => AMBER,
+            (_, true) => content.ring,
+            (..=15, false) => content.bullet,
             _ => INK,
         };
         (
-            icons::battery(percent, charging),
+            icons::battery(percent, charging.then_some(content.ring)),
             format!("{percent}%"),
             Style::new(Face::Body, 14.0, ink),
         )
@@ -654,7 +661,14 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
     // Left of the tray while Caps Lock is on: the key's arrow and the word, on a faint amber pill,
     // the way the red one says something is shared.
     if content.caps_lock {
-        right = pill(bar, right, "CAPS", AMBER, Mark::Icon(icons::CAPS_LOCK)).0;
+        right = pill(
+            bar,
+            right,
+            "CAPS",
+            content.bullet,
+            Mark::Icon(icons::CAPS_LOCK),
+        )
+        .0;
     }
     // While Awake is on: an open eye and the word, on a faint pill in the ring's colour, which
     // turns it off when clicked.
@@ -727,9 +741,9 @@ mod tests {
             keyboard_here: true,
             labels: (1..=5).map(|n| n.to_string()).collect(),
             title: "Firefox".into(),
-            mode: Some(("BULLET TIME", AMBER)),
+            mode: Some(("BULLET TIME", panel::AMBER)),
             ring: 0x42d3ffff,
-            bullet: AMBER,
+            bullet: panel::AMBER,
             status: Shown {
                 time: "17:24".into(),
                 date: "Fri 11 Sep".into(),

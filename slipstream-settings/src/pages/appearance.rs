@@ -253,6 +253,7 @@ impl Colours {
             settings.borders.bullet_time = bullet;
             settings.borders.accent = accent;
         });
+        crate::restyle(three);
         self.show(three);
     }
 
@@ -387,9 +388,9 @@ fn colours(card: &gtk::Box, store: &Store) {
         names,
         shown: Cell::new(Colours::current_of(&store.get())),
         wheel,
-        focus: colour_button("Focus ring"),
-        bullet: colour_button("Bullet time highlight"),
-        accent: colour_button("Accent"),
+        focus: colour_button("Primary colour"),
+        bullet: colour_button("Secondary colour"),
+        accent: colour_button("Tertiary colour"),
         syncing: Cell::new(false),
     });
 
@@ -441,25 +442,29 @@ fn colours(card: &gtk::Box, store: &Store) {
     focus_control.append(&colours.focus);
     row(
         card,
-        "Focus ring",
+        "Primary colour",
         Some(
-            "The ring around the focused window, and the keyboard's ring in quick settings and the \
-             notification centre. Pick any colour, and the two below are chosen to go with it.",
+            "Where the keyboard is: the ring around the focused window and in the panels, and the \
+             workspace you're on. Also a battery that's charging and plugins that are on. Pick \
+             any colour, and the two below are chosen to go with it.",
         ),
         &focus_control,
     );
     row(
         card,
-        "Bullet time highlight",
-        Some("The rings and frames around what's chosen while the desktop is zoomed out."),
+        "Secondary colour",
+        Some(
+            "Bullet time, and whatever wants your attention: the notification count, Caps Lock, \
+             a low battery, and apps and plugins asking to be looked at.",
+        ),
         &colours.bullet,
     );
     row(
         card,
-        "Accent",
+        "Tertiary colour",
         Some(
-            "Switches and tiles that are on, sliders, the button Enter presses, today in the \
-             calendar, the text cursor and toasts.",
+            "What's on or chosen: switches, tiles and ticks, sliders, today in the calendar, the \
+             text cursor, toasts and the button Enter presses.",
         ),
         &colours.accent,
     );

@@ -18,7 +18,8 @@ pub struct Chrome {
     tags_accent: u32,
     /// The keyboard-tips prompt on an empty workspace, and the key it names.
     pub(super) tips: Option<Painted>,
-    tips_key: String,
+    /// The key the prompt names, and the colour it glows in.
+    tips_key: (String, u32),
     /// Bullet time's key legend along the foot of the screen.
     pub(super) legend: Option<paint::Painted>,
     /// Bullet time's overlays.
@@ -66,7 +67,7 @@ impl Default for Chrome {
             tags: HashMap::new(),
             tags_accent: panel::ACCENT,
             tips: None,
-            tips_key: String::new(),
+            tips_key: (String::new(), 0),
             legend: None,
             overview: Overview::default(),
             stage: tilt::Stage::default(),
@@ -218,7 +219,7 @@ impl Chrome {
         renderer: &mut R,
         view: &View,
         drifting: Option<f64>,
-        key: &str,
+        (key, glow): (&str, u32),
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -229,10 +230,10 @@ impl Chrome {
             .tips
             .as_ref()
             .is_none_or(|(painted_at, ..)| *painted_at != scale.x);
-        if stale || self.tips_key != key {
-            let (pixmap, size) = paint_tips(scale.x, key)?;
+        if stale || self.tips_key.0 != key || self.tips_key.1 != glow {
+            let (pixmap, size) = paint_tips(scale.x, key, glow)?;
             self.tips = Some((scale.x, paint::buffer(&pixmap), size));
-            self.tips_key = key.to_string();
+            self.tips_key = (key.to_string(), glow);
         }
         let (_, buffer, size) = self.tips.as_ref()?;
         let (float, breath) = match drifting {
@@ -381,8 +382,6 @@ const TIPS_GAP: f32 = 12.0;
 const TIPS_RINGS: i32 = 7;
 
 const TIPS_RING_STEP: f32 = 1.6;
-
-const TIPS_GLOW: u32 = panel::MINT;
 
 /// How far a floating window's shadow reaches beyond it, in logical pixels.
 const SHADOW_MARGIN: i32 = 36;
@@ -585,7 +584,8 @@ pub(super) fn paint_legend(scale: f64) -> Option<paint::Painted> {
 /// The keyboard-tips prompt, laid out in design pixels and painted at `scale`: a glass pill
 /// saying what to press, inside a soft glow drawn as rings fading outwards. The glow is baked in
 /// and the whole thing is faded in and out as it floats, so nothing repaints per frame.
-pub(super) fn paint_tips(scale: f64, key: &str) -> Option<(Pixmap, Size<i32, Logical>)> {
+/// The keyboard-tips prompt, glowing in `glow`, the primary colour.
+pub(super) fn paint_tips(scale: f64, key: &str, glow: u32) -> Option<(Pixmap, Size<i32, Logical>)> {
     let words = Style::new(Face::Mono, 14.0, panel::PROSE);
     let pill_w = (TIPS_PAD
         + text::width(TIPS_TEXT, &words)
@@ -624,7 +624,7 @@ pub(super) fn paint_tips(scale: f64, key: &str) -> Option<(Pixmap, Size<i32, Log
             TIPS_H + 2.0 * grow,
             radius,
             TIPS_RING_STEP,
-            (TIPS_GLOW & 0xffffff00) | alpha,
+            (glow & 0xffffff00) | alpha,
         );
     }
     p.fill(
@@ -642,7 +642,7 @@ pub(super) fn paint_tips(scale: f64, key: &str) -> Option<(Pixmap, Size<i32, Log
         TIPS_H,
         TIPS_H / 2.0,
         1.0,
-        (TIPS_GLOW & 0xffffff00) | 0x66,
+        (glow & 0xffffff00) | 0x66,
     );
     let centre = halo + TIPS_H / 2.0;
     p.text(TIPS_TEXT, pill_x + TIPS_PAD, centre, &words);

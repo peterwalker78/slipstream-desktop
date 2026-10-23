@@ -42,8 +42,6 @@ const SHOWN: f64 = 1.2;
 const SHOWN_LOCK_KEY: f64 = 1.7;
 /// A charger's card isn't the answer to a key, so it may not be looked at straight away.
 const SHOWN_POWER: f64 = 2.5;
-/// Charging's colour, as on the bar's battery.
-const MINT: u32 = panel::MINT;
 
 /// What Awake's card says under its title: on, what ends it besides another hold.
 pub fn awake_note(on: bool) -> &'static str {
@@ -104,7 +102,8 @@ impl Kind {
         }
     }
 
-    fn icon(self, level: u8) -> String {
+    /// The card's icon; a battery on a charger in `charging`.
+    fn icon(self, level: u8, charging: u32) -> String {
         let icon = match self {
             Kind::Volume { muted: false } => icons::VOLUME,
             Kind::Volume { muted: true } => icons::VOLUME_MUTED,
@@ -115,7 +114,7 @@ impl Kind {
             Kind::Media { playing: false } => icons::PAUSE,
             Kind::NumLock { .. } => icons::KEYBOARD,
             Kind::Awake { .. } => icons::EYE,
-            Kind::Power { plugged } => return icons::battery(level, plugged),
+            Kind::Power { plugged } => return icons::battery(level, plugged.then_some(charging)),
         };
         icon.to_string()
     }
@@ -322,7 +321,13 @@ fn paint(
         Kind::Volume { muted: true } | Kind::Microphone { muted: true }
     );
     let ink = if muted { DIM } else { ink };
-    p.icon(&kind.icon(level), dx + 22.0, dy + 24.0, 24.0, Some(ink));
+    p.icon(
+        &kind.icon(level, ink),
+        dx + 22.0,
+        dy + 24.0,
+        24.0,
+        Some(ink),
+    );
     let label = Style {
         tabular: true,
         ..Style::new(Face::Mono, 15.0, panel::PROSE)
@@ -339,7 +344,7 @@ fn paint(
         if filled >= BAR_H {
             let bar = match kind {
                 _ if muted => DIM,
-                Kind::Power { plugged: true } => MINT,
+                Kind::Power { plugged: true } => ink,
                 _ => accent,
             };
             p.fill(bar_x, y, filled, BAR_H, BAR_H / 2.0, bar);
@@ -359,7 +364,7 @@ fn paint(
         if let Kind::Power { plugged } = kind {
             // What happened, under the bar, as muted is said.
             let (word, colour) = if plugged {
-                ("CHARGING", MINT)
+                ("CHARGING", ink)
             } else {
                 ("ON BATTERY", DIM)
             };

@@ -220,12 +220,13 @@ fn card_elements(
     wall: f64,
     deck_shown: bool,
 ) -> Vec<OutputElement> {
-    let accent = state.panel_accent();
+    let (accent, attention) = (state.panel_accent(), state.panel_attention());
     let frame = |time| crate::panel::Frame {
         size,
         scale,
         time,
         accent,
+        attention,
     };
     let mut elements = Vec::new();
     if state.explorer.is_open() {
@@ -553,7 +554,7 @@ mod tests {
 
     #[test]
     fn the_key_hint_is_painted_at_the_screen_scale() {
-        let (pixmap, size) = paint_tips(1.25, "Super+/").unwrap();
+        let (pixmap, size) = paint_tips(1.25, "Super+/", 0x42d3ffff).unwrap();
         assert_eq!(
             (pixmap.width(), pixmap.height()),
             (
