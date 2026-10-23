@@ -17,6 +17,9 @@ const LIST_BESIDE: i32 = 280;
 
 /// The space between the preview and the list.
 const GAP: i32 = 16;
+/// The narrowest the preview goes in a narrow window, cropped at the sides, so it never holds the
+/// window wider than its tile.
+const NARROWEST: i32 = 240;
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
@@ -133,7 +136,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     let holder = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::External)
         .vscrollbar_policy(gtk::PolicyType::External)
-        .min_content_width(width)
+        .min_content_width(NARROWEST)
         .max_content_width(width)
         .min_content_height(height)
         .max_content_height(height)
@@ -141,7 +144,10 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         .child(&picture)
         .build();
     let preview = previews::Preview::new(&picture, store.get().motion.reduced);
+    // Stacked until it has been laid out: the tick below only runs once the page is showing, and
+    // side by side would hold the whole window wider until then.
     let shelf = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
         .spacing(GAP)
         .css_classes(["row"])
         .build();

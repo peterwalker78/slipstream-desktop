@@ -51,7 +51,6 @@ pub fn picture() -> gtk::Picture {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .can_shrink(true)
-        .width_request(SHOWN.0)
         .height_request(SHOWN.1)
         .css_classes(["preview"])
         .build();

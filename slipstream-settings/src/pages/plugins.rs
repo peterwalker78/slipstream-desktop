@@ -130,7 +130,8 @@ fn look(approved: &plugins::Plugins) -> Looked {
 fn add_rows(card: &gtk::Box, refill: impl Fn() + Clone + 'static) {
     let address = gtk::Entry::builder()
         .placeholder_text("https://github.com/someone/weather-plugin")
-        .width_chars(30)
+        .width_chars(16)
+        .hexpand(true)
         .build();
     let clone = gtk::Button::with_label("Add");
     let controls = gtk::Box::builder().spacing(8).build();
