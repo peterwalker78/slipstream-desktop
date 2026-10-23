@@ -284,6 +284,7 @@ impl Slipstream {
             self.explorer.close();
         }
         self.quick.close();
+        self.plugin_panel.close();
         self.centre.close();
         self.sheet.close();
         self.history.close();

@@ -190,6 +190,14 @@ impl Slipstream {
                     }
                 }
                 debug::Step::Osd(what) => self.debug_osd(&what),
+                debug::Step::Plugins => self.toggle_plugin_panel(),
+                debug::Step::PluginKey(_) if !self.plugin_panel.is_open() => {
+                    tracing::info!("debug step ignored: panel closed");
+                }
+                debug::Step::PluginKey(name) => {
+                    let (key, shift) = shifted_key(&name);
+                    self.plugin_key(key, shift);
+                }
                 debug::Step::Quick => self.toggle_quick_settings(),
                 debug::Step::QuickKey(_) | debug::Step::QuickClick(..) if !self.quick.is_open() => {
                     tracing::info!("debug step ignored: panel closed");

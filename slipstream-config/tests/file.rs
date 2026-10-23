@@ -72,7 +72,7 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             every_secs: 120,
             hidden: vec!["Weekly".into()],
         },
-        bar: Default::default(),
+        plugins: Default::default(),
         workspaces: Default::default(),
         keys: Default::default(),
         mouse: Default::default(),

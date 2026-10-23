@@ -3,7 +3,6 @@
 
 pub(crate) mod arrange;
 pub(crate) mod bar;
-pub(crate) mod bar_slots;
 pub(crate) mod calendar;
 pub(crate) mod card;
 pub(crate) mod centre;
@@ -17,6 +16,7 @@ pub(crate) mod notices;
 pub(crate) mod offer;
 pub(crate) mod osd;
 pub(crate) mod panel;
+pub(crate) mod plugin_panel;
 pub(crate) mod quick;
 pub(crate) mod share;
 pub(crate) mod sheet;

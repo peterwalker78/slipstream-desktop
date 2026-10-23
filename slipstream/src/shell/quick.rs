@@ -3,8 +3,7 @@
 //!
 //! While it's open it takes every key: arrows or Tab move, Enter or Space presses, ←/→ move a
 //! slider, Esc closes. A ring shows where the keyboard is. The Wi-Fi and Bluetooth tiles
-//! carry a chevron that opens the system's own settings page for them. The meter's cog slides its
-//! block sideways to a list of its sections, each with a switch that shows or hides it.
+//! carry a chevron that opens the system's own settings page for them.
 
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
@@ -17,7 +16,7 @@ use crate::{
     exit::Intent,
     icons,
     keys::App,
-    launch, meter,
+    launch,
     paint::{Painted, Painter},
     panel::{self, DARK, DESIGN_PX, GAP, INK, PADDING},
     status::{self, Reading},
@@ -35,20 +34,6 @@ const SLIDER_H: f32 = 30.0;
 const FOOT_H: f32 = 31.0;
 /// The chevron's zone at the right of a tile that has one.
 const CHEVRON_W: f32 = 36.0;
-/// The meter's block: the line above it and the space under that, a section's name, each of its
-/// gauges, its note, and the gap after it.
-const METER_TOP: f32 = 13.0;
-const METER_HEAD_H: f32 = 24.0;
-const METER_ROW_H: f32 = 26.0;
-const METER_NOTE_H: f32 = 20.0;
-const METER_GAP: f32 = 8.0;
-/// A row of the meter's list of sections, with its switch.
-const CHOICE_ROW_H: f32 = 32.0;
-/// The meter's small round buttons: the cog, and the way back from the list.
-const METER_BUTTON: f32 = 24.0;
-/// How long the meter's block takes to slide between its gauges and its list.
-const TURN: f64 = 0.3;
-
 /// Something in quick settings the keyboard can move to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Control {
@@ -75,12 +60,6 @@ pub enum Control {
     /// The volume slider; pressing it mutes.
     Volume,
     Brightness,
-    /// The cog on the meter: its list of sections, to choose which show.
-    MeterChoose,
-    /// Back from that list to the gauges.
-    MeterBack,
-    /// The switch that shows or hides the meter's section at this place in the report.
-    MeterShow(usize),
     AllSettings,
 }
 
@@ -133,9 +112,6 @@ impl Control {
             Self::PowerMode => "Power mode",
             Self::Volume => "Volume",
             Self::Brightness => "Brightness",
-            Self::MeterChoose => "Choose meters",
-            Self::MeterBack => "Back",
-            Self::MeterShow(_) => "Show meter",
             Self::AllSettings => "All settings",
         }
     }
@@ -161,10 +137,6 @@ pub struct Facts {
     pub night_light: bool,
     pub reduced_motion: bool,
     pub user: String,
-    /// The bar meter's report, shown in full under the sliders.
-    pub meter: Option<meter::Reading>,
-    /// The report's sections that aren't shown, by name.
-    pub meter_hidden: Vec<String>,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
     /// The key that opens and closes the panel.
@@ -179,8 +151,6 @@ impl Default for Facts {
             night_light: false,
             reduced_motion: false,
             user: String::new(),
-            meter: None,
-            meter_hidden: Vec::new(),
             ring: crate::panel::FOCUS,
             key: String::new(),
         }
@@ -193,8 +163,6 @@ struct Look {
     facts: Facts,
     selected: Control,
     power_menu: bool,
-    /// How far the meter's block has slid from its gauges (0) to its list (1).
-    turned: f32,
     width: i32,
     scale: f64,
 }
@@ -215,10 +183,6 @@ pub struct QuickSettings {
     opened_at: f64,
     selected: Control,
     power_menu: bool,
-    /// The meter's block shows its list of sections rather than its gauges.
-    choosing: bool,
-    /// When the block last slid, on the animation clock: `None` until the next frame stamps it.
-    turned_at: Option<f64>,
     shown: Option<Look>,
     painted: Option<Painted>,
     /// The painted area's corner and the card, in logical pixels from the output's corner.
@@ -240,8 +204,6 @@ impl Default for QuickSettings {
             opened_at: 0.0,
             selected: Control::default(),
             power_menu: false,
-            choosing: false,
-            turned_at: Some(f64::NEG_INFINITY),
             shown: None,
             painted: None,
             origin: Point::default(),
@@ -269,8 +231,6 @@ impl QuickSettings {
         self.opened_at = now;
         self.selected = Control::default();
         self.power_menu = false;
-        self.choosing = false;
-        self.turned_at = Some(f64::NEG_INFINITY);
         self.shown = None;
     }
 
@@ -322,18 +282,6 @@ impl QuickSettings {
         if facts.status.brightness.is_some() {
             rows.push(vec![Control::Brightness]);
         }
-        let sections = facts
-            .meter
-            .as_ref()
-            .map_or(0, |reading| reading.sections.len());
-        if sections > 0 {
-            if self.choosing {
-                rows.push(vec![Control::MeterBack]);
-                rows.extend((0..sections).map(|i| vec![Control::MeterShow(i)]));
-            } else {
-                rows.push(vec![Control::MeterChoose]);
-            }
-        }
         rows.push(vec![Control::AllSettings]);
         rows
     }
@@ -355,9 +303,6 @@ impl QuickSettings {
             Keysym::Escape if self.power_menu => {
                 self.power_menu = false;
                 self.selected = Control::Power;
-            }
-            Keysym::Escape if self.choosing => {
-                self.press(Control::MeterBack);
             }
             Keysym::Escape => return Request::Close,
             Keysym::Up | Keysym::Down => {
@@ -443,16 +388,6 @@ impl QuickSettings {
                 Request::Nothing
             }
             Control::Brightness => Request::Nothing,
-            Control::MeterChoose | Control::MeterBack => {
-                self.choosing = control == Control::MeterChoose;
-                self.selected = if self.choosing {
-                    Control::MeterShow(0)
-                } else {
-                    Control::MeterChoose
-                };
-                self.turned_at = None;
-                Request::Nothing
-            }
             other => Request::Press(other),
         }
     }
@@ -496,21 +431,10 @@ impl QuickSettings {
             return None;
         }
         let reduced_motion = facts.reduced_motion;
-        let turned_at = *self.turned_at.get_or_insert(now);
-        let sliding = if reduced_motion {
-            1.0
-        } else {
-            crate::anim::Easing::InOutCubic.at((now - turned_at) / TURN) as f32
-        };
         let look = Look {
             facts,
             selected: self.selected,
             power_menu: self.power_menu,
-            turned: if self.choosing {
-                sliding
-            } else {
-                1.0 - sliding
-            },
             width,
             scale,
         };
@@ -527,13 +451,6 @@ impl QuickSettings {
         let facts = &look.facts;
         let sliders = sliders(&facts.status);
         let menu_h = if look.power_menu { MENU_H + GAP } else { 0.0 };
-        let (sections, shown) = meter_sections(facts);
-        let block_h = meter_block_height(look, sections, &shown);
-        let meter_h = if sections.is_empty() {
-            0.0
-        } else {
-            METER_TOP + block_h
-        };
         let height = PADDING
             + HEAD_H
             + GAP
@@ -542,7 +459,6 @@ impl QuickSettings {
             + 2.0 * TILE_GAP
             + GAP
             + sliders.len() as f32 * (SLIDER_H + GAP)
-            + meter_h
             + FOOT_H
             + PADDING;
         let place = panel::Place {
@@ -557,17 +473,6 @@ impl QuickSettings {
             ((height + 2.0 * panel::MARGIN + panel::BELOW) * DESIGN_PX).ceil() as i32,
         ));
         let mut hits = Hits::default();
-        let f = look.scale as f32 * DESIGN_PX;
-        let mut strip = if sections.is_empty() {
-            None
-        } else {
-            let inner = WIDTH - 2.0 * PADDING;
-            Some(Painter::new(
-                (inner * f).ceil() as u32,
-                (block_h * f).ceil().max(1.0) as u32,
-                f,
-            )?)
-        };
 
         let painted = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
@@ -585,10 +490,6 @@ impl QuickSettings {
             for &slider in &sliders {
                 paint_slider(p, &facts.status, slider, place, y, &mut hits);
                 y += SLIDER_H + GAP;
-            }
-            if let Some(strip) = strip.as_mut() {
-                paint_meter(p, look, strip, x0, y, &mut hits);
-                y += METER_TOP + block_h;
             }
             paint_footer(p, look, x0, y, &mut hits);
             for (control, [x, y, w, h, radius]) in &hits.shapes {
@@ -632,25 +533,6 @@ fn sliders(status: &Reading) -> Vec<(Control, &'static str, u8)> {
         sliders.push((Control::Brightness, icons::SUN, level));
     }
     sliders
-}
-
-/// The meter's sections, and the ones not hidden in its settings.
-fn meter_sections(facts: &Facts) -> (&[meter::Section], Vec<&meter::Section>) {
-    let sections: &[meter::Section] = facts
-        .meter
-        .as_ref()
-        .map_or(&[], |reading| reading.sections.as_slice());
-    let shown = sections
-        .iter()
-        .filter(|section| !facts.meter_hidden.contains(&section.name))
-        .collect();
-    (sections, shown)
-}
-
-/// The meter block's height: it grows or shrinks with the slide, from the gauges' height to the
-/// list's.
-fn meter_block_height(look: &Look, sections: &[meter::Section], shown: &[&meter::Section]) -> f32 {
-    gauges_height(shown) + (choice_height(sections.len()) - gauges_height(shown)) * look.turned
 }
 
 /// The battery, its icon showing the charger, and quietly beneath it who is logged in; then the
@@ -831,54 +713,6 @@ fn paint_slider(
     hits.shapes.push((control, [x0, y, inner, SLIDER_H, 8.0]));
 }
 
-/// The meter's report, and its list of sections beside it: drawn on a strip of their own so that
-/// sliding from one to the other is cut off at the card's padding.
-fn paint_meter(
-    p: &mut Painter,
-    look: &Look,
-    strip: &mut Painter,
-    x0: f32,
-    y: f32,
-    hits: &mut Hits,
-) {
-    let facts = &look.facts;
-    let (sections, shown) = meter_sections(facts);
-    let inner = WIDTH - 2.0 * PADDING;
-    let mut y = y;
-    p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
-    y += METER_TOP;
-    let travel = inner + PADDING;
-    let mut meter_shapes = Vec::new();
-    if look.turned < 1.0 {
-        paint_gauges(
-            strip,
-            -travel * look.turned,
-            inner,
-            &shown,
-            &mut meter_shapes,
-        );
-    }
-    if look.turned > 0.0 {
-        paint_choice(
-            strip,
-            travel * (1.0 - look.turned),
-            inner,
-            sections,
-            &facts.meter_hidden,
-            &mut meter_shapes,
-        );
-    }
-    p.image(&strip.pixmap, x0, y);
-    // Nothing in the block can be pressed while it's moving.
-    if look.turned == 0.0 || look.turned == 1.0 {
-        hits.shapes.extend(
-            meter_shapes
-                .into_iter()
-                .map(|(control, [x, top, w, h, r])| (control, [x0 + x, y + top, w, h, r])),
-        );
-    }
-}
-
 /// The footer: the way into the Settings app, and the keys that close the panel.
 fn paint_footer(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) {
     let inner = WIDTH - 2.0 * PADDING;
@@ -893,246 +727,6 @@ fn paint_footer(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits) 
     panel::key_hint(p, x0 + inner, centre, &[&look.facts.key, "Esc"], "close");
 }
 
-/// The meter block's height while it shows the gauges of `sections`: a heading row for the cog
-/// alone when every section is hidden.
-fn gauges_height(sections: &[&meter::Section]) -> f32 {
-    if sections.is_empty() {
-        return METER_HEAD_H + METER_GAP;
-    }
-    sections
-        .iter()
-        .map(|section| {
-            METER_HEAD_H
-                + section.gauges.len() as f32 * METER_ROW_H
-                + if section.note.is_some() {
-                    METER_NOTE_H
-                } else {
-                    0.0
-                }
-                + METER_GAP
-        })
-        .sum()
-}
-
-/// The meter block's height while it lists `sections` sections to choose from.
-fn choice_height(sections: usize) -> f32 {
-    METER_HEAD_H + sections as f32 * CHOICE_ROW_H + METER_GAP
-}
-
-/// The meter's report, `x0` from the strip's left: each shown section's name, its gauges with the
-/// time until each starts over, and its note, with the cog on the first row. Old numbers are
-/// dimmed.
-fn paint_gauges(
-    p: &mut Painter,
-    x0: f32,
-    inner: f32,
-    sections: &[&meter::Section],
-    shapes: &mut Vec<(Control, [f32; 5])>,
-) {
-    let cog_x = x0 + inner - METER_BUTTON;
-    panel::quiet_button(
-        p,
-        cog_x,
-        0.0,
-        METER_BUTTON,
-        METER_BUTTON,
-        METER_BUTTON / 2.0,
-        false,
-    );
-    p.icon(icons::COG, cog_x + 3.0, 3.0, 18.0, Some(panel::SECONDARY));
-    shapes.push((
-        Control::MeterChoose,
-        [cog_x, 0.0, METER_BUTTON, METER_BUTTON, METER_BUTTON / 2.0],
-    ));
-    if sections.is_empty() {
-        let quiet = Style::new(Face::Body, 13.0, panel::HINT);
-        p.text("Every meter is hidden", x0, METER_HEAD_H / 2.0, &quiet);
-        return;
-    }
-    let mut y = 0.0;
-    for (i, section) in sections.iter().enumerate() {
-        // The first row shares its right end with the cog.
-        let right = if i == 0 {
-            inner - METER_BUTTON - 10.0
-        } else {
-            inner
-        };
-        let shade = |rgba: u32| {
-            if section.stale {
-                meter::dim(rgba)
-            } else {
-                rgba
-            }
-        };
-        let centre = y + METER_HEAD_H / 2.0;
-        let name = Style::new(Face::BodyBold, 14.0, shade(INK));
-        let name_w = p.text(
-            &text::ellipsize(&section.name, &name, inner / 2.0),
-            x0,
-            centre,
-            &name,
-        );
-        let quiet = Style::new(Face::Body, 12.5, shade(panel::HINT));
-        if let Some(detail) = &section.detail {
-            p.text(
-                &text::ellipsize(detail, &quiet, inner / 2.0 - 10.0),
-                x0 + name_w + 10.0,
-                centre,
-                &quiet,
-            );
-        }
-        if section.stale && section.note.is_none() {
-            let old = Style::new(Face::Body, 12.5, panel::HINT);
-            let word = "Not up to date";
-            p.text(word, x0 + right - text::width(word, &old), centre, &old);
-        }
-        y += METER_HEAD_H;
-        for gauge in &section.gauges {
-            let centre = y + METER_ROW_H / 2.0;
-            let label = Style::new(Face::Body, 13.0, shade(panel::SECONDARY));
-            p.text(
-                &text::ellipsize(&gauge.label, &label, 124.0),
-                x0,
-                centre,
-                &label,
-            );
-            let percent = format!("{}%", gauge.percent);
-            let number = Style {
-                tabular: true,
-                ..Style::new(Face::Mono, 13.0, shade(panel::SECONDARY))
-            };
-            p.text(
-                &percent,
-                x0 + inner - text::width(&percent, &number),
-                centre,
-                &number,
-            );
-            let resets_right = x0 + inner - 46.0;
-            let track_x = x0 + 132.0;
-            let track_w = resets_right - 104.0 - track_x;
-            p.fill(track_x, centre - 3.0, track_w, 6.0, 3.0, shade(0x3a3f4bff));
-            let filled = track_w * gauge.percent as f32 / 100.0;
-            if filled > 0.0 {
-                p.fill(
-                    track_x,
-                    centre - 3.0,
-                    filled.max(6.0),
-                    6.0,
-                    3.0,
-                    shade(meter::ink(gauge.percent)),
-                );
-            }
-            if let Some(left) = &gauge.resets_in {
-                let small = Style::new(Face::Body, 12.0, shade(panel::HINT));
-                let left = text::ellipsize(left, &small, 96.0);
-                p.text(
-                    &left,
-                    resets_right - text::width(&left, &small),
-                    centre,
-                    &small,
-                );
-            }
-            y += METER_ROW_H;
-        }
-        if let Some(note) = &section.note {
-            let style = Style::new(Face::Body, 12.5, 0xd9b27aff);
-            p.text(
-                &text::ellipsize(note, &style, inner),
-                x0,
-                y + METER_NOTE_H / 2.0 - 2.0,
-                &style,
-            );
-            y += METER_NOTE_H;
-        }
-        y += METER_GAP;
-    }
-}
-
-/// The meter's list of sections, `x0` from the strip's left: the way back, then every section of
-/// the report with a switch, amber while it shows.
-fn paint_choice(
-    p: &mut Painter,
-    x0: f32,
-    inner: f32,
-    sections: &[meter::Section],
-    hidden: &[String],
-    shapes: &mut Vec<(Control, [f32; 5])>,
-) {
-    panel::quiet_button(
-        p,
-        x0,
-        0.0,
-        METER_BUTTON,
-        METER_BUTTON,
-        METER_BUTTON / 2.0,
-        false,
-    );
-    p.icon(icons::BACK, x0 + 4.0, 4.0, 16.0, Some(INK));
-    shapes.push((
-        Control::MeterBack,
-        [x0, 0.0, METER_BUTTON, METER_BUTTON, METER_BUTTON / 2.0],
-    ));
-    let heading = Style::new(Face::BodyBold, 14.0, INK);
-    p.text(
-        "Meters to show",
-        x0 + METER_BUTTON + 10.0,
-        METER_HEAD_H / 2.0,
-        &heading,
-    );
-    let mut y = METER_HEAD_H;
-    for (i, section) in sections.iter().enumerate() {
-        let on = !hidden.contains(&section.name);
-        let centre = y + CHOICE_ROW_H / 2.0;
-        let (switch_w, switch_h) = (34.0, 18.0);
-        let switch_x = x0 + inner - switch_w;
-        let name = Style::new(Face::Body, 14.0, if on { INK } else { panel::HINT });
-        let name_w = p.text(
-            &text::ellipsize(&section.name, &name, inner / 2.0),
-            x0,
-            centre,
-            &name,
-        );
-        if let Some(detail) = &section.detail {
-            let quiet = Style::new(Face::Body, 12.5, panel::HINT);
-            let room = switch_x - 12.0 - (x0 + name_w + 10.0);
-            p.text(
-                &text::ellipsize(detail, &quiet, room),
-                x0 + name_w + 10.0,
-                centre,
-                &quiet,
-            );
-        }
-        let track = if on { panel::AMBER } else { 0x3a3f4bff };
-        p.fill(
-            switch_x,
-            centre - switch_h / 2.0,
-            switch_w,
-            switch_h,
-            switch_h / 2.0,
-            track,
-        );
-        let knob = if on {
-            switch_x + switch_w - switch_h + 2.0
-        } else {
-            switch_x + 2.0
-        };
-        p.fill(
-            knob,
-            centre - switch_h / 2.0 + 2.0,
-            switch_h - 4.0,
-            switch_h - 4.0,
-            (switch_h - 4.0) / 2.0,
-            if on { DARK } else { panel::SECONDARY },
-        );
-        shapes.push((
-            Control::MeterShow(i),
-            [x0 - 6.0, y, inner + 12.0, CHOICE_ROW_H, panel::ROW_RADIUS],
-        ));
-        y += CHOICE_ROW_H;
-    }
-}
-
-/// `level` moved by `step` percentage points, within 0–100.
 fn nudge(level: u8, step: i32) -> u8 {
     (level as i32 + step).clamp(0, 100) as u8
 }
@@ -1231,8 +825,6 @@ impl Slipstream {
             night_light: self.settings.display.night_light,
             reduced_motion: self.quick.reduced_motion,
             user: self.user.clone(),
-            meter: crate::status::held(&self.meter).clone(),
-            meter_hidden: self.settings.meter.hidden.clone(),
             ring: self.panel_ring(),
             key: self.key_label(crate::keys::Action::QuickSettings),
         }
@@ -1254,7 +846,7 @@ impl Slipstream {
                     .then(|| self.focused_bar_target(x, y))
                     .flatten();
                 if let Some(target) = target
-                    .filter(|target| !matches!(target, bar::Target::Tray | bar::Target::Meter))
+                    .filter(|target| *target != bar::Target::Tray)
                 {
                     self.bar_clicked(target);
                 }
@@ -1297,23 +889,7 @@ impl Slipstream {
     fn quick_press(&mut self, control: Control) {
         let reading = crate::status::held(&self.status).clone();
         match control {
-            Control::Power | Control::Brightness | Control::MeterChoose | Control::MeterBack => {}
-            Control::MeterShow(i) => {
-                let name = crate::status::held(&self.meter)
-                    .as_ref()
-                    .and_then(|reading| reading.sections.get(i))
-                    .map(|section| section.name.clone());
-                if let Some(name) = name {
-                    self.change_settings(|settings| {
-                        let hidden = &mut settings.meter.hidden;
-                        if hidden.contains(&name) {
-                            hidden.retain(|other| *other != name);
-                        } else {
-                            hidden.push(name);
-                        }
-                    });
-                }
-            }
+            Control::Power | Control::Brightness => {}
             Control::Lock => {
                 self.quick.close();
                 tracing::info!("lock chosen in quick settings");
@@ -1591,7 +1167,6 @@ mod tests {
             facts: facts(),
             selected: quick.selected,
             power_menu: false,
-            turned: 0.0,
             width: 1536,
             scale: 1.25,
         };
@@ -1632,75 +1207,6 @@ mod tests {
         );
         assert_eq!(quick.click(volume.left - 5.0, y), Request::Volume(0));
         assert_eq!(quick.click(20.0, 500.0), Request::Close);
-    }
-
-    #[test]
-    fn the_cog_slides_to_a_switch_for_each_meter() {
-        let section = |name: &str| meter::Section {
-            name: name.into(),
-            detail: None,
-            gauges: Vec::new(),
-            note: None,
-            stale: false,
-        };
-        let facts = Facts {
-            meter: Some(meter::Reading {
-                sections: vec![section("Storage"), section("Mail")],
-            }),
-            meter_hidden: vec!["Mail".into()],
-            ..facts()
-        };
-        let mut quick = QuickSettings::default();
-        quick.open(0.0);
-        let paint = |quick: &mut QuickSettings, turned: f32| {
-            let look = Look {
-                facts: facts.clone(),
-                selected: quick.selected,
-                power_menu: false,
-                turned,
-                width: 1536,
-                scale: 1.25,
-            };
-            quick.repaint(&look).unwrap();
-        };
-        let centre_of = |quick: &QuickSettings, wanted: Control| {
-            quick
-                .targets
-                .iter()
-                .find(|(control, _)| *control == wanted)
-                .map(|(_, area)| {
-                    (
-                        area.loc.x + area.size.w / 2.0,
-                        area.loc.y + area.size.h / 2.0,
-                    )
-                })
-        };
-
-        paint(&mut quick, 0.0);
-        let (x, y) = centre_of(&quick, Control::MeterChoose).expect("the cog is there");
-        assert_eq!(quick.click(x, y), Request::Nothing);
-        assert_eq!(quick.selected, Control::MeterShow(0));
-
-        paint(&mut quick, 0.5);
-        assert!(
-            centre_of(&quick, Control::MeterShow(1)).is_none(),
-            "nothing is pressed mid-slide"
-        );
-
-        paint(&mut quick, 1.0);
-        let (x, y) = centre_of(&quick, Control::MeterShow(1)).expect("hidden meters are listed");
-        assert_eq!(quick.click(x, y), Request::Press(Control::MeterShow(1)));
-        assert_eq!(quick.key(Keysym::Down, false, &facts), Request::Nothing);
-        assert_eq!(quick.selected, Control::AllSettings);
-
-        quick.selected = Control::MeterShow(0);
-        assert_eq!(quick.key(Keysym::Escape, false, &facts), Request::Nothing);
-        assert_eq!(
-            quick.selected,
-            Control::MeterChoose,
-            "Esc slides back first"
-        );
-        assert_eq!(quick.key(Keysym::Escape, false, &facts), Request::Close);
     }
 
     #[test]

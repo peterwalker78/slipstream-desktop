@@ -44,6 +44,7 @@ zeroize = "1"
 toml = "1.1"
 # The bar's meter reads the JSON report its command prints (slipstream-config).
 serde_json = "1"
+sha2 = "0.10"
 # slipstream-settings: GTK4, the toolkit for Slipstream's own apps (AT-SPI accessibility).
 # Pango 1.56 loads Slipstream's fonts from files without installing them.
 gtk4 = { version = "0.11", features = ["v4_14"] }

@@ -663,6 +663,7 @@ impl Slipstream {
         let now = self.wall();
         self.explorer.close();
         self.quick.close();
+        self.plugin_panel.close();
         self.centre.close();
         self.shots.snip = None;
         // SAFETY: getuid has no failure mode.

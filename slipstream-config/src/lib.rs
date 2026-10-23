@@ -69,10 +69,9 @@
 //! every-secs = 60
 //! hidden = []
 //!
-//! [[bar.modules]]
-//! name = "Weather"
-//! exec = "weather-report"
-//! interval = 600
+//! [plugins]
+//! on = ["disk-space"]
+//! glance = "disk-space"
 //!
 //! [session]
 //! remember = false
@@ -97,7 +96,6 @@
 //! Missing keys take their defaults and unknown ones are ignored, so an older compositor still
 //! reads a newer file.
 
-pub mod bar;
 pub mod battery;
 pub mod command;
 mod display;
@@ -105,6 +103,7 @@ mod file;
 mod input;
 pub mod meter;
 mod pages;
+pub mod plugins;
 pub mod screens;
 pub mod shortcuts;
 pub mod sun;
@@ -147,9 +146,8 @@ pub struct Settings {
     pub clipboard: Clipboard,
     pub privacy: Privacy,
     pub meter: Meter,
-    /// The bar's modules: Waybar's custom modules, beside the clock.
-    #[serde(skip_serializing_if = "bar::Bar::is_empty")]
-    pub bar: bar::Bar,
+    /// Which plugins are on, and the one whose headline is on the chip.
+    pub plugins: plugins::Plugins,
     pub workspaces: Workspaces,
     pub keys: Keys,
     pub mouse: Mouse,
@@ -401,9 +399,9 @@ impl Default for Sound {
     }
 }
 
-/// A meter on the bar, beside quick settings, showing how much of some allowance a command reports
-/// used: a quota, a plan's limits, a disk. The command prints the JSON report described in
-/// [`meter`], which quick settings shows in full.
+/// A command reporting how much of some allowance is used: a quota, a plan's limits, a disk. It
+/// prints the JSON report described in [`meter`], and shows as a plugin of its own
+/// ([`plugins::meter_plugin`]) while it is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Meter {
@@ -411,7 +409,7 @@ pub struct Meter {
     pub command: String,
     /// How often the command runs, in seconds. At least 10, at most a day.
     pub every_secs: u64,
-    /// Sections of the report not to show, by name. Quick settings' cog chooses them.
+    /// Sections of the report not to show, by name.
     pub hidden: Vec<String>,
 }
 
@@ -722,15 +720,10 @@ mod tests {
                 every_secs: 300,
                 hidden: vec!["Mail".into()],
             },
-            bar: bar::Bar {
-                modules: vec![bar::Module {
-                    exec: "made-up-status --json".into(),
-                    return_type: bar::ReturnType::Json,
-                    interval: bar::Interval::Every(5),
-                    on_click: "made-up-app".into(),
-                    ..bar::Module::default()
-                }],
-                problems: Vec::new(),
+            plugins: plugins::Plugins {
+                on: vec!["made-up-timer".into()],
+                glance: Some("made-up-timer".into()),
+                fingerprints: [("made-up-timer".to_string(), "ab12".to_string())].into(),
             },
             workspaces: Workspaces {
                 list: vec![
@@ -788,7 +781,7 @@ mod tests {
         assert!(text.contains("do-not-disturb = true"), "{text}");
         assert!(text.contains("history = false"), "{text}");
         assert!(text.contains(r##"selected-tile = "#b794ff""##), "{text}");
-        assert!(text.contains("[[bar.modules]]"), "{text}");
+        assert!(text.contains(r#"glance = "made-up-timer""#), "{text}");
         assert_eq!(parse(&format!("{HEADER}{text}")).unwrap(), settings);
     }
 

@@ -701,6 +701,7 @@ impl Slipstream {
         let now = self.wall();
         self.explorer.close();
         self.quick.close();
+        self.plugin_panel.close();
         self.centre.close();
         self.share = Some(Picker::new(
             choices,

@@ -88,7 +88,6 @@ use crate::{
     keys::{self, Mods},
     known, launch,
     layout::{self, Direction, Rect},
-    meter,
     motion::{self, Motion},
     offer::{self, Offer},
     osd,
@@ -351,15 +350,10 @@ pub struct Slipstream {
     tiled_mins: Vec<(Window, (i32, i32))>,
     /// Clock and battery readings, refreshed off the main thread.
     pub status: Arc<Mutex<status::Reading>>,
-    /// What the bar's meter shows, from its command; `None` without one.
-    pub meter: Arc<Mutex<Option<meter::Reading>>>,
-    /// The bar's own modules beside the clock, each running its command.
-    pub bar_modules: crate::bar_modules::Modules,
-    /// The module the pointer is on, by its screen's output and its id, for its lit patch and its
-    /// tooltip.
-    pub module_hover: crate::tip::Hover<(String, u64)>,
-    /// The wheel's movement over a module, adding up to a notch.
-    pub module_wheel: f64,
+    /// The person's plugins, each that's on running its program.
+    pub plugins: crate::plugins::Plugins,
+    /// The panel that drops from the plugin chip.
+    pub plugin_panel: crate::plugin_panel::PluginPanel,
     pub debug: debug::Script,
     /// The settings as applied: the file's, with any environment overrides.
     pub settings: slipstream_config::Settings,
@@ -480,9 +474,8 @@ impl Slipstream {
             })
             .expect("a channel source always inserts");
 
-        meter::configure(&settings.meter);
-        let mut bar_modules = crate::bar_modules::Modules::default();
-        bar_modules.configure(&settings.bar);
+        let mut plugins = crate::plugins::Plugins::default();
+        plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();
 
@@ -593,10 +586,8 @@ impl Slipstream {
             ghosts: Vec::new(),
             tiled_mins: Vec::new(),
             status: status::start(),
-            meter: meter::start(),
-            bar_modules,
-            module_hover: crate::tip::Hover::new(),
-            module_wheel: 0.0,
+            plugins,
+            plugin_panel: crate::plugin_panel::PluginPanel::default(),
             debug: debug::Script::default(),
             settings,
             layouts: crate::layouts::Layouts::from_env(),
@@ -1042,15 +1033,13 @@ impl Slipstream {
         match target {
             bar::Target::Workspace(index) => self.switch_workspace(index),
             bar::Target::Apps => self.toggle_explorer(),
-            bar::Target::Tray | bar::Target::Meter => self.toggle_quick_settings(),
+            bar::Target::Tray => self.toggle_quick_settings(),
+            bar::Target::Plugins => self.toggle_plugin_panel(),
             bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
             bar::Target::Overview => self.toggle_bullet_time(),
             bar::Target::Dock => self.dock_clicked(),
             bar::Target::Awake => self.set_awake(false),
             bar::Target::Layout => self.next_layout(),
-            bar::Target::Module(id) => self
-                .bar_modules
-                .event(id, slipstream_config::bar::Event::Click),
             bar::Target::Sharing => {
                 self.stop_sharing();
                 self.show_toast(

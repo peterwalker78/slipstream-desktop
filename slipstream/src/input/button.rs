@@ -27,6 +27,7 @@ impl Slipstream {
             Overlay::Card
         } else if self.explorer.is_open()
             || self.quick.is_open()
+            || self.plugin_panel.is_open()
             || self.centre.is_open()
             || self.sheet.is_open()
             || self.history.is_open()
@@ -122,15 +123,7 @@ impl Slipstream {
             // The bar takes its own clicks; nothing below it sees them.
             if let Some(target) = self.bar_target_at(at) {
                 if pressed {
-                    match target {
-                        // Each of a module's buttons runs its own command, if it has one.
-                        crate::bar::Target::Module(id) => {
-                            if let Some(event) = crate::bar_modules::button_event(button) {
-                                self.bar_modules.event(id, event);
-                            }
-                        }
-                        target => self.bar_clicked(target),
-                    }
+                    self.bar_clicked(target);
                 }
                 return;
             }
@@ -278,6 +271,15 @@ impl Slipstream {
                 Some(pos) => self.quick_click(pos.x, pos.y),
                 None if !pressed => self.quick.release(),
                 None => {}
+            }
+            return true;
+        }
+        // The plugin panel's own, or one outside that closes it.
+        if self.plugin_panel.is_open() {
+            if let Some(pos) = at
+                && pressed
+            {
+                self.plugin_click(pos.x, pos.y);
             }
             return true;
         }

@@ -615,15 +615,6 @@ pub fn run(command: &[String], done: Done) {
     start_app(command.to_vec(), None, None, &id, done);
 }
 
-/// Starts a command line from the settings, such as a bar module's click command, with `sh -c`, in
-/// a scope of its own named for the program it starts with.
-pub fn shell(line: &str) {
-    let program = line.split_whitespace().next().unwrap_or("sh").to_string();
-    let id = crate::app_scope::command_id(std::slice::from_ref(&program)).to_string();
-    let command = vec!["sh".to_string(), "-c".to_string(), line.to_string()];
-    start_app(command, None, None, &id, ignore());
-}
-
 /// `command` set up to run with its output kept out of Slipstream's log, in `directory` and with
 /// `search_path` if they are given.
 fn prepare(

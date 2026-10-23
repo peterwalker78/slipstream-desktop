@@ -26,6 +26,8 @@ enum KeyUse {
     Quick(Keysym, bool),
     /// A key for the notification centre, and whether Shift is held.
     Centre(Keysym, bool),
+    /// A key for the plugin panel, and whether Shift is held.
+    Plugins(Keysym, bool),
     /// A key for the way out, while its card is taking them all.
     Exit(Keysym),
     /// A key for the share picker, with Shift for Shift+Tab.
@@ -176,6 +178,7 @@ impl Slipstream {
         // Alt+F4 with a panel open closes the panel, never the window behind it.
         let panel_open = self.explorer.is_open()
             || self.quick.is_open()
+            || self.plugin_panel.is_open()
             || self.centre.is_open()
             || self.sheet.is_open()
             || self.history.is_open();
@@ -197,6 +200,9 @@ impl Slipstream {
         }
         if self.centre.is_open() && action != Action::NotificationCentre {
             self.centre.close();
+        }
+        if self.plugin_panel.is_open() && !media {
+            self.plugin_panel.close();
         }
         if self.explorer.is_open() && !media && action != Action::Explorer {
             self.explorer.close();
@@ -666,6 +672,9 @@ impl Slipstream {
         if self.centre.is_open() {
             return bound().or(Some(KeyUse::Centre(key, mods.shift)));
         }
+        if self.plugin_panel.is_open() {
+            return bound().or(Some(KeyUse::Plugins(key, mods.shift)));
+        }
         // Bullet time takes every key but the screenshot's, so it can be captured as it is.
         if self.bullet.is_some() {
             let screenshot =
@@ -698,6 +707,7 @@ impl Slipstream {
             KeyUse::Bullet(key, mods) => self.bullet_key(key, mods),
             KeyUse::Quick(key, shift) => self.quick_key(key, shift),
             KeyUse::Centre(key, shift) => self.centre_key(key, shift),
+            KeyUse::Plugins(key, shift) => self.plugin_key(key, shift),
             KeyUse::Exit(key) => self.exit_key(key),
             KeyUse::Offer(key) => self.offer_key(key),
             KeyUse::Connect(key) => self.connect_key(key),

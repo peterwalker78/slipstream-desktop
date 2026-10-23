@@ -14,7 +14,7 @@ mod appearance;
 mod apps;
 mod auth;
 mod awake;
-mod bar_modules;
+mod plugins;
 mod battery;
 mod calc;
 mod capture;
@@ -95,9 +95,9 @@ use effects::{
     bullet, deck, fx, ghost, glass, glmatrix, overview, pane, rain, saver, scope, streaks, tilt,
 };
 use shell::{
-    arrange, bar, bar_slots, calendar, card, centre, chips, connect, exit, explorer, history,
-    miniature, notices, offer, osd, panel, quick, share, sheet, slot, stream_tip, switcher, tip,
-    toast, tour, tray_menu,
+    arrange, bar, calendar, card, centre, chips, connect, exit, explorer, history, miniature,
+    notices, offer, osd, panel, plugin_panel, quick, share, sheet, slot, stream_tip, switcher,
+    tip, toast, tour, tray_menu,
 };
 
 use std::{
@@ -264,7 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Quitting from inside bullet time would otherwise leave the desktop's sound muffled.
     sound::restore();
     // Nothing a bar module's command started outlives the compositor.
-    state.bar_modules.stop_all();
+    state.plugins.stop_all();
     end_session();
     tracing::info!("stopped cleanly");
     drop(owner);

@@ -191,16 +191,8 @@ fn bar_content(
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         awake: state.awake,
         layout: state.layout_label(),
-        meter: crate::status::held(&state.meter)
-            .as_ref()
-            .map(|reading| crate::meter::shown(reading, &state.settings.meter)),
-        modules: state.bar_modules.shown(),
-        hovered_module: screen_index
-            .and_then(|index| state.screens.get(index))
-            .and_then(|screen| {
-                let (name, id) = state.module_hover.over()?;
-                (*name == screen.output.name()).then_some(*id)
-            }),
+        plugins: state.plugins.chip(&state.plugins.shown()),
+        plugins_open: state.plugin_panel.is_open(),
         // The pane hangs from the bar of the screen the streams are on.
         dock: state
             .docked_on_show()
@@ -237,6 +229,15 @@ fn card_elements(
                 .explorer
                 .element(renderer, frame(now), running, ring, keys)
                 .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
+    if state.plugin_panel.is_open() {
+        let facts = state.plugin_facts();
+        elements.extend(
+            state
+                .plugin_panel
+                .element(renderer, frame(now), facts)
                 .map(OutputElement::Memory),
         );
     }

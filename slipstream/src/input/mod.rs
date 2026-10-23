@@ -61,6 +61,7 @@ impl Slipstream {
             || self.sheet.is_open()
             || self.history.is_open()
             || self.quick.is_open()
+            || self.plugin_panel.is_open()
             || self.centre.is_open()
             || self.bullet.is_some()
             || self.share.is_some()
@@ -110,46 +111,12 @@ impl Slipstream {
         }
     }
 
-    /// The wheel over module `id` on the bar: each notch up or down (`notch` of scroll) runs its
-    /// command for scrolling that way. A touchpad's small movements add up to a notch first.
-    fn module_wheel(&mut self, id: u64, amount: f64, notch: f64) {
-        use slipstream_config::bar::Event;
-        self.module_wheel += amount;
-        while self.module_wheel.abs() >= notch {
-            let down = self.module_wheel > 0.0;
-            self.module_wheel -= notch.copysign(self.module_wheel);
-            let event = if down {
-                Event::ScrollDown
-            } else {
-                Event::ScrollUp
-            };
-            self.bar_modules.event(id, event);
-        }
-    }
-
     /// Whether `pos` is over a notification pop-up, the toast or the volume display.
     fn over_chrome(&self, pos: Point<f64, Logical>) -> bool {
         self.drawn
             .chrome_areas
             .iter()
             .any(|area| area.contains(pos))
-    }
-
-    /// The pointer moved to `pos`: the module there, if any, lights up, and its tooltip waits for
-    /// the pointer to settle. Over anything else the wheel's part-notch is forgotten.
-    fn module_hovered(&mut self, pos: Point<f64, Logical>) {
-        let over = match self.bar_target_at(pos) {
-            Some(crate::bar::Target::Module(id)) if !self.pointer_blocked() => self
-                .screen_at(pos)
-                .and_then(|index| self.screens.get(index))
-                .map(|screen| (screen.output.name(), id)),
-            _ => None,
-        };
-        if over.is_none() {
-            self.module_wheel = 0.0;
-        }
-        self.module_hover
-            .point(over, pos.y, std::time::Instant::now());
     }
 
     /// Once a pass of the event loop: if something opened or closed over the pointer since it
@@ -197,7 +164,6 @@ impl Slipstream {
         self.battery_hover(pos);
         self.share_hover(pos);
         self.rain_hover(pos);
-        self.module_hovered(pos);
         self.polkit_hover(pos);
         self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
@@ -397,18 +363,6 @@ impl Slipstream {
                         15.0
                     };
                     self.overlay_wheel(amount(Axis::Vertical), notch);
-                    return;
-                }
-                // Over one of the bar's modules, each notch runs its scroll command.
-                if let Some(crate::bar::Target::Module(id)) =
-                    self.bar_target_at(self.pointer_location())
-                {
-                    let notch = if event.source() == AxisSource::Finger {
-                        30.0
-                    } else {
-                        15.0
-                    };
-                    self.module_wheel(id, amount(Axis::Vertical), notch);
                     return;
                 }
                 let source = event.source();

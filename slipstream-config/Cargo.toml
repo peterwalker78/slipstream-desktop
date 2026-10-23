@@ -13,3 +13,5 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+# A plugin folder's fingerprint (`plugins.rs`).
+sha2.workspace = true

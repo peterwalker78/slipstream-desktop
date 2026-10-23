@@ -1,4 +1,4 @@
-//! Running a command of the person's own, such as the meter's or a bar module's, without letting
+//! Running a command of the person's own, such as a plugin's, without letting
 //! it hang anything or outlive its welcome. Each starts in a process group of its own, so whatever
 //! it starts can be stopped along with it; its output is read on threads of its own, a capped
 //! amount of it; and a run has a time limit.
@@ -221,7 +221,7 @@ fn gather(chunks: &mpsc::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
 }
 
 /// A command that keeps running and prints a line whenever it has something new to say, as a
-/// bar module's script without an interval does. Dropping it ends its whole group.
+/// plugin that keeps running does. Dropping it ends its whole group.
 pub struct Lines {
     child: Child,
     group: Group,

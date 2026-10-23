@@ -99,6 +99,7 @@ impl Slipstream {
         self.centre.forget_painted_text();
         self.explorer.forget_painted_text();
         self.quick.forget_painted_text();
+        self.plugin_panel.forget_painted_text();
         self.sheet.forget_painted_text();
         self.toast.forget_painted_text();
         self.rain.forget_painted_text();
@@ -342,8 +343,7 @@ impl Slipstream {
         }
         // Apps hear about dark and light over the settings portal, and change without restarting.
         crate::appearance::set(settings.appearance.colour_scheme);
-        meter::configure(&settings.meter);
-        self.bar_modules.configure(&settings.bar);
+        self.plugins.configure(&settings);
         let now = self.clock.tick();
         self.wallpaper = settings.wallpaper.clone();
         for saver in self.savers.values_mut() {

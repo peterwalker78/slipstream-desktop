@@ -31,7 +31,8 @@
 //! the touchpad moving by DX and DY; `fingers:lift` lets go), `bullet` (Super+Tab), `bkey:NAME` (a
 //! key in bullet time, by xkb name with optional `shift+` or `ctrl+`, such as `bkey:Right` or
 //! `bkey:shift+2`), `bclick:X,Y` (a click in bullet time, in logical pixels on the screen, the
-//! bar's buttons included), `quick` (Super+A), `qkey:NAME` (a key in quick settings, by xkb name
+//! bar's buttons included), `plugins` (a click on the plugin chip) and `pkey:NAME` (a key in its
+//! panel), `quick` (Super+A), `qkey:NAME` (a key in quick settings, by xkb name
 //! with optional `shift+`), `qclick:X,Y` (a click while quick settings is open, in logical pixels
 //! on the screen), `centre`, `ckey:NAME` and `cclick:X,Y` (the same for the notification centre,
 //! Super+N), `notify:APP|TITLE|BODY` (a notification, as if an app had sent one; a fourth field
@@ -165,6 +166,9 @@ pub enum Step {
     Quick,
     QuickKey(String),
     QuickClick(f64, f64),
+    /// A click on the plugin chip, and a key in its panel.
+    Plugins,
+    PluginKey(String),
     Centre,
     CentreKey(String),
     CentreClick(f64, f64),
@@ -435,6 +439,8 @@ impl Script {
                         Step::BulletClick(x, y)
                     }
                     ("quick", None) => Step::Quick,
+                    ("plugins", None) => Step::Plugins,
+                    ("pkey", Some(name)) => Step::PluginKey(name.to_string()),
                     ("qkey", Some(name)) => Step::QuickKey(name.to_string()),
                     ("qclick", Some(at)) => {
                         let (x, y) = point(at)?;

@@ -1,7 +1,7 @@
 //! The system bar along the top: the apps button, the workspaces, a mode's label and the focused
-//! window's title on the left; the time and date in the middle, with the person's own modules
-//! after them (`bar_slots.rs`), centred as one; the tray and the notifications bell on the right,
-//! and before them the slot of a window docked to the bar.
+//! window's title on the left; the time and date in the middle, with the plugin chip after them,
+//! centred as one; the tray and the notifications bell on the right, and before them the slot of a
+//! window docked to the bar.
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
 //! stays sharp at fractional scales, and repainted only when what it shows changes.
@@ -18,10 +18,7 @@ use smithay::{
     utils::{Buffer, Logical, Rectangle, Size},
 };
 
-use slipstream_config::bar::Shown as ModuleShown;
-
 use crate::{
-    bar_slots::{self, Placed, Slots},
     icons, meter,
     paint::{self, Painter},
     panel::{self, AMBER, ink_on},
@@ -70,13 +67,10 @@ pub struct Content {
     /// The keyboard layout in use, such as `GB`, when there are others to switch to. A click on
     /// it switches to the next.
     pub layout: Option<String>,
-    /// What the meter's command last reported, when there is a meter.
-    pub meter: Option<meter::Reading>,
-    /// What each of the bar's modules shows, left to right, by its id: only those with something
-    /// to show.
-    pub modules: Vec<(u64, ModuleShown)>,
-    /// The module the pointer is on.
-    pub hovered_module: Option<u64>,
+    /// The plugin chip, when there are plugins.
+    pub plugins: Option<crate::plugins::Chip>,
+    /// The plugin panel is open from this bar.
+    pub plugins_open: bool,
     /// Where the frame of a pane hanging from this bar meets it, when one does: the frame's
     /// left and right edges, in logical pixels from the screen's left. The bar has no lower edge
     /// between them, where it runs on down into the frame, and keeps room for the pane's slot.
@@ -127,12 +121,10 @@ pub enum Target {
     Layout,
     /// Beside the workspaces: bullet time, as Windows' Task View button.
     Overview,
-    /// The meter beside the tray, whose details are in quick settings.
-    Meter,
     /// The docked window's slot.
     Dock,
-    /// One of the person's own modules beside the clock, by its id.
-    Module(u64),
+    /// The plugin chip beside the clock.
+    Plugins,
 }
 
 /// The overview button's width, and the gap before it, in the bar's units.
@@ -151,13 +143,10 @@ fn names_fit(label_widths: &[f32], wide: f32) -> bool {
 
 #[derive(Default)]
 pub struct Bar {
-    /// What the buffer shows, with its modules' slots, and for what screen width and scale.
-    shown: Option<(Content, Vec<Placed>, i32, f64)>,
+    /// What the buffer shows, and for what screen width and scale.
+    shown: Option<(Content, i32, f64)>,
     buffer: Option<(MemoryRenderBuffer, Size<i32, Buffer>)>,
     targets: Targets,
-    slots: Slots,
-    /// The room for modules when the bar was last painted, in its units.
-    room: Option<f32>,
 }
 
 impl Bar {
@@ -166,8 +155,7 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar for a screen `width` logical pixels wide at `scale`, at `now` in wall seconds.
-    #[allow(clippy::too_many_arguments)]
+    /// The bar for a screen `width` logical pixels wide at `scale`.
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
@@ -175,31 +163,20 @@ impl Bar {
         width: i32,
         scale: f64,
         alpha: f32,
-        now: f64,
-        reduced_motion: bool,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let room = self.room.unwrap_or(bar_slots::CAP);
-        let placed = self.slots.place(
-            &content.modules,
-            content.hovered_module,
-            room,
-            now,
-            reduced_motion,
-        );
-        let key = (content, placed, width, scale);
+        let key = (content, width, scale);
         if self.shown.as_ref() != Some(&key) {
-            let painted = paint(&key.0, &key.1, width, scale)?;
+            let painted = paint(&key.0, width, scale)?;
             let size = Size::from((
                 painted.pixmap.width() as i32,
                 painted.pixmap.height() as i32,
             ));
             self.buffer = Some((paint::buffer(&painted.pixmap), size));
             self.targets = painted.targets;
-            self.room = Some(painted.room);
             self.shown = Some(key);
         }
         let (buffer, size) = self.buffer.as_ref()?;
@@ -252,16 +229,14 @@ const LIVE: u32 = 0xff5a5aff;
 /// The alpha of the faint pills that say a state is on: Caps Lock, Awake, sharing.
 const PILL: u32 = 0x24;
 
-/// The bar as painted: the picture, where its buttons are, and the room it had for modules.
+/// The bar as painted: the picture, and where its buttons are.
 struct Painted {
     pixmap: Pixmap,
     targets: Targets,
-    room: f32,
 }
 
-/// Paints the bar for a screen `width` logical pixels wide, with its modules in `slots`, and says
-/// where its buttons are.
-fn paint(content: &Content, slots: &[Placed], width: i32, scale: f64) -> Option<Painted> {
+/// Paints the bar for a screen `width` logical pixels wide, and says where its buttons are.
+fn paint(content: &Content, width: i32, scale: f64) -> Option<Painted> {
     let device_w = (width as f64 * scale).round() as u32;
     let device_h = (HEIGHT as f64 * scale).round() as u32;
     let f = device_h as f32 / TALL;
@@ -293,17 +268,7 @@ fn paint(content: &Content, slots: &[Placed], width: i32, scale: f64) -> Option<
     }
     let x = paint_left(&mut bar, content);
     let right = paint_right(&mut bar, content);
-    // The modules have the room the title and the docked window's slot leave either side of the
-    // middle, since the block they share with the clock is centred.
-    let clock_w = clock_width(&content.status);
-    let docked = if span.is_some() {
-        8.0 + DOCK_SLOT + 8.0
-    } else {
-        0.0
-    };
-    let half = (right - 16.0 - docked - wide / 2.0).min(wide / 2.0 - (x + TITLE_KEEP));
-    let room = (2.0 * half - clock_w).clamp(0.0, bar_slots::CAP);
-    let (centre_x, block_w) = paint_centre(&mut bar, &content.status, slots, room);
+    let (centre_x, block_w) = paint_centre(&mut bar, content);
     paint_title(&mut bar, content, x, centre_x);
 
     // Leftmost of them all: room for the docked window's slot, in the same place whatever size
@@ -318,12 +283,8 @@ fn paint(content: &Content, slots: &[Placed], width: i32, scale: f64) -> Option<
     Some(Painted {
         pixmap: bar.p.pixmap,
         targets: bar.targets,
-        room,
     })
 }
-
-/// The least room the window's title keeps beside the centre, modules or none, in the bar's units.
-const TITLE_KEEP: f32 = 200.0;
 
 /// The bar as it is painted, in design pixels `wide`, and where its buttons are.
 struct Strip {
@@ -432,19 +393,67 @@ fn clock_width(status: &Shown) -> f32 {
     14.0 + text::width(&status.time, &clock) + 10.0 + text::width(&status.date, &date) + 14.0
 }
 
-/// The divider between the date and the modules.
-const MODULE_DIVIDER: u32 = panel::EDGE;
-/// The patch under the module the pointer is on, as under the bar's other buttons.
-const HOVER: u32 = 0xffffff14;
+/// The chip's place on the bar, the same as the workspaces' buttons: 26 tall on the bar's middle.
+const CHIP_Y: f32 = 7.0;
+const CHIP_H: f32 = 26.0;
+/// The gap between the date and the chip, and the chip's padding.
+const CHIP_GAP: f32 = 4.0;
+const CHIP_PAD: f32 = 10.0;
+/// The chip's squares: two by two, one for each of the first four plugins, lit for each one on.
+const SQUARE: f32 = 7.0;
+const SQUARE_GAP: f32 = 2.0;
+/// A square for a plugin that's off, and the chip's own fill and edge at rest.
+const SQUARE_OFF: u32 = 0xffffff29;
+const CHIP_FILL: u32 = 0xffffff0a;
+const CHIP_EDGE: u32 = 0xffffff1c;
+/// The chip's edge and fill while its panel is open: the focus ring's cyan.
+const CHIP_OPEN: u32 = 0x33ccffff;
 
-/// Centre: the time and date, sharing a baseline, then the modules in `slots`, no wider than
-/// `room`, all centred together. Returns where the block starts and how wide it is.
-fn paint_centre(bar: &mut Strip, status: &Shown, slots: &[Placed], room: f32) -> (f32, f32) {
-    let wide = bar.wide;
+/// The headline on the chip: its gauges and its text, and their style.
+fn chip_glance(chip: &crate::plugins::Chip) -> Option<(&crate::plugins::Glance, Style)> {
+    let glance = chip.glance.as_ref()?;
+    let ink = glance
+        .gauges
+        .iter()
+        .max()
+        .map_or(INK, |percent| match percent {
+            75.. => meter::ink(*percent),
+            _ => INK,
+        });
+    let style = Style {
+        tabular: true,
+        ..Style::new(Face::Body, 14.0, ink)
+    };
+    Some((glance, style))
+}
+
+/// The chip's width in the bar's units: its squares, and its headline when it has one.
+fn chip_width(chip: &crate::plugins::Chip) -> f32 {
+    let squares = 2.0 * SQUARE + SQUARE_GAP;
+    let glance = chip_glance(chip).map_or(0.0, |(glance, style)| {
+        let gauges = if glance.gauges.is_empty() {
+            0.0
+        } else {
+            GAUGE_W + 6.0
+        };
+        8.0 + 1.0 + 8.0 + gauges + text::width(&glance.text, &style)
+    });
+    CHIP_PAD + squares + glance + CHIP_PAD
+}
+
+/// Centre: the time and date, sharing a baseline, then the plugin chip, all centred together.
+/// Returns where the block starts and how wide it is.
+fn paint_centre(bar: &mut Strip, content: &Content) -> (f32, f32) {
+    let (wide, status) = (bar.wide, &content.status);
     let (clock, date) = clock_styles();
     let time_w = text::width(&status.time, &clock);
     let centre_w = clock_width(status);
-    let block_w = centre_w + bar_slots::width(slots);
+    let chip_w = content.plugins.as_ref().map_or(0.0, chip_width);
+    let block_w = if chip_w > 0.0 {
+        centre_w + CHIP_GAP + chip_w
+    } else {
+        centre_w
+    };
     let centre_x = ((wide - block_w) / 2.0).round();
     let baseline = text::baseline(&clock, 20.0);
     bar.p
@@ -456,46 +465,80 @@ fn paint_centre(bar: &mut Strip, status: &Shown, slots: &[Placed], room: f32) ->
         &date,
     );
     bar.target(Target::Clock, centre_x, centre_w);
-    paint_modules(bar, slots, centre_x + centre_w, room);
-
+    if let Some(chip) = &content.plugins {
+        paint_chip(
+            bar,
+            chip,
+            content.plugins_open,
+            centre_x + centre_w + CHIP_GAP,
+            chip_w,
+        );
+    }
     (centre_x, block_w)
 }
 
-/// The modules from `x`: a divider, then each slot with its text centred in it, lit while the
-/// pointer is on it. None is drawn past `room`, nor one that didn't fit last time and is closing.
-/// A module only ever draws its text, tinted at most, inside its own slot: never a pill, a dot or
-/// an icon of the bar's own.
-fn paint_modules(bar: &mut Strip, slots: &[Placed], x: f32, room: f32) {
-    let lead = bar_slots::lead(slots);
-    if lead <= 0.0 {
-        return;
-    }
-    let shown = lead / (bar_slots::DIVIDER + bar_slots::AFTER_DIVIDER);
-    let alpha = ((MODULE_DIVIDER & 0xff) as f32 * shown).round() as u32;
-    bar.p.fill(
-        x,
-        12.0,
-        bar_slots::DIVIDER,
-        16.0,
-        0.0,
-        (MODULE_DIVIDER & !0xff) | alpha,
-    );
-    let start = x;
-    let mut x = x + lead;
-    for slot in slots {
-        let fits = x + bar_slots::footprint(slot.width) - start <= room + 0.5;
-        if fits && !slot.crowded && slot.width > 0.5 {
-            if slot.hovered {
-                bar.p.fill(x, 7.0, slot.width, 26.0, 6.0, HOVER);
+/// The plugin chip from `x`, `w` wide, on the bar's middle: a square for each plugin, lit for each
+/// one on, then the chosen plugin's headline. Amber while a plugin wants looking at, cyan while
+/// its panel is open.
+fn paint_chip(bar: &mut Strip, chip: &crate::plugins::Chip, open: bool, x: f32, w: f32) {
+    let (fill, edge) = if open {
+        ((CHIP_OPEN & 0xffffff00) | 0x1f, CHIP_OPEN)
+    } else if chip.attention {
+        ((AMBER & 0xffffff00) | 0x1a, (AMBER & 0xffffff00) | 0xbf)
+    } else {
+        (CHIP_FILL, CHIP_EDGE)
+    };
+    bar.p.fill(x, CHIP_Y, w, CHIP_H, 6.0, fill);
+    bar.p.border(x, CHIP_Y, w, CHIP_H, 6.0, 1.0, edge);
+    let squares = 2.0 * SQUARE + SQUARE_GAP;
+    let top = CHIP_Y + (CHIP_H - squares) / 2.0;
+    let shown = chip.installed.min(4);
+    let lit = chip.on.min(shown);
+    for index in 0..4 {
+        let (column, row) = ((index % 2) as f32, (index / 2) as f32);
+        let colour = if index >= shown {
+            (SQUARE_OFF & 0xffffff00) | 0x10
+        } else if index < lit {
+            // The last lit square carries the amber, so the chip says which way to look.
+            if chip.attention && index + 1 == lit {
+                AMBER
+            } else {
+                panel::MINT
             }
-            let style = bar_slots::style(slot.tint, slot.alpha);
-            let text_w = text::width(&slot.text, &style);
-            bar.p
-                .text(&slot.text, x + (slot.width - text_w) / 2.0, 20.0, &style);
-            bar.target(Target::Module(slot.id), x, slot.width);
-        }
-        x += bar_slots::footprint(slot.width);
+        } else {
+            SQUARE_OFF
+        };
+        bar.p.fill(
+            x + CHIP_PAD + column * (SQUARE + SQUARE_GAP),
+            top + row * (SQUARE + SQUARE_GAP),
+            SQUARE,
+            SQUARE,
+            2.0,
+            colour,
+        );
     }
+    if let Some((glance, style)) = chip_glance(chip) {
+        let mut at = x + CHIP_PAD + squares + 8.0;
+        bar.p.fill(at, 13.0, 1.0, 14.0, 0.0, panel::EDGE);
+        at += 1.0 + 8.0;
+        if !glance.gauges.is_empty() {
+            let mut gauge = |y: f32, h: f32, percent: u8| {
+                bar.p.fill(at, y, GAUGE_W, h, h / 2.0, 0xffffff26);
+                let filled = GAUGE_W * percent as f32 / 100.0;
+                if filled > 0.0 {
+                    bar.p
+                        .fill(at, y, filled.max(h), h, h / 2.0, meter::ink(percent));
+                }
+            };
+            gauge(14.0, 6.0, glance.gauges[0]);
+            if let Some(second) = glance.gauges.get(1) {
+                gauge(23.0, 3.0, *second);
+            }
+            at += GAUGE_W + 6.0;
+        }
+        bar.p.text(&glance.text, at, 20.0, &style);
+    }
+    bar.target(Target::Plugins, x, w);
 }
 
 /// The title of this screen's window fills what's left of the left column, from `x` to the
@@ -518,8 +561,8 @@ fn paint_title(bar: &mut Strip, content: &Content, x: f32, centre_x: f32) {
     }
 }
 
-/// Right, from the edge inwards: the bell, the tray, the keyboard layout, the meter, and the pills
-/// that say a state is on. Returns where they end on the left.
+/// Right, from the edge inwards: the bell, the tray, the keyboard layout, and the pills that say a
+/// state is on. Returns where they end on the left.
 fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
     let (wide, status) = (bar.wide, &content.status);
     let mut right = wide - 8.0 - 36.0;
@@ -606,40 +649,6 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
         bar.target(Target::Layout, right, w);
     }
 
-    // Left of the tray: the meter, a gauge for each section with its first meter's percentage.
-    // The gauge's thick bar is that meter and the thin one under it the next.
-    if let Some(w) = meter_width(content) {
-        right -= 8.0 + w;
-        let mut x = right + 4.0;
-        for section in bar_sections(content) {
-            let first = &section.gauges[0];
-            let shade = |rgba: u32| {
-                if section.stale {
-                    meter::dim(rgba)
-                } else {
-                    rgba
-                }
-            };
-            let mut gauge = |y: f32, h: f32, percent: u8| {
-                bar.p.fill(x, y, GAUGE_W, h, h / 2.0, shade(0xffffff26));
-                let filled = GAUGE_W * percent as f32 / 100.0;
-                if filled > 0.0 {
-                    bar.p
-                        .fill(x, y, filled.max(h), h, h / 2.0, shade(meter::ink(percent)));
-                }
-            };
-            gauge(14.0, 6.0, first.percent);
-            if let Some(second) = section.gauges.get(1) {
-                gauge(23.0, 3.0, second.percent);
-            }
-            let style = meter_style(section);
-            let label = format!("{}%", first.percent);
-            let label_w = bar.p.text(&label, x + GAUGE_W + 6.0, 20.0, &style);
-            x += GAUGE_W + 6.0 + label_w + 12.0;
-        }
-        bar.target(Target::Meter, right, w);
-    }
-
     // Left of the tray while Caps Lock is on: the key's arrow and the word, on a faint amber pill,
     // the way the red one says something is shared.
     if content.caps_lock {
@@ -695,51 +704,15 @@ fn pill(bar: &mut Strip, right: f32, word: &str, colour: u32, mark: Mark) -> (f3
 /// How wide the docked window's slot is, in the bar's units.
 const DOCK_SLOT: f32 = 132.0;
 
-/// A meter gauge's width in the bar's units.
+/// A gauge's width on the chip, in the bar's units.
 const GAUGE_W: f32 = 18.0;
-
-/// The sections the bar shows a gauge for: those with numbers, up to the bar's limit.
-fn bar_sections(content: &Content) -> impl Iterator<Item = &meter::Section> {
-    content
-        .meter
-        .iter()
-        .flat_map(|reading| &reading.sections)
-        .filter(|section| !section.gauges.is_empty())
-        .take(meter::BAR_SECTIONS)
-}
-
-fn meter_style(section: &meter::Section) -> Style {
-    let ink = match section.gauges[0].percent {
-        75.. => meter::ink(section.gauges[0].percent),
-        _ => INK,
-    };
-    let ink = if section.stale { meter::dim(ink) } else { ink };
-    Style {
-        tabular: true,
-        ..Style::new(Face::Body, 14.0, ink)
-    }
-}
-
-/// The meter's width in the bar's units, if it shows at all.
-fn meter_width(content: &Content) -> Option<f32> {
-    let widths: Vec<f32> = bar_sections(content)
-        .map(|section| {
-            let label = format!("{}%", section.gauges[0].percent);
-            GAUGE_W + 6.0 + text::width(&label, &meter_style(section)) + 12.0
-        })
-        .collect();
-    (!widths.is_empty()).then(|| 4.0 + widths.iter().sum::<f32>())
-}
 
 #[cfg(test)]
 mod tests {
-    use slipstream_config::bar::Tint;
-
     use super::*;
 
-    /// The bar with no modules.
     fn paint_plain(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
-        paint(content, &[], width, scale).map(|painted| (painted.pixmap, painted.targets))
+        paint(content, width, scale).map(|painted| (painted.pixmap, painted.targets))
     }
 
     fn content() -> Content {
@@ -765,9 +738,8 @@ mod tests {
             caps_lock: false,
             awake: false,
             layout: None,
-            meter: None,
-            modules: Vec::new(),
-            hovered_module: None,
+            plugins: None,
+            plugins_open: false,
             dock: None,
         }
     }
@@ -912,58 +884,6 @@ mod tests {
     }
 
     #[test]
-    fn the_meter_sits_left_of_the_tray_and_only_with_numbers_to_show() {
-        let area = |content: &Content, wanted: Target| {
-            let (_, targets) = paint_plain(content, 1536, 1.25).unwrap();
-            targets
-                .iter()
-                .find(|(target, _)| *target == wanted)
-                .map(|(_, area)| *area)
-        };
-        assert_eq!(area(&content(), Target::Meter), None, "no meter set up");
-        let section = |name: &str, percents: &[u8]| meter::Section {
-            name: name.into(),
-            detail: None,
-            gauges: percents
-                .iter()
-                .map(|percent| slipstream_config::meter::Gauge {
-                    label: "Daily".into(),
-                    percent: *percent,
-                    resets_in: None,
-                })
-                .collect(),
-            note: None,
-            stale: false,
-        };
-        let empty = Content {
-            meter: Some(meter::Reading {
-                sections: vec![section("Mail", &[])],
-            }),
-            ..content()
-        };
-        assert_eq!(area(&empty, Target::Meter), None, "nothing to show yet");
-        let one = Content {
-            meter: Some(meter::Reading {
-                sections: vec![section("Storage", &[42, 7])],
-            }),
-            ..content()
-        };
-        let meter = area(&one, Target::Meter).expect("a meter to click");
-        let tray = area(&one, Target::Tray).unwrap();
-        assert!(meter.loc.x + meter.size.w <= tray.loc.x);
-        let two = Content {
-            meter: Some(meter::Reading {
-                sections: vec![section("Storage", &[42, 7]), section("Mail", &[3])],
-            }),
-            ..content()
-        };
-        assert!(
-            area(&two, Target::Meter).unwrap().size.w > meter.size.w,
-            "a gauge for each section"
-        );
-    }
-
-    #[test]
     fn names_show_while_they_fit_and_only_the_one_in_front_when_they_dont() {
         let wide_names = |labels: Vec<String>| {
             let content = Content {
@@ -1073,28 +993,6 @@ mod tests {
         );
     }
 
-    /// Slots for modules saying `texts`, opened fully, as the bar would have them.
-    fn slots_for(texts: &[&str]) -> Vec<Placed> {
-        let shown: Vec<(u64, ModuleShown)> = texts
-            .iter()
-            .enumerate()
-            .map(|(id, text)| {
-                (
-                    id as u64 + 1,
-                    ModuleShown {
-                        text: text.to_string(),
-                        ..ModuleShown::default()
-                    },
-                )
-            })
-            .collect();
-        Slots::default().place(&shown, None, bar_slots::CAP, 0.0, true)
-    }
-
-    fn painted_with(content: &Content, slots: &[Placed]) -> Painted {
-        paint(content, slots, 1536, 1.25).unwrap()
-    }
-
     fn area(targets: &Targets, wanted: Target) -> Option<Rectangle<f64, Logical>> {
         targets
             .iter()
@@ -1102,167 +1000,74 @@ mod tests {
             .map(|(_, area)| *area)
     }
 
-    #[test]
-    fn the_clock_and_its_modules_are_centred_as_one_block() {
-        let plain = painted_with(&content(), &[]);
-        let clock = area(&plain.targets, Target::Clock).unwrap();
-        assert!(
-            (clock.loc.x + clock.size.w / 2.0 - 768.0).abs() < 1.0,
-            "alone, the clock is centred: {clock:?}"
-        );
-        let three = painted_with(&content(), &slots_for(&["21°C", "3 new", "42%"]));
-        let moved = area(&three.targets, Target::Clock).unwrap();
-        let last = area(&three.targets, Target::Module(3)).unwrap();
-        let block = (moved.loc.x, last.loc.x + last.size.w);
-        assert!(
-            ((block.0 + block.1) / 2.0 - 768.0).abs() < 1.0,
-            "the whole block is centred: {block:?}"
-        );
-        assert!(moved.loc.x < clock.loc.x, "the clock makes room");
-        let modules: Vec<_> = (1..=3)
-            .map(|id| area(&three.targets, Target::Module(id)).unwrap())
-            .collect();
-        assert!(
-            modules[0].loc.x > moved.loc.x + moved.size.w,
-            "after the date"
-        );
-        assert!(
-            modules
-                .windows(2)
-                .all(|pair| pair[0].loc.x + pair[0].size.w <= pair[1].loc.x),
-            "left to right, without overlapping"
-        );
+    fn chip(on: usize, glance: Option<(&str, Vec<u8>)>) -> crate::plugins::Chip {
+        crate::plugins::Chip {
+            installed: 3,
+            on,
+            glance: glance.map(|(text, gauges)| crate::plugins::Glance {
+                text: text.into(),
+                gauges,
+            }),
+            attention: false,
+        }
     }
 
     #[test]
-    fn modules_keep_to_the_cap_and_leave_the_title_and_the_docked_slot_their_room() {
-        let many: Vec<String> = (0..12).map(|n| format!("Module number {n}")).collect();
-        let many: Vec<&str> = many.iter().map(String::as_str).collect();
-        let painted = painted_with(&content(), &slots_for(&many));
-        assert!(painted.room <= bar_slots::CAP);
-        // Placed with the room the bar had, as the next frame is.
-        let shown: Vec<(u64, ModuleShown)> = many
-            .iter()
-            .enumerate()
-            .map(|(id, text)| {
-                (
-                    id as u64 + 1,
-                    ModuleShown {
-                        text: text.to_string(),
-                        ..ModuleShown::default()
-                    },
-                )
-            })
-            .collect();
-        let slots = Slots::default().place(&shown, None, painted.room, 0.0, true);
-        let painted = painted_with(&content(), &slots);
-        let drawn: Vec<_> = painted
-            .targets
-            .iter()
-            .filter(|(target, _)| matches!(target, Target::Module(_)))
-            .map(|(_, area)| *area)
-            .collect();
-        assert!(
-            !drawn.is_empty() && drawn.len() < many.len(),
-            "the last ones are dropped"
-        );
-        let clock = area(&painted.targets, Target::Clock).unwrap();
-        let end = drawn.last().map(|area| area.loc.x + area.size.w).unwrap();
-        // A design pixel is 0.8 of a logical one at this scale.
-        let unit = 0.8;
-        assert!(
-            end - (clock.loc.x + clock.size.w) <= bar_slots::CAP as f64 * unit + 0.5,
-            "within the cap"
-        );
-        // Docked, the slot keeps its place beside the tray.
-        let docked = Content {
-            dock: Some((1000, 1536)),
+    fn the_chip_follows_the_date_and_the_block_stays_centred() {
+        let (_, plain) = paint_plain(&content(), 1536, 1.25).unwrap();
+        assert_eq!(area(&plain, Target::Plugins), None, "no plugins, no chip");
+        let with = Content {
+            plugins: Some(chip(2, Some(("81%", vec![62, 81])))),
             ..content()
         };
-        let room = painted_with(&docked, &[]).room;
-        let slots = Slots::default().place(&shown, None, room, 0.0, true);
-        let painted = painted_with(&docked, &slots);
-        let slot = area(&painted.targets, Target::Dock).expect("the docked slot keeps its room");
-        let last = painted
-            .targets
-            .iter()
-            .filter(|(target, _)| matches!(target, Target::Module(_)))
-            .map(|(_, area)| area.loc.x + area.size.w)
-            .fold(0.0, f64::max);
-        assert!(last < slot.loc.x, "{last} {slot:?}");
-        // A bar too narrow for any leaves the title its room, and shows none.
-        let narrow = paint(&content(), &[], 700, 1.0).unwrap();
-        let slots = Slots::default().place(&shown, None, narrow.room, 0.0, true);
-        let narrow = paint(&content(), &slots, 700, 1.0).unwrap();
-        assert!(
-            !narrow
-                .targets
-                .iter()
-                .any(|(target, _)| matches!(target, Target::Module(_)))
+        let (_, targets) = paint_plain(&with, 1536, 1.25).unwrap();
+        let (clock, chip) = (
+            area(&targets, Target::Clock).unwrap(),
+            area(&targets, Target::Plugins).unwrap(),
         );
+        assert!(chip.loc.x > clock.loc.x + clock.size.w, "after the date");
+        let left = clock.loc.x;
+        let right = chip.loc.x + chip.size.w;
+        assert!(((left + right) / 2.0 - 768.0).abs() < 1.0, "{left} {right}");
+        assert!(clock.loc.x < area(&plain, Target::Clock).unwrap().loc.x);
     }
 
+    /// The chip sits on the bar's middle, as the workspaces' buttons do: as much bar shows above
+    /// its edge as below it.
     #[test]
-    fn a_module_s_text_changing_its_digits_leaves_the_clock_where_it_is() {
-        let mut slots = Slots::default();
-        let say = |text: &str| {
-            vec![(
-                1,
-                ModuleShown {
-                    text: text.into(),
-                    ..ModuleShown::default()
-                },
-            )]
-        };
-        let mut clocks = Vec::new();
-        for (step, text) in ["100", "7", "42", "9", "13"].iter().enumerate() {
-            let placed = slots.place(&say(text), None, bar_slots::CAP, step as f64 * 0.5, true);
-            let painted = painted_with(&content(), &placed);
-            clocks.push(area(&painted.targets, Target::Clock).unwrap().loc.x);
-        }
-        assert!(
-            clocks.windows(2).all(|pair| pair[0] == pair[1]),
-            "{clocks:?}"
-        );
-    }
-
-    #[test]
-    fn the_pointer_lights_a_module_and_nothing_else_is_ever_drawn_behind_one() {
-        let scale = 1.25;
-        let mut slots = slots_for(&["Mail"]);
-        let plain = painted_with(&content(), &slots);
-        let module = area(&plain.targets, Target::Module(1)).unwrap();
-        // Just inside the slot's left edge, clear of its text, halfway down.
-        let (x, y) = (module.loc.x + 1.5, 16.0);
-        let background = pixel(&plain.pixmap, 700.0, 4.0, scale);
-        assert_eq!(
-            pixel(&plain.pixmap, x, y, scale),
-            background,
-            "no pill, no fill"
-        );
-        slots[0].hovered = true;
-        let lit = painted_with(&content(), &slots);
-        assert_ne!(pixel(&lit.pixmap, x, y, scale), background);
-        // Whatever its class, the slot behind the text stays the bar's own.
-        for tint in [Tint::Warning, Tint::Critical] {
-            let mut slots = slots_for(&["SHARING"]);
-            slots[0].tint = tint;
-            let painted = painted_with(&content(), &slots);
-            let module = area(&painted.targets, Target::Module(1)).unwrap();
-            assert_eq!(
-                pixel(&painted.pixmap, module.loc.x + 1.5, y, scale),
-                background
+    fn the_chip_is_centred_on_the_bar_from_top_to_bottom() {
+        for scale in [1.0, 1.25, 2.0] {
+            let open = Content {
+                plugins: Some(chip(1, Some(("3", Vec::new())))),
+                plugins_open: true,
+                ..content()
+            };
+            let (pixmap, targets) = paint_plain(&open, 1536, scale).unwrap();
+            let chip = area(&targets, Target::Plugins).unwrap();
+            let x = ((chip.loc.x + chip.size.w / 2.0) * scale) as u32;
+            let edge: Vec<u32> = (0..pixmap.height())
+                .filter(|y| {
+                    let pixel = pixmap.pixel(x, *y).unwrap().demultiply();
+                    // The cyan edge, however softly a fractional scale draws it.
+                    pixel.blue() >= 100 && u16::from(pixel.blue()) > 3 * u16::from(pixel.red())
+                })
+                .collect();
+            let (top, bottom) = (edge[0], *edge.last().unwrap());
+            let above = top;
+            let below = pixmap.height() - 1 - bottom;
+            assert!(
+                above.abs_diff(below) <= 1 + (scale as u32),
+                "scale {scale}: {above} above, {below} below"
             );
         }
     }
 
     #[test]
-    fn a_module_s_tints_are_never_the_bar_s_own_signals() {
-        for tint in [Tint::Plain, Tint::Warning, Tint::Critical] {
-            let colour = u32::from_be_bytes(bar_slots::style(tint, 1.0).color);
-            assert_ne!(colour, LIVE, "the sharing dot's red is the bar's alone");
-            assert_ne!(colour, AWAKE);
-        }
+    fn the_chip_is_as_wide_as_its_headline_needs() {
+        let squares = chip_width(&chip(1, None));
+        let text = chip_width(&chip(1, Some(("18:42", Vec::new()))));
+        let gauges = chip_width(&chip(1, Some(("18:42", vec![40]))));
+        assert!(squares < text && text < gauges);
     }
 
     #[test]
