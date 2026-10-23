@@ -553,53 +553,95 @@ async fn follow_item(
         .sender(owner.as_str())
         .and_then(|rule| rule.path(address.path.as_str()))
         .map(|rule| rule.build());
-    let mut signals = match rule {
+    let signals = match rule {
         Ok(rule) => MessageStream::for_match_rule(rule, &conn, Some(64))
             .await
             .ok(),
         Err(_) => None,
     };
-    let mut route = Route {
+    let route = Route {
         owner,
         path: address.path.clone(),
         interface: ITEM_KDE,
         menu: None,
     };
-    loop {
-        if let Some(props) = read_props(&conn, &mut route).await {
-            route.menu = props.menu.clone();
-            let _ = inbox.try_send(Internal::Routed {
-                key: key.clone(),
-                route: route.clone(),
-            });
-            let snapshot = Snapshot {
-                key: key.clone(),
-                props,
-                process: process.clone(),
-            };
-            let _ = events.send(Event::Item(Box::new(snapshot)));
-        }
-        let Some(signals) = signals.as_mut() else {
-            return;
-        };
-        if !next_change(signals, is_item_change).await {
-            return;
-        }
-    }
+    let item = Item {
+        key,
+        process,
+        events,
+        inbox,
+    };
+    keep_up(&conn, item, route, signals).await;
 }
 
-/// Waits for a message `wanted` says is a change, then for the rest of its burst. Returns false
-/// once the stream ends.
-async fn next_change(signals: &mut MessageStream, wanted: fn(&Message) -> bool) -> bool {
-    loop {
-        match signals.next().await {
-            Some(Ok(message)) if wanted(&message) => break,
-            Some(_) => continue,
-            None => return false,
+/// What an item's task tells the rest of the tray.
+struct Item {
+    key: String,
+    process: Option<Process>,
+    events: Sender<Event>,
+    inbox: async_channel::Sender<Internal>,
+}
+
+/// Reads an item's properties, then again whenever its signals say something changed.
+async fn keep_up(conn: &Connection, item: Item, mut route: Route, signals: Option<MessageStream>) {
+    let (dirty, changed) = async_channel::bounded(1);
+    let follow = async {
+        loop {
+            if let Some(props) = read_props(conn, &mut route).await {
+                route.menu = props.menu.clone();
+                let _ = item.inbox.try_send(Internal::Routed {
+                    key: item.key.clone(),
+                    route: route.clone(),
+                });
+                let snapshot = Snapshot {
+                    key: item.key.clone(),
+                    props,
+                    process: item.process.clone(),
+                };
+                let _ = item.events.send(Event::Item(Box::new(snapshot)));
+            }
+            if !next_change(&changed).await {
+                return;
+            }
         }
+    };
+    draining(signals, is_item_change, dirty, follow).await;
+}
+
+/// Runs `task` with `signals` read beside it the whole time. Every message is taken off the
+/// stream as it arrives, whatever `task` is waiting on, so an app that signals faster than its
+/// calls are answered never fills the stream's queue: a full queue would stop the connection
+/// reading anything at all, every other app's replies included. A message `wanted` says is a
+/// change only marks `dirty`, which holds one mark at most. Once the signals end, `dirty`
+/// closes.
+async fn draining<T>(
+    signals: Option<MessageStream>,
+    wanted: fn(&Message) -> bool,
+    dirty: async_channel::Sender<()>,
+    task: impl Future<Output = T>,
+) -> T {
+    let drain = async move {
+        if let Some(mut signals) = signals {
+            while let Some(message) = signals.next().await {
+                if message.is_ok_and(|message| wanted(&message)) {
+                    let _ = dirty.try_send(());
+                }
+            }
+        }
+        drop(dirty);
+        future::pending().await
+    };
+    future::or(task, drain).await
+}
+
+/// Waits for a change to be marked, then for the rest of its burst. Returns false once the
+/// signals have ended.
+async fn next_change(changed: &async_channel::Receiver<()>) -> bool {
+    if changed.recv().await.is_err() {
+        return false;
     }
     async_io::Timer::after(SETTLE).await;
-    while let Some(Some(_)) = future::poll_once(signals.next()).await {}
+    let _ = changed.try_recv();
     true
 }
 
@@ -721,63 +763,64 @@ async fn follow_menu(
         .and_then(|rule| rule.path(path.as_str()))
         .and_then(|rule| rule.interface(DBUSMENU))
         .map(|rule| rule.build());
-    let mut signals = match rule {
+    let signals = match rule {
         Ok(rule) => MessageStream::for_match_rule(rule, &conn, Some(64))
             .await
             .ok(),
         Err(_) => None,
     };
-    // Whether it needs filling in or not, it is read next.
-    let _ = about_to_show(&conn, &route, 0).await;
-    match layout(&conn, &route.owner, &path).await {
-        Some(layout) => {
-            let _ = events.send(Event::Menu {
-                item: item.clone(),
-                layout,
-            });
+    let (dirty, marked) = async_channel::bounded(1);
+    let path = path.as_str();
+    let show = async {
+        // Whether it needs filling in or not, it is read next.
+        let _ = about_to_show(&conn, &route, 0).await;
+        match layout(&conn, &route.owner, path).await {
+            Some(layout) => {
+                let _ = events.send(Event::Menu {
+                    item: item.clone(),
+                    layout,
+                });
+            }
+            None => {
+                let _ = events.send(Event::MenuFailed(item.clone()));
+            }
         }
-        None => {
-            let _ = events.send(Event::MenuFailed(item.clone()));
+        send_event(&conn, MenuEvent::new(&route, 0, "opened")).await;
+        enum Next {
+            Op(MenuOp),
+            Changed,
+            Done,
         }
-    }
-    send_event(&conn, MenuEvent::new(&route, 0, "opened")).await;
-    enum Next {
-        Op(MenuOp),
-        Changed,
-        Done,
-    }
-    loop {
-        let op = async { ops.recv().await.map_or(Next::Done, Next::Op) };
-        let changed = async {
-            let more = match signals.as_mut() {
-                Some(signals) => next_change(signals, is_menu_change).await,
-                None => false,
+        loop {
+            let op = async { ops.recv().await.map_or(Next::Done, Next::Op) };
+            let changed = async {
+                // Without its signals the menu still works; it just isn't read again.
+                if next_change(&marked).await {
+                    Next::Changed
+                } else {
+                    future::pending().await
+                }
             };
-            // Without its signals the menu still works; it just isn't read again.
-            if more {
-                Next::Changed
-            } else {
-                future::pending().await
+            let fresh = match future::or(op, changed).await {
+                Next::Op(MenuOp::AboutToShow(id)) => {
+                    about_to_show(&conn, &route, id).await == Some(true)
+                }
+                Next::Op(MenuOp::Event(id, event)) => {
+                    send_event(&conn, MenuEvent::new(&route, id, event)).await;
+                    false
+                }
+                Next::Changed => true,
+                Next::Done => return,
+            };
+            if fresh && let Some(layout) = layout(&conn, &route.owner, path).await {
+                let _ = events.send(Event::Menu {
+                    item: item.clone(),
+                    layout,
+                });
             }
-        };
-        let fresh = match future::or(op, changed).await {
-            Next::Op(MenuOp::AboutToShow(id)) => {
-                about_to_show(&conn, &route, id).await == Some(true)
-            }
-            Next::Op(MenuOp::Event(id, event)) => {
-                send_event(&conn, MenuEvent::new(&route, id, event)).await;
-                false
-            }
-            Next::Changed => true,
-            Next::Done => return,
-        };
-        if fresh && let Some(layout) = layout(&conn, &route.owner, &path).await {
-            let _ = events.send(Event::Menu {
-                item: item.clone(),
-                layout,
-            });
         }
-    }
+    };
+    draining(signals, is_menu_change, dirty, show).await;
 }
 
 /// Tells the app a menu or submenu is about to show. Returns whether it changed its entries.
@@ -847,6 +890,83 @@ fn timestamp() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flooding_item_with_a_slow_reply_doesnt_hold_up_another_items_menu() {
+        async_io::block_on(async {
+            let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+            let (tray, app) = future::try_zip(
+                zbus::connection::Builder::async_io_unix_stream(ours)
+                    .p2p()
+                    .method_timeout(TIMEOUT)
+                    .build(),
+                zbus::connection::Builder::async_io_unix_stream(theirs)
+                    .server(zbus::Guid::generate())
+                    .unwrap()
+                    .p2p()
+                    .build(),
+            )
+            .await
+            .unwrap();
+            // One item never answers for its properties and signals over and over meanwhile;
+            // another's menu answers at once.
+            let app_side = async {
+                let mut calls = MessageStream::from(&app);
+                while let Some(Ok(call)) = calls.next().await {
+                    let header = call.header();
+                    match header.member().map(|member| member.as_str()) {
+                        Some("GetAll") => {
+                            for _ in 0..500 {
+                                let _ = app
+                                    .emit_signal(None::<&str>, "/Flood", ITEM_KDE, "NewIcon", &())
+                                    .await;
+                            }
+                        }
+                        Some("GetLayout") => {
+                            let root: menu::Node = (0, HashMap::new(), Vec::new());
+                            let _ = app.reply(&header, &(1u32, root)).await;
+                        }
+                        _ => {}
+                    }
+                }
+            };
+            let rule = MatchRule::builder()
+                .msg_type(MessageType::Signal)
+                .path("/Flood")
+                .unwrap()
+                .build();
+            let signals = MessageStream::for_match_rule(rule, &tray, Some(64))
+                .await
+                .ok();
+            let (events, _heard) = smithay::reexports::calloop::channel::channel();
+            let (inbox, _routed) = async_channel::unbounded();
+            let flooding = Item {
+                key: ":1.1/Flood".into(),
+                process: None,
+                events,
+                inbox,
+            };
+            let route = Route {
+                owner: ":1.1".into(),
+                path: "/Flood".into(),
+                interface: ITEM_KDE,
+                menu: None,
+            };
+            let other = async {
+                async_io::Timer::after(Duration::from_millis(200)).await;
+                let asked = Instant::now();
+                let menu = layout(&tray, ":1.1", "/Other/Menu").await;
+                (menu.is_some(), asked.elapsed())
+            };
+            let rest = async {
+                future::zip(app_side, keep_up(&tray, flooding, route, signals)).await;
+                (false, Duration::MAX)
+            };
+            let (answered, took) = future::or(other, rest).await;
+            assert!(answered, "the other menu was read");
+            assert!(took < Duration::from_millis(500), "it took {took:?}");
+        });
+    }
 
     #[test]
     fn a_menu_event_goes_only_to_the_items_own_menu_on_its_own_connection() {

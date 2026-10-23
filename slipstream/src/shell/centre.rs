@@ -151,7 +151,7 @@ pub struct Centre {
     menu: Option<tray_menu::Menu>,
     /// Menu cards fading out after it closed.
     ghosts: Vec<tray_menu::Ghost>,
-    /// When a menu entry was chosen: the centre closes once its flash has shown.
+    /// When a menu entry was chosen: the menu closes once its flash has shown.
     chosen_at: Option<f64>,
 }
 

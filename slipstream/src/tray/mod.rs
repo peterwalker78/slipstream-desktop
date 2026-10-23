@@ -98,6 +98,37 @@ pub struct Snapshot {
     pub process: Option<matcher::Process>,
 }
 
+impl Snapshot {
+    /// Its ID and title, the names it goes by.
+    pub fn names(&self) -> [&str; 2] {
+        [self.props.id.as_str(), self.props.title.as_str()]
+    }
+}
+
+/// Kept with the activation token a chip's click hands an item: the window the token brings
+/// forward has to be the item's own app's, told the same way as its chip's (`matcher::owner`).
+#[derive(Debug, Clone, Default)]
+pub struct TokenFor {
+    process: Option<matcher::Process>,
+    names: [String; 2],
+}
+
+impl TokenFor {
+    /// For `item`; `None` for an item no longer there, whose token brings nothing forward.
+    pub fn new(item: Option<&Snapshot>) -> Self {
+        item.map_or_else(Self::default, |item| Self {
+            process: item.process.clone(),
+            names: item.names().map(str::to_string),
+        })
+    }
+
+    /// Whether the token may bring forward a window of `client`'s.
+    pub fn reaches(&self, client: matcher::Client) -> bool {
+        let names = [self.names[0].as_str(), self.names[1].as_str()];
+        matcher::owner(self.process.as_ref(), &names, &[client]) == Some(0)
+    }
+}
+
 /// Where commands go, once the tray's thread is running.
 static COMMANDS: OnceLock<async_channel::Sender<Command>> = OnceLock::new();
 
@@ -209,6 +240,31 @@ mod tests {
             },
             process: None,
         }
+    }
+
+    #[test]
+    fn a_chips_activation_token_brings_forward_only_its_own_apps_window() {
+        let item = Snapshot {
+            process: Some(matcher::Process {
+                lineage: vec![500, 10],
+                ..matcher::Process::default()
+            }),
+            ..snapshot(":1.5/StatusNotifierItem", "Chat")
+        };
+        let token = TokenFor::new(Some(&item));
+        let client = |lineage: &'static [u32], app_id: &'static str| matcher::Client {
+            lineage,
+            app_id,
+            flatpak: None,
+        };
+        assert!(token.reaches(client(&[500, 10], "org.example.Chat")));
+        assert!(token.reaches(client(&[520, 500, 10], "org.example.Chat")));
+        assert!(!token.reaches(client(&[600, 10], "org.example.Mail")));
+        assert!(
+            !token.reaches(client(&[600, 10], "chat")),
+            "not by name alone"
+        );
+        assert!(!TokenFor::new(None).reaches(client(&[500, 10], "org.example.Chat")));
     }
 
     #[test]

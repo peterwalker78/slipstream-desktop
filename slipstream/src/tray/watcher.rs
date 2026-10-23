@@ -18,8 +18,8 @@ pub const FREEDESKTOP: &str = "org.freedesktop.StatusNotifierWatcher";
 pub const PATH: &str = "/StatusNotifierWatcher";
 /// Where an item lives when it registers by bus name alone.
 const ITEM_PATH: &str = "/StatusNotifierItem";
-/// The most items one connection may register, and hosts in all.
-const PER_SENDER: usize = 8;
+/// The most items one app may register, however many connections it opens, and hosts in all.
+const PER_PEER: usize = 8;
 const MAX_HOSTS: usize = 16;
 
 /// Where an item lives on the bus.
@@ -53,25 +53,86 @@ impl Address {
     }
 }
 
+/// Who is behind a connection, for the limit on items: the Flatpak it runs in, else its process.
+/// A connection the bus can say nothing about is taken on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Peer {
+    Flatpak(String),
+    /// A process by its pidfd's inode, which no other process ever has.
+    Process(u64),
+    /// A process by its pid, where pidfds aren't told apart by inode.
+    Pid(u32),
+    Connection(String),
+}
+
+impl Peer {
+    /// Asks the bus who is behind `sender`.
+    async fn of(connection: &zbus::Connection, sender: &str) -> Self {
+        let alone = || Self::Connection(sender.to_string());
+        let Ok(name) = BusName::try_from(sender) else {
+            return alone();
+        };
+        let credentials = match zbus::fdo::DBusProxy::new(connection).await {
+            Ok(dbus) => dbus.get_connection_credentials(name).await.ok(),
+            Err(_) => None,
+        };
+        let Some(credentials) = credentials else {
+            return alone();
+        };
+        let pid = credentials.process_id();
+        if let Some(app) =
+            pid.and_then(|pid| super::matcher::flatpak_of(std::path::Path::new("/proc"), pid))
+        {
+            return Self::Flatpak(app);
+        }
+        let pidfd = credentials.process_fd();
+        if let Some(inode) = pidfd.and_then(|fd| pidfs_inode(std::os::fd::AsFd::as_fd(fd))) {
+            return Self::Process(inode);
+        }
+        pid.map_or_else(alone, Self::Pid)
+    }
+}
+
+/// A pidfd's inode, when pidfds live on pidfs (Linux 6.9 on), which gives each process its
+/// own. Before that every pidfd shares one inode, so it says nothing.
+fn pidfs_inode(fd: std::os::fd::BorrowedFd<'_>) -> Option<u64> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    const PIDFS_MAGIC: u64 = 0x5049_4446;
+    let mut fs = std::mem::MaybeUninit::<libc::statfs>::zeroed();
+    // SAFETY: the descriptor is open while `fd` is borrowed, and fstatfs writes only
+    // into the buffer it is given, which is a whole statfs.
+    if unsafe { libc::fstatfs(fd.as_raw_fd(), fs.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: fstatfs succeeded, so it filled the buffer.
+    let fs = unsafe { fs.assume_init() };
+    if fs.f_type as u64 != PIDFS_MAGIC {
+        return None;
+    }
+    let file = std::fs::File::from(fd.try_clone_to_owned().ok()?);
+    Some(file.metadata().ok()?.ino())
+}
+
 /// Who has registered.
 #[derive(Debug, Default)]
 pub struct Registry {
-    /// Each item, with the connection that registered it.
-    items: Vec<(Address, String)>,
+    /// Each item, with the connection that registered it and who is behind that.
+    items: Vec<(Address, String, Peer)>,
     hosts: Vec<String>,
 }
 
 impl Registry {
-    /// Adds an item from `sender`. Returns whether it is new.
-    fn add_item(&mut self, address: &Address, sender: &str) -> bool {
-        let from_sender = self.items.iter().filter(|(_, by)| by == sender).count();
-        if self.items.iter().any(|(known, _)| known == address)
-            || from_sender >= PER_SENDER
+    /// Adds an item from `sender`, which is `peer`'s. Returns whether it is new.
+    fn add_item(&mut self, address: &Address, sender: &str, peer: &Peer) -> bool {
+        let from_peer = self.items.iter().filter(|(.., by)| by == peer).count();
+        if self.items.iter().any(|(known, ..)| known == address)
+            || from_peer >= PER_PEER
             || self.items.len() >= super::MAX_ITEMS
         {
             return false;
         }
-        self.items.push((address.clone(), sender.to_string()));
+        self.items
+            .push((address.clone(), sender.to_string(), peer.clone()));
         true
     }
 
@@ -79,7 +140,7 @@ impl Registry {
     /// Returns the items' addresses, and whether a host went.
     pub fn name_lost(&mut self, name: &str) -> (Vec<Address>, bool) {
         let mut gone = Vec::new();
-        self.items.retain(|(address, sender)| {
+        self.items.retain(|(address, sender, _)| {
             let lost = address.bus == name || sender == name;
             if lost {
                 gone.push(address.clone());
@@ -102,7 +163,7 @@ impl Registry {
     fn keys(&self) -> Vec<String> {
         self.items
             .iter()
-            .map(|(address, _)| address.key())
+            .map(|(address, ..)| address.key())
             .collect()
     }
 
@@ -128,11 +189,13 @@ impl Shared {
         let sender = header.sender().map(UniqueName::as_str);
         let address = Address::parse(service, sender)
             .ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("not an item: {service}")))?;
+        let sender = sender.unwrap_or_default();
+        let peer = Peer::of(connection, sender).await;
         let added = self
             .registry
             .lock()
             .unwrap()
-            .add_item(&address, sender.unwrap_or_default());
+            .add_item(&address, sender, &peer);
         if added {
             announce(connection, Change::ItemRegistered(&address.key())).await;
             let _ = self.inbox.try_send(Internal::Registered(address));
@@ -317,9 +380,10 @@ mod tests {
         let mut registry = Registry::default();
         let named = address("org.kde.StatusNotifierItem-10-1", "/StatusNotifierItem");
         let unique = address(":1.20", "/StatusNotifierItem");
-        assert!(registry.add_item(&named, ":1.10"));
-        assert!(!registry.add_item(&named, ":1.10"), "only once");
-        assert!(registry.add_item(&unique, ":1.20"));
+        let (ten, twenty) = (Peer::Pid(10), Peer::Pid(20));
+        assert!(registry.add_item(&named, ":1.10", &ten));
+        assert!(!registry.add_item(&named, ":1.10", &ten), "only once");
+        assert!(registry.add_item(&unique, ":1.20", &twenty));
         assert!(registry.add_host(":1.30"));
         assert_eq!(registry.name_lost(":1.10"), (vec![named], false));
         assert_eq!(registry.name_lost(":1.20"), (vec![unique], false));
@@ -328,11 +392,17 @@ mod tests {
     }
 
     #[test]
-    fn one_connection_cant_fill_the_tray() {
+    fn one_app_cant_fill_the_tray_however_many_connections_it_opens() {
         let mut registry = Registry::default();
-        let added = (0..20)
-            .filter(|n| registry.add_item(&address(":1.5", &format!("/Item{n}")), ":1.5"))
-            .count();
-        assert_eq!(added, PER_SENDER);
+        let mut add = |n: usize, peer: &Peer| {
+            let sender = format!(":1.{n}");
+            registry.add_item(&address(&sender, "/StatusNotifierItem"), &sender, peer)
+        };
+        let process = Peer::Process(77);
+        assert_eq!((0..20).filter(|n| add(*n, &process)).count(), PER_PEER);
+        let flatpak = Peer::Flatpak("com.example.Chat".into());
+        assert_eq!((20..40).filter(|n| add(*n, &flatpak)).count(), PER_PEER);
+        // Another app still has room.
+        assert!(add(40, &Peer::Process(78)));
     }
 }

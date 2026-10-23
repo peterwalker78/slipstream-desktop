@@ -294,11 +294,11 @@ impl Slipstream {
         self.rain.point(over, pos.y - top);
     }
 
-    /// The process behind a window: the X11 client's own claim, or the Wayland socket's peer.
-    /// Its app's meter is read from there (`usage::Meter`).
+    /// The process behind a window: the X11 client's socket peer as the X server knows it, or
+    /// the Wayland socket's. Its app's meter is read from there (`usage::Meter`).
     pub fn window_pid(&self, window: &Window) -> Option<u32> {
         if let Some(surface) = window.x11_surface() {
-            return surface.pid();
+            return super::window_props::x11_client_pid(surface);
         }
         let client = window.toplevel()?.wl_surface().client()?;
         client

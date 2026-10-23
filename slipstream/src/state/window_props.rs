@@ -108,6 +108,18 @@ pub(crate) fn places_itself(window: &Window) -> bool {
 /// Marks a managed X11 window that keeps the place it picks, in `places_itself`.
 pub(crate) struct PlacesItself;
 
+/// The pid of the X11 client behind `surface`, as the X server knows it from the client's socket
+/// (the X-Resource extension), asked once and kept. Never `_NET_WM_PID`, which a client sets for
+/// itself and can set to any other process's. `None` when the server can't say.
+pub(crate) fn x11_client_pid(surface: &smithay::xwayland::X11Surface) -> Option<u32> {
+    struct ClientPid(Option<u32>);
+    surface.user_data().insert_if_missing(|| {
+        // Smithay answers 0 when it couldn't ask.
+        ClientPid(surface.get_client_pid().ok().filter(|pid| *pid > 0))
+    });
+    surface.user_data().get::<ClientPid>().and_then(|pid| pid.0)
+}
+
 /// How opaque an X11 window asks to be drawn (`_NET_WM_WINDOW_OPACITY`, which compositing window
 /// managers honour), from 0 to 1. A Wayland window, or one that doesn't say, is opaque.
 pub(crate) fn own_opacity(window: &Window) -> f32 {

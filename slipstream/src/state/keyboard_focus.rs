@@ -57,6 +57,22 @@ impl Slipstream {
         if self.focused_window().as_ref() == Some(&window) {
             return;
         }
+        // A token a tray chip's click handed an app brings forward only that app's windows.
+        if let Some(token_for) = data.user_data.get::<crate::tray::TokenFor>() {
+            let (lineage, app_id, flatpak) = super::background::client_facts(
+                self.window_pid(&window),
+                window_app_id(&window).unwrap_or_default(),
+            );
+            let client = crate::tray::matcher::Client {
+                lineage: &lineage,
+                app_id: &app_id,
+                flatpak: flatpak.as_deref(),
+            };
+            if !token_for.reaches(client) {
+                tracing::info!(app, "a tray item's token named another app's window");
+                return;
+            }
+        }
         if !self.activation_is_recent(data) {
             tracing::info!(app, "activation asked without a recent click or key");
             self.next_in_line(&window);

@@ -3,11 +3,12 @@
 //! listed as running in the background; or an installed app's desktop entry, for its name and
 //! icon.
 //!
-//! The process behind the item's bus connection decides first, then its names. A Flatpak app's
-//! bus connection is usually its sandbox's D-Bus proxy, a cousin of the app's processes under the
-//! sandbox's outermost bwrap, so that is looked for too. The proxy's bwrap is often orphaned to
-//! init, though, which leaves the two with no ancestor in common; then the Flatpak's own scope
-//! (`app-flatpak-<app id>-<n>.scope`), which the proxy and the app share, says which app it is.
+//! The process behind the item's bus connection decides first, then, where the process allows
+//! it, its names (`owner`). A Flatpak app's bus connection is usually its sandbox's D-Bus proxy,
+//! a cousin of the app's processes under the sandbox's outermost bwrap, so that is looked for
+//! too. The proxy's bwrap is often orphaned to init, though, which leaves the two with no
+//! ancestor in common; then the Flatpak's own scope (`app-flatpak-<app id>-<n>.scope`), which
+//! the proxy and the app share, says which app it is.
 
 use std::path::Path;
 
@@ -101,11 +102,25 @@ pub struct Client<'a> {
 /// one in the item's Flatpak sandbox, the nearest one the item's process started, the one from
 /// the same Flatpak, else the one whose app ID is the item's ID or title. `names` are the item's
 /// ID and title.
+///
+/// A name is a claim any app can make, so it counts only when nothing says otherwise: the item
+/// has no process to go by, or the client descends from the item's process, however far down.
+/// Nothing is matched across a Flatpak's edge, by name or by process: an item from one Flatpak is
+/// never another's, and a host process is never a Flatpak app's.
 pub fn owner(process: Option<&Process>, names: &[&str], clients: &[Client]) -> Option<usize> {
-    if let Some((process, pid)) = process.and_then(|process| Some((process, process.pid()?))) {
+    let flatpak = process.and_then(|process| process.flatpak.as_deref());
+    // A client whose Flatpak can't be read may still be in the item's: the sandbox and the
+    // Flatpak's own app ID decide that below.
+    let apart = |client: &Client| match (flatpak, client.flatpak) {
+        (Some(ours), Some(theirs)) => ours != theirs,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    let pid = process.and_then(Process::pid);
+    if let (Some(process), Some(pid)) = (process, pid) {
         if let Some(at) = clients
             .iter()
-            .position(|client| client.lineage.first() == Some(&pid))
+            .position(|client| !apart(client) && client.lineage.first() == Some(&pid))
         {
             return Some(at);
         }
@@ -113,6 +128,7 @@ pub fn owner(process: Option<&Process>, names: &[&str], clients: &[Client]) -> O
             clients
                 .iter()
                 .enumerate()
+                .filter(|(_, client)| !apart(client))
                 .filter_map(|(at, client)| {
                     let up = client
                         .lineage
@@ -133,30 +149,43 @@ pub fn owner(process: Option<&Process>, names: &[&str], clients: &[Client]) -> O
             return Some(at);
         }
     }
-    if let Some(flatpak) = process.and_then(|process| process.flatpak.as_deref()) {
-        let same = |client: &Client| match client.flatpak {
-            Some(theirs) => theirs == flatpak,
-            None => same_app(client.app_id, flatpak),
-        };
-        if let Some(at) = clients.iter().position(same) {
-            return Some(at);
-        }
+    if let Some(flatpak) = flatpak {
+        // A client in the same Flatpak first; else one whose own Flatpak can't be read but whose
+        // app ID is this one's.
+        return clients
+            .iter()
+            .position(|client| client.flatpak == Some(flatpak))
+            .or_else(|| {
+                clients
+                    .iter()
+                    .position(|client| client.flatpak.is_none() && same_app(client.app_id, flatpak))
+            });
     }
-    clients
-        .iter()
-        .position(|client| names.iter().any(|name| same_app(client.app_id, name)))
+    clients.iter().position(|client| {
+        let related = pid.is_none_or(|pid| client.lineage.contains(&pid));
+        related
+            && client.flatpak.is_none()
+            && names.iter().any(|name| same_app(client.app_id, name))
+    })
 }
 
 /// Whether an app ID and an item's ID or title name the same app: equal but for case and a
-/// `.desktop` ending, or once a reverse-DNS prefix is taken off either.
+/// `.desktop` ending, or once a reverse-DNS prefix is taken off either. Only a well-formed
+/// reverse-DNS ID loses its prefix, so `.chat` or `chat.` is not `chat`.
 pub fn same_app(app_id: &str, name: &str) -> bool {
     let plain = |id: &str| id.trim().trim_end_matches(".desktop").to_lowercase();
     let (app_id, name) = (plain(app_id), plain(name));
     if app_id.is_empty() || name.is_empty() {
         return false;
     }
-    let last = |id: &str| id.rsplit('.').next().unwrap_or_default().to_string();
-    app_id == name || last(&app_id) == name || app_id == last(&name)
+    let last = |id: &str| {
+        let reverse_dns = id.contains('.') && id.split('.').all(|part| !part.is_empty());
+        reverse_dns
+            .then(|| id.rsplit('.').next())
+            .flatten()
+            .map(str::to_string)
+    };
+    app_id == name || last(&app_id).as_ref() == Some(&name) || Some(&app_id) == last(&name).as_ref()
 }
 
 /// The desktop entry for an item with no client to go by: by its Flatpak's app ID, by its ID or
@@ -360,6 +389,149 @@ mod tests {
             owner(Some(&process(&[600, 10])), &["launcher"], &clients),
             Some(1)
         );
+    }
+
+    fn in_flatpak<'a>(lineage: &'a [u32], app_id: &'a str, flatpak: &'a str) -> Client<'a> {
+        Client {
+            lineage,
+            app_id,
+            flatpak: Some(flatpak),
+        }
+    }
+
+    #[test]
+    fn a_tray_item_cant_pose_as_another_app_by_its_name() {
+        // An unrelated process names its item after a windowless app, and after an app with a
+        // window up.
+        let clients = [
+            client(&[2, 10], "org.example.Vault"),
+            client(&[3, 10], "org.example.Mail"),
+        ];
+        let hostile = process(&[666, 10]);
+        assert_eq!(owner(Some(&hostile), &["vault", "Vault"], &clients), None);
+        assert_eq!(
+            owner(Some(&hostile), &["org.example.Mail", ""], &clients),
+            None
+        );
+        // From inside a Flatpak, a name reaches no host app either.
+        let sandboxed = Process {
+            lineage: vec![700, 10],
+            flatpak: Some("com.example.Game".into()),
+            ..Process::default()
+        };
+        assert_eq!(owner(Some(&sandboxed), &["vault"], &clients), None);
+        // And a host process is never a Flatpak app's, by name or by having started it.
+        let flatpaks = [in_flatpak(&[820, 810, 800, 10], "chat", "com.example.Chat")];
+        assert_eq!(
+            owner(Some(&process(&[666, 10])), &["chat"], &flatpaks),
+            None
+        );
+        assert_eq!(
+            owner(Some(&process(&[800, 10])), &["chat"], &flatpaks),
+            None
+        );
+        // Nor is one Flatpak's item another's.
+        let other = Process {
+            lineage: vec![900, 10],
+            flatpak: Some("com.example.Other".into()),
+            ..Process::default()
+        };
+        assert_eq!(owner(Some(&other), &["chat"], &flatpaks), None);
+    }
+
+    #[test]
+    fn a_steam_shaped_tray_finds_its_web_helpers_window_however_deep() {
+        // The client (steam) keeps the tray icon; the window is steamwebhelper's, several
+        // processes down through the runtime's wrappers.
+        let windows = [
+            client(&[900, 10], "org.example.Terminal"),
+            client(&[1460, 1450, 1440, 1430, 1420, 1400, 10], "steam"),
+        ];
+        assert_eq!(
+            owner(Some(&process(&[1400, 10])), &["steam", "Steam"], &windows),
+            Some(1)
+        );
+        // A process named the same that didn't start it doesn't.
+        assert_eq!(
+            owner(Some(&process(&[1500, 10])), &["steam", "Steam"], &windows),
+            None
+        );
+    }
+
+    #[test]
+    fn a_discord_shaped_flatpak_finds_its_x11_window_by_scope() {
+        // The item comes from the sandbox's bus proxy, orphaned to init; the window is the X11
+        // client's, whose real pid is in the same Flatpak's scope.
+        let proxy = Process {
+            lineage: vec![3011, 3010],
+            sandbox: Some(3010),
+            name: "xdg-dbus-proxy".into(),
+            flatpak: Some("com.example.Discord".into()),
+        };
+        let windows = [
+            client(&[900, 10], "discord"),
+            in_flatpak(
+                &[3120, 3105, 3100, 3000, 10],
+                "discord",
+                "com.example.Discord",
+            ),
+        ];
+        assert_eq!(
+            owner(Some(&proxy), &["chrome_status_icon_1", ""], &windows),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn a_chrome_shaped_flatpak_finds_its_wayland_window_by_scope() {
+        let proxy = Process {
+            lineage: vec![4011, 4010],
+            sandbox: Some(4010),
+            name: "xdg-dbus-proxy".into(),
+            flatpak: Some("com.example.Chrome".into()),
+        };
+        let windows = [in_flatpak(
+            &[4120, 4110, 4100, 3990, 10],
+            "com.example.chrome",
+            "com.example.Chrome",
+        )];
+        assert_eq!(
+            owner(Some(&proxy), &["chrome_status_icon_1", ""], &windows),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn an_xwaylandvideobridge_shaped_item_is_its_own_clients() {
+        // A host service whose X11 client and tray item are one process, started by the
+        // service manager.
+        let clients = [
+            client(&[900, 10], "org.example.Terminal"),
+            client(&[5200, 1900], "xwaylandvideobridge"),
+        ];
+        let bridge = Process {
+            lineage: vec![5200, 1900],
+            name: "xwaylandvideobr".into(),
+            ..Process::default()
+        };
+        assert_eq!(
+            owner(
+                Some(&bridge),
+                &["Xwayland Video Bridge", "Wayland to X11 Video Bridge"],
+                &clients
+            ),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn only_a_well_formed_app_id_loses_its_prefix() {
+        assert!(same_app("com.example.Discord", "discord"));
+        assert!(same_app("steam", "com.example.Steam.desktop"));
+        assert!(!same_app(".discord", "discord"));
+        assert!(!same_app("discord.", "discord"));
+        assert!(!same_app("com..discord", "discord"));
+        assert!(!same_app("com.example.Discord", "org.other.Discord"));
     }
 
     #[test]

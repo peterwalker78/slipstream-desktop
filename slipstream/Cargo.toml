@@ -47,3 +47,7 @@ features = [
     # X11 apps through XWayland.
     "xwayland",
 ]
+
+[dev-dependencies]
+# Both ends of one bus connection, with no bus, for the tray's tests.
+zbus = { workspace = true, features = ["p2p"] }

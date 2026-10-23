@@ -9,6 +9,7 @@ use resvg::tiny_skia::Pixmap;
 use smithay::{
     desktop::Window,
     reexports::wayland_server::{Resource, backend::ClientId, protocol::wl_surface::WlSurface},
+    wayland::xdg_activation::XdgActivationTokenData,
 };
 
 use super::*;
@@ -23,6 +24,18 @@ use crate::{
 
 /// How long a press waits for an app to answer `Activate` before the centre closes anyway.
 const ACTIVATION_WAIT: f64 = 0.8;
+
+/// A client's process and the ones above it, its app ID and its Flatpak, for `matcher::Client`
+/// to borrow.
+pub(super) type ClientFacts = (Vec<u32>, String, Option<String>);
+
+/// What matching needs to know of a client with process `pid` and `app_id`.
+pub(super) fn client_facts(pid: Option<u32>, app_id: String) -> ClientFacts {
+    let proc = Path::new("/proc");
+    let lineage = pid.map_or_else(Vec::new, |pid| crate::notify::lineage(proc, pid));
+    let flatpak = pid.and_then(|pid| matcher::flatpak_of(proc, pid));
+    (lineage, app_id, flatpak)
+}
 
 /// An app with no visible window: it closed its last window but its Wayland client is still
 /// running. Shown in the notification centre so the user knows it's still there.
@@ -222,17 +235,11 @@ impl Slipstream {
     /// running in the background, and a passive one, which says it has nothing to say, is left
     /// out unless its app is already listed.
     fn build_chips(&mut self, windows: &[Window], px: u32) -> Vec<Chip> {
-        let proc = Path::new("/proc");
-        let client = |pid: Option<u32>, app_id: String| {
-            let lineage = pid.map_or_else(Vec::new, |pid| crate::notify::lineage(proc, pid));
-            let flatpak = pid.and_then(|pid| matcher::flatpak_of(proc, pid));
-            (lineage, app_id, flatpak)
-        };
-        let mut clients: Vec<(Vec<u32>, String, Option<String>)> = self
+        let mut clients: Vec<ClientFacts> = self
             .background
             .apps
             .iter()
-            .map(|app| client(app.pid, app.app_id.clone()))
+            .map(|app| client_facts(app.pid, app.app_id.clone()))
             .collect();
         let windowless = clients.len();
         for window in windows {
@@ -242,7 +249,7 @@ impl Slipstream {
                     .iter()
                     .any(|(known, ..)| known.first() == pid.as_ref())
             {
-                clients.push(client(pid, window_app_id(window).unwrap_or_default()));
+                clients.push(client_facts(pid, window_app_id(window).unwrap_or_default()));
             }
         }
         let views: Vec<matcher::Client> = clients
@@ -271,8 +278,7 @@ impl Slipstream {
         let mut merged: Vec<Option<Snapshot>> = vec![None; chips.len()];
         let mut alone = Vec::new();
         for item in self.background.tray.items() {
-            let names = [item.props.id.as_str(), item.props.title.as_str()];
-            match matcher::owner(item.process.as_ref(), &names, &views) {
+            match matcher::owner(item.process.as_ref(), &item.names(), &views) {
                 Some(at) if at < windowless && merged[at].is_none() => {
                     merged[at] = Some(item.clone())
                 }
@@ -382,11 +388,15 @@ impl Slipstream {
                 self.centre.close();
             }
             Act::Activate(item) => {
-                // A token for the window it brings forward: a press here asked for it.
+                // A token for the window it brings forward: a press here asked for it, and it
+                // brings forward only the item's own app's.
+                let data = XdgActivationTokenData::default();
+                let token_for = tray::TokenFor::new(self.background.tray.get(&item));
+                data.user_data.insert_if_missing(|| token_for);
                 let token = self
                     .protocols
                     .xdg_activation_state
-                    .create_external_token(None)
+                    .create_external_token(data)
                     .0
                     .to_string();
                 self.concentration.asked(Instant::now());

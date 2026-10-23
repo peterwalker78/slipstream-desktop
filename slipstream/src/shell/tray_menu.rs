@@ -8,8 +8,8 @@
 //!
 //! The entries come from the app and are only drawn: choosing one sends the app the entry's id
 //! (`tray::Command::Click`) at once and does nothing else. The chosen row then shows pressed, in
-//! the accent colour, with a ring pulsing out from it, for a moment before the centre closes, so
-//! the choice is seen to have landed.
+//! the accent colour, with a ring pulsing out from it, for a moment before the menu closes, so
+//! the choice is seen to have landed. The centre stays open.
 
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
@@ -58,7 +58,7 @@ const CLOSE: f64 = 0.11;
 const SLIDE: f64 = 6.0;
 /// How long a menu the app hasn't sent yet waits before it says it's coming.
 const PATIENCE: f64 = 0.15;
-/// How long a chosen entry shows pressed before the centre closes, while a ring pulses out from
+/// How long a chosen entry shows pressed before the menu closes, while a ring pulses out from
 /// it by `PULSE` design pixels and fades. With reduced motion it is only the pressed row, held a
 /// little less long.
 const CONFIRM: f64 = 0.2;
