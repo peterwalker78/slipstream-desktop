@@ -4,8 +4,15 @@
 //! The presets are made here, note by note, rather than shipped as samples, so there's nothing to
 //! licence and nothing to find at runtime. Each is written out as a WAV under the runtime
 //! directory the first time it's wanted, and played with PipeWire's `pw-play`.
+//!
+//! The sound theme is here too: a name is looked up as the XDG Sound Theme spec describes, in the
+//! chosen theme, then the themes it inherits from, then `freedesktop`; in each, the name and then
+//! its shorter forms (`message-new-instant`, `message-new`, `message`), so a theme without the
+//! exact sound still has something close. A `.disabled` file silences a sound on purpose, and the
+//! lookup stops there.
 
 use std::{
+    ffi::OsStr,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
@@ -175,6 +182,162 @@ pub const DINGS: &[Preset] = &[
 /// The notification sound that means each app's own, as it asks for one.
 pub const APPS_OWN: &str = "app";
 
+/// Notification sounds from the sound theme, by the names apps ask for, to make for every
+/// notification: what the settings file calls each, what Settings calls it, and its name.
+pub const THEMED: &[(&str, &str, &str)] = &[("ding", "Ding", "complete"), ("bell", "Bell", "bell")];
+
+/// The sound theme's name for `choice`, if it's one of `THEMED`.
+pub fn themed(choice: &str) -> Option<&'static str> {
+    THEMED
+        .iter()
+        .find(|(id, ..)| *id == choice)
+        .map(|(.., name)| *name)
+}
+
+/// How far a theme's inheritance is followed, against a loop or a runaway chain.
+const THEMES: usize = 16;
+/// The file types a sound theme holds, in the spec's order.
+const EXTENSIONS: [&str; 3] = ["oga", "ogg", "wav"];
+
+/// Where sound themes live: `$XDG_DATA_HOME/sounds`, then `sounds` under each of
+/// `$XDG_DATA_DIRS`, with the spec's defaults for either when unset.
+pub fn theme_bases() -> Vec<PathBuf> {
+    let system = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|dirs| !dirs.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+    std::iter::once(crate::xdg_home("XDG_DATA_HOME", ".local/share"))
+        .chain(
+            system
+                .split(':')
+                .filter(|dir| !dir.is_empty())
+                .map(PathBuf::from),
+        )
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join("sounds"))
+        .collect()
+}
+
+/// A name or theme that is one plain path component, so nothing sent over the bus can reach
+/// outside the sound folders.
+fn plain_component(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\0'])
+        && Path::new(name).file_name() == Some(OsStr::new(name))
+}
+
+/// A theme's `index.theme`, as much of it as the lookup needs.
+#[derive(Debug, Default, PartialEq)]
+struct Index {
+    inherits: Vec<String>,
+    /// Its sound folders, stereo ones first.
+    directories: Vec<String>,
+}
+
+/// The first `index.theme` for `theme` under `bases`, read with `read`. Nothing when no base has
+/// the theme.
+fn index(theme: &str, bases: &[PathBuf], read: &dyn Fn(&Path) -> Option<String>) -> Option<Index> {
+    bases.iter().find_map(|base| {
+        let text = read(&base.join(theme).join("index.theme"))?;
+        Some(parse_index(&text))
+    })
+}
+
+/// `index.theme`'s `Inherits` and `Directories` from its `[Sound Theme]` group, with the folders
+/// whose `OutputProfile` is `stereo` put first, since that's what the speakers are.
+fn parse_index(text: &str) -> Index {
+    let list = |value: &str| -> Vec<String> {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|item| plain_component(item))
+            .map(str::to_string)
+            .collect()
+    };
+    let mut index = Index::default();
+    let mut stereo: Vec<String> = Vec::new();
+    let mut group = String::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            group = name.to_string();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match (group.as_str(), key.trim()) {
+            ("Sound Theme", "Inherits") => index.inherits = list(value),
+            ("Sound Theme", "Directories") => index.directories = list(value),
+            (_, "OutputProfile") if value.trim() == "stereo" => stereo.push(group.clone()),
+            _ => {}
+        }
+    }
+    index.directories.sort_by_key(|dir| !stereo.contains(dir));
+    index
+}
+
+/// The sound for `name` in `theme` or what it inherits from, ending with `freedesktop`, trying
+/// the name and then its shorter forms in each theme before moving on. A `.disabled` file ends
+/// the search with nothing. Each theme's `index.theme` is read with `read`, which may refuse a file
+/// that isn't small and regular.
+pub fn find(
+    name: &str,
+    theme: &str,
+    bases: &[PathBuf],
+    read: &dyn Fn(&Path) -> Option<String>,
+) -> Option<PathBuf> {
+    if !plain_component(name) {
+        return None;
+    }
+    let mut chain: Vec<String> = Vec::new();
+    let mut queue: Vec<String> = vec![theme.to_string()];
+    while let Some(next) = (!queue.is_empty()).then(|| queue.remove(0)) {
+        if chain.len() >= THEMES || chain.contains(&next) || !plain_component(&next) {
+            continue;
+        }
+        if let Some(index) = index(&next, bases, read) {
+            queue.extend(index.inherits.iter().cloned());
+            chain.push(next);
+        }
+    }
+    if !chain.iter().any(|theme| theme == "freedesktop") {
+        chain.push("freedesktop".to_string());
+    }
+    for theme in &chain {
+        let Some(index) = index(theme, bases, read) else {
+            continue;
+        };
+        for variant in shorter_forms(name) {
+            for dir in &index.directories {
+                for base in bases {
+                    let stem = base.join(theme).join(dir).join(variant);
+                    if stem.with_extension("disabled").exists() {
+                        return None;
+                    }
+                    for extension in EXTENSIONS {
+                        let path = stem.with_extension(extension);
+                        if path.is_file() {
+                            return Some(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `name`, then each shorter form made by dropping its last `-` part.
+fn shorter_forms(name: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(name), |name| {
+        name.rfind('-')
+            .map(|at| &name[..at])
+            .filter(|n| !n.is_empty())
+    })
+}
+
 /// Files bigger than this aren't a sound to play, whatever they are.
 const LARGEST: u64 = 8 << 20;
 const RATE: u32 = 48_000;
@@ -308,6 +471,144 @@ fn wav(samples: &[i16], rate: u32, channels: u16) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn read(path: &Path) -> Option<String> {
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("slipstream-sounds-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn theme(base: &Path, name: &str, index: &str, sounds: &[&str]) {
+        let dir = base.join(name);
+        std::fs::create_dir_all(dir.join("stereo")).unwrap();
+        std::fs::write(dir.join("index.theme"), index).unwrap();
+        for sound in sounds {
+            std::fs::write(dir.join("stereo").join(sound), b"sound").unwrap();
+        }
+    }
+
+    const STEREO: &str =
+        "[Sound Theme]\nName=T\nDirectories=stereo\n\n[stereo]\nOutputProfile=stereo\n";
+
+    #[test]
+    fn a_name_falls_back_to_shorter_forms_then_inherited_themes_then_freedesktop() {
+        let root = scratch("lookup");
+        let (user, system) = (root.join("user"), root.join("system"));
+        theme(
+            &system,
+            "harbour",
+            &STEREO.replace("Name=T\n", "Name=T\nInherits=reef\n"),
+            &["message-new-instant.oga"],
+        );
+        theme(&system, "reef", STEREO, &["bell.wav"]);
+        theme(
+            &system,
+            "freedesktop",
+            STEREO,
+            &["complete.oga", "bell.oga"],
+        );
+        // Sounds in the user's own folder for a theme are searched too, ahead of the system's; the
+        // theme's index is the system's, the first one found.
+        std::fs::create_dir_all(user.join("harbour/stereo")).unwrap();
+        std::fs::write(user.join("harbour/stereo/dialog-warning.ogg"), b"sound").unwrap();
+        let bases = [user.clone(), system.clone()];
+
+        let found = |name: &str| find(name, "harbour", &bases, &read);
+        assert_eq!(
+            found("message-new-instant"),
+            Some(system.join("harbour/stereo/message-new-instant.oga"))
+        );
+        assert_eq!(
+            found("dialog-warning"),
+            Some(user.join("harbour/stereo/dialog-warning.ogg"))
+        );
+        assert_eq!(
+            found("bell-terminal"),
+            Some(system.join("reef/stereo/bell.wav")),
+            "a shorter form, from the inherited theme"
+        );
+        assert_eq!(
+            found("complete-download"),
+            Some(system.join("freedesktop/stereo/complete.oga")),
+            "freedesktop last of all"
+        );
+        assert_eq!(found("phone-incoming-call"), None);
+        assert_eq!(
+            find("complete", "no-such-theme", &bases, &read),
+            Some(system.join("freedesktop/stereo/complete.oga")),
+            "a missing theme still reaches freedesktop"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_disabled_sound_stays_silent_and_names_cant_leave_the_theme() {
+        let root = scratch("disabled");
+        theme(&root, "freedesktop", STEREO, &["bell.oga", "complete.oga"]);
+        theme(&root, "quiet", STEREO, &["bell.disabled"]);
+        let bases = [root.clone()];
+        assert_eq!(
+            find("bell", "quiet", &bases, &read),
+            None,
+            "silenced on purpose"
+        );
+        assert!(find("complete", "quiet", &bases, &read).is_some());
+        assert_eq!(
+            find("../freedesktop/stereo/bell", "quiet", &bases, &read),
+            None
+        );
+        assert_eq!(
+            find("bell", "../freedesktop", &bases, &read).map(|_| ()),
+            Some(()),
+            "a bad theme name is skipped, not followed"
+        );
+        assert_eq!(find("", "quiet", &bases, &read), None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_inheritance_loop_ends() {
+        let root = scratch("loop");
+        let inherits =
+            |parent: &str| STEREO.replace("Name=T\n", &format!("Name=T\nInherits={parent}\n"));
+        theme(&root, "a", &inherits("b"), &[]);
+        theme(&root, "b", &inherits("a"), &["found.oga"]);
+        assert_eq!(
+            find("found", "a", std::slice::from_ref(&root), &read),
+            Some(root.join("b/stereo/found.oga"))
+        );
+        assert_eq!(
+            find("missing", "a", std::slice::from_ref(&root), &read),
+            None
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stereo_folders_come_first() {
+        let index = parse_index(
+            "[Sound Theme]\nName=X\nInherits=freedesktop, ../etc\nDirectories=5.1,stereo\n\n\
+             [5.1]\nOutputProfile=5.1\n\n[stereo]\nOutputProfile=stereo\n",
+        );
+        assert_eq!(index.directories, ["stereo", "5.1"]);
+        assert_eq!(index.inherits, ["freedesktop"], "no path in a theme name");
+    }
+
+    #[test]
+    fn shorter_forms_drop_a_part_at_a_time() {
+        assert_eq!(
+            shorter_forms("message-new-instant").collect::<Vec<_>>(),
+            ["message-new-instant", "message-new", "message"]
+        );
+        assert_eq!(shorter_forms("bell").collect::<Vec<_>>(), ["bell"]);
+        assert_eq!(shorter_forms("-x").collect::<Vec<_>>(), ["-x"]);
+    }
 
     #[test]
     fn every_preset_is_a_playable_wav_that_starts_and_ends_at_silence() {

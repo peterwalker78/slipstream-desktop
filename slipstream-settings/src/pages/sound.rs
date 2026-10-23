@@ -252,16 +252,28 @@ fn set_volume(percent: u8, click: Option<String>) {
         if let Some(click) = click
             && sounds::due()
         {
-            play(&click, sounds::CLICKS);
+            play(&click, sounds::CLICKS, "");
         }
     });
 }
 
-/// Plays `choice`, one of `presets` or a file, and waits for it to finish.
-fn play(choice: &str, presets: &[Preset]) {
-    if let Some(path) = sounds::file(choice, presets) {
+/// Plays `choice`, one of `presets`, a sound from `theme` or a file, and waits for it to finish.
+fn play(choice: &str, presets: &[Preset], theme: &str) {
+    let path = match sounds::themed(choice) {
+        Some(name) => sounds::find(name, theme, &sounds::theme_bases(), &read_index),
+        None => sounds::file(choice, presets),
+    };
+    if let Some(path) = path {
         let _ = Command::new("pw-play").arg(path).status();
     }
+}
+
+/// A sound theme's index, if it's a small regular file.
+fn read_index(path: &Path) -> Option<String> {
+    std::fs::metadata(path)
+        .ok()
+        .filter(|meta| meta.is_file() && meta.len() <= 1 << 20)?;
+    std::fs::read_to_string(path).ok()
 }
 
 /// What the list of sounds holds, row by row, as the settings file says each.
@@ -294,6 +306,11 @@ fn sound_choice(
             let mut rows: Vec<(String, String)> = Vec::new();
             if apps_own {
                 rows.push((sounds::APPS_OWN.into(), "Each app's own".into()));
+                rows.extend(
+                    sounds::THEMED
+                        .iter()
+                        .map(|(id, name, _)| (id.to_string(), name.to_string())),
+                );
             }
             rows.extend(
                 presets
@@ -324,8 +341,9 @@ fn sound_choice(
 
     let hear_store = store.clone();
     hear.connect_clicked(move |_| {
-        let choice = get(&hear_store.get());
-        std::thread::spawn(move || play(&choice, presets));
+        let settings = hear_store.get();
+        let (choice, theme) = (get(&settings), settings.notifications.sound_theme);
+        std::thread::spawn(move || play(&choice, presets, &theme));
     });
     let store = store.clone();
     list.connect_selected_notify(move |list| {
@@ -339,7 +357,8 @@ fn sound_choice(
             fill(&choice);
             let saved = choice.clone();
             store.change(move |settings| set(settings, saved));
-            std::thread::spawn(move || play(&choice, presets));
+            let theme = store.get().notifications.sound_theme;
+            std::thread::spawn(move || play(&choice, presets, &theme));
             return;
         }
         // A file of one's own. Turning away from the dialog leaves the sound as it was.
@@ -366,7 +385,7 @@ fn sound_choice(
             fill(&path);
             let saved = path.clone();
             store.change(move |settings| set(settings, saved));
-            std::thread::spawn(move || play(&path, presets));
+            std::thread::spawn(move || play(&path, presets, ""));
         });
     });
 

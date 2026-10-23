@@ -104,8 +104,11 @@ impl Slipstream {
         // Each app's own sound, or one chosen for them all, which every notification makes.
         let sound = match settings.ding.as_str() {
             slipstream_config::sounds::APPS_OWN => incoming.sound.clone(),
-            choice => slipstream_config::sounds::file(choice, slipstream_config::sounds::DINGS)
-                .map(crate::alert::Sound::File),
+            choice => match slipstream_config::sounds::themed(choice) {
+                Some(name) => Some(crate::alert::Sound::Name(name.to_string())),
+                None => slipstream_config::sounds::file(choice, slipstream_config::sounds::DINGS)
+                    .map(crate::alert::Sound::File),
+            },
         };
         if let Some(sound) = sound
             && crate::alert::wanted(
