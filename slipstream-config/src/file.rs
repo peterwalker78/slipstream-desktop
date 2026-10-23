@@ -41,8 +41,13 @@ pub fn path() -> PathBuf {
         .join(FILE_NAME)
 }
 
-/// Reads the settings at `path`. A missing file means every default.
+/// Reads the settings at `path`. A missing file means every default. The first read of the
+/// person's own file moves a `[meter]` from before plugins out of it (`plugins::move_meter_once`),
+/// before anything that writes the file back without it can.
 pub fn read(path: &Path) -> io::Result<Settings> {
+    if path == self::path() {
+        crate::plugins::move_meter_once();
+    }
     match fs::read_to_string(path) {
         Ok(text) => parse(&text),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Settings::default()),

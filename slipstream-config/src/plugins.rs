@@ -412,19 +412,31 @@ pub fn find() -> (Vec<Plugin>, Vec<String>) {
 }
 
 /// Moves a `[meter] command` from a settings file from before plugins into a plugin of its own,
-/// once: the first start that finds one writes it out as `meter/` in the person's plugins folder,
-/// where it waits to be turned on like any other plugin. Says where it went, or why it couldn't
-/// go, when there was one to move.
+/// once: the first read of the settings file that finds one writes it out as `meter/` in the
+/// person's plugins folder, where it waits to be turned on like any other plugin. It happens when
+/// the file is first read, by the compositor or the Settings app, so the command is out before
+/// either writes the file back without it. Says where it went, or why it couldn't go, when there
+/// was one to move.
 pub fn move_meter_once() -> Option<Result<PathBuf, String>> {
-    let record = crate::xdg_home("XDG_STATE_HOME", ".local/state")
-        .join("slipstream")
-        .join("meter-moved");
-    move_meter(&crate::path(), &own_dir(), &record)
+    static MOVED: std::sync::OnceLock<Option<Result<PathBuf, String>>> = std::sync::OnceLock::new();
+    MOVED
+        .get_or_init(|| {
+            let record = crate::xdg_home("XDG_STATE_HOME", ".local/state")
+                .join("slipstream")
+                .join("meter-moved");
+            move_meter(&crate::path(), &own_dir(), &record)
+        })
+        .clone()
 }
+
+/// The most folders tried for a moved `[meter]`: `meter`, then `meter-2` and on.
+const MOST_METER_FOLDERS: usize = 9;
 
 /// `move_meter_once`, reading `settings`, writing into `plugins`, and keeping `record` to say it
 /// has. The command runs as `sh -c <command> meter`, so a button's words reach it as `$1` and `$2`
-/// and nothing is added to the line it was written as.
+/// and nothing is added to the line it was written as. A folder already holding just this plugin
+/// is taken as the move done; one holding anything else is left alone, and the next free name
+/// is used. The record is only kept once the command is in a plugin.
 pub fn move_meter(
     settings: &Path,
     plugins: &Path,
@@ -445,43 +457,77 @@ pub fn move_meter(
         .and_then(toml::Value::as_integer)
         .unwrap_or(60)
         .clamp(10, 86_400);
-    let dir = plugins.join("meter");
-    let written = if dir.exists() {
-        Err(format!("{} is there already", dir.display()))
-    } else {
-        let mut manifest = toml::Table::new();
-        manifest.insert("name".into(), "Meter".into());
-        manifest.insert(
-            "description".into(),
-            "The command from the settings file's [meter]".into(),
-        );
-        manifest.insert(
-            "exec".into(),
-            toml::Value::Array(vec![
-                "sh".into(),
-                "-c".into(),
-                command.into(),
-                "meter".into(),
-            ]),
-        );
-        manifest.insert("every-secs".into(), every.into());
-        let text = toml::to_string(&manifest).map_err(|err| err.to_string());
-        let wrote = text.and_then(|text| {
-            std::fs::create_dir_all(&dir)
-                .and_then(|()| std::fs::write(dir.join(MANIFEST), text))
-                .map_err(|err| err.to_string())
-        });
-        // Tried again at the next start, when it couldn't be written.
-        if let Err(why) = wrote {
-            return Some(Err(why));
+    let mut manifest = toml::Table::new();
+    manifest.insert("name".into(), "Meter".into());
+    manifest.insert(
+        "description".into(),
+        "The command from the settings file's [meter]".into(),
+    );
+    manifest.insert(
+        "exec".into(),
+        toml::Value::Array(vec![
+            "sh".into(),
+            "-c".into(),
+            command.into(),
+            "meter".into(),
+        ]),
+    );
+    manifest.insert("every-secs".into(), every.into());
+    let manifest = match toml::to_string(&manifest) {
+        Ok(manifest) => manifest,
+        Err(err) => return Some(Err(err.to_string())),
+    };
+    let moved = (1..=MOST_METER_FOLDERS).find_map(|n| {
+        let dir = match n {
+            1 => plugins.join("meter"),
+            n => plugins.join(format!("meter-{n}")),
+        };
+        write_meter(&dir, &manifest).transpose()
+    });
+    // Tried again at the next start, when it couldn't be written.
+    let moved = match moved {
+        Some(Ok(dir)) => dir,
+        Some(Err(why)) => return Some(Err(why)),
+        None => {
+            return Some(Err(format!(
+                "{} already holds {MOST_METER_FOLDERS} other meters",
+                plugins.display()
+            )));
         }
-        Ok(dir)
     };
     if let Some(parent) = record.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(record, "");
-    Some(written)
+    Some(Ok(moved))
+}
+
+/// Writes a plugin of `manifest` alone into the new folder `dir`. `None` when `dir` holds
+/// something else already; the folder when it now holds the plugin, or held it before.
+fn write_meter(dir: &Path, manifest: &str) -> Result<Option<PathBuf>, String> {
+    let fail = |err: std::io::Error| format!("{}: {err}", dir.display());
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent).map_err(fail)?;
+    }
+    match std::fs::create_dir(dir) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            let holds_only_it = std::fs::read_dir(dir).is_ok_and(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name())
+                    .eq([std::ffi::OsString::from(MANIFEST)])
+            }) && std::fs::read_to_string(dir.join(MANIFEST))
+                .is_ok_and(|was| was == manifest);
+            return Ok(holds_only_it.then(|| dir.to_path_buf()));
+        }
+        Err(err) => return Err(fail(err)),
+    }
+    if let Err(err) = std::fs::write(dir.join(MANIFEST), manifest) {
+        let _ = std::fs::remove_dir_all(dir);
+        return Err(fail(err));
+    }
+    Ok(Some(dir.to_path_buf()))
 }
 
 /// A button on a card.
@@ -882,6 +928,32 @@ mod tests {
         std::fs::remove_dir_all(&moved).unwrap();
         assert_eq!(move_meter(&settings, &own, &record), None);
         assert!(!moved.exists(), "a second start leaves it removed");
+    }
+
+    /// A `meter/` that's already there is never written over: one holding another plugin sends
+    /// the command to `meter-2`, and one holding just this command is the move done.
+    #[test]
+    fn a_meter_command_never_overwrites_a_folder_already_there() {
+        let root = scratch("meter-taken");
+        let settings = root.join("settings.toml");
+        let own = root.join("plugins");
+        std::fs::write(&settings, "[meter]\ncommand = \"uptime\"\n").unwrap();
+        plugin(&own, "meter", "name = \"Gauge\"\nexec = [\"./gauge\"]\n");
+        let record = root.join("moved-beside");
+        let moved = move_meter(&settings, &own, &record).unwrap().unwrap();
+        assert_eq!(moved, own.join("meter-2"));
+        assert_eq!(read(&moved).unwrap().manifest.exec[2], "uptime");
+        assert_eq!(read(&own.join("meter")).unwrap().manifest.name, "Gauge");
+        assert!(record.exists());
+
+        let record = root.join("moved-already");
+        let again = move_meter(&settings, &own, &record).unwrap().unwrap();
+        assert_eq!(
+            again, moved,
+            "the same command, already moved, isn't moved twice"
+        );
+        assert!(!own.join("meter-3").exists());
+        assert!(record.exists());
     }
 
     #[test]

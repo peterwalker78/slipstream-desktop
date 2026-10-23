@@ -75,7 +75,7 @@ used=$(df --output=pcent / | tail -n 1 | tr -dc 0-9)
 printf '{"sections": [{"name": "Disk", "meters": [{"label": "/", "percent": %s}]}]}\n' "$used"
 ```
 
-A `[meter]` command in a settings file from before plugins becomes a plugin like this, called Meter, the first time Slipstream starts. It waits until you turn it on, and runs as any plugin does, without your session's environment.
+A `[meter]` command in a settings file from before plugins becomes a plugin like this, called Meter, the first time Slipstream or the Settings app reads that file, in `meter-2` or the next free name if a `meter` plugin is there already. It waits until you turn it on, and runs as any plugin does, without your session's environment.
 
 ## A whole plugin, packaged
 
