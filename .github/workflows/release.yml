@@ -75,8 +75,8 @@ jobs:
           EXTRA_SIGNING_KEY: ${{ secrets.EXTRA_SIGNING_KEY }}
         run: |
           if [ -z "$EXTRA_SIGNING_KEY" ]; then
-            echo "::warning::EXTRA_SIGNING_KEY isn't set, so the download goes out unsigned"
-            exit 0
+            echo "::error::EXTRA_SIGNING_KEY isn't set, and install.sh refuses an unsigned download"
+            exit 1
           fi
           key=$(mktemp)
           trap 'rm -f "$key"' EXIT

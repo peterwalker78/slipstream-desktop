@@ -160,7 +160,7 @@ fetch() {
         fetch_protos='=https,file'
     fi
     case $fetch_protos:$1 in
-        *:https://* | *file:file://*) ;;
+        =https:https://* | =https,file:https://* | =https,file:file://*) ;;
         *)
             echo "won't download $1: only https:// addresses are used" >&2
             return 1
@@ -170,7 +170,12 @@ fetch() {
         curl --fail --silent --show-error --location --proto "$fetch_protos" --proto-redir =https \
             --output "$2" "$1"
     elif have wget; then
-        wget --quiet --https-only --output-document="$2" "$1"
+        # wget can't keep a redirect to https, so it only fetches what a signature then checks.
+        if [ -z "${bundle_signer:-}" ]; then
+            echo "won't download $1 with wget: install curl, which keeps every redirect to https" >&2
+            return 1
+        fi
+        wget --quiet --output-document="$2" "$1"
     else
         echo "neither curl nor wget is installed to download with" >&2
         return 1
@@ -320,22 +325,17 @@ put_plugin() {
     mv "$cache/$plugin.new" "$plugins/$plugin"
     rm -rf "${cache:?}/$plugin.old"
     # Each command leads through the current link, which Slipstream moves to the copy you approved,
-    # so a command never runs a plugin you haven't seen. A file left there by an older install is
-    # moved aside into the cache.
+    # so a command never runs a plugin you haven't seen. A program of the same name that isn't a
+    # link is someone's own, and is left alone.
     for put_command in $commands; do
         put_link=$HOME/.local/bin/${put_command##*/}
         if ! [ -f "$plugins/$plugin/$put_command" ] || ! [ -x "$plugins/$plugin/$put_command" ]; then
             say "$1" "$put_command isn't a program in the plugin, so it wasn't linked" >&2
             continue
         fi
-        if [ -d "$put_link" ] && ! [ -L "$put_link" ]; then
-            say "$1" "left $put_link as it is, a folder where the plugin's ${put_command##*/} would go" >&2
-            continue
-        fi
         if [ -e "$put_link" ] && ! [ -L "$put_link" ]; then
-            mkdir -p "$cache/replaced"
-            mv -f "$put_link" "$cache/replaced/${put_command##*/}"
-            say "$1" "moved the old $put_link to $cache/replaced"
+            say "$1" "left $put_link as it is; remove it to use the plugin's ${put_command##*/}" >&2
+            continue
         fi
         mkdir -p "$HOME/.local/bin"
         ln -sf "$approved/$plugin/current/$put_command" "$put_link"

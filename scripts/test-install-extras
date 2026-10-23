@@ -439,22 +439,20 @@ plugin_conf
 expect_status 1
 if [ -e "$plugins_dir/example" ]; then fail "$case_name: installed it"; else ok; fi
 
-case_name="a program left by an older install is moved aside for the link"
+case_name="a program of your own with a plugin command's name is left alone"
 fresh
 plugin_bundle one
 plugin_conf
 mkdir -p "$work/home/.local/bin"
-printf '#!/bin/sh\necho old\n' >"$work/home/.local/bin/tool"
+printf '#!/bin/sh\necho mine\n' >"$work/home/.local/bin/tool"
 chmod +x "$work/home/.local/bin/tool"
 expect_status 0
-if [ "$(readlink "$work/home/.local/bin/tool")" = "$current/bin/tool" ]; then
-    ok
+if [ -L "$work/home/.local/bin/tool" ] || ! grep -q "echo mine" "$work/home/.local/bin/tool"; then
+    fail "$case_name: replaced it"
 else
-    fail "$case_name: not linked"
+    ok
 fi
-grep -q "echo old" "$work/home/.cache/slipstream/extras/replaced/tool" 2>/dev/null ||
-    fail "$case_name: the old program wasn't kept"
-grep -q "moved the old .*/.local/bin/tool" "$work/out" || fail "$case_name: didn't say so"
+grep -q "left .*/.local/bin/tool as it is" "$work/out" || fail "$case_name: didn't say so"
 
 case_name="a plugin is built from its checkout when its commit changes"
 fresh
@@ -566,6 +564,15 @@ case_name="an http address isn't downloaded"
 fresh
 plugin_bundle one
 printf 'plugin=example\nbundle_url=http://example.org/example.tar.gz\nbundle_sha256=%s\n' "$sha" \
+    >"$work/home/.config/slipstream/extras/example.conf"
+expect_status 1
+grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
+not_installed
+
+case_name="an http address with https later in it isn't downloaded"
+fresh
+plugin_bundle one
+printf 'plugin=example\nbundle_url=http://example.org/x?a:https://example.org/example.tar.gz\nbundle_sha256=%s\n' "$sha" \
     >"$work/home/.config/slipstream/extras/example.conf"
 expect_status 1
 grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
