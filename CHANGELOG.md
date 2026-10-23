@@ -7,6 +7,7 @@
 - **agent-notify is a program now, not a shell script.** The download carries it in `bin/` and `update-session` installs it, so hooks set up before keep working, with nothing else to install (it needed jq) and in a fraction of the time on every tool an agent uses. `agent-notify bar` is new: a module for the bar saying how many of your agents are working (or idle, when none is), and amber while one is waiting on you. [How to set it up](guide/help.md#seeing-an-ai-agent-at-work-from-across-the-room).
 - **Apps that start with the session can open X11 windows.** They used to start before XWayland was ready, so an X11 app such as Steam found no display and could show an error saying so; they now wait for it.
 - **X11 helper windows stay out of your layout.** A window that isn't meant to be seen, such as KDE's screen-sharing bridge for X11 apps, no longer takes a tile, and neither do desktop widgets, X11 docks or X11 notifications: each keeps the place it asks for. X11 windows that ask to be see-through are drawn that way, and X11 dialogs, palettes and splash screens float.
+- **A window you can't see can't take your clicks or typing.** One too see-through to be seen is passed over: clicks go to what's under it, and it never gets the keyboard.
 
 ## 1.0.0-rc.1 - 2026-10-21
 

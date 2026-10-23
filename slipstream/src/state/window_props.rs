@@ -117,6 +117,15 @@ pub(crate) fn own_opacity(window: &Window) -> f32 {
         .map_or(1.0, |opacity| (opacity as f64 / u32::MAX as f64) as f32)
 }
 
+/// Below this opacity a window can't honestly be seen.
+const SEEN_FROM: f32 = 0.1;
+
+/// A window too see-through to be seen. It gets neither the pointer nor the keyboard: an invisible
+/// window that took clicks or typing could catch what was meant for the window under it.
+pub(crate) fn unseen(window: &Window) -> bool {
+    own_opacity(window) < SEEN_FROM
+}
+
 /// An X11 window that takes no keyboard input at all: ICCCM's "no input" model, which neither
 /// accepts focus nor asks for `WM_TAKE_FOCUS`.
 pub(crate) fn takes_no_input(window: &Window) -> bool {

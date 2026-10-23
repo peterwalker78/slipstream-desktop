@@ -124,7 +124,7 @@ mod workspaces;
 pub use screens::is_internal_panel;
 pub(crate) use window_props::{
     PlacesItself, deactivate, is_child_of, logged_app, min_size, own_opacity, places_itself,
-    takes_no_input, window_app_id, window_title,
+    takes_no_input, unseen, window_app_id, window_title,
 };
 use window_props::{configure, pretty_name, toplevel_data};
 
@@ -816,6 +816,10 @@ impl Slipstream {
             .rev()
             .filter(|window| docked.as_ref() != Some(*window));
         docked.iter().chain(rest).find_map(|window| {
+            // A window too see-through to be seen can't be aimed at: clicks go to what's under it.
+            if unseen(window) {
+                return None;
+            }
             if let Some((_, drawn)) = self.drawn.fitted.iter().find(|(w, _)| w == window) {
                 let own = window.geometry();
                 if !drawn.contains(pos) || own.size.w <= 0 {

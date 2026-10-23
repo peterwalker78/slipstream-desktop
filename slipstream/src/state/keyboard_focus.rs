@@ -152,9 +152,9 @@ impl Slipstream {
             );
             return;
         }
-        // An X11 window that takes no input is never given the keyboard (ICCCM 4.1.7): whether it
-        // appears or is clicked, typing stays where it was.
-        if takes_no_input(window) {
+        // An X11 window that takes no input is never given the keyboard (ICCCM 4.1.7), nor is one
+        // too see-through to be seen: whether it appears or is clicked, typing stays where it was.
+        if takes_no_input(window) || unseen(window) {
             return;
         }
         let Some(target) = KeyboardFocus::for_window(window) else {
