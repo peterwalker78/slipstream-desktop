@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **agent-notify is a program now, not a shell script.** The download carries it in `bin/` and `update-session` installs it, so hooks set up before keep working, with nothing else to install (it needed jq) and in a fraction of the time on every tool an agent uses. `agent-notify bar` is new: a module for the bar saying how many of your agents are working, and amber while one is waiting on you. [How to set it up](guide/help.md#seeing-an-ai-agent-at-work-from-across-the-room).
+
 ## 1.0.0-rc.1 - 2026-10-21
 
 - **Shortcuts of your own.** Settings › Shortcuts gives an app keys that open it: choose the app, then press the keys. Keys your style already uses, and keys kept for typing aids, screen readers and games, are refused with the reason. Changing style keeps them, and Super+/ lists the ones that work.

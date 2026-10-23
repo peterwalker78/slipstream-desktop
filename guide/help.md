@@ -92,13 +92,13 @@ echo "my-agent attach $SESSION_ID" > "$XDG_RUNTIME_DIR/slipstream/resume/$ATTACH
 
 A session working in the background has no window above it, so to have its notifications take you to its terminal, send them with the `sender-pid` hint set to the attaching process. Slipstream only looks at the hint when the process that sent the notification has no window of its own.
 
-`extras/agent-notify keep` does all of this for an agent that can work in the background; `extras/agent-notify --help` says which, and how to make it the way your agent always starts.
+`agent-notify keep` does all of this for an agent that can work in the background; `agent-notify --help` says which, and how to make it the way your agent always starts.
 
 - **Logging out, not shutting down.** After a restart nothing is still running, and the same note reopens the session instead: the conversation comes back, not the work in progress.
 - **Some distributions stop everything at logout.** Where logind's `KillUserProcesses` is on, nothing you started outlives your login, and logging out is like a restart.
 - **A sleeping laptop sleeps.** With the lid closed, everything is paused, your agent included.
 - **Only the agent is kept.** Anything else running in that terminal, and every other window, closes at logout as it always has.
-- **Close the window to leave it working.** With `extras/agent-notify keep`, closing the window or logging out leaves the session running; quitting the agent in its window ends the session, as quitting it anywhere else does, and its conversation is kept.
+- **Close the window to leave it working.** With `agent-notify keep`, closing the window or logging out leaves the session running; quitting the agent in its window ends the session, as quitting it anywhere else does, and its conversation is kept.
 
 ## Seeing an AI agent at work from across the room
 
@@ -126,7 +126,16 @@ printf 'my-agent: the task\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGEN
 
 The note is left in place until the session's process exits; the desktop cleans up notes whose process is gone. Tools that start agents outside the normal process tree, such as multiplexers with their own session management, can set `AGENT_NOTIFY_PID` to the agent's PID when running any hook command, to use that PID directly instead of walking the process ancestry.
 
-A ready-made hook package for several popular agents is in `extras/agent-notify`. Run `extras/agent-notify setup` to wire up the hooks and `extras/agent-notify status` to see what it has done. It also handles desktop notifications and usage reporting; `extras/agent-notify --help` covers those and lists the agents it supports.
+A ready-made hook program for several popular agents comes with Slipstream: `agent-notify`, in the download's `bin/` folder, which `scripts/update-session` installs in `~/.local/bin` (its source is in `extras/agent-notify`). Run `agent-notify setup` to wire up the hooks and `agent-notify status` to see what it has done. It also handles desktop notifications and usage reporting; `agent-notify --help` covers those and lists the agents it supports.
+
+The same notes can show on the bar, as [a module of your own](#your-own-modules-beside-the-clock). `agent-notify bar` keeps running and prints a line whenever the sessions at work change: how many are working as the text, each session's name and its subagents as the tooltip, and the `warning` class, in amber, while one is waiting on you. With none at work the text is empty, which hides the module:
+
+```toml
+[[bar.modules]]
+name = "Agents"
+exec = "agent-notify bar"
+return-type = "json"
+```
 
 - **Only while the desktop is faded.** Nothing is drawn over your windows; the traces come in after the wallpaper has taken the screen and go as the desktop comes back.
 - **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its amber line until you touch a key or the mouse.
