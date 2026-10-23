@@ -5,7 +5,9 @@
 //!
 //! The process behind the item's bus connection decides first, then its names. A Flatpak app's
 //! bus connection is usually its sandbox's D-Bus proxy, a cousin of the app's processes under the
-//! sandbox's outermost bwrap, so that is looked for too.
+//! sandbox's outermost bwrap, so that is looked for too. The proxy's bwrap is often orphaned to
+//! init, though, which leaves the two with no ancestor in common; then the Flatpak's own scope
+//! (`app-flatpak-<app id>-<n>.scope`), which the proxy and the app share, says which app it is.
 
 use std::path::Path;
 
@@ -25,6 +27,8 @@ pub struct Process {
     pub sandbox: Option<u32>,
     /// Its name, as the kernel keeps it (at most 15 characters).
     pub name: String,
+    /// The app ID of the Flatpak it runs in, from its cgroup.
+    pub flatpak: Option<String>,
 }
 
 impl Process {
@@ -41,6 +45,7 @@ impl Process {
         Some(Self {
             sandbox: sandbox_root(&lineage, name_of),
             name: name_of(pid).unwrap_or_default(),
+            flatpak: flatpak_of(proc, pid),
             lineage,
         })
     }
@@ -48,6 +53,24 @@ impl Process {
     pub fn pid(&self) -> Option<u32> {
         self.lineage.first().copied()
     }
+}
+
+/// The app ID of the Flatpak `pid` runs in, read from its cgroup under `proc`.
+pub fn flatpak_of(proc: &Path, pid: u32) -> Option<String> {
+    let text = crate::files::read_small_text(&proc.join(pid.to_string()).join("cgroup"), 4096)?;
+    flatpak_scope(&text).map(str::to_string)
+}
+
+/// The app ID in a Flatpak's scope, `app-flatpak-<app id>-<n>.scope`, from the text of
+/// `/proc/<pid>/cgroup`.
+fn flatpak_scope(text: &str) -> Option<&str> {
+    let path = text.lines().find_map(|line| line.strip_prefix("0::"))?;
+    let leaf = path.trim_end().rsplit('/').next()?;
+    let (app, n) = leaf
+        .strip_prefix("app-flatpak-")?
+        .strip_suffix(".scope")?
+        .rsplit_once('-')?;
+    (!app.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())).then_some(app)
 }
 
 /// The outermost bwrap above a Flatpak sandbox's bus proxy: walking up from `xdg-dbus-proxy`
@@ -70,11 +93,14 @@ pub struct Client<'a> {
     /// Its pid, then its ancestors'.
     pub lineage: &'a [u32],
     pub app_id: &'a str,
+    /// The app ID of the Flatpak its process runs in.
+    pub flatpak: Option<&'a str>,
 }
 
 /// The client an item belongs to, if any can be told: the one whose process is the item's, the
-/// one in the item's Flatpak sandbox, the nearest one the item's process started, else the one
-/// whose app ID is the item's ID or title. `names` are the item's ID and title.
+/// one in the item's Flatpak sandbox, the nearest one the item's process started, the one from
+/// the same Flatpak, else the one whose app ID is the item's ID or title. `names` are the item's
+/// ID and title.
 pub fn owner(process: Option<&Process>, names: &[&str], clients: &[Client]) -> Option<usize> {
     if let Some((process, pid)) = process.and_then(|process| Some((process, process.pid()?))) {
         if let Some(at) = clients
@@ -107,6 +133,15 @@ pub fn owner(process: Option<&Process>, names: &[&str], clients: &[Client]) -> O
             return Some(at);
         }
     }
+    if let Some(flatpak) = process.and_then(|process| process.flatpak.as_deref()) {
+        let same = |client: &Client| match client.flatpak {
+            Some(theirs) => theirs == flatpak,
+            None => same_app(client.app_id, flatpak),
+        };
+        if let Some(at) = clients.iter().position(same) {
+            return Some(at);
+        }
+    }
     clients
         .iter()
         .position(|client| names.iter().any(|name| same_app(client.app_id, name)))
@@ -124,9 +159,13 @@ pub fn same_app(app_id: &str, name: &str) -> bool {
     app_id == name || last(&app_id) == name || app_id == last(&name)
 }
 
-/// The desktop entry for an item with no client to go by: by its ID or title as an app ID, then
-/// by the program its process runs.
+/// The desktop entry for an item with no client to go by: by its Flatpak's app ID, by its ID or
+/// title as an app ID, then by the program its process runs.
 pub fn entry<'a>(apps: &'a [App], names: &[&str], process: Option<&Process>) -> Option<&'a App> {
+    let flatpak = process.and_then(|process| process.flatpak.as_deref());
+    if let Some(app) = flatpak.and_then(|id| apps.iter().find(|app| same_app(&app.id, id))) {
+        return Some(app);
+    }
     let by_name = names.iter().find_map(|name| {
         apps.iter().find(|app| {
             same_app(&app.id, name)
@@ -163,7 +202,11 @@ mod tests {
     }
 
     fn client<'a>(lineage: &'a [u32], app_id: &'a str) -> Client<'a> {
-        Client { lineage, app_id }
+        Client {
+            lineage,
+            app_id,
+            flatpak: None,
+        }
     }
 
     #[test]
@@ -190,12 +233,75 @@ mod tests {
             lineage: vec![311, 310, 300, 10],
             sandbox: Some(300),
             name: "xdg-dbus-proxy".into(),
+            flatpak: None,
         };
         let clients = [
             client(&[700, 10], "org.example.Editor"),
             client(&[330, 320, 300, 10], "com.example.Chat"),
         ];
         assert_eq!(owner(Some(&proxy), &["chat"], &clients), Some(1));
+    }
+
+    #[test]
+    fn an_orphaned_bus_proxy_finds_the_app_by_its_flatpak() {
+        // The proxy's bwrap (2210) was reparented to init, so it shares no ancestor with the app
+        // (2120, under bwraps 2105 and 2100, started by flatpak run's parent 2000). Only their
+        // scope says they are the same app's.
+        let proxy = Process {
+            lineage: vec![2211, 2210],
+            sandbox: Some(2210),
+            name: "xdg-dbus-proxy".into(),
+            flatpak: Some("com.example.Chat".into()),
+        };
+        let lineage = [2120, 2115, 2105, 2100, 2000, 10];
+        let terminal = [900, 10];
+        let mut by_scope = [
+            client(&terminal, "org.example.Terminal"),
+            client(&lineage, "chat"),
+        ];
+        // The app's window gives an app ID of its own, not the Flatpak's.
+        assert_eq!(
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            Some(1),
+            "by the client's app ID"
+        );
+        by_scope[1].app_id = "unrelated";
+        by_scope[1].flatpak = Some("com.example.Chat");
+        assert_eq!(
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            Some(1),
+            "by the client's own scope"
+        );
+        by_scope[1].flatpak = Some("com.example.Other");
+        assert_eq!(
+            owner(Some(&proxy), &["chat_status_icon_1", ""], &by_scope),
+            None,
+            "another Flatpak's client"
+        );
+    }
+
+    #[test]
+    fn a_flatpaks_app_id_is_read_from_its_scope() {
+        let cgroup = |leaf: &str| {
+            format!("0::/user.slice/user-1000.slice/user@1000.service/app.slice/{leaf}\n")
+        };
+        assert_eq!(
+            flatpak_scope(&cgroup("app-flatpak-com.example.Chat-1234567890.scope")),
+            Some("com.example.Chat")
+        );
+        assert_eq!(
+            flatpak_scope(&cgroup("app-flatpak-org.example.two-words-42.scope")),
+            Some("org.example.two-words")
+        );
+        assert_eq!(
+            flatpak_scope(&cgroup("app-org.example.Editor-77.scope")),
+            None
+        );
+        assert_eq!(
+            flatpak_scope(&cgroup("app-flatpak-com.example.Chat.scope")),
+            None
+        );
+        assert_eq!(flatpak_scope("0::/\n"), None);
     }
 
     #[test]
@@ -270,6 +376,7 @@ mod tests {
             emulates_terminal: false,
         };
         let apps = [
+            app("com.example.Chat", "/usr/bin/flatpak"),
             app(
                 "com.example.desktopclient.Sync",
                 "/usr/bin/examplesync-desktop",
@@ -289,5 +396,14 @@ mod tests {
             Some("com.example.desktopclient.Sync")
         );
         assert_eq!(found(&["tray-1"], "other"), None);
+        let in_flatpak = Process {
+            name: "xdg-dbus-proxy".into(),
+            flatpak: Some("com.example.Chat".into()),
+            ..Process::default()
+        };
+        assert_eq!(
+            entry(&apps, &["chat_status_icon_1"], Some(&in_flatpak)).map(|app| app.id.as_str()),
+            Some("com.example.Chat")
+        );
     }
 }

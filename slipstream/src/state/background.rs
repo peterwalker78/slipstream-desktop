@@ -223,13 +223,16 @@ impl Slipstream {
     /// out unless its app is already listed.
     fn build_chips(&mut self, windows: &[Window], px: u32) -> Vec<Chip> {
         let proc = Path::new("/proc");
-        let lineage =
-            |pid: Option<u32>| pid.map_or_else(Vec::new, |pid| crate::notify::lineage(proc, pid));
-        let mut clients: Vec<(Vec<u32>, String)> = self
+        let client = |pid: Option<u32>, app_id: String| {
+            let lineage = pid.map_or_else(Vec::new, |pid| crate::notify::lineage(proc, pid));
+            let flatpak = pid.and_then(|pid| matcher::flatpak_of(proc, pid));
+            (lineage, app_id, flatpak)
+        };
+        let mut clients: Vec<(Vec<u32>, String, Option<String>)> = self
             .background
             .apps
             .iter()
-            .map(|app| (lineage(app.pid), app.app_id.clone()))
+            .map(|app| client(app.pid, app.app_id.clone()))
             .collect();
         let windowless = clients.len();
         for window in windows {
@@ -237,14 +240,18 @@ impl Slipstream {
             if pid.is_some()
                 && !clients
                     .iter()
-                    .any(|(known, _)| known.first() == pid.as_ref())
+                    .any(|(known, ..)| known.first() == pid.as_ref())
             {
-                clients.push((lineage(pid), window_app_id(window).unwrap_or_default()));
+                clients.push(client(pid, window_app_id(window).unwrap_or_default()));
             }
         }
         let views: Vec<matcher::Client> = clients
             .iter()
-            .map(|(lineage, app_id)| matcher::Client { lineage, app_id })
+            .map(|(lineage, app_id, flatpak)| matcher::Client {
+                lineage,
+                app_id,
+                flatpak: flatpak.as_deref(),
+            })
             .collect();
 
         let mut chips: Vec<Chip> = self
