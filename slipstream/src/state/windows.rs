@@ -224,6 +224,7 @@ impl Slipstream {
             return;
         }
         let window = self.unmapped.remove(at);
+        self.note_mapped(&window);
         self.add_window(window.clone());
         // It asked to be fullscreen while it had nothing to show; now it has.
         if let Some(at) = self
@@ -391,50 +392,6 @@ impl Slipstream {
             window = logged_app(&window),
             "new window poured into code rain"
         );
-    }
-
-    /// The client that closed its last window is now running invisibly in the background; record
-    /// it for the notification centre. Only apps from the apps list count: a portal's file
-    /// chooser or a password prompt closing leaves a system service running, not an app. Called
-    /// after `remove_window` so the closing window is already gone from `all_open_windows`.
-    pub(crate) fn track_closed_app(&mut self, wl_surface: &WlSurface) {
-        let Some(client) = wl_surface.client() else {
-            return;
-        };
-        let client_id = client.id();
-        let Some(app_id) = toplevel_data(wl_surface, |data| data.app_id.clone()) else {
-            return;
-        };
-        let Some(name) = self.explorer.app_name(&app_id) else {
-            return;
-        };
-        let still_open = self.all_open_windows().into_iter().any(|w| {
-            w.toplevel()
-                .and_then(|t| t.wl_surface().client())
-                .is_some_and(|c| c.id() == client_id)
-        });
-        if !still_open
-            && !self
-                .background_apps
-                .iter()
-                .any(|a| a.client_id == client_id)
-        {
-            self.background_apps.push(BackgroundApp {
-                name,
-                app_id,
-                client_id,
-                icon: None,
-            });
-        }
-    }
-
-    /// A client that was only running in the background has opened a new window; remove it from
-    /// the background list.
-    pub(crate) fn untrack_background_app(&mut self, wl_surface: &WlSurface) {
-        if let Some(client) = wl_surface.client() {
-            let id = client.id();
-            self.background_apps.retain(|app| app.client_id != id);
-        }
     }
 
     /// Takes a closed window out of its workspace, re-tiles, and moves focus on.

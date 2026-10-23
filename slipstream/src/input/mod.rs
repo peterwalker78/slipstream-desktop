@@ -30,9 +30,10 @@ use smithay::{
 
 use crate::{focus::KeyboardFocus, keys::Mods, state::Slipstream, takeback::Constraint};
 
-/// Linux's codes for the left and middle pointer buttons.
+/// Linux's codes for the left, middle and right pointer buttons.
 pub(crate) const BTN_LEFT: u32 = 0x110;
 pub(crate) const BTN_MIDDLE: u32 = 0x112;
+pub(crate) const BTN_RIGHT: u32 = 0x111;
 
 impl Slipstream {
     /// The bar button at `pos`. Every screen has a bar, so the one being clicked is the one the
@@ -200,6 +201,9 @@ impl Slipstream {
         self.polkit_hover(pos);
         self.snip_pointer_moved(pos);
         self.bullet_pointer_moved(pos);
+        if self.centre.is_open() {
+            self.centre_hover(pos);
+        }
         // A slider held in quick settings.
         if self.quick.is_open()
             && let Some(screen) = self.focused_screen_geometry()

@@ -16,6 +16,8 @@ smithay = { git = "https://github.com/Smithay/smithay", rev = "24647fc8d00131eb7
 smithay-drm-extras = { git = "https://github.com/Smithay/smithay", rev = "24647fc8d00131eb7f388efed26e35ea316b0018" }
 # A reply the bus thread waits on while the main loop asks the person. zbus already uses it.
 async-channel = "2.5"
+# The tray's thread keeps many calls to apps in flight at once; zbus already uses it.
+async-executor = "1.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 png = "0.18"

@@ -1,10 +1,13 @@
 //! The notification centre, on Super+N or a click on the bar's clock or bell: a glass panel. This
-//! month's calendar, then the notifications, newest first, with Do not disturb and Clear all.
+//! month's calendar, the apps running in the background (`chips.rs`), then the notifications,
+//! newest first, with Do not disturb and Clear all.
 //!
 //! While it's open it takes every key that isn't a binding: ↑/↓ or Tab move, ←/→ change the month
 //! (Home goes back to this one), Enter or Space opens a notification or flips Do not disturb,
-//! Delete dismisses one, Esc closes.
+//! Delete dismisses one, Esc closes. On a background app, the Menu key or Shift+F10 opens its tray
+//! menu (`tray_menu.rs`), which then has the keys until it closes.
 
+use resvg::tiny_skia::Pixmap;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -14,14 +17,16 @@ use smithay::{
 use crate::{
     Slipstream, bar,
     calendar::{self, Date},
+    chips::{self, Chip, ChipId, Press},
     notices::{self, Notices},
     paint::{Painted, Painter},
     panel::{self, AMBER, DARK, DESIGN_PX, GAP, INK, PADDING},
     text::{self, Face, Style},
+    tray_menu::{self, End, Outcome},
 };
 
 /// How long the chip-launch animation runs before the centre closes, in seconds.
-const LAUNCH_DUR: f64 = 0.22;
+pub const LAUNCH_DUR: f64 = 0.22;
 
 // Sizes in design pixels.
 const WIDTH: f32 = 500.0;
@@ -42,7 +47,7 @@ const CARD_LINES: usize = 4;
 /// Where the keyboard can be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
-    /// Index into the centre's background app list.
+    /// Index into the centre's background app chips.
     BackgroundApp(usize),
     DoNotDisturb,
     Notice(u32),
@@ -50,7 +55,7 @@ pub enum Item {
 }
 
 /// What a key or click asks for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Request {
     Nothing,
     Close,
@@ -60,8 +65,10 @@ pub enum Request {
     ClearAll,
     /// One of a notification's action buttons.
     Invoke(u32, usize),
-    /// Click on a background app's icon: bring it forward or launch it.
-    ActivateBackground(String),
+    /// A background app's chip, by its place in the row.
+    Chip(usize, Press),
+    /// What the open tray menu asks: calls for its app, and whether it chose something.
+    Tray(Outcome),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,10 +78,10 @@ enum Target {
     Dismiss(u32),
     ClearAll,
     Action(u32, usize),
-    ActivateBackground(String),
+    Chip(usize),
 }
 
-/// Everything the centre shows that it doesn't own, besides the notifications.
+/// Everything the centre shows that it doesn't own, besides the notifications and the chips.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Facts {
     pub today: Option<Date>,
@@ -82,10 +89,6 @@ pub struct Facts {
     pub reduced_motion: bool,
     /// The keyboard ring's colour, the same as the focused window's.
     pub ring: u32,
-    /// Apps running with no visible window, shown above "Notifications".
-    pub background_apps: Vec<String>,
-    /// Increments when a background app's icon loads, triggering a repaint.
-    pub background_icon_rev: u64,
 }
 
 /// Everything the painted panel depends on.
@@ -101,8 +104,9 @@ struct Look {
     scroll: usize,
     size: Size<i32, Logical>,
     scale: f64,
-    background_apps: Vec<String>,
-    background_icon_rev: u64,
+    chips: Vec<Chip>,
+    /// The chip whose menu is open.
+    menu_chip: Option<usize>,
     /// How far the chip's launch animation is, 1 to 255, or 0 when none runs. It changes every
     /// frame of the animation, so each one repaints.
     launch_frac: u8,
@@ -123,19 +127,24 @@ pub struct Centre {
     scroll: usize,
     shown: Option<Look>,
     painted: Option<Painted>,
+    /// The rings round chips that need attention, which breathe over the panel.
+    glow: Option<Painted>,
     /// The painted area's corner and the card, in logical pixels from the output's corner.
     origin: Point<f64, Logical>,
     frame: Rectangle<f64, Logical>,
     targets: Vec<(Target, Rectangle<f64, Logical>)>,
     /// Opens with a short fade instead of rising (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
-    /// Each background app's ID, name and icon, as `repaint` draws them.
-    background_icon_data: Vec<(String, String, Option<resvg::tiny_skia::Pixmap>)>,
-    /// The background apps' IDs, in chip order, for the keyboard.
-    bg_app_ids: Vec<String>,
-    /// Which app's chip is mid-launch animation, and when the click happened.
-    launch_app: Option<String>,
-    launch_at: f64,
+    /// The background apps, as last drawn.
+    chips: Vec<Chip>,
+    /// Each chip drawn, in logical pixels from the output's corner.
+    chip_boxes: Vec<Rectangle<f64, Logical>>,
+    /// Which chip is mid-launch animation, and when it was pressed.
+    launch: Option<(ChipId, f64)>,
+    /// A background app's tray menu, while it's open.
+    menu: Option<tray_menu::Menu>,
+    /// Menu cards fading out after it closed.
+    ghosts: Vec<tray_menu::Ghost>,
 }
 
 impl Default for Centre {
@@ -150,21 +159,23 @@ impl Default for Centre {
             scroll: 0,
             shown: None,
             painted: None,
+            glow: None,
             origin: Point::default(),
             frame: Rectangle::from_size((0.0, 0.0).into()),
             targets: Vec::new(),
             reduced_motion: false,
-            background_icon_data: Vec::new(),
-            bg_app_ids: Vec::new(),
-            launch_app: None,
-            launch_at: 0.0,
+            chips: Vec::new(),
+            chip_boxes: Vec::new(),
+            launch: None,
+            menu: None,
+            ghosts: Vec::new(),
         }
     }
 }
 
-/// The keyboard's stops, in order, for notifications `ids`.
-fn items(bg_app_ids: &[String], ids: &[u32]) -> Vec<Item> {
-    let mut items: Vec<Item> = (0..bg_app_ids.len()).map(Item::BackgroundApp).collect();
+/// The keyboard's stops, in order, for `chips` background apps and notifications `ids`.
+fn items(chips: usize, ids: &[u32]) -> Vec<Item> {
+    let mut items: Vec<Item> = (0..chips).map(Item::BackgroundApp).collect();
     items.push(Item::DoNotDisturb);
     items.extend(ids.iter().map(|id| Item::Notice(*id)));
     if !ids.is_empty() {
@@ -199,26 +210,37 @@ impl Centre {
         self.open = false;
         self.shown = None;
         self.painted = None;
+        self.glow = None;
         self.targets.clear();
-        self.launch_app = None;
+        self.launch = None;
+        self.menu = None;
+        self.ghosts.clear();
     }
 
-    /// Starts the chip-launch animation; the centre stays open until `take_launch` fires.
-    pub fn begin_launch(&mut self, app_id: String, now: f64) {
-        self.launch_app = Some(app_id);
-        self.launch_at = now;
+    /// Starts the chip-launch animation; the centre stays open until whoever started it closes it.
+    pub fn begin_launch(&mut self, chip: ChipId, now: f64) {
+        self.launch = Some((chip, now));
     }
 
-    /// Once LAUNCH_DUR has elapsed, closes and returns the app_id so the caller can activate it.
-    pub fn take_launch(&mut self, now: f64) -> Option<String> {
-        let app_id = self.launch_app.as_ref()?;
-        if now - self.launch_at >= LAUNCH_DUR {
-            let id = app_id.clone();
-            self.close();
-            Some(id)
-        } else {
-            None
-        }
+    /// The chip launching, and how long since it was pressed.
+    pub fn launching(&self, now: f64) -> Option<(ChipId, f64)> {
+        self.launch
+            .as_ref()
+            .map(|(chip, since)| (chip.clone(), now - since))
+    }
+
+    pub fn cancel_launch(&mut self) {
+        self.launch = None;
+    }
+
+    /// The chips, as last drawn.
+    pub fn chips(&self) -> &[Chip] {
+        &self.chips
+    }
+
+    /// Chip `index`'s box, in logical pixels from the output's corner, once it has been drawn.
+    pub fn chip_box(&self, index: usize) -> Option<Rectangle<f64, Logical>> {
+        self.chip_boxes.get(index).copied()
     }
 
     pub fn key(&mut self, sym: Keysym, shift: bool, ids: &[u32]) -> Request {
@@ -231,7 +253,7 @@ impl Centre {
     }
 
     fn key_inner(&mut self, sym: Keysym, shift: bool, ids: &[u32]) -> Request {
-        let items = items(&self.bg_app_ids, ids);
+        let items = items(self.chips.len(), ids);
         let at = items
             .iter()
             .position(|item| *item == self.selected)
@@ -281,17 +303,20 @@ impl Centre {
                     };
                 }
             }
+            // A background app's tray menu, as a right click opens it. Only here: neither key
+            // is ever taken from an app.
+            Keysym::Menu | Keysym::F10 if sym == Keysym::Menu || shift => {
+                if let Item::BackgroundApp(i) = self.selected {
+                    return Request::Chip(i, Press::Menu { keyboard: true });
+                }
+            }
             // Space presses as Enter does: the centre is only ever opened on purpose.
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                 if let (Item::Notice(id), Some(action)) = (self.selected, self.action) {
                     return Request::Invoke(id, action);
                 }
                 return match self.selected {
-                    Item::BackgroundApp(i) => self
-                        .bg_app_ids
-                        .get(i)
-                        .cloned()
-                        .map_or(Request::Nothing, Request::ActivateBackground),
+                    Item::BackgroundApp(i) => Request::Chip(i, Press::Primary),
                     Item::DoNotDisturb => Request::ToggleDoNotDisturb,
                     Item::Notice(id) => Request::Open(id),
                     Item::ClearAll => Request::ClearAll,
@@ -307,14 +332,29 @@ impl Centre {
         Request::Nothing
     }
 
-    /// A click, in logical pixels from the output's corner. Outside the card it closes.
-    pub fn click(&mut self, x: f64, y: f64) -> Request {
+    /// A press of `button` (a left click is `Press::Primary`), in logical pixels from the
+    /// output's corner. Outside the card it closes. With a tray menu open, a press outside the
+    /// menu only puts the menu away.
+    pub fn press(&mut self, x: f64, y: f64, press: Press, now: f64) -> Request {
+        if let Some(menu) = self.menu.as_mut() {
+            return match menu.click(x, y, now) {
+                Some(outcome) => Request::Tray(outcome),
+                None => {
+                    self.close_menu(now);
+                    Request::Nothing
+                }
+            };
+        }
         let target = self
             .targets
             .iter()
             .find(|(_, area)| area.contains((x, y)))
             .map(|(target, _)| target.clone());
         match target {
+            Some(Target::Chip(i)) => {
+                self.selected = Item::BackgroundApp(i);
+                Request::Chip(i, press)
+            }
             Some(Target::DoNotDisturb) => {
                 self.selected = Item::DoNotDisturb;
                 Request::ToggleDoNotDisturb
@@ -323,9 +363,66 @@ impl Centre {
             Some(Target::Dismiss(id)) => Request::Dismiss(id),
             Some(Target::ClearAll) => Request::ClearAll,
             Some(Target::Action(id, index)) => Request::Invoke(id, index),
-            Some(Target::ActivateBackground(id)) => Request::ActivateBackground(id),
             None if self.frame.contains((x, y)) => Request::Nothing,
             None => Request::Close,
+        }
+    }
+
+    /// The pointer moved to (`x`, `y`), in logical pixels from the output's corner: an open tray
+    /// menu follows it.
+    pub fn hover(&mut self, x: f64, y: f64, now: f64) -> Request {
+        match self.menu.as_mut() {
+            Some(menu) => Request::Tray(menu.hover(x, y, now)),
+            None => Request::Nothing,
+        }
+    }
+
+    pub fn menu_open(&self) -> bool {
+        self.menu.is_some()
+    }
+
+    /// The item whose menu is open.
+    pub fn menu_item(&self) -> Option<&str> {
+        self.menu.as_ref().map(tray_menu::Menu::item)
+    }
+
+    /// Opens tray item `item`'s menu under chip `chip`.
+    pub fn open_menu(&mut self, item: String, chip: usize, keyboard: bool, now: f64) {
+        let Some(anchor) = self.chip_box(chip) else {
+            return;
+        };
+        self.close_menu(now);
+        self.selected = Item::BackgroundApp(chip);
+        self.menu = Some(tray_menu::Menu::new(item, anchor, keyboard, now));
+    }
+
+    /// The open menu's entries have arrived, or changed.
+    pub fn menu_layout(&mut self, item: &str, layout: crate::tray::menu::Layout, now: f64) {
+        if let Some(menu) = self.menu.as_mut().filter(|menu| menu.item() == item) {
+            menu.set_layout(layout, now);
+        }
+    }
+
+    pub fn menu_failed(&mut self, item: &str) {
+        if let Some(menu) = self.menu.as_mut().filter(|menu| menu.item() == item) {
+            menu.set_failed();
+        }
+    }
+
+    /// A key while the menu is open. What it asks is for the caller to send; a menu it ends is
+    /// put away by the caller after that, so the app hears of an entry chosen before it hears the
+    /// menu closed.
+    pub fn menu_key(&mut self, sym: Keysym, shift: bool, now: f64) -> Request {
+        match self.menu.as_mut() {
+            Some(menu) => Request::Tray(menu.key(sym, shift, now)),
+            None => Request::Nothing,
+        }
+    }
+
+    /// Puts the menu away, its cards fading where they were.
+    pub fn close_menu(&mut self, now: f64) {
+        if let Some(menu) = self.menu.take() {
+            self.ghosts.extend(menu.into_ghosts(now));
         }
     }
 
@@ -343,46 +440,49 @@ impl Centre {
         self.selected = next.map_or(Item::DoNotDisturb, |next| Item::Notice(*next));
     }
 
-    /// The panel for a screen `size` logical pixels big at `scale`, repainted when what it shows
-    /// changes.
-    pub fn element<R>(
+    /// The panel, and any tray menu over it, for a screen `size` logical pixels big at `scale`,
+    /// front to back, repainted when what they show changes. `icon` finds a menu entry's icon.
+    pub fn elements<R>(
         &mut self,
         renderer: &mut R,
         frame: crate::panel::Frame,
         facts: Facts,
         notices: &Notices,
-        background_apps: &[crate::state::BackgroundApp],
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+        chips: Vec<Chip>,
+        icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>,
+    ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (size, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
-            return None;
+            return Vec::new();
         }
-        // An app may have taken the chosen notification back.
+        // An app may have taken the chosen notification back, or gone from the row.
         let ids = notices.ids();
         let gone = match self.selected {
             Item::Notice(id) => !ids.contains(&id),
             Item::ClearAll => ids.is_empty(),
-            Item::BackgroundApp(i) => i >= background_apps.len(),
+            Item::BackgroundApp(i) => i >= chips.len(),
             Item::DoNotDisturb => false,
         };
         if gone {
             self.selected = Item::DoNotDisturb;
         }
-        self.background_icon_data = background_apps
-            .iter()
-            .map(|a| (a.app_id.clone(), a.name.clone(), a.icon.clone()))
-            .collect();
-        self.bg_app_ids = background_apps.iter().map(|a| a.app_id.clone()).collect();
-        let launch_frac = if self.launch_app.is_some() {
-            let frac = ((now - self.launch_at) / LAUNCH_DUR).clamp(0.0, 1.0);
-            ((frac * 255.0) as u8).max(1)
-        } else {
-            0
+        self.chips = chips;
+        let launch_frac = match &self.launch {
+            Some((_, at)) => {
+                let frac = ((now - at) / LAUNCH_DUR).clamp(0.0, 1.0);
+                ((frac * 255.0) as u8).max(1)
+            }
+            None => 0,
         };
+        let menu_chip = self.menu.as_ref().and_then(|menu| {
+            self.chips
+                .iter()
+                .position(|chip| chip.item.as_deref() == Some(menu.item()))
+        });
         let look = Look {
             today: facts.today,
             month: self.month,
@@ -394,12 +494,14 @@ impl Centre {
             scroll: self.scroll,
             size,
             scale,
-            background_apps: facts.background_apps,
-            background_icon_rev: facts.background_icon_rev,
+            chips: self.chips.clone(),
+            menu_chip,
             launch_frac,
         };
         if self.shown.as_ref() != Some(&look) {
-            self.repaint(&look, notices)?;
+            if self.repaint(&look, notices).is_none() {
+                return Vec::new();
+            }
             self.shown = Some(Look {
                 scroll: self.scroll,
                 ..look
@@ -407,7 +509,26 @@ impl Centre {
         }
         let (alpha, rise) = panel::opening(now - self.opened_at, facts.reduced_motion);
         let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
-        self.painted.as_ref()?.element(renderer, at, alpha)
+        let mut elements = Vec::new();
+        if let Some(menu) = self.menu.as_mut() {
+            elements.extend(menu.elements(renderer, frame, facts.ring, facts.reduced_motion, icon));
+        }
+        self.ghosts.retain(|ghost| !ghost.faded(now));
+        elements.extend(
+            self.ghosts
+                .iter()
+                .filter_map(|ghost| ghost.element(renderer, now, facts.reduced_motion)),
+        );
+        if let Some(glow) = &self.glow {
+            let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
+            elements.extend(glow.element(renderer, at, alpha * breath));
+        }
+        elements.extend(
+            self.painted
+                .as_ref()
+                .and_then(|painted| painted.element(renderer, at, alpha)),
+        );
+        elements
     }
 
     fn repaint(&mut self, look: &Look, notices: &Notices) -> Option<()> {
@@ -430,23 +551,50 @@ impl Centre {
             scroll: look.scroll,
             ..Hits::default()
         };
+        let x0 = place.x + PADDING;
+        let inner = WIDTH - 2.0 * PADDING;
+        let calendar_h = calendar_height(look);
+        let chips_top = place.y + PADDING + calendar_h + HEAD_H + GAP;
+        let (boxes, chips_h) = chips::lay_out(&look.chips, x0, chips_top, inner);
+        let chip_hint = match look.selected {
+            Item::BackgroundApp(i) => look.chips.get(i).is_some_and(|chip| chip.item.is_some()),
+            _ => false,
+        };
 
         let painted = Painted::new(logical, look.scale, |p| {
             p.f *= DESIGN_PX;
             panel::glass(p, place.x, place.y, WIDTH, height);
-            let x0 = place.x + PADDING;
             let mut y = place.y + PADDING;
             y += paint_calendar(p, look, x0, y);
             // Apps running with no visible window.
-            if !look.background_apps.is_empty() {
+            if !boxes.is_empty() {
                 let heading = Style::new(Face::BodyBold, 16.0, INK);
                 p.text("Background Apps", x0, y + HEAD_H / 2.0, &heading);
-                y += HEAD_H + GAP;
-                y += self.paint_background_apps(p, look, place, y, &mut hits);
+                let launching = self.launch.as_ref().and_then(|(chip, _)| {
+                    let at = look.chips.iter().position(|shown| shown.id() == *chip)?;
+                    Some((at, look.launch_frac as f32 / 255.0))
+                });
+                let selected = match look.selected {
+                    Item::BackgroundApp(i) => Some(i),
+                    _ => None,
+                };
+                chips::paint(
+                    p,
+                    &look.chips,
+                    &chips::Paint {
+                        selected,
+                        menu: look.menu_chip,
+                        launching: launching.filter(|(_, t)| *t > 0.0),
+                        ring: look.ring,
+                        reduced_motion: self.reduced_motion,
+                        boxes: &boxes,
+                    },
+                );
+                y = chips_top + chips_h + GAP * 2.0;
             }
             y += paint_heading(p, look, x0, y, &mut hits);
             let foot_y = place.y + height - PADDING - FOOT_H;
-            paint_footer(p, x0, foot_y, listed.is_empty(), &mut hits);
+            paint_footer(p, x0, foot_y, listed.is_empty(), chip_hint, &mut hits);
             paint_notices(p, look, place, &listed, (y, foot_y), &mut hits);
             if let Some([x, y, w, h]) = hits.button_ring {
                 panel::focus_ring(p, x, y, w, h, panel::ROW_RADIUS, look.ring);
@@ -463,125 +611,30 @@ impl Centre {
                 hits.targets.push((target, place.on_screen(*x, *y, *w, *h)));
             }
         })?;
+        let mut any_attention = false;
+        let glow = Painted::new(logical, look.scale, |p| {
+            p.f *= DESIGN_PX;
+            any_attention = chips::paint_glow(p, &look.chips, &boxes);
+        });
 
+        self.chip_boxes = boxes
+            .iter()
+            .map(|&[x, y, w, h]| place.on_screen(x, y, w, h))
+            .collect();
+        hits.targets.extend(
+            self.chip_boxes
+                .iter()
+                .enumerate()
+                .map(|(i, area)| (Target::Chip(i), *area)),
+        );
         self.scroll = hits.scroll;
         self.buttons = hits.buttons;
         self.origin = place.on_screen(0.0, 0.0, 0.0, 0.0).loc;
         self.frame = place.on_screen(place.x, place.y, WIDTH, height);
         self.targets = hits.targets;
         self.painted = Some(painted);
+        self.glow = glow.filter(|_| any_attention);
         Some(())
-    }
-
-    /// One chip for each app running with no window, as many as fit on a row at `y`. Returns
-    /// the height they take.
-    fn paint_background_apps(
-        &self,
-        p: &mut Painter,
-        look: &Look,
-        place: panel::Place,
-        y: f32,
-        hits: &mut Hits,
-    ) -> f32 {
-        let x0 = place.x + PADDING;
-        let inner = WIDTH - 2.0 * PADDING;
-        let bg_data = &self.background_icon_data;
-        // Each app is a rounded chip: subtle fill, 1 px edge, icon above name.
-        // ICON_SZ must match the px loaded in load_background_app_icons (22 dp).
-        const ICON_SZ: f32 = 22.0;
-        const ICON_R: f32 = 5.0;
-        const CHIP_PAD_H: f32 = 14.0;
-        const CHIP_PAD_TOP: f32 = 14.0;
-        const CHIP_PAD_BOT: f32 = 12.0;
-        const NAME_GAP: f32 = 5.0;
-        const NAME_H: f32 = 13.0;
-        const CHIP_RADIUS: f32 = panel::ROW_RADIUS;
-        const CHIP_GAP: f32 = 8.0;
-        const CHIP_H: f32 = CHIP_PAD_TOP + ICON_SZ + NAME_GAP + NAME_H + CHIP_PAD_BOT;
-
-        let name_style = Style::new(Face::Body, 11.0, panel::HINT);
-        let chip_ws: Vec<f32> = bg_data
-            .iter()
-            .map(|(_, name, _)| {
-                (ICON_SZ + CHIP_PAD_H * 2.0).max(text::width(name, &name_style) + CHIP_PAD_H * 2.0)
-            })
-            .collect();
-
-        // As many chips as fit on one row.
-        let mut used = 0.0_f32;
-        let mut count = 0usize;
-        for (i, &w) in chip_ws.iter().enumerate() {
-            let needed = if i == 0 { w } else { CHIP_GAP + w };
-            if used + needed > inner + 0.5 {
-                break;
-            }
-            used += needed;
-            count += 1;
-        }
-
-        let row_x = x0;
-        let icon_y = y + CHIP_PAD_TOP;
-        let name_y = icon_y + ICON_SZ + NAME_GAP + NAME_H / 2.0;
-        let mut cx = row_x;
-        for i in 0..count {
-            let (app_id, name, icon) = &bg_data[i];
-            let cw = chip_ws[i];
-            // Launch animation: the clicked chip brightens and glows in the focus colour.
-            let is_launching =
-                look.launch_frac > 0 && self.launch_app.as_deref() == Some(app_id.as_str());
-            let is_selected = look.selected == Item::BackgroundApp(i);
-            if is_launching {
-                let t = look.launch_frac as f32 / 255.0;
-                let pulse = (t * std::f32::consts::PI).sin();
-                // Fill brightens toward QUIET_LIT.
-                let fill_a = 0x12u32 + (pulse * (0x26u32 - 0x12u32) as f32) as u32;
-                p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, 0xffffff00 | fill_a);
-                p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
-                // Outer glow ring in the focus colour (skip for reduced motion).
-                if !self.reduced_motion {
-                    let ring_a = (pulse * 0xcc as f32) as u32;
-                    let ring = (panel::FOCUS & 0xffffff00) | ring_a;
-                    p.border(
-                        cx - 3.0,
-                        y - 3.0,
-                        cw + 6.0,
-                        CHIP_H + 6.0,
-                        CHIP_RADIUS + 3.0,
-                        2.0,
-                        ring,
-                    );
-                }
-            } else {
-                p.fill(cx, y, cw, CHIP_H, CHIP_RADIUS, panel::QUIET);
-                p.border(cx, y, cw, CHIP_H, CHIP_RADIUS, 1.0, panel::EDGE);
-            }
-            // Keyboard focus ring (drawn after the chip fill so it sits on top).
-            if is_selected {
-                panel::focus_ring(p, cx, y, cw, CHIP_H, CHIP_RADIUS, look.ring);
-            }
-            let icon_x = cx + (cw - ICON_SZ) / 2.0;
-            match icon {
-                Some(px) => p.image(px, icon_x, icon_y),
-                None => panel::app_placeholder(p, name, icon_x, icon_y, ICON_SZ, ICON_R, 12.0),
-            }
-            let nw = text::width(name, &name_style);
-            p.text(name, cx + (cw - nw) / 2.0, name_y, &name_style);
-            cx += cw + CHIP_GAP;
-        }
-
-        // Click targets span each full chip.
-        let mut tx = row_x;
-        for i in 0..count {
-            let (app_id, _, _) = &bg_data[i];
-            let cw = chip_ws[i];
-            hits.targets.push((
-                Target::ActivateBackground(app_id.clone()),
-                place.on_screen(tx, y, cw, CHIP_H),
-            ));
-            tx += cw + CHIP_GAP;
-        }
-
-        CHIP_H + GAP * 2.0
     }
 }
 
@@ -598,6 +651,19 @@ struct Hits {
     scroll: usize,
 }
 
+/// How many weeks the month shown spans.
+fn weeks(look: &Look) -> usize {
+    look.today.map_or(5, |today| {
+        let (year, month) = calendar::shift(today.year, today.month, look.month);
+        calendar::grid(year, month).len() / 7
+    })
+}
+
+/// The calendar's height, with the gap below it.
+fn calendar_height(look: &Look) -> f32 {
+    2.0 * CAL_PAD_Y + CAL_HEAD + DOW_H + weeks(look) as f32 * (CELL_H + CELL_GAP) + GAP * 2.0
+}
+
 /// The calendar, at `y`: the month shown, with today marked when it's this month. Returns the
 /// height it takes, with the gap below it.
 fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
@@ -605,10 +671,7 @@ fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
     let shown = look
         .today
         .map(|today| (today, calendar::shift(today.year, today.month, look.month)));
-    let weeks = shown.map_or(5, |(_, (year, month))| {
-        calendar::grid(year, month).len() / 7
-    });
-    let card_h = 2.0 * CAL_PAD_Y + CAL_HEAD + DOW_H + weeks as f32 * (CELL_H + CELL_GAP);
+    let card_h = calendar_height(look) - GAP * 2.0;
     p.fill(x0, y, inner, card_h, panel::TILE_RADIUS, panel::TILE);
     if let Some((today, (year, month))) = shown {
         let head_centre = y + CAL_PAD_Y + 10.0;
@@ -709,13 +772,24 @@ fn paint_heading(p: &mut Painter, look: &Look, x0: f32, y: f32, hits: &mut Hits)
     HEAD_H + GAP
 }
 
-/// The footer along the bottom at `foot_y`: the keys, and Clear all, which only works with
-/// something to clear.
-fn paint_footer(p: &mut Painter, x0: f32, foot_y: f32, empty: bool, hits: &mut Hits) {
+/// The footer along the bottom at `foot_y`: the keys, the one for a background app's menu while
+/// one is chosen, and Clear all, which only works with something to clear.
+fn paint_footer(
+    p: &mut Painter,
+    x0: f32,
+    foot_y: f32,
+    empty: bool,
+    chip_hint: bool,
+    hits: &mut Hits,
+) {
     let inner = WIDTH - 2.0 * PADDING;
     let foot_centre = foot_y + FOOT_H / 2.0;
     let mut x = x0;
-    for (keys, label) in [(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "close")] {
+    let mut hints = vec![(&["PgUp", "PgDn"][..], "month"), (&["Esc"][..], "close")];
+    if chip_hint {
+        hints.push((&["Menu"][..], "options"));
+    }
+    for (keys, label) in hints {
         x += panel::key_hint_width(keys, label);
         panel::key_hint(p, x, foot_centre, keys, label);
         x += panel::HINT_GAP;
@@ -838,38 +912,37 @@ impl Slipstream {
         crate::notify::closed(gone, crate::notify::Reason::Expired);
     }
 
-    pub fn centre_facts(&mut self) -> Facts {
-        self.background_apps.retain(|app| {
-            self.display_handle
-                .backend_handle()
-                .get_client_data(app.client_id.clone())
-                .is_ok()
-        });
-        let background_apps = self
-            .background_apps
-            .iter()
-            .map(|a| a.name.clone())
-            .collect();
+    pub fn centre_facts(&self) -> Facts {
         Facts {
             today: crate::status::held(&self.status).today,
             do_not_disturb: self.settings.notifications.do_not_disturb,
             reduced_motion: self.centre.reduced_motion,
             ring: self.panel_ring(),
-            background_apps,
-            background_icon_rev: self.background_icon_rev,
         }
     }
 
     pub fn centre_key(&mut self, key: Keysym, shift: bool) {
-        let ids = self.notices.ids();
-        let request = self.centre.key(key, shift, &ids);
+        let request = if self.centre.menu_open() {
+            let now = self.clock.now();
+            self.centre.menu_key(key, shift, now)
+        } else {
+            let ids = self.notices.ids();
+            self.centre.key(key, shift, &ids)
+        };
         self.centre_request(request);
     }
 
-    /// A click while the centre is open, in logical pixels from the output's corner. Outside it
-    /// closes; on another of the bar's buttons, that button then does its own thing.
-    pub fn centre_click(&mut self, x: f64, y: f64) {
-        match self.centre.click(x, y) {
+    /// A press of pointer button `button` while the centre is open, in logical pixels from the
+    /// output's corner. Outside it closes; on another of the bar's buttons, that button then
+    /// does its own thing.
+    pub fn centre_click(&mut self, x: f64, y: f64, button: u32) {
+        let press = match button {
+            crate::input::BTN_MIDDLE => Press::Secondary,
+            crate::input::BTN_RIGHT => Press::Menu { keyboard: false },
+            _ => Press::Primary,
+        };
+        let now = self.clock.now();
+        match self.centre.press(x, y, press, now) {
             Request::Close => {
                 self.centre.close();
                 let target = (!self.fullscreen_on_screen())
@@ -882,6 +955,23 @@ impl Slipstream {
             }
             request => self.centre_request(request),
         }
+    }
+
+    /// The pointer moved to `pos` while the centre is open.
+    pub fn centre_hover(&mut self, pos: Point<f64, Logical>) {
+        if !self.centre.menu_open() {
+            return;
+        }
+        let Some(screen) = self.focused_screen_geometry() else {
+            return;
+        };
+        let now = self.clock.now();
+        let request = self.centre.hover(
+            pos.x - screen.loc.x as f64,
+            pos.y - screen.loc.y as f64,
+            now,
+        );
+        self.centre_request(request);
     }
 
     fn centre_request(&mut self, request: Request) {
@@ -910,8 +1000,20 @@ impl Slipstream {
                 self.centre.forget(id, &ids);
                 self.invoke_notice_action(id, index);
             }
-            Request::ActivateBackground(app_id) => {
-                self.centre.begin_launch(app_id, self.clock.now());
+            Request::Chip(index, press) => self.press_chip(index, press),
+            Request::Tray(outcome) => {
+                for command in outcome.commands {
+                    crate::tray::send(command);
+                }
+                match outcome.end {
+                    End::Open => {}
+                    End::Closed => self.centre.close_menu(self.clock.now()),
+                    End::Chosen => {
+                        // Whatever the entry does, a window it brings up was asked for.
+                        self.concentration.asked(std::time::Instant::now());
+                        self.centre.close();
+                    }
+                }
             }
         }
     }
@@ -965,9 +1067,21 @@ mod tests {
             scroll: centre.scroll,
             size: (1536, 960).into(),
             scale: 1.25,
-            background_apps: Vec::new(),
-            background_icon_rev: 0,
+            chips: centre.chips.clone(),
+            menu_chip: None,
             launch_frac: 0,
+        }
+    }
+
+    fn chip(name: &str, item: Option<&str>) -> Chip {
+        Chip {
+            name: name.into(),
+            icon: None,
+            app_id: None,
+            item: item.map(String::from),
+            attention: false,
+            item_is_menu: false,
+            menu: item.is_some(),
         }
     }
 
@@ -1002,6 +1116,88 @@ mod tests {
         assert_eq!(centre.month, 0);
         assert_eq!(centre.selected, Item::Notice(7), "the first card");
         assert_eq!(centre.key(Keysym::Escape, false, &[7, 5]), Request::Close);
+    }
+
+    #[test]
+    fn the_menu_key_and_shift_f10_open_a_background_apps_menu() {
+        let mut centre = Centre {
+            chips: vec![chip("Sync", Some(":1.5/StatusNotifierItem"))],
+            selected: Item::BackgroundApp(0),
+            ..Centre::default()
+        };
+        let menu = Request::Chip(0, Press::Menu { keyboard: true });
+        assert_eq!(centre.key(Keysym::Menu, false, &[]), menu);
+        assert_eq!(centre.key(Keysym::F10, true, &[]), menu);
+        assert_eq!(
+            centre.key(Keysym::F10, false, &[]),
+            Request::Nothing,
+            "F10 alone is an app's"
+        );
+        assert_eq!(
+            centre.key(Keysym::Return, false, &[]),
+            Request::Chip(0, Press::Primary)
+        );
+        centre.selected = Item::DoNotDisturb;
+        assert_eq!(centre.key(Keysym::Menu, false, &[]), Request::Nothing);
+    }
+
+    #[test]
+    fn right_and_middle_clicks_on_a_chip_ask_for_its_menu_and_its_second_action() {
+        let notices = Notices::default();
+        let mut centre = Centre::default();
+        centre.open(0.0, &[]);
+        centre.chips = vec![
+            chip("Sync", Some(":1.5/StatusNotifierItem")),
+            chip("Editor", None),
+        ];
+        let look = look(&centre, &notices);
+        centre.repaint(&look, &notices).unwrap();
+        let chip = centre.chip_box(1).unwrap();
+        let (x, y) = (
+            chip.loc.x + chip.size.w / 2.0,
+            chip.loc.y + chip.size.h / 2.0,
+        );
+        assert_eq!(
+            centre.press(x, y, Press::Menu { keyboard: false }, 0.0),
+            Request::Chip(1, Press::Menu { keyboard: false })
+        );
+        assert_eq!(
+            centre.press(x, y, Press::Secondary, 0.0),
+            Request::Chip(1, Press::Secondary)
+        );
+        assert_eq!(centre.selected, Item::BackgroundApp(1));
+    }
+
+    #[test]
+    fn with_a_menu_open_the_keys_and_a_click_outside_go_to_it() {
+        let notices = Notices::default();
+        let mut centre = Centre::default();
+        centre.open(0.0, &[]);
+        centre.chips = vec![chip("Sync", Some(":1.5/StatusNotifierItem"))];
+        let look = look(&centre, &notices);
+        centre.repaint(&look, &notices).unwrap();
+        centre.open_menu(":1.5/StatusNotifierItem".into(), 0, true, 0.0);
+        assert!(centre.menu_open());
+        assert_eq!(centre.menu_item(), Some(":1.5/StatusNotifierItem"));
+        assert_eq!(
+            centre.menu_key(Keysym::Escape, false, 0.0),
+            Request::Tray(Outcome {
+                commands: Vec::new(),
+                end: End::Closed
+            })
+        );
+        assert!(
+            centre.menu_open(),
+            "open until the caller has sent what it asked"
+        );
+        centre.close_menu(0.0);
+        centre.open_menu(":1.5/StatusNotifierItem".into(), 0, false, 0.0);
+        assert_eq!(
+            centre.press(5.0, 5.0, Press::Primary, 0.0),
+            Request::Nothing
+        );
+        assert!(!centre.menu_open(), "a click outside it only puts it away");
+        assert!(centre.is_open());
     }
 
     #[test]
@@ -1045,16 +1241,26 @@ mod tests {
                 area.loc.y + area.size.h / 2.0,
             )
         };
-        let (x, y) = middle(area(Target::Dismiss(1)));
-        assert_eq!(centre.click(x, y), Request::Dismiss(1), "the cross first");
+        let click =
+            |centre: &mut Centre, (x, y): (f64, f64)| centre.press(x, y, Press::Primary, 0.0);
+        assert_eq!(
+            click(&mut centre, middle(area(Target::Dismiss(1)))),
+            Request::Dismiss(1),
+            "the cross first"
+        );
         let open = area(Target::Open(1));
         assert_eq!(
-            centre.click(open.loc.x + 10.0, open.loc.y + open.size.h - 4.0),
+            click(
+                &mut centre,
+                (open.loc.x + 10.0, open.loc.y + open.size.h - 4.0)
+            ),
             Request::Open(1)
         );
-        let (x, y) = middle(area(Target::ClearAll));
-        assert_eq!(centre.click(x, y), Request::ClearAll);
-        assert_eq!(centre.click(100.0, 500.0), Request::Close);
+        assert_eq!(
+            click(&mut centre, middle(area(Target::ClearAll))),
+            Request::ClearAll
+        );
+        assert_eq!(click(&mut centre, (100.0, 500.0)), Request::Close);
     }
 
     #[test]

@@ -37,6 +37,20 @@ default_browser=yes              # set once, so choosing another browser later s
 
 `scripts/install-extras --check` says what it would do and changes nothing; `--help` lists every key.
 
+## Apps running in the background
+
+The notification centre (Super+N) lists the apps running without a window up, under **Background Apps**: an app whose windows you closed while it carried on, and an app that keeps an icon in the system tray, such as a chat or sync client, even one that started straight to its icon and never opened a window. An app that does both shows once.
+
+- **Click** one, or choose it and press Enter, to bring it back. An app with a tray icon is asked to show itself, so one that was only hidden isn't started a second time. An app whose icon only has a menu shows its menu instead.
+- **Right-click** one, or press the Menu key or Shift+F10 on it, for its tray menu, drawn by Slipstream. The arrows move, Enter or Space chooses, → and ← open and close a submenu, and an entry's underlined letter chooses it straight away. Esc puts the menu away.
+- **Middle-click** for the app's second action, where it has one.
+
+An amber dot on an app's icon, and a ring that slowly brightens and fades around it, means the app wants your attention: a message waiting, say. With reduced motion the ring holds still. A tray icon that says it has nothing to tell you isn't listed unless its app is already there.
+
+What an app puts in its menu is only ever shown. Choosing an entry tells that app which entry you chose, and nothing else: Slipstream runs nothing from a menu, an icon or a label.
+
+Slipstream serves the tray itself, through the StatusNotifierItem standard most Linux apps use. If another program on your desktop already does, Slipstream shows the icons that program collects.
+
 ## The meter on the bar
 
 The bar can show how much of something is used, from any command that prints a small JSON report. Set it in **Settings → Meter**, where **Run it now** shows what the bar would show or why a command doesn't work, or in `~/.config/slipstream/settings.toml`:

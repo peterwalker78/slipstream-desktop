@@ -69,6 +69,22 @@ impl Explorer {
             .cloned()
     }
 
+    /// The desktop entry of a tray item that no window's client is known for: by its ID or title,
+    /// then by the program its process runs.
+    pub fn app_for_item(
+        &self,
+        names: &[&str],
+        process: Option<&crate::tray::matcher::Process>,
+    ) -> Option<App> {
+        let catalog = self.catalog.lock().unwrap();
+        crate::tray::matcher::entry(&catalog.apps, names, process).cloned()
+    }
+
+    /// Goes up whenever the installed apps, or the files the explorer lists, are read again.
+    pub fn catalog_version(&self) -> u64 {
+        self.catalog.lock().unwrap().version
+    }
+
     /// The name of the app with this app ID or X11 class, from its desktop entry.
     pub fn app_name(&self, id: &str) -> Option<String> {
         self.app_for(id).map(|app| app.name)

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Your own modules beside the clock,** in the format of Waybar's custom modules, so a Waybar script works as it is. Settings › Bar modules adds them and tries them out. Each runs as a program of its own and only ever shows text: a click or a scroll runs the command you set, and nothing a module prints can run anything.
+- **Tray icons, in the notification centre.** Apps that keep an icon in the system tray are listed under Background Apps, even ones that never opened a window. A click asks the app to show itself rather than starting it again, a right-click, the Menu key or Shift+F10 opens its menu, drawn in Slipstream's own style and fully usable from the keyboard, and an app wanting your attention gets an amber ring. [How it works](guide/help.md#apps-running-in-the-background).
 
 ## 1.0.0-rc.1 - 2026-10-21
 
