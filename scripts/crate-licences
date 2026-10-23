@@ -17,7 +17,7 @@ trap 'rm -rf "$work"' EXIT
 
 # One line per crate: "NAME vVERSION|LICENCE" from crates.io, or "NAME vVERSION (SOURCE)|LICENCE"
 # from git; Slipstream's own crates come from a path and are left out.
-(cd "$repo" && cargo tree --locked -e normal -p slipstream -p slipstream-settings \
+(cd "$repo" && cargo tree --locked -e normal -p slipstream -p slipstream-settings -p agent-notify \
     --prefix none --format '{p}|{l}') >"$work/tree"
 sed -e 's/ (\*)$//' -e 's/ (proc-macro)//' -e '/^$/d' "$work/tree" | grep -v ' (/' | sort -u >"$work/crates"
 [ -s "$work/crates" ] || { echo "crate-licences: cargo listed no crates" >&2; exit 1; }
