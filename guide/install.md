@@ -6,9 +6,9 @@ Slipstream installs **alongside** the desktop you use now. Nothing about your cu
 
 ## What you need
 
-- Linux with **systemd-logind** or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
+- Linux with **logind** (systemd-logind or elogind) or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
 - A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
-- Libraries as old as Debian 13's or newer. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
+- [The libraries listed below](#the-libraries-it-needs), at those versions or newer. Debian 13, Ubuntu 26.04 and Fedora 43 have them all. The download links in anything that changes too often to rely on, so one build runs on every current distribution.
 - Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark and light, file dialogs, app shortcuts, apps keeping the screen awake), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon. The installer offers to install whichever are missing.
 
 Your existing desktop stays installed and on the login screen: Slipstream is added beside it.
@@ -50,8 +50,8 @@ Every download is built by GitHub from a tagged commit, and comes with a signed 
 |---|---|
 | **Used daily** | Bazzite (Fedora Atomic), on real hardware. Where the rough edges are found. |
 | **Checked on every release** | Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed: each one installs the download in a container and starts it. Repeated weekly against Debian testing, Ubuntu rolling, Fedora Rawhide, Arch and Tumbleweed, so a change in a distribution shows up here first. |
-| **Should work** | Any distribution with Debian 13's libraries or newer, and logind or seatd: Linux Mint 23, Pop!_OS 26.04, Manjaro, EndeavourOS, CachyOS, Nobara, Omarchy, Aurora, Bluefin, Silverblue, Kinoite. Please report it if it doesn't. |
-| **Not yet** | Ubuntu 24.04 and what's built on it (Linux Mint 22, Pop!_OS 24.04, Zorin 18): the Settings app needs Pango 1.56, and they have 1.52. Debian 12 and the RHEL family, which are older still. Alpine and other musl systems, NixOS and Guix, which all need a build of their own. Systems with neither systemd nor seatd. ARM machines. |
+| **Should work** | Any distribution with [the libraries it needs](#the-libraries-it-needs), and logind or seatd: Linux Mint 23, Pop!_OS 26.04, Manjaro, EndeavourOS, CachyOS, Nobara, Omarchy, Aurora, Bluefin, Silverblue, Kinoite. Please report it if it doesn't. |
+| **Not yet** | Ubuntu 24.04 and what's built on it (Linux Mint 22, Pop!_OS 24.04, Zorin 18): the Settings app needs Pango 1.56, and they have 1.52. Debian 12 and the RHEL family, which are older still. Alpine and other musl systems, NixOS and Guix, which all need a build of their own. Systems with neither logind nor seatd. ARM machines. |
 
 Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the capture protocols Slipstream speaks arrived. Debian 13 and Ubuntu 25.10 package 0.7, so sharing doesn't work there yet; everything else does, and the installer says so plainly.
 
@@ -96,7 +96,28 @@ scripts/update-session     # builds in the box (or with the cargo on your system
 scripts/install-session    # once
 ```
 
-Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than Debian 13's glibc and links nothing unusual. For a distribution package, a plain `cargo build --release --locked` against the system's own libraries is the right thing; nothing is vendored.
+Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than glibc 2.39 and links nothing unusual. For a distribution package, a plain `cargo build --release --locked` against the system's own libraries is the right thing; nothing is vendored.
+
+### The libraries it needs
+
+The compositor, `slipstream`, links:
+
+- glibc 2.39 or newer, and libgcc_s
+- libinput 1.19 or newer
+- libxkbcommon 0.5 or newer
+- libudev, from systemd or eudev
+- libseat, from seatd, which talks to logind or seatd itself
+- libgbm, from a Mesa recent enough to have `gbm_bo_create_with_modifiers2`
+
+It loads these while it runs:
+
+- libEGL.so.1, from Mesa or glvnd
+- libpam.so.0, for the lock screen
+- `Xwayland`, only for X11 apps
+
+The Settings app, `slipstream-settings`, links GTK 4.14 or newer and Pango 1.56 or newer, with the cairo and GLib that GTK brings.
+
+libdisplay-info is linked in, because its soname changes with every release. Without a systemd user manager, everything still works; apps just don't each get a scope of their own.
 
 ## Updating
 

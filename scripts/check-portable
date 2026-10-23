@@ -11,8 +11,8 @@
 # to start somewhere.
 set -eu
 
-# Debian 13's glibc, the oldest system the downloads are built for.
-max_glibc=2.41
+# The oldest glibc the downloads are built for, as guide/install.md lists it.
+max_glibc=2.39
 # Sonames that have been stable for years and are part of any graphical system.
 allowed="ld-linux-x86-64.so.2 ld-linux-aarch64.so.1 libc.so.6 libm.so.6 libdl.so.2 librt.so.1
 libpthread.so.0 libgcc_s.so.1 libstdc++.so.6 libgbm.so.1 libseat.so.1 libudev.so.1
