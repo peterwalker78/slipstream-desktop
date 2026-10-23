@@ -145,6 +145,8 @@ pub struct Centre {
     menu: Option<tray_menu::Menu>,
     /// Menu cards fading out after it closed.
     ghosts: Vec<tray_menu::Ghost>,
+    /// When a menu entry was chosen: the centre closes once its flash has shown.
+    chosen_at: Option<f64>,
 }
 
 impl Default for Centre {
@@ -169,6 +171,7 @@ impl Default for Centre {
             launch: None,
             menu: None,
             ghosts: Vec::new(),
+            chosen_at: None,
         }
     }
 }
@@ -215,6 +218,22 @@ impl Centre {
         self.launch = None;
         self.menu = None;
         self.ghosts.clear();
+        self.chosen_at = None;
+    }
+
+    /// A menu entry has been chosen (and sent to its app): the centre closes once the entry has
+    /// flashed.
+    pub fn menu_chosen(&mut self, now: f64) {
+        self.chosen_at.get_or_insert(now);
+    }
+
+    /// Closes the centre once a chosen menu entry's flash has shown.
+    pub fn finish_menu_choice(&mut self, now: f64) {
+        if let Some(at) = self.chosen_at
+            && now - at >= tray_menu::confirm_length(self.reduced_motion)
+        {
+            self.close();
+        }
     }
 
     /// Starts the chip-launch animation; the centre stays open until whoever started it closes it.
@@ -1011,7 +1030,8 @@ impl Slipstream {
                     End::Chosen => {
                         // Whatever the entry does, a window it brings up was asked for.
                         self.concentration.asked(std::time::Instant::now());
-                        self.centre.close();
+                        let now = self.clock.now();
+                        self.centre.menu_chosen(now);
                     }
                 }
             }
@@ -1139,6 +1159,30 @@ mod tests {
         );
         centre.selected = Item::DoNotDisturb;
         assert_eq!(centre.key(Keysym::Menu, false, &[]), Request::Nothing);
+    }
+
+    #[test]
+    fn a_chosen_menu_entry_closes_the_centre_once_it_has_flashed() {
+        for reduced_motion in [false, true] {
+            let mut centre = Centre {
+                reduced_motion,
+                ..Centre::default()
+            };
+            centre.open(0.0, &[]);
+            centre.menu_chosen(0.0);
+            let length = tray_menu::confirm_length(reduced_motion);
+            centre.finish_menu_choice(length - 0.01);
+            assert!(centre.is_open(), "open while the entry flashes");
+            centre.menu_chosen(0.1);
+            centre.finish_menu_choice(length);
+            assert!(!centre.is_open(), "timed from the first choice");
+            centre.open(5.0, &[]);
+            centre.finish_menu_choice(9.0);
+            assert!(
+                centre.is_open(),
+                "a choice doesn't outlive the centre it closed"
+            );
+        }
     }
 
     #[test]

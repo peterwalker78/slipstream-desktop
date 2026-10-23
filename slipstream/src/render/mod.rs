@@ -269,6 +269,7 @@ fn card_elements(
                 .map(OutputElement::Memory),
         );
         state.finish_chip_launch(now);
+        state.centre.finish_menu_choice(now);
     }
     if state.history.is_open() {
         let ring = state.panel_ring();

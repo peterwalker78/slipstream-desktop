@@ -7,7 +7,9 @@
 //! first card closes the menu. The pointer chooses what it is over and opens submenus as it goes.
 //!
 //! The entries come from the app and are only drawn: choosing one sends the app the entry's id
-//! (`tray::Command::Click`) and does nothing else.
+//! (`tray::Command::Click`) at once and does nothing else. The chosen row then shows pressed, in
+//! the accent colour, with a ring pulsing out from it, for a moment before the centre closes, so
+//! the choice is seen to have landed.
 
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
@@ -56,6 +58,21 @@ const CLOSE: f64 = 0.11;
 const SLIDE: f64 = 6.0;
 /// How long a menu the app hasn't sent yet waits before it says it's coming.
 const PATIENCE: f64 = 0.15;
+/// How long a chosen entry shows pressed before the centre closes, while a ring pulses out from
+/// it by `PULSE` design pixels and fades. With reduced motion it is only the pressed row, held a
+/// little less long.
+const CONFIRM: f64 = 0.2;
+const REDUCED_CONFIRM: f64 = 0.15;
+const PULSE: f32 = 9.0;
+
+/// How long the centre stays open after an entry is chosen.
+pub fn confirm_length(reduced_motion: bool) -> f64 {
+    if reduced_motion {
+        REDUCED_CONFIRM
+    } else {
+        CONFIRM
+    }
+}
 
 /// The small surfaces' look, a little lighter than the centre's glass so it stands off it.
 const CARD: CardStyle = CardStyle {
@@ -121,6 +138,8 @@ struct Look {
     size: Size<i32, Logical>,
     scale: f64,
     ring: u32,
+    /// The entry chosen, painted pressed.
+    confirmed: Option<i32>,
 }
 
 /// A painted card and where its rows are, in logical pixels from the output's corner.
@@ -177,6 +196,10 @@ pub struct Menu {
     shown: Option<Look>,
     cards: Vec<Card>,
     ghosts: Vec<Ghost>,
+    /// The entry chosen, and when: the menu takes no more input, and shows its row pressed.
+    confirmed: Option<(i32, f64)>,
+    /// The ring that pulses out from the chosen row, painted once for its size.
+    pulse: Option<(Painted, Size<i32, Logical>)>,
 }
 
 impl Drop for Menu {
@@ -216,6 +239,8 @@ impl Menu {
             shown: None,
             cards: Vec::new(),
             ghosts: Vec::new(),
+            confirmed: None,
+            pulse: None,
         }
     }
 
@@ -293,6 +318,9 @@ impl Menu {
 
     /// A key, while the menu is open.
     pub fn key(&mut self, sym: Keysym, shift: bool, now: f64) -> Outcome {
+        if self.confirmed.is_some() {
+            return Outcome::default();
+        }
         self.keyboard = true;
         let deepest = self.levels.len() - 1;
         match sym {
@@ -366,13 +394,19 @@ impl Menu {
         match self.entry(id) {
             Some(entry) if !entry.choosable() => Outcome::default(),
             Some(entry) if entry.submenu => self.open_level(id, now),
-            Some(_) => Outcome {
-                commands: vec![Command::Click {
-                    item: self.item.clone(),
-                    id,
-                }],
-                end: End::Chosen,
-            },
+            Some(_) => {
+                if let Some(level) = self.levels.last_mut() {
+                    level.chosen = Some(id);
+                }
+                self.confirmed = Some((id, now));
+                Outcome {
+                    commands: vec![Command::Click {
+                        item: self.item.clone(),
+                        id,
+                    }],
+                    end: End::Chosen,
+                }
+            }
             None => Outcome::default(),
         }
     }
@@ -470,6 +504,9 @@ impl Menu {
     /// The pointer moved to (`x`, `y`): the entry under it is chosen, and a submenu opens as it
     /// passes over the entry for it. Cards deeper than the one it is over close.
     pub fn hover(&mut self, x: f64, y: f64, now: f64) -> Outcome {
+        if self.confirmed.is_some() {
+            return Outcome::default();
+        }
         let Some((level, id)) = self.row_at(x, y) else {
             return Outcome::default();
         };
@@ -497,6 +534,9 @@ impl Menu {
 
     /// A click at (`x`, `y`). `None` when it is outside every card, which puts the menu away.
     pub fn click(&mut self, x: f64, y: f64, now: f64) -> Option<Outcome> {
+        if self.confirmed.is_some() {
+            return Some(Outcome::default());
+        }
         if let Some((level, id)) = self.row_at(x, y) {
             if self
                 .levels
@@ -582,6 +622,7 @@ impl Menu {
             size: frame.size,
             scale: frame.scale,
             ring,
+            confirmed: self.confirmed.map(|(id, _)| id),
         };
         if self.shown.as_ref() != Some(&look) {
             let sides: Vec<i8> = self.levels.iter().map(|level| level.side).collect();
@@ -599,16 +640,17 @@ impl Menu {
             });
         }
         let mut elements = Vec::new();
+        if let Some((id, since)) = self.confirmed
+            && !reduced_motion
+        {
+            elements.extend(self.pulse_element(renderer, id, now, now - since, frame.scale));
+        }
         for card in self.cards.iter().rev() {
             let Some(level) = self.levels.get(card.level) else {
                 continue;
             };
-            let (alpha, shift) = opening(now - level.opened_at, reduced_motion);
-            let (dx, dy) = match level.side {
-                0 => (0.0, -shift),
-                side => (-shift * f64::from(side), 0.0),
-            };
-            let at = card.origin + Point::from((dx * DESIGN_PX as f64, dy * DESIGN_PX as f64));
+            let (alpha, _) = opening(now - level.opened_at, reduced_motion);
+            let at = card.origin + self.card_shift(card, now, reduced_motion);
             elements.extend(card.painted.element(renderer, at, alpha));
         }
         elements.extend(
@@ -617,6 +659,72 @@ impl Menu {
                 .filter_map(|ghost| ghost.element(renderer, now, reduced_motion)),
         );
         elements
+    }
+
+    /// How far `card` still is from its place as it opens.
+    fn card_shift(&self, card: &Card, now: f64, reduced_motion: bool) -> Point<f64, Logical> {
+        let Some(level) = self.levels.get(card.level) else {
+            return Point::default();
+        };
+        let (_, shift) = opening(now - level.opened_at, reduced_motion);
+        let (dx, dy) = match level.side {
+            0 => (0.0, -shift),
+            side => (-shift * f64::from(side), 0.0),
+        };
+        Point::from((dx * DESIGN_PX as f64, dy * DESIGN_PX as f64))
+    }
+
+    /// The ring pulsing out from row `id`, `since` seconds after it was chosen, wherever the
+    /// row's card is.
+    fn pulse_element<R>(
+        &mut self,
+        renderer: &mut R,
+        id: i32,
+        now: f64,
+        since: f64,
+        scale: f64,
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let t = (since / CONFIRM).clamp(0.0, 1.0);
+        if t >= 1.0 {
+            return None;
+        }
+        let open = self.levels.len();
+        let (card, area) = self
+            .cards
+            .iter()
+            .filter(|card| card.level < open)
+            .find_map(|card| {
+                let (_, area) = card.rows.iter().find(|(row, _)| *row == id)?;
+                Some((card, *area))
+            })?;
+        let row = Rectangle::new(area.loc + self.card_shift(card, now, false), area.size);
+        let size =
+            Size::<i32, Logical>::from((row.size.w.round() as i32, row.size.h.round() as i32));
+        if self
+            .pulse
+            .as_ref()
+            .is_none_or(|(painted, painted_size)| painted.scale != scale || *painted_size != size)
+        {
+            let (w, h) = (size.w as f32 / DESIGN_PX, size.h as f32 / DESIGN_PX);
+            let painted = Painted::new(size, scale, |p| {
+                p.f *= DESIGN_PX;
+                p.border(1.25, 1.25, w - 2.5, h - 2.5, ROW_RADIUS, 2.5, AMBER);
+            })?;
+            self.pulse = Some((painted, size));
+        }
+        let (painted, _) = self.pulse.as_ref()?;
+        let (out, alpha) = pulse(t);
+        let out = f64::from(out * DESIGN_PX);
+        let at = row.loc - Point::from((out, out));
+        let grown = Size::<i32, Logical>::from((
+            (row.size.w + 2.0 * out).round() as i32,
+            (row.size.h + 2.0 * out).round() as i32,
+        ));
+        painted.element_sized(renderer, at, grown, alpha)
     }
 
     fn repaint(
@@ -707,9 +815,15 @@ impl Menu {
                         );
                     } else {
                         let lit = chosen == Some(row.id) || open_child == Some(row.id);
-                        if lit {
+                        let shade = if look.confirmed == Some(row.id) {
+                            p.fill(rx, ry, rw, h, ROW_RADIUS, AMBER);
+                            Shade::Pressed
+                        } else if lit {
                             selected(p, rx, ry, rw, h, look.ring);
-                        }
+                            Shade::Lit
+                        } else {
+                            Shade::Plain
+                        };
                         let leftward = open_child == Some(row.id) && child_side < 0;
                         paint_row(
                             p,
@@ -717,7 +831,7 @@ impl Menu {
                             picture.as_ref(),
                             &sizes,
                             [rx, ry, rw, h],
-                            lit,
+                            shade,
                             leftward,
                         );
                         row_boxes.push((row.id, [rx, ry, rw, h]));
@@ -837,6 +951,22 @@ fn selected(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, ring: u32) {
     p.border(x, y, w, h, ROW_RADIUS, 1.0, ring | 0x80);
 }
 
+/// How a row is drawn: as it is, chosen, or pressed once the choice is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shade {
+    Plain,
+    Lit,
+    Pressed,
+}
+
+/// The pulse `t` of the way through: how far out from the row its ring is, in design pixels, and
+/// how strongly it shows. It moves fastest at first and fades fastest at the end.
+fn pulse(t: f64) -> (f32, f32) {
+    let t = t.clamp(0.0, 1.0);
+    let eased = 1.0 - (1.0 - t) * (1.0 - t);
+    ((eased as f32) * PULSE, (1.0 - t * t) as f32)
+}
+
 fn label_style(ink: u32) -> Style {
     Style::new(Face::Body, LABEL_PX, ink)
 }
@@ -849,20 +979,26 @@ fn paint_row(
     picture: Option<&resvg::tiny_skia::Pixmap>,
     sizes: &Sizes,
     [x, y, w, h]: [f32; 4],
-    lit: bool,
+    shade: Shade,
     leftward: bool,
 ) {
     let centre = y + h / 2.0;
-    let ink = if !row.enabled {
-        panel::PLACEHOLDER
-    } else if lit {
-        panel::BRIGHT
-    } else {
-        INK
+    let ink = match shade {
+        _ if !row.enabled => panel::PLACEHOLDER,
+        Shade::Pressed => DARK,
+        Shade::Lit => panel::BRIGHT,
+        Shade::Plain => INK,
     };
     let mut lx = x + ROW_PAD;
     if sizes.marks {
-        paint_mark(p, row.toggle, row.enabled, lx, centre);
+        paint_mark(
+            p,
+            row.toggle,
+            row.enabled,
+            shade == Shade::Pressed,
+            lx,
+            centre,
+        );
         lx += MARK + 10.0;
     }
     if sizes.icons {
@@ -906,20 +1042,22 @@ fn paint_row(
 }
 
 /// A checkbox or radio button, on in amber.
-fn paint_mark(p: &mut Painter, toggle: Toggle, enabled: bool, x: f32, centre: f32) {
+/// A checkmark or radio button; on a pressed row, in the row's dark ink over its accent.
+fn paint_mark(p: &mut Painter, toggle: Toggle, enabled: bool, pressed: bool, x: f32, centre: f32) {
     let y = centre - MARK / 2.0;
-    let edge = if enabled {
-        panel::TERTIARY
+    let (edge, accent, tick) = if pressed {
+        ((DARK & 0xffffff00) | 0x99, DARK, AMBER)
+    } else if enabled {
+        (panel::TERTIARY, AMBER, DARK)
     } else {
-        panel::PLACEHOLDER
+        (panel::PLACEHOLDER, panel::PLACEHOLDER, DARK)
     };
-    let accent = if enabled { AMBER } else { panel::PLACEHOLDER };
     match toggle {
         Toggle::None => {}
         Toggle::Check(on) => {
             if on {
                 p.fill(x, y, MARK, MARK, 4.0, accent);
-                p.icon(icons::TICK, x + 1.5, y + 1.5, MARK - 3.0, Some(DARK));
+                p.icon(icons::TICK, x + 1.5, y + 1.5, MARK - 3.0, Some(tick));
             } else {
                 p.border(x + 0.5, y + 0.5, MARK - 1.0, MARK - 1.0, 4.0, 1.5, edge);
             }
@@ -1222,6 +1360,7 @@ mod tests {
             size: (1536, 960).into(),
             scale: 1.25,
             ring: panel::FOCUS,
+            confirmed: menu.confirmed.map(|(id, _)| id),
         };
         menu.repaint(&look, &mut |_, _| None);
     }
@@ -1325,5 +1464,49 @@ mod tests {
         assert_eq!(shift, 0.0);
         assert_eq!(opening(REDUCED_FADE, true), (1.0, 0.0));
         assert!(opening(0.0, false).1 > 0.0, "slides in otherwise");
+    }
+
+    #[test]
+    fn a_chosen_entry_is_sent_at_once_then_flashes_and_takes_no_more_input() {
+        let mut menu = menu();
+        let chosen = menu.key(Keysym::space, false, 1.0);
+        assert_eq!(
+            chosen.commands,
+            vec![Command::Click {
+                item: ITEM.into(),
+                id: 1
+            }],
+            "the event goes on the keypress, before any flash"
+        );
+        assert_eq!(chosen.end, End::Chosen);
+        assert_eq!(menu.confirmed, Some((1, 1.0)));
+        assert_eq!(menu.key(Keysym::Return, false, 1.05), Outcome::default());
+        assert_eq!(menu.key(Keysym::o, false, 1.05), Outcome::default());
+        assert_eq!(menu.hover(0.0, 0.0, 1.05), Outcome::default());
+        assert_eq!(menu.click(0.0, 0.0, 1.05), Some(Outcome::default()));
+    }
+
+    #[test]
+    fn a_disabled_entry_or_a_submenus_entry_gets_no_flash() {
+        let mut menu = menu();
+        assert_eq!(menu.press(8, 0.0), Outcome::default(), "disabled");
+        assert_eq!(menu.press(5, 0.0).end, End::Open, "opens its submenu");
+        assert_eq!(menu.confirmed, None);
+        assert_eq!(menu.press(6, 0.0).end, End::Chosen);
+        assert_eq!(menu.confirmed, Some((6, 0.0)));
+    }
+
+    #[test]
+    fn the_pulse_moves_out_and_fades_and_the_confirmation_is_brief() {
+        assert_eq!(pulse(0.0), (0.0, 1.0));
+        let (half_out, half_alpha) = pulse(0.5);
+        assert!(half_out > PULSE / 2.0, "eases out: {half_out}");
+        assert!(
+            half_alpha > 0.5 && half_alpha < 1.0,
+            "fades late: {half_alpha}"
+        );
+        assert_eq!(pulse(1.0), (PULSE, 0.0));
+        assert!(confirm_length(true) < confirm_length(false));
+        assert!((0.15..=0.25).contains(&confirm_length(false)));
     }
 }

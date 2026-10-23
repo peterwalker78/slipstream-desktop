@@ -643,6 +643,21 @@ impl Painted {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        self.element_sized(renderer, at, self.logical, alpha)
+    }
+
+    /// The surface stretched to `size` logical pixels, with its corner at `at`.
+    pub fn element_sized<R>(
+        &self,
+        renderer: &mut R,
+        at: Point<f64, Logical>,
+        size: Size<i32, Logical>,
+        alpha: f32,
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
         let location = at.to_physical(self.scale).to_i32_round::<i32>().to_f64();
         MemoryRenderBufferRenderElement::from_buffer(
             renderer,
@@ -652,7 +667,7 @@ impl Painted {
             Some(Rectangle::from_size(
                 (self.device.0 as f64, self.device.1 as f64).into(),
             )),
-            Some(self.logical),
+            Some(size),
             Kind::Unspecified,
         )
         .ok()
