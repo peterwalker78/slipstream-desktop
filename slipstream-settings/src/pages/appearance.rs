@@ -1,7 +1,7 @@
 //! Appearance: the colour scheme, Slipstream's three colours, motion and night light.
 
 use super::*;
-use crate::harmony;
+use crate::{harmony, picker::ColourButton};
 
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
@@ -228,9 +228,9 @@ struct Colours {
     names: gtk::StringList,
     shown: Cell<Three>,
     wheel: gtk::Scale,
-    focus: gtk::ColorDialogButton,
-    bullet: gtk::ColorDialogButton,
-    accent: gtk::ColorDialogButton,
+    focus: ColourButton,
+    bullet: ColourButton,
+    accent: ColourButton,
     /// Set while the rows are being changed to match, so their own handlers stay quiet.
     syncing: Cell<bool>,
 }
@@ -287,7 +287,7 @@ impl Colours {
             self.wheel.set_value(hue.round());
         }
         for (button, rgb) in [&self.focus, &self.bullet, &self.accent].iter().zip(three) {
-            button.set_rgba(&rgba(rgb));
+            button.set(rgb);
         }
         self.syncing.set(false);
     }
@@ -302,19 +302,6 @@ fn matching_theme(three: Three) -> Option<usize> {
             .zip(three)
             .all(|(held, rgb)| *held == Some(rgb))
     })
-}
-
-fn rgba([r, g, b]: [f32; 3]) -> gtk::gdk::RGBA {
-    gtk::gdk::RGBA::new(r, g, b, 1.0)
-}
-
-fn colour_button(title: &str) -> gtk::ColorDialogButton {
-    let dialog = gtk::ColorDialog::builder()
-        .title(title)
-        .with_alpha(false)
-        .modal(true)
-        .build();
-    gtk::ColorDialogButton::new(Some(dialog))
 }
 
 /// The theme list's entries: a set's three colours as dots, then its name.
@@ -388,9 +375,9 @@ fn colours(card: &gtk::Box, store: &Store) {
         names,
         shown: Cell::new(Colours::current_of(&store.get())),
         wheel,
-        focus: colour_button("Primary colour"),
-        bullet: colour_button("Secondary colour"),
-        accent: colour_button("Tertiary colour"),
+        focus: ColourButton::new("Primary colour"),
+        bullet: ColourButton::new("Secondary colour"),
+        accent: ColourButton::new("Tertiary colour"),
         syncing: Cell::new(false),
     });
 
@@ -411,20 +398,20 @@ fn colours(card: &gtk::Box, store: &Store) {
             turned.choose_focus(harmony::on_wheel(wheel.value()));
         }
     });
-    let picked = Rc::clone(&colours);
-    colours.focus.connect_rgba_notify(move |button| {
-        if !picked.syncing.get() {
-            let rgba = button.rgba();
-            picked.choose_focus([rgba.red(), rgba.green(), rgba.blue()]);
+    // The handlers hold the colours weakly: the buttons belong to them, so a strong hold would
+    // keep them alive for good.
+    let picked = Rc::downgrade(&colours);
+    colours.focus.connect_chosen(move |rgb| {
+        if let Some(picked) = picked.upgrade() {
+            picked.choose_focus(rgb);
         }
     });
     for (which, button) in [(1, &colours.bullet), (2, &colours.accent)] {
-        let picked = Rc::clone(&colours);
-        button.connect_rgba_notify(move |button| {
-            if !picked.syncing.get() {
-                let rgba = button.rgba();
+        let picked = Rc::downgrade(&colours);
+        button.connect_chosen(move |rgb| {
+            if let Some(picked) = picked.upgrade() {
                 let mut three = picked.shown.get();
-                three[which] = [rgba.red(), rgba.green(), rgba.blue()];
+                three[which] = rgb;
                 picked.choose(three);
             }
         });
@@ -439,7 +426,7 @@ fn colours(card: &gtk::Box, store: &Store) {
     );
     let focus_control = gtk::Box::builder().spacing(10).build();
     focus_control.append(&colours.wheel);
-    focus_control.append(&colours.focus);
+    focus_control.append(&colours.focus.button);
     row(
         card,
         "Primary colour",
@@ -457,7 +444,7 @@ fn colours(card: &gtk::Box, store: &Store) {
             "Bullet time, and whatever wants your attention: the notification count, Caps Lock, \
              a low battery, and apps and plugins asking to be looked at.",
         ),
-        &colours.bullet,
+        &colours.bullet.button,
     );
     row(
         card,
@@ -466,7 +453,7 @@ fn colours(card: &gtk::Box, store: &Store) {
             "What's on or chosen: switches, tiles and ticks, sliders, today in the calendar, the \
              text cursor, toasts and the button Enter presses.",
         ),
-        &colours.accent,
+        &colours.accent.button,
     );
 }
 

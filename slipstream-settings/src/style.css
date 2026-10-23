@@ -335,9 +335,3 @@ dropdown > button:focus-visible {
   to { background-position: 0% 0; }
 }
 
-
-/* GTK's colour dialog caps its scroll area at the palette's height, so the custom colour editor,
-   which is taller, had to be scrolled. Held at the editor's height, it opens without scrolling. */
-window.colorchooser scrolledwindow {
-  min-height: 360px;
-}

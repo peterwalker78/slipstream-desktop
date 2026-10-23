@@ -9,6 +9,7 @@
 mod fonts;
 mod harmony;
 mod pages;
+mod picker;
 mod power;
 mod previews;
 
@@ -246,11 +247,13 @@ fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
          .row checkbutton radio:checked {{ border-color: {t}; background: {t}; color: {}; }}
          .row switch:checked slider {{ background: {}; }}
          .row checkbutton check:indeterminate {{ border-color: {t}; color: {t}; }}
-         .row scale highlight {{ background: {t}; }}",
+         .row scale highlight {{ background: {t}; }}
+         .picker button.suggested-action {{ background: {t}; color: {}; }}",
         faint(primary, 0.10),
         lighter(primary, 0.45),
         faint(tertiary, 0.12),
         lighter(tertiary, 0.36),
+        ink_on(tertiary),
         ink_on(tertiary),
         ink_on(tertiary),
     )
