@@ -96,7 +96,7 @@ Press Super+/, then Enter. Fourteen short lessons start by asking whose keys you
 
 ## Get Slipstream
 
-One command. It downloads the newest release, checks it against its published checksum, and says what it will do before it writes anything:
+One command. It downloads the newest release, checks its published checksum and signature, and says what it will do before it writes anything:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"

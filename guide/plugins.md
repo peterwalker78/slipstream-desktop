@@ -79,7 +79,7 @@ A `[meter]` command in a settings file from before plugins becomes a plugin like
 
 ## A whole plugin, packaged
 
-[agent-notify](https://github.com/peterwalker78/agent-notify) is a complete plugin with releases of its own. Its card program only reads the folders its `read` names, and it leaves anything that needs the network or the session bus to programs that already run with your access. Each release is the plugin's folder packed as a `.tar.gz`, with its SHA-256 beside it, which `scripts/install-extras` installs from a file in `extras/` naming `plugin=`, `bundle_url=` and `bundle_sha256_url=`.
+[agent-notify](https://github.com/peterwalker78/agent-notify) is a complete plugin with releases of its own. Its card program only reads the folders its `read` names, and it leaves anything that needs the network or the session bus to programs that already run with your access. Each release is the plugin's folder packed as a `.tar.gz`, with its SHA-256 and signature (`.sig`) beside it, which `scripts/install-extras` installs from a file in `extras/` naming `plugin=`, `bundle_url=`, `bundle_sha256_url=` and `bundle_signer=`.
 
 ## Trying one out
 

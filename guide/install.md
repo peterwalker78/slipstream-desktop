@@ -15,7 +15,7 @@ Your existing desktop stays installed and on the login screen: Slipstream is add
 
 ## Installing
 
-One command. It downloads the newest release, checks it against its published checksum, and runs the installer, which says what it will do before writing anything:
+One command. It downloads the newest release, checks its published checksum and signature, and runs the installer, which says what it will do before writing anything:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
