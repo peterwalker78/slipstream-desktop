@@ -139,7 +139,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 
-**Status: release candidate (1.0.0-rc.1).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. The [changelog](CHANGELOG.md) says what's new in each release.
+**Status: release candidate (1.0.0-rc.2).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. The [changelog](CHANGELOG.md) says what's new in each release.
 
 [**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 

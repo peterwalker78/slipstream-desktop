@@ -2311,7 +2311,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slipstream"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "slipstream-config"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "libc",
  "serde",
@@ -2348,7 +2348,7 @@ dependencies = [
 
 [[package]]
 name = "slipstream-focus"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "libc",
  "serde",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "slipstream-settings"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "gtk4",
  "pango",

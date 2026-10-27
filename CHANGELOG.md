@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0-rc.2 - 2026-10-27
 
 - **Plugins can do more, and show up in more places.** Seven more abilities, each said in plain words in Settings before you switch a plugin on: changing the files in folders it names, reading the battery, temperatures and hardware, seeing what's playing and its buttons controlling it, playing sounds, opening links in your browser, seeing which windows you have open, and seeing what you copy. A plugin can also add a tile to quick settings, answer searches in the explorer that start with its keyword, such as `!`, and offer actions you give keys in Settings › Shortcuts. An update that adds any of these waits for you, as one that asks for more. [What a plugin can reach](guide/plugins.md#what-it-can-reach).
 - **Focus comes with Slipstream.** A timer for spells of work: 25 or 50 minutes from its card, its tile or keys of your own, or `!45` in the explorer for any length; then a notification saying how long it was and where the time went, a break, and a line in `~/Documents/Focus/log.md`. It starts off, like every plugin. Plugins that come with Slipstream stay on through an update that asks for nothing new; one that asks for more waits for you, and plugins you add yourself still wait after every update.
