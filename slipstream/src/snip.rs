@@ -39,6 +39,19 @@ use crate::{
     text::{self, Face, Style},
 };
 
+/// The middle of the largest part of `rect` that none of `over` covers, if any part big enough
+/// to aim at is left.
+fn spot(
+    rect: Rectangle<f64, Logical>,
+    over: &[Rectangle<f64, Logical>],
+) -> Option<Point<f64, Logical>> {
+    rect.subtract_rects(over.iter().copied())
+        .into_iter()
+        .filter(|part| part.size.w >= 8.0 && part.size.h >= 8.0)
+        .max_by(|a, b| (a.size.w * a.size.h).total_cmp(&(b.size.w * b.size.h)))
+        .map(|part| part.loc + Point::from((part.size.w / 2.0, part.size.h / 2.0)))
+}
+
 /// How far the pointer has to move before a press becomes a drag rather than a click.
 const DRAG_MIN: f64 = 6.0;
 /// The shade over everything not chosen.
@@ -78,6 +91,8 @@ pub struct Target {
     pub name: String,
     /// Screen-local.
     pub rect: Rectangle<f64, Logical>,
+    /// Where its letter goes: the middle of the largest part of it nothing covers.
+    pub spot: Point<f64, Logical>,
 }
 
 /// What a key or a click did.
@@ -180,7 +195,8 @@ impl Slipstream {
         let Some(output) = self.screens.focused_output() else {
             return;
         };
-        self.close_panels();
+        // Whatever is open stays open, so it can be snipped too: the snip takes every key and
+        // click first, and the panels are as they were afterwards.
         tracing::info!(screen = output.name(), "snip asked for");
         self.shots.snip = Some(Snip {
             output: output.name(),
@@ -245,14 +261,20 @@ impl Slipstream {
                 readout: None,
             });
         }
+        // Started from the faded screen, it froze that; now the UI comes back to choose on.
+        self.wake_ui();
     }
 
-    /// The windows on `screen` as drawn, topmost first, clipped to it, each given a letter.
+    /// The windows on `screen` as drawn that can be seen, topmost first, clipped to it, each
+    /// given a letter. One too see-through to be seen, such as an X11 app's hidden helper, or
+    /// covered by the windows over it, gets none.
     fn snip_targets(&self, screen: Rectangle<i32, Logical>) -> Vec<Target> {
         let screen = screen.to_f64();
-        self.space
+        let drawn: Vec<_> = self
+            .space
             .elements()
             .rev()
+            .filter(|window| !crate::state::unseen(window))
             .filter_map(|window| {
                 let drawn = self
                     .drawn
@@ -262,14 +284,23 @@ impl Slipstream {
                     .map(|(_, drawn)| *drawn)
                     .or_else(|| self.space.element_geometry(window).map(|r| r.to_f64()))?;
                 let visible = drawn.intersection(screen)?;
-                let rect = Rectangle::new(visible.loc - screen.loc, visible.size);
-                (rect.size.w >= 8.0 && rect.size.h >= 8.0).then(|| (window.clone(), rect))
+                Some((
+                    window,
+                    Rectangle::new(visible.loc - screen.loc, visible.size),
+                ))
             })
+            .collect();
+        let rects: Vec<_> = drawn.iter().map(|(_, rect)| *rect).collect();
+        drawn
+            .iter()
+            .enumerate()
+            .filter_map(|(at, (window, rect))| Some((window, *rect, spot(*rect, &rects[..at])?)))
             .zip(ALPHABET.chars())
-            .map(|((window, rect), letter)| Target {
+            .map(|((window, rect, spot), letter)| Target {
                 label: letter.to_string(),
-                name: self.window_name(&window),
+                name: self.window_name(window),
                 rect,
+                spot,
             })
             .collect()
     }
@@ -417,17 +448,13 @@ impl Slipstream {
         // Letters on the windows, unless a region is being dragged out.
         if !dragging {
             for target in &frozen.windows {
-                let centre = Point::from((
-                    target.rect.loc.x + target.rect.size.w / 2.0,
-                    target.rect.loc.y + target.rect.size.h / 2.0,
-                ));
                 elements.extend(
                     overview
                         .hint(
                             renderer,
                             &target.label,
                             Some(&target.name),
-                            centre,
+                            target.spot,
                             scale,
                             1.0,
                         )
@@ -842,6 +869,22 @@ mod tests {
 
     fn point(x: f64, y: f64) -> Point<f64, Logical> {
         Point::from((x, y))
+    }
+
+    /// A window hidden behind others gets no letter, and one partly covered has its letter on the
+    /// part that shows.
+    #[test]
+    fn only_a_window_that_shows_is_given_a_letter() {
+        let rect = |x, y, w, h| Rectangle::<f64, Logical>::new((x, y).into(), (w, h).into());
+        let back = rect(0.0, 0.0, 400.0, 300.0);
+        assert_eq!(spot(back, &[rect(0.0, 0.0, 400.0, 300.0)]), None);
+        assert_eq!(spot(back, &[rect(-10.0, -10.0, 500.0, 400.0)]), None);
+        // The front covers its left three quarters: its letter goes in the quarter left.
+        let partly = spot(back, &[rect(0.0, 0.0, 300.0, 300.0)]).unwrap();
+        assert_eq!((partly.x, partly.y), (350.0, 150.0));
+        assert_eq!(spot(back, &[]), Some(point(200.0, 150.0)));
+        // A sliver too thin to aim at doesn't count.
+        assert_eq!(spot(back, &[rect(0.0, 0.0, 396.0, 300.0)]), None);
     }
 
     #[test]

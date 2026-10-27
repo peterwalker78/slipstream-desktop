@@ -188,8 +188,14 @@ impl Slipstream {
                 | Action::Brightness(_)
                 | Action::Media(_)
         );
+        // A screenshot or a snip pictures what's open, so nothing makes way for it.
+        let pictures = matches!(action, Action::Screenshot { .. });
         for panel in self.panels_mut() {
-            if panel.is_open() && action != panel.binding() && !(media && panel.stays_for_media()) {
+            if panel.is_open()
+                && action != panel.binding()
+                && !pictures
+                && !(media && panel.stays_for_media())
+            {
                 panel.close();
             }
         }
@@ -337,8 +343,9 @@ impl Slipstream {
         let pressed = key_state == KeyState::Pressed;
         let keyboard = self.seat.get_keyboard().unwrap();
         // A key while the UI is faded only brings it back; that press goes nowhere. The lock
-        // doesn't fade, so a key typed at it is never lost.
-        let waking = self.wake_ui() && pressed && self.lock.is_none();
+        // doesn't fade, so a key typed at it is never lost. Settled in the filter below, once the
+        // key is known.
+        let mut waking = false;
         // Looked up before `input`, which holds the keyboard lock while the filter runs.
         let gamescope_focused = self.gamescope_focused();
         // A Super tap is off for games (fullscreen or gamescope), and for a real keyboard when
@@ -384,6 +391,17 @@ impl Slipstream {
                 // Injected keys mean what they mean in the login session: no
                 // nested Alt standing in for Super.
                 let mods = Mods::from_state(modifiers, state.nested && !injected);
+                // A screenshot or a snip, pressed or let go of, leaves the faded screen as it is,
+                // so the picture is of it, the screensaver still going: a snip brings the UI back
+                // once its frame is frozen.
+                let shot = matches!(
+                    keys::action_for(&state.bindings, mods, key),
+                    Some(Action::Screenshot { .. })
+                );
+                let leaves_faded = shot && state.idle.is_faded() && state.lock.is_none();
+                if !leaves_faded {
+                    waking = state.wake_ui() && pressed && state.lock.is_none();
+                }
                 if pressed && !key.is_modifier_key() {
                     typed_shortcut = Some(mods.ctrl || mods.alt || mods.logo);
                 }
