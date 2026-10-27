@@ -750,6 +750,47 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
         );
     }
 
+    /// The promise in the guide: a sandboxed plugin has a login keyring of its own, so it can't
+    /// see the keys kept in yours.
+    #[test]
+    fn a_sandboxed_plugin_has_a_keyring_of_its_own() {
+        // A secret in a session keyring of the test's own, as a login might keep one.
+        // SAFETY: plain system calls with valid C strings, changing only this process's keyrings.
+        let key = unsafe {
+            libc::syscall(
+                libc::SYS_keyctl,
+                libc::KEYCTL_JOIN_SESSION_KEYRING,
+                std::ptr::null::<libc::c_char>(),
+            );
+            libc::syscall(
+                libc::SYS_add_key,
+                c"user".as_ptr(),
+                c"slipstream-test".as_ptr(),
+                c"hunter2".as_ptr(),
+                7,
+                libc::KEY_SPEC_SESSION_KEYRING,
+            )
+        };
+        assert!(key > 0, "{}", std::io::Error::last_os_error());
+        let root = scratch("keyring");
+        let script = format!("keyctl print {key} 2>&1; echo done");
+        let plugin = install_needing(&root, "keys", &script, None, &[]);
+        let out = worker::program(&plugin, &root.join("state"), &[])
+            .unwrap()
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(said.ends_with("done\n"), "{said}");
+        assert!(!said.contains("hunter2"), "{said}");
+        // Run as the person, it could, so the test does test something.
+        let everything = install(&root, "keys-too", &script, None);
+        let out = worker::program(&everything, &root.join("state"), &[])
+            .unwrap()
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("hunter2"));
+    }
+
     /// The promise in the guide: a plugin's program is given only the environment that says who
     /// and where the person is, never the session's sockets or keys.
     #[test]

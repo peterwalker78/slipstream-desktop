@@ -319,11 +319,8 @@ fn plugin_row(
     }
     if unconfined {
         warnings.push(plugin.manifest.reach());
-    } else if slipstream_config::plugins::sandbox::bwrap().is_none() {
-        warnings.push(format!(
-            "{}.",
-            slipstream_config::plugins::sandbox::NO_BWRAP
-        ));
+    } else if let Err(why) = slipstream_config::plugins::sandbox::bwrap() {
+        warnings.push(format!("{why}."));
     }
     for warning in warnings {
         let warning = label(&warning, "row-sub");

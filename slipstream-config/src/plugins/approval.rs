@@ -314,7 +314,7 @@ mod tests {
         let root = scratch("more");
         let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
         let more = "name = \"Timer\"\nexec = [\"./timer\", \"card\", \"--upload\"]\n\
-                    read = [\"$XDG_CACHE_HOME/timer\", \"$HOME/.ssh\"]\nevery-secs = 5\n\
+                    read = [\"$XDG_CACHE_HOME/timer\", \"$HOME/Documents\"]\nevery-secs = 5\n\
                     needs = [\"network\"]\n";
         let plugin = timer(&root, more, "echo one");
         let change = compare(&before, &Approval::of(&plugin));
@@ -322,7 +322,7 @@ mod tests {
         let said = explain(Some(&change), &Source::Unknown).join("\n");
         assert_eq!(
             said,
-            "It now also wants to go online and look in ~/.ssh. It starts a different program \
+            "It now also wants to go online and look in ~/Documents. It starts a different program \
              too.\nSlipstream didn't install it, so it can't say where it came from."
         );
         // Running more often, or needing less, asks for nothing more.

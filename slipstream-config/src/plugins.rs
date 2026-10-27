@@ -254,6 +254,14 @@ pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
                  each other"
             ));
         }
+        // Plugins write in there, their own state folders. One that could change a folder it
+        // reads between this check and its sandbox starting could put a link there in its place.
+        let plugins = canonical(&store::root());
+        if path.starts_with(&plugins) || plugins.starts_with(&path) {
+            return Err(format!(
+                "It asks to look in {shown}, where plugins keep their own things"
+            ));
+        }
         socket_free(&path).map_err(|why| format!("It asks to look in {shown}, which {why}"))?;
         folders.push(ReadFolder { named, real: path });
     }
@@ -273,9 +281,9 @@ pub struct ReadFolder {
 /// The most a folder a plugin reads may hold before it is too much to check for sockets.
 const MOST_IN_A_READ: usize = 4096;
 
-/// Whether `path` holds no socket, which a read-only folder doesn't stop a program connecting
-/// to: says what it holds otherwise. Links aren't followed, since in the sandbox they lead only
-/// where it can already look.
+/// Whether `path` holds nothing that reaches another program, which a read-only folder doesn't
+/// stop: a socket, a named pipe or a device. Says what it holds otherwise. Links aren't followed,
+/// since in the sandbox they lead only where it can already look.
 fn socket_free(path: &Path) -> Result<(), &'static str> {
     use std::os::unix::fs::FileTypeExt;
     let mut looked = 0;
@@ -285,7 +293,7 @@ fn socket_free(path: &Path) -> Result<(), &'static str> {
             continue;
         };
         let kind = meta.file_type();
-        if kind.is_socket() {
+        if kind.is_socket() || kind.is_fifo() || kind.is_block_device() || kind.is_char_device() {
             return Err("holds a way to reach another program, so it isn't given");
         }
         looked += 1;
@@ -303,20 +311,29 @@ fn socket_free(path: &Path) -> Result<(), &'static str> {
 
 /// Where a plugin is never given a look: anything holding sockets, which a read-only folder
 /// doesn't stop a program connecting to, or the system's live state. Your session's bus, sound,
-/// display and keys all have theirs in `/run` and `$XDG_RUNTIME_DIR`, X11's are in `/tmp`, and
-/// `/proc` lists every program's command line. A folder inside one of them, or holding one, as
-/// `/` does, is off limits.
+/// display and keys all have theirs in `/run` and `$XDG_RUNTIME_DIR`, X11's are in `/tmp`, the
+/// SSH and GPG agents can keep theirs in `~/.ssh` and `~/.gnupg` beside the keys, and `/proc`
+/// lists every program's command line. A folder inside one of them, or holding one, as `/` and
+/// your home folder do, is off limits.
 const OFF_LIMITS: &[&str] = &[
     "/run", "/var/run", "/tmp", "/var/tmp", "/proc", "/sys", "/dev",
 ];
 
 fn off_limits(path: &Path) -> bool {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let home = crate::xdg_home("HOME", "");
+    let keys = [".ssh", ".gnupg"].map(|keys| home.join(keys));
     OFF_LIMITS
         .iter()
         .map(PathBuf::from)
         .chain(runtime)
+        .chain(keys.iter().flat_map(|keys| [keys.clone(), canonical(keys)]))
         .any(|limit| path.starts_with(&limit) || limit.starts_with(path))
+}
+
+/// `path` with every link followed, or as it is where it can't be.
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// A folder `read` names as a path, its `$HOME`, `$XDG_RUNTIME_DIR` or `$XDG_…_HOME` put in.
@@ -565,8 +582,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
         ));
     }
     if let Some(folder) = manifest.read.iter().find(|folder| {
-        folder.contains("XDG_RUNTIME_DIR")
-            || (folder.starts_with('/') && off_limits(Path::new(folder.as_str())))
+        folder.contains("XDG_RUNTIME_DIR") || expand(folder).is_some_and(|path| off_limits(&path))
     }) {
         return Err(format!(
             "{MANIFEST} asks to look in {folder}, where your session keeps what lets programs \
@@ -1115,6 +1131,20 @@ mod tests {
         let app_s = app.display().to_string();
         let why = read_folders(&manifest(&[&app_s])).unwrap_err();
         assert!(why.contains("a way to reach another program"), "{why}");
+        // A named pipe is a way to reach a program too, read-only folder or not.
+        let piped = root.join("piped");
+        std::fs::create_dir_all(&piped).unwrap();
+        let fifo = std::ffi::CString::new(piped.join("pipe").into_os_string().into_vec()).unwrap();
+        // SAFETY: a valid C string for a path; this only creates a file.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let piped_s = piped.display().to_string();
+        let why = read_folders(&manifest(&[&piped_s])).unwrap_err();
+        assert!(why.contains("a way to reach another program"), "{why}");
+        // Where the SSH and GPG agents can listen, and so the home folder holding them.
+        for keys in ["$HOME/.ssh", "$HOME/.gnupg/private-keys-v1.d", "$HOME"] {
+            let text = format!("name = \"x\"\nexec = [\"x\"]\nread = [\"{keys}\"]\n");
+            assert!(parse_manifest(text.as_bytes()).is_err(), "{keys}");
+        }
 
         for refused in [
             "/",

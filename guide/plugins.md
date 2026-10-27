@@ -23,7 +23,7 @@ needs = ["network"]
 - `name` and `exec` are needed; `description` shows in **Settings → Plugins**.
 - `exec` is the program and the words it is run with, as a list. It is run as written, with no shell. A program with a `/` in it is found from the plugin's folder, and can't start with `/` or go up with `..`; one without is looked for on `PATH`.
 - `every-secs` runs the program that often, and again after one of its buttons is pressed. Leave it out for a program that keeps running and prints a new card whenever something changes.
-- `read` names folders outside its own that it reads, such as `read = ["$XDG_CACHE_HOME/weather"]`. They are handed to the program as `SLIPSTREAM_PLUGIN_READ_0`, `SLIPSTREAM_PLUGIN_READ_1` and so on. A folder starts with `$HOME`, one of the `$XDG_…_HOME` folders, or `/`. Folders that hold the sockets programs use to reach each other, or the system's live state, are never given, nor any folder holding one: `$XDG_RUNTIME_DIR`, `/run`, `/tmp`, `/var/tmp`, `/proc`, `/sys`, `/dev`, and so `/` and `/var` too. A link is followed before that's checked. A plugin that asks for one can't be turned on, and Settings says why. Nor is a folder that holds a socket of an app's own, or more than 4096 files and folders to check for one: the plugin doesn't run, and its card says why.
+- `read` names folders outside its own that it reads, such as `read = ["$XDG_CACHE_HOME/weather"]`. They are handed to the program as `SLIPSTREAM_PLUGIN_READ_0`, `SLIPSTREAM_PLUGIN_READ_1` and so on. A folder starts with `$HOME`, one of the `$XDG_…_HOME` folders, or `/`. Folders that hold the sockets programs use to reach each other, or the system's live state, are never given, nor any folder holding one: `$XDG_RUNTIME_DIR`, `/run`, `/tmp`, `/var/tmp`, `/proc`, `/sys`, `/dev`, `~/.ssh` and `~/.gnupg`, and so `/`, `/var` and your home folder too. Nor are the plugins' own folders, where plugins write. A link is followed before that's checked. A plugin that asks for one can't be turned on, and Settings says why. Each folder is also looked through before every start of the program: one holding a socket, a named pipe or a device of an app's own, or more than 4096 files and folders to check, stops the plugin, and its card says why. Something put there after its program has started is only found at its next start.
 - `needs` lists what else it reaches: see [What it can reach](#what-it-can-reach). Leave it out for a plugin that needs nothing more.
 
 The folder's name is the plugin's id: letters, digits, `.`, `-` and `_`. A folder can hold only files and folders, no links. One with more than 4096 of them, folders more than 16 deep or more than 64 MB is listed as too big to check, and can't be turned on.
@@ -60,13 +60,13 @@ A plugin runs in a sandbox, made with [bubblewrap](https://github.com/containers
 
 `needs` adds to that, and **Settings → Plugins** says in plain words what each plugin can reach before you turn it on:
 
-- `network`: the internet and your local network.
+- `network`: the internet and your local network. It shares the computer's own network, so it can also reach any program listening for other programs there.
 - `windows`: the display, to open windows of its own. Its windows are treated as a Flatpak app's are: it can't type as your keyboard, read the clipboard while you're elsewhere, or draw over the desktop.
 - `notify`: sending you notifications, from its card.
 - `notifications`: seeing the notifications you get. Each one is a line of JSON on the program's standard input, `{"notification": {"app": "Mail", "title": "…", "body": "…", "time": 1793121600}}`, the time in seconds since the Unix epoch. A program that keeps running reads them as they come; one that runs every so often reads those since its last run, and then the end of its input. Only notifications kept in the notification centre are passed on, and never the plugin's own.
 - `everything`: no sandbox at all. The program runs as you, with your whole session, the session bus included, and Settings says so in amber. It is one item rather than a sandbox with the bus let in, because anything that reaches the session bus can ask your session to start any program outside the sandbox.
 
-A plugin that asks for nothing gets the tightest sandbox. Without bubblewrap installed, a plugin that runs in the sandbox stays off and says why; the installer offers it with the other packages it suggests.
+A plugin that asks for nothing gets the tightest sandbox. Without bubblewrap 0.8 or newer, a plugin that runs in the sandbox stays off and says why; the installer offers it with the other packages it suggests. A sandboxed plugin also gets a login keyring of its own, empty, so the keys your login keeps there stay out of its reach.
 
 ## Where it runs from
 

@@ -29,7 +29,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False git gcc clang mold rustup pkgconf-pkg-config \
             libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
             libseat-devel libdrm-devel mesa-libEGL-devel pixman-devel libdisplay-info-devel gtk4-devel \
-            ShellCheck dash openssh-clients bubblewrap
+            ShellCheck dash openssh-clients bubblewrap keyutils
           rustup-init -y --profile minimal -c rustfmt -c clippy
 
       - uses: actions/checkout@v7
@@ -85,7 +85,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
             mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
-            libgtk-4-dev bubblewrap
+            libgtk-4-dev bubblewrap keyutils
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
 

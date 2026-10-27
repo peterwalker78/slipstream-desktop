@@ -19,17 +19,37 @@ use std::{
 
 use super::{Manifest, Need, ReadFolder};
 
-/// Where `bwrap` is, if it's installed.
-pub fn bwrap() -> Option<&'static Path> {
-    static FOUND: OnceLock<Option<PathBuf>> = OnceLock::new();
+/// Where `bwrap` is, or why a plugin can't run in its sandbox here: it isn't installed, or it is
+/// older than 0.8, which can't stop a program inside making namespaces of its own.
+pub fn bwrap() -> Result<&'static Path, &'static str> {
+    static FOUND: OnceLock<Result<PathBuf, &'static str>> = OnceLock::new();
     FOUND
         .get_or_init(|| {
-            let path = std::env::var_os("PATH")?;
-            std::env::split_paths(&path)
+            let path = std::env::var_os("PATH").ok_or(NO_BWRAP)?;
+            let bwrap = std::env::split_paths(&path)
                 .map(|dir| dir.join("bwrap"))
                 .find(|bwrap| is_program(bwrap))
+                .ok_or(NO_BWRAP)?;
+            let said = std::process::Command::new(&bwrap)
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .output()
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                .unwrap_or_default();
+            match version(&said) {
+                Some(found) if found < (0, 8) => Err(OLD_BWRAP),
+                _ => Ok(bwrap),
+            }
         })
-        .as_deref()
+        .as_ref()
+        .map(PathBuf::as_path)
+        .map_err(|why| *why)
+}
+
+/// The version `bwrap --version` says, as "bubblewrap 0.12.0".
+fn version(said: &str) -> Option<(u32, u32)> {
+    let mut parts = said.split_whitespace().nth(1)?.split('.');
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
 fn is_program(path: &Path) -> bool {
@@ -45,6 +65,8 @@ pub const MARKER: &str = ".slipstream-plugin";
 /// Why a plugin that runs in the sandbox can't run here, when it can't.
 pub const NO_BWRAP: &str = "It runs in a sandbox, which needs bubblewrap (bwrap), and that isn't \
                             installed";
+pub const OLD_BWRAP: &str = "It runs in a sandbox, which needs bubblewrap 0.8 or newer, and this \
+                             one is older";
 
 /// The person's session, as far as the sandbox takes from it.
 #[derive(Debug, Clone, Default)]
@@ -115,6 +137,17 @@ pub fn args(
     }
     for folder in SYSTEM {
         add(&["--ro-bind-try".as_ref(), folder.as_ref(), folder.as_ref()]);
+    }
+    // Where `/usr/local` is a link out of `/usr`, as it is to `/var/usrlocal` on Fedora's atomic
+    // systems, the programs installed there are where it leads.
+    if let Ok(local) = std::fs::canonicalize("/usr/local")
+        && !local.starts_with("/usr")
+    {
+        add(&[
+            "--ro-bind-try".as_ref(),
+            local.as_os_str(),
+            local.as_os_str(),
+        ]);
     }
     for folder in MERGED {
         match std::fs::read_link(folder) {
@@ -217,6 +250,14 @@ mod tests {
 
     /// The promise in the guide: unless it says it needs them, a sandboxed plugin has no network,
     /// no display and nothing of the person's home but its own folders and what it reads.
+    #[test]
+    fn bubblewrap_s_version_is_read_from_what_it_says() {
+        assert_eq!(version("bubblewrap 0.12.0\n"), Some((0, 12)));
+        assert_eq!(version("bubblewrap 0.6.1"), Some((0, 6)));
+        assert!(version("bubblewrap 0.6.1").unwrap() < (0, 8));
+        assert_eq!(version(""), None);
+    }
+
     #[test]
     fn a_sandboxed_plugin_gets_only_what_it_needs() {
         let dir = Path::new("/home/ada/.local/state/slipstream/plugins/ferry/ab12");

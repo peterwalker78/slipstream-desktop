@@ -12,6 +12,7 @@
 
 use std::{
     collections::VecDeque,
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -84,9 +85,10 @@ pub struct Published {
 
 /// The most presses waiting to be run; more are dropped.
 const MOST_PRESSES: usize = 8;
-/// The most notifications waiting to be handed to a program; more are dropped. Each line is a
-/// little over 600 bytes at most, so they always fit in a pipe at once.
-const MOST_HEARD: usize = 32;
+/// The most notifications waiting to be handed to a program; more are dropped. A line holds at
+/// most 560 characters of text, a little over 2 KB at four bytes each, so they always fit in a
+/// pipe's 64 KB at once.
+const MOST_HEARD: usize = 24;
 /// The most of what it is told kept for a program that keeps running and is slow to read it.
 const MOST_UNREAD: usize = 64 << 10;
 
@@ -539,9 +541,27 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
     let mut command = if manifest.unconfined() {
         Command::new(program)
     } else {
-        let bwrap = sandbox::bwrap().ok_or(sandbox::NO_BWRAP)?;
+        let bwrap = sandbox::bwrap()?;
         let session = sandbox::Session::now();
         let mut command = Command::new(bwrap);
+        // A session keyring of its own, empty: the one it would share can hold the keys that
+        // unlock your files or shares, and the sandbox doesn't otherwise keep them out.
+        // SAFETY: one system call between fork and exec, which allocates nothing.
+        unsafe {
+            command.pre_exec(|| {
+                let joined = libc::syscall(
+                    libc::SYS_keyctl,
+                    libc::KEYCTL_JOIN_SESSION_KEYRING,
+                    std::ptr::null::<libc::c_char>(),
+                );
+                let error = std::io::Error::last_os_error();
+                // A kernel without keyrings has none to keep out.
+                if joined < 0 && error.raw_os_error() != Some(libc::ENOSYS) {
+                    return Err(error);
+                }
+                Ok(())
+            });
+        }
         command
             .args(sandbox::args(
                 manifest,
