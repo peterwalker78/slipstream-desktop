@@ -44,17 +44,46 @@ fn fill(list: &gtk::Box, store: &Store) {
     let link = gtk::LinkButton::with_label(HOW_TO, "How to write one");
     row(
         &about,
-        "Only what it says",
-        Some(
-            "Each plugin runs in a sandbox and can do only what's listed under its name. Safe \
-             means it can't see or send anything of yours that matters. Worth a thought means it \
-             can see something private, or send what it sees online, so think about who made it. \
-             Full access means it runs outside the sandbox, as a program you install yourself \
-             does, and what that allows is listed under it: switch it on only if you trust where \
-             it came from. A plugin that changes after you switch it on stays off until you switch \
-             it on again.",
-        ),
+        "Only what it lists",
+        Some("Each plugin runs in a sandbox, and can do only what's listed under its name."),
         &link,
+    );
+    // What each verdict beside a plugin's name means, a row each, in its own colour.
+    for (care, means) in [
+        (
+            plugins::Care::Safe,
+            "It can't see or send anything of yours that matters.",
+        ),
+        (
+            plugins::Care::Thought,
+            "It can see something private, or reach beyond itself. Think about who made it.",
+        ),
+        (
+            plugins::Care::Full,
+            "It runs outside the sandbox, as a program you install yourself does. Switch it on \
+             only if you trust where it came from.",
+        ),
+    ] {
+        let line = gtk::Box::builder().spacing(14).css_classes(["row"]).build();
+        // A column as wide as the widest, so the meanings line up.
+        let column = gtk::Box::builder().width_request(130).build();
+        let verdict = verdict_label(care);
+        verdict.set_valign(gtk::Align::Center);
+        column.append(&verdict);
+        line.append(&column);
+        let says = label(means, "row-sub");
+        says.set_hexpand(true);
+        says.set_valign(gtk::Align::Center);
+        line.append(&says);
+        about.append(&line);
+    }
+    row(
+        &about,
+        "Updates wait for you",
+        Some(
+            "A plugin that changes after you switch it on stays off until you switch it on again.",
+        ),
+        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );
 
     // Plugin folders are read and fingerprinted off the GTK thread, since a big one takes a
@@ -313,8 +342,7 @@ fn plugin_card(
             let named = gtk::Box::builder().spacing(10).build();
             text.remove(&title);
             named.append(&title);
-            let verdict = label(care.verdict(), "verdict");
-            verdict.add_css_class(care_class(care));
+            let verdict = verdict_label(care);
             verdict.set_valign(gtk::Align::Center);
             named.append(&verdict);
             text.prepend(&named);
@@ -447,6 +475,15 @@ fn notice(card: &gtk::Box, says: &str, details: &[String]) {
     }
     notice.append(&text);
     card.append(&notice);
+}
+
+/// The verdict a plugin comes to, as a pill on one line.
+fn verdict_label(care: plugins::Care) -> gtk::Label {
+    let verdict = label(care.verdict(), "verdict");
+    verdict.set_wrap(false);
+    verdict.set_halign(gtk::Align::Start);
+    verdict.add_css_class(care_class(care));
+    verdict
 }
 
 /// The style for how much thought something deserves: as quiet as the rest, the colour of what
