@@ -27,13 +27,13 @@ Nothing that interrupts you, and nothing that leaves your machine.
 
 ## Built to help you be human again
 
-Keep your phone simple - calls, messages, not much else - and the computer is where the rest of your day happens. Slipstream is made for that: a desktop that's good to sit down at and make things on, and easy to get up from when you're done.
+Films showed computers the way they could feel: falling code, one key that does something enormous, someone who never reaches for the mouse. What they got right was the person at the keyboard - absorbed, making something, in charge of the machine.
 
-It's one of three apps made with that aim. Slipstream is where you work. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
+Most screens since have been built for the opposite: to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's happening without asking for a look, and measures nothing about you. Keep your phone simple, and let the computer be where the rest of your day happens: good to sit down at and make things on, and easy to get up from.
+
+It's one of three apps made with that aim. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
 
 Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
-
-Films showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. Slipstream is built on the part they got right.
 
 ## Nothing interrupts you
 
@@ -111,9 +111,9 @@ Leave your desk and the desktop sinks back into its wallpaper, which was running
 - **One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
 - **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 
-## Why it's built this way
+## A workshop, not a slot machine
 
-Most of what's on our screens now is designed to keep us checking one more thing. Slipstream is built the other way round: it stays out of your way while you work, lets you see what's going on without going to look, and keeps everything a keystroke away. **A workshop, not a slot machine:** somewhere you sit down to make things, and get lost in the work rather than the machine.
+That's the whole idea: a desktop that stays out of your way while you work, lets you see what's going on without going to look, and keeps everything a keystroke away. Somewhere you sit down to make things, and get lost in the work rather than the machine.
 
 ## Get Slipstream
 
