@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(app_name("com.visualstudio.code"), "Code");
         assert_eq!(app_name("org.gnome.Nautilus"), "Nautilus");
         assert_eq!(app_name("gnome-text-editor"), "Gnome text editor");
-        assert!(!app_name("evil\n- 2026-10-27 09:00, 25 min").contains('\n'));
+        assert!(!app_name("org.example.App\n- 2026-10-27 09:00, 25 min").contains('\n'));
     }
 
     #[test]
