@@ -54,6 +54,57 @@ Every field is optional.
 
 The card is only ever shown. Nothing in it is run, and a button can only run the plugin's own program, with its id as a word of its own.
 
+## Beyond its card
+
+A plugin can show up in three more places, each drawn by Slipstream in its own style from what the plugin says, and each doing what a button does when used: running its program with `press` and an id. A plugin never draws on the desktop and never takes keys itself. **Settings → Plugins** says on its card where it shows.
+
+### A tile in quick settings
+
+A plugin whose `plugin.toml` says `tile = true` gets a tile in quick settings, under Slipstream's own, from the `tile` on its card:
+
+```toml
+tile = true
+```
+
+```json
+{"tile": {"id": "awake", "label": "Keep awake", "icon": "sun", "on": true}}
+```
+
+- `id` is what pressing the tile sends, as a button's: `press awake`. `label` is its name, and `on` lights it in the accent colour. Under the label is the plugin's name.
+- `icon` is one of `bell`, `eye`, `file`, `folder`, `gauge`, `keyboard`, `lock`, `mic`, `moon`, `pause`, `play`, `power`, `run`, `search`, `sun`, `tick` and `volume`; any other, or none, gets a plain one.
+- The tile changes when the card does, so print a new card with the new `on` once the press has done its work. Up to four plugins' tiles show, while their plugins are on.
+
+### Answers in the explorer
+
+A plugin whose `plugin.toml` names a `keyword` answers the searches that start with it, and only those: it never sees anything else typed in the explorer.
+
+```toml
+keyword = "="
+```
+
+- A keyword is one to three symbols, such as `=`, `?` or `!!`, so that no ordinary search starts with one. It can't start with `:`, `/`, `~` or `.`, which Slipstream's own emoji and file searches use.
+- Each search runs the plugin's program with `search` and the words typed after the keyword, as one word: `./sums.sh search "2+2"`. That is the same for a program that runs every so often and one that keeps running: the search is a run of its own, beside the program's usual runs, so a program that keeps running needn't read anything for it. A search with nothing after the keyword isn't run.
+- The program prints its answers as one line of JSON, and exits:
+
+```json
+{"results": [{"id": "four", "label": "4", "detail": "2 + 2", "icon": "tick"}]}
+```
+
+- Up to six answers show, as rows under the plugin's name. `detail` is a few words at the end of the row, and `icon` is one of the tile's pictures. Enter, or a click, on one sends its `id` as a button's: `press four`.
+- Typing on while a search runs stops it and asks again, and a search still running after 2 seconds is stopped, so a slow plugin only has nothing to show. Its last answers stay up, dimmed, until new ones come.
+
+### Keys for its actions
+
+A plugin can list actions, each with an `id` and a `label`, up to eight:
+
+```toml
+[[actions]]
+id = "start"
+label = "Start the timer"
+```
+
+They have no keys until you give them some, in **Settings → Shortcuts**, under **Plugins' actions**, while the plugin is on. Keys Slipstream or an app already uses, or that the shortcut style keeps for typing aids, screen readers and games, are refused there with why, as for your own shortcuts. Pressing the keys sends the action's id as a button's: `press start`. They are kept in the settings file as `[[keys.plugin]]`, with `keys`, `plugin` and `action`.
+
 ## What it can reach
 
 A plugin runs in a sandbox, made with [bubblewrap](https://github.com/containers/bubblewrap), the tool Flatpak uses. In it, the program sees the system's programs, libraries and settings, read-only, and of your own files only its folder, read-only, its own folder for what it keeps, and the folders its `read` names, read-only. Your home folder is empty and `/tmp` is its own. It can't see or signal any other program, and it has no network, no display and no session bus. Its environment is only `HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, the language and time zone settings, the `$XDG_…_HOME` folders, and the proxy settings for one that goes online, so the SSH and GPG agents are left out too. On top of that, a filter refuses it the kernel's own ways round a sandbox, as Flatpak's does: keyrings, namespaces and mounts, typing into a terminal, loading kernel modules, `bpf`, `ptrace`, `io_uring`, and sockets other than local, internet and netlink.

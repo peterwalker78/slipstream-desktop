@@ -236,6 +236,7 @@ mod tests {
             every_secs: None,
             read: Vec::new(),
             needs: needs.to_vec(),
+            ..Manifest::default()
         }
     }
 

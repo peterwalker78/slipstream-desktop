@@ -79,6 +79,11 @@ pub enum Item {
     Answer(crate::calc::Answer),
     /// An emoji found by a `:` query, and its name: Enter types it.
     Emoji(&'static str, &'static str),
+    /// A plugin's answer to a search that started with its keyword: Enter sends it its id.
+    Plugin {
+        plugin: String,
+        id: String,
+    },
 }
 
 pub enum Outcome {
@@ -157,6 +162,8 @@ pub struct Explorer {
     answer_since: Option<(String, f64)>,
     /// How long the shown answer has been decoding, for the paint.
     answer_age: f64,
+    /// What the plugins whose keyword the query starts with have to show for it.
+    answers: Vec<crate::plugins::Answers>,
 }
 
 impl Explorer {
@@ -205,6 +212,7 @@ impl Explorer {
             reduced_motion,
             answer_since: None,
             answer_age: f64::MAX,
+            answers: Vec::new(),
         }
     }
 
@@ -215,6 +223,7 @@ impl Explorer {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.query.clear();
+        self.answers.clear();
         self.selected = 0;
         self.scroll = 0;
         self.opened_at = now;
@@ -230,6 +239,29 @@ impl Explorer {
         self.shown = None;
         self.buffer = None;
         self.targets.clear();
+    }
+
+    /// What is typed.
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    /// What the plugins asked about the query have to show. A query that has just started or
+    /// stopped being a plugin's goes back to its best match; otherwise the choice stays, within
+    /// what there is.
+    pub fn set_answers(&mut self, answers: Vec<crate::plugins::Answers>) {
+        if answers == self.answers {
+            return;
+        }
+        let was_asked = !self.answers.is_empty();
+        let asked = !answers.is_empty();
+        self.answers = answers;
+        if was_asked != asked {
+            self.reset_selection();
+        } else {
+            let total = self.results().items().len();
+            self.selected = self.selected.min(total.saturating_sub(1));
+        }
     }
 
     /// Back to the row Enter lands on for what is typed now: the best match.
@@ -875,5 +907,54 @@ mod tests {
             "a folder opens"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn answers(words: &str, labels: &[&str], fresh: bool) -> crate::plugins::Answers {
+        crate::plugins::Answers {
+            plugin: "sums".into(),
+            name: "Sums".into(),
+            words: words.into(),
+            hits: labels
+                .iter()
+                .map(|label| slipstream_config::plugins::surfaces::Hit {
+                    id: label.to_lowercase(),
+                    label: label.to_string(),
+                    detail: String::new(),
+                    icon: None,
+                })
+                .collect(),
+            fresh,
+            problem: None,
+        }
+    }
+
+    /// A search that starts with a plugin's keyword shows its answers and nothing else, Enter
+    /// sends the chosen one's id, and answers to what was typed before can't be chosen.
+    #[test]
+    fn a_plugin_s_answers_take_the_side_column_and_enter_sends_one() {
+        let mut explorer = with_apps(&["Calendar"]);
+        explorer.open(0.0);
+        type_in(&mut explorer, "=c");
+        explorer.set_answers(vec![answers("c", &["Four", "Five"], false)]);
+        let results = explorer.results();
+        assert!(results.apps.is_empty() && results.run.is_none() && results.files.is_empty());
+        assert!(results.items().is_empty(), "stale answers can't be chosen");
+        explorer.set_answers(vec![answers("c", &["Four", "Five"], true)]);
+        explorer.key(Keysym::Down, None, Mods::default());
+        match explorer.key(Keysym::Return, None, Mods::default()) {
+            Outcome::Activate(Item::Plugin { plugin, id }, _) => {
+                assert_eq!((plugin.as_str(), id.as_str()), ("sums", "five"));
+            }
+            _ => panic!("Enter should send the answer chosen"),
+        }
+        // Without a plugin asked, the apps come back.
+        explorer.set_answers(Vec::new());
+        explorer.key(Keysym::BackSpace, None, Mods::default());
+        explorer.key(Keysym::BackSpace, None, Mods::default());
+        type_in(&mut explorer, "cal");
+        assert_eq!(
+            selected(&explorer).map(|item| matches!(item, Item::App(_))),
+            Some(true)
+        );
     }
 }

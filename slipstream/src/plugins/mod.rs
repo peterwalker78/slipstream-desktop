@@ -12,6 +12,7 @@
 
 pub mod card;
 mod scan;
+pub mod surfaces;
 mod worker;
 
 pub use scan::Scan;
@@ -22,7 +23,10 @@ use std::sync::Arc;
 
 use slipstream_config::{
     Settings,
-    plugins::{self, Card, Need},
+    plugins::{
+        self, Card, Need,
+        surfaces::{Action, Hit, SEARCH_CHARS, Tile},
+    },
 };
 
 use worker::{Approved, Sink, Worker};
@@ -32,6 +36,39 @@ struct Running {
     approved: Approved,
     hidden: Vec<String>,
     worker: Worker,
+    /// Its searches, for one with a keyword.
+    searcher: Option<surfaces::Searcher>,
+}
+
+/// A plugin's tile in quick settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginTile {
+    pub plugin: String,
+    /// The plugin's name, under the tile's own.
+    pub name: String,
+    pub tile: Tile,
+}
+
+/// What a plugin has to show for a search that starts with its keyword.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answers {
+    pub plugin: String,
+    pub name: String,
+    /// What was typed after the keyword.
+    pub words: String,
+    pub hits: Vec<Hit>,
+    /// The hits answer these words, rather than ones typed before.
+    pub fresh: bool,
+    /// Why there are none, when the search for these words failed.
+    pub problem: Option<String>,
+}
+
+/// The actions a plugin that's on offers keys for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offered {
+    pub plugin: String,
+    pub name: String,
+    pub actions: Vec<Action>,
 }
 
 /// A plugin's card as the panel shows it.
@@ -159,6 +196,12 @@ impl Plugins {
                 tracing::debug!("starting plugin {}", approved.plugin.id);
                 Running {
                     worker: Worker::start(approved.clone(), self.sink.clone()),
+                    searcher: approved
+                        .plugin
+                        .manifest
+                        .keyword
+                        .is_some()
+                        .then(|| surfaces::Searcher::start(approved.clone())),
                     approved,
                     hidden: Vec::new(),
                 }
@@ -226,6 +269,83 @@ impl Plugins {
             .find(|running| running.approved.plugin.id == id)
         {
             running.worker.press(button);
+        }
+    }
+
+    /// The tiles of the plugins that are on and say they have one, in order.
+    pub fn tiles(&self) -> Vec<PluginTile> {
+        self.running
+            .iter()
+            .filter(|running| running.approved.plugin.manifest.tile)
+            .filter_map(|running| {
+                let tile = running.worker.published().card?.tile?;
+                Some(PluginTile {
+                    plugin: running.approved.plugin.id.clone(),
+                    name: running.approved.plugin.manifest.name.clone(),
+                    tile,
+                })
+            })
+            .collect()
+    }
+
+    /// `query` was typed in the explorer: each plugin whose keyword it starts with is asked the
+    /// words after it, off the event loop, and says what it has so far. Any other plugin is
+    /// neither asked nor told.
+    pub fn search(&self, query: &str) -> Vec<Answers> {
+        self.running
+            .iter()
+            .filter_map(|running| {
+                let searcher = running.searcher.as_ref()?;
+                let manifest = &running.approved.plugin.manifest;
+                let words: String = manifest
+                    .searched(query)?
+                    .chars()
+                    .take(SEARCH_CHARS)
+                    .collect();
+                if !words.is_empty() {
+                    searcher.ask(&words);
+                }
+                let answer = searcher.answer().filter(|_| !words.is_empty());
+                let fresh = answer.as_ref().is_some_and(|answer| answer.words == words);
+                let (hits, problem) = match answer.map(|answer| answer.found) {
+                    Some(Ok(hits)) => (hits, None),
+                    Some(Err(why)) => (Vec::new(), fresh.then_some(why)),
+                    None => (Vec::new(), None),
+                };
+                Some(Answers {
+                    plugin: running.approved.plugin.id.clone(),
+                    name: manifest.name.clone(),
+                    words,
+                    hits,
+                    fresh,
+                    problem,
+                })
+            })
+            .collect()
+    }
+
+    /// The actions the plugins that are on offer keys for.
+    pub fn offered(&self) -> Vec<Offered> {
+        self.running
+            .iter()
+            .filter(|running| !running.approved.plugin.manifest.actions.is_empty())
+            .map(|running| Offered {
+                plugin: running.approved.plugin.id.clone(),
+                name: running.approved.plugin.manifest.name.clone(),
+                actions: running.approved.plugin.manifest.actions.clone(),
+            })
+            .collect()
+    }
+
+    /// The keys for plugin `id`'s action `action` were pressed: it runs as a press of a button
+    /// with that id does, if the plugin is on and lists the action.
+    pub fn act(&self, id: &str, action: &str) {
+        let listed = self.running.iter().any(|running| {
+            running.approved.plugin.id == id
+                && running.approved.plugin.manifest.action(action).is_some()
+        });
+        if listed {
+            self.press(id, action);
         }
     }
 
@@ -552,6 +672,77 @@ mod tests {
         let problem = shown[0].problem.as_deref().unwrap();
         assert!(problem.contains("Too big to check"), "{problem}");
         let _ = store::remove_tree(&root);
+    }
+
+    /// The promises in the guide: only a search that starts with its keyword reaches a plugin, as
+    /// `search` and the words after it, and a plugin without one is never asked. Its tile shows
+    /// once its manifest says it has one, and only the actions it lists can be pressed.
+    #[test]
+    fn a_plugin_answers_only_searches_after_its_keyword() {
+        let root = scratch("surfaces");
+        let asked = root.join("asked");
+        let script = format!(
+            r#"case "$1" in
+search) printf 'search %s\n' "$2" >> '{asked}'; printf '{{"results":[{{"id":"r1","label":"%s!"}}]}}' "$2";;
+press) printf 'press %s\n' "$2" >> '{asked}'; printf '{{}}';;
+*) printf '{{"tile":{{"id":"flip","label":"Flip","on":true}}}}';;
+esac"#,
+            asked = asked.display()
+        );
+        let sums = install(&root, "sums", &script, Some(60));
+        let plain = install(&root, "plain", &script, Some(60));
+        let manifest = sums.dir.join(plugins::MANIFEST);
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        std::fs::write(
+            &manifest,
+            format!(
+                "tile = true\nkeyword = \"=\"\n{text}[[actions]]\nid = \"go\"\nlabel = \"Go\"\n"
+            ),
+        )
+        .unwrap();
+        let sums = plugins::read(&sums.dir).unwrap();
+        let mut settings = turned_on(&sums);
+        settings
+            .plugins
+            .set_on(&plain.id, Some(plain.fingerprint.clone()));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &settings);
+        settle(&plugins, |shown| {
+            shown.len() == 2 && shown.iter().all(|s| s.card.is_some())
+        });
+        let tiles = plugins.tiles();
+        assert_eq!(tiles.len(), 1, "only the plugin that says it has a tile");
+        assert_eq!(
+            (tiles[0].plugin.as_str(), tiles[0].tile.label.as_str()),
+            ("sums", "Flip")
+        );
+
+        assert!(plugins.search("hello").is_empty());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let answers = loop {
+            let answers = plugins.search(" = 2+2");
+            if answers.iter().all(|a| a.fresh) || Instant::now() > deadline {
+                break answers;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].words, "2+2");
+        assert_eq!(answers[0].hits[0].label, "2+2!");
+
+        plugins.act("sums", "format-disk");
+        plugins.act("plain", "go");
+        plugins.act("sums", "go");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !std::fs::read_to_string(&asked).is_ok_and(|said| said.contains("press"))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            std::fs::read_to_string(&asked).unwrap(),
+            "search 2+2\npress go\n"
+        );
     }
 
     /// The promise in the guide: a button only runs its plugin's own program again, with the

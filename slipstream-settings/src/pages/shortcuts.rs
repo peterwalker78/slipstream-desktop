@@ -1,6 +1,6 @@
 //! Shortcuts: whose habits the desktop's keys follow.
 
-use slipstream_config::KeyStyle;
+use slipstream_config::{KeyStyle, plugins};
 
 use super::*;
 
@@ -20,6 +20,10 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     let own = group(&own_group, "Your own shortcuts");
     fill_own(&own, store);
     let refill_own = refiller(&own, store, fill_own);
+    let plugin_group = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let plugin_keys = group(&plugin_group, "Plugins' actions");
+    fill_plugin_keys(&plugin_keys, store);
+    let refill_plugins = refiller(&plugin_keys, store, fill_plugin_keys);
     let chosen = store.get().keys.style;
     let mut first: Option<gtk::CheckButton> = None;
     for style in KeyStyle::ALL {
@@ -29,17 +33,20 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         }
         pick.set_active(style == chosen);
         let (store, refill, refill_own) = (store.clone(), refill.clone(), refill_own.clone());
+        let refill_plugins = refill_plugins.clone();
         pick.connect_toggled(move |pick| {
             if pick.is_active() {
                 store.change(move |settings| settings.keys.style = style);
                 refill();
                 refill_own();
+                refill_plugins();
             }
         });
         row(&styles, style.label(), Some(style.summary()), &pick);
         first.get_or_insert(pick);
     }
     page.append(&own_group);
+    page.append(&plugin_group);
     fill_app_shortcuts(&group(&page, "Apps' own shortcuts"), store);
     page.upcast()
 }
@@ -245,32 +252,9 @@ fn add_own(
             stop();
             return gtk::glib::Propagation::Stop;
         }
-        // The key's own symbol, as it reads without Shift: Shift+1 is 1 held with Shift.
-        let plain = controller
-            .widget()
-            .and_then(|widget| {
-                widget.display().translate_key(
-                    keycode,
-                    gtk::gdk::ModifierType::empty(),
-                    controller.group() as i32,
-                )
-            })
-            .map_or(key, |(plain, ..)| plain);
-        let Some(name) = plain.name().filter(|name| !is_modifier(name)) else {
+        let Some(spec) = pressed(controller, key, keycode, state) else {
             return gtk::glib::Propagation::Stop;
         };
-        let mut spec = String::new();
-        for (mask, part) in [
-            (gtk::gdk::ModifierType::SUPER_MASK, "LOGO+"),
-            (gtk::gdk::ModifierType::CONTROL_MASK, "CTRL+"),
-            (gtk::gdk::ModifierType::ALT_MASK, "ALT+"),
-            (gtk::gdk::ModifierType::SHIFT_MASK, "SHIFT+"),
-        ] {
-            if state.contains(mask) {
-                spec.push_str(part);
-            }
-        }
-        spec.push_str(&name);
         // The keys pressed are checked together with the ones already kept, to find any already
         // opening an app.
         let settings = store.get();
@@ -286,14 +270,18 @@ fn add_own(
             .iter()
             .position(|it| it.spec == checked.spec)
             .map(|index| &settings.keys.apps[index]);
-        let why = match opens {
-            Some(own) if checked.why.is_empty() => format!(
+        let does = plugin_action_on(&settings, &checked.spec);
+        let why = match (opens, does) {
+            (Some(own), _) if checked.why.is_empty() => format!(
                 "{} already opens {}.",
                 checked.label,
                 apps.iter()
                     .find(|(id, _)| *id == own.app)
                     .map_or(own.app.as_str(), |(_, name)| name.as_str())
             ),
+            (None, Some(does)) if checked.why.is_empty() => {
+                format!("{} already does {does}.", checked.label)
+            }
             _ => checked.why,
         };
         if !why.is_empty() {
@@ -306,6 +294,234 @@ fn add_own(
         gtk::glib::Propagation::Stop
     });
     listen.add_controller(keys);
+}
+
+/// The keys pressed, as the shortcuts specification writes them, or none for a modifier alone.
+fn pressed(
+    controller: &gtk::EventControllerKey,
+    key: gtk::gdk::Key,
+    keycode: u32,
+    state: gtk::gdk::ModifierType,
+) -> Option<String> {
+    // The key's own symbol, as it reads without Shift: Shift+1 is 1 held with Shift.
+    let plain = controller
+        .widget()
+        .and_then(|widget| {
+            widget.display().translate_key(
+                keycode,
+                gtk::gdk::ModifierType::empty(),
+                controller.group() as i32,
+            )
+        })
+        .map_or(key, |(plain, ..)| plain);
+    let name = plain.name().filter(|name| !is_modifier(name))?;
+    let mut spec = String::new();
+    for (mask, part) in [
+        (gtk::gdk::ModifierType::SUPER_MASK, "LOGO+"),
+        (gtk::gdk::ModifierType::CONTROL_MASK, "CTRL+"),
+        (gtk::gdk::ModifierType::ALT_MASK, "ALT+"),
+        (gtk::gdk::ModifierType::SHIFT_MASK, "SHIFT+"),
+    ] {
+        if state.contains(mask) {
+            spec.push_str(part);
+        }
+    }
+    spec.push_str(&name);
+    Some(spec)
+}
+
+/// A plugin that's on and offers actions: its id, its name and the actions.
+type Offered = (String, String, Vec<plugins::surfaces::Action>);
+
+/// The plugins that are on and offer actions.
+fn plugin_actions(settings: &Settings) -> Vec<Offered> {
+    plugins::find()
+        .0
+        .into_iter()
+        .filter(|plugin| !plugin.manifest.actions.is_empty() && settings.plugins.approved(plugin))
+        .map(|plugin| (plugin.id, plugin.manifest.name, plugin.manifest.actions))
+        .collect()
+}
+
+/// What the plugin action on `spec` does, as "Start the timer in Timer", if one is.
+fn plugin_action_on(settings: &Settings, spec: &str) -> Option<String> {
+    let key = settings.keys.plugins.iter().find(|key| key.keys == spec)?;
+    let offered = plugin_actions(settings);
+    let (_, name, actions) = offered.iter().find(|(id, ..)| *id == key.plugin)?;
+    let action = actions.iter().find(|action| action.id == key.action)?;
+    Some(format!("{} in {name}", action.label))
+}
+
+/// The actions the plugins that are on offer, each with the keys you gave it, which can be taken
+/// away, or a button to give it some. The group is hidden while no plugin offers any.
+fn fill_plugin_keys(card: &gtk::Box, store: &Store) {
+    while let Some(child) = card.first_child() {
+        card.remove(&child);
+    }
+    let settings = store.get();
+    let offered = plugin_actions(&settings);
+    if let Some(group) = card.parent() {
+        group.set_visible(!offered.is_empty());
+    }
+    let refill = refiller(card, store, fill_plugin_keys);
+    let given: Vec<String> = settings
+        .keys
+        .plugins
+        .iter()
+        .map(|key| key.keys.clone())
+        .collect();
+    let checked = check_keys(settings.keys.style, &given);
+    for (plugin, name, actions) in &offered {
+        for action in actions {
+            let at = settings
+                .keys
+                .plugins
+                .iter()
+                .position(|key| key.plugin == *plugin && key.action == action.id);
+            let controls = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+            let Some(at) = at else {
+                let choose = gtk::Button::with_label("Choose keys");
+                controls.append(&choose);
+                if let Some(line) = row(card, &action.label, Some(name), &controls) {
+                    let target = (plugin.clone(), action.clone());
+                    listen_for_keys(&choose, &line, store, target, refill.clone());
+                }
+                continue;
+            };
+            let spec = &settings.keys.plugins[at].keys;
+            let (shown, why) = match checked.as_ref().map(|checked| &checked[at]) {
+                Some(it) => {
+                    // An app's own shortcut on the same keys works first.
+                    let app = settings.keys.apps.iter().find(|own| own.keys == it.spec);
+                    let why = match app {
+                        Some(own) if it.why.is_empty() => {
+                            format!("{} already opens {}.", it.label, own.app)
+                        }
+                        _ => it.why.clone(),
+                    };
+                    (it.label.clone(), why)
+                }
+                None => (spec.clone(), String::new()),
+            };
+            let sub = if why.is_empty() {
+                name.clone()
+            } else {
+                format!("{name}. Does nothing in this style. {why}")
+            };
+            controls.append(&label(&shown, "kv"));
+            let delete = gtk::Button::from_icon_name("user-trash-symbolic");
+            delete.set_tooltip_text(Some("Take its keys away"));
+            delete.add_css_class("flat");
+            {
+                let (store, refill) = (store.clone(), refill.clone());
+                let (plugin, action) = (plugin.clone(), action.id.clone());
+                delete.connect_clicked(move |_| {
+                    store.change(|settings| settings.keys.remove_plugin_key(&plugin, &action));
+                    refill();
+                });
+            }
+            controls.append(&delete);
+            row(card, &action.label, Some(&sub), &controls);
+        }
+    }
+}
+
+/// `choose` takes keys for a plugin's action once pressed: the window holds every key
+/// meanwhile, so Slipstream's own reach it to be named as taken, and Esc stops. Keys something
+/// else has are refused, saying why on `line`.
+fn listen_for_keys(
+    choose: &gtk::Button,
+    line: &gtk::Label,
+    store: &Store,
+    (plugin, action): (String, plugins::surfaces::Action),
+    refill: impl Fn() + Clone + 'static,
+) {
+    let listening: Rc<Cell<bool>> = Rc::default();
+    let toplevel = {
+        let choose = choose.downgrade();
+        move || {
+            choose
+                .upgrade()
+                .and_then(|choose| choose.root())
+                .and_then(|root| root.surface())
+                .and_then(|surface| surface.downcast::<gtk::gdk::Toplevel>().ok())
+        }
+    };
+    let stop = {
+        let toplevel = toplevel.clone();
+        move || {
+            if let Some(toplevel) = toplevel() {
+                toplevel.restore_system_shortcuts();
+            }
+            refill();
+        }
+    };
+    {
+        let (listening, line, stop) = (listening.clone(), line.clone(), stop.clone());
+        let label = action.label.clone();
+        choose.connect_clicked(move |choose| {
+            if listening.replace(true) {
+                stop();
+                return;
+            }
+            choose.set_label("Stop");
+            line.set_text(&format!("Press the keys for {label}. Esc stops."));
+            if let Some(toplevel) = toplevel() {
+                toplevel.inhibit_system_shortcuts(None::<&gtk::gdk::Event>);
+            }
+        });
+    }
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let (store, line) = (store.clone(), line.clone());
+    keys.connect_key_pressed(move |controller, key, keycode, state| {
+        if !listening.get() {
+            return gtk::glib::Propagation::Proceed;
+        }
+        let held = gtk::gdk::ModifierType::CONTROL_MASK
+            | gtk::gdk::ModifierType::ALT_MASK
+            | gtk::gdk::ModifierType::SUPER_MASK
+            | gtk::gdk::ModifierType::SHIFT_MASK;
+        if key == gtk::gdk::Key::Escape && !state.intersects(held) {
+            stop();
+            return gtk::glib::Propagation::Stop;
+        }
+        let Some(spec) = pressed(controller, key, keycode, state) else {
+            return gtk::glib::Propagation::Stop;
+        };
+        let settings = store.get();
+        let Some(mut checked) = check_keys(settings.keys.style, &[spec]) else {
+            line.set_text("Slipstream isn't installed beside Settings, so keys can't be checked.");
+            return gtk::glib::Propagation::Stop;
+        };
+        let checked = checked.remove(0);
+        let app = settings
+            .keys
+            .apps
+            .iter()
+            .find(|own| own.keys == checked.spec);
+        let why = if !checked.why.is_empty() {
+            checked.why
+        } else if let Some(own) = app {
+            format!("{} already opens {}.", checked.label, own.app)
+        } else if let Some(does) = plugin_action_on(&settings, &checked.spec) {
+            format!("{} already does {does}.", checked.label)
+        } else {
+            String::new()
+        };
+        if !why.is_empty() {
+            line.set_text(&format!("{why} Try other keys, or Esc to stop."));
+            return gtk::glib::Propagation::Stop;
+        }
+        store.change(|settings| {
+            settings
+                .keys
+                .add_plugin_key(&checked.spec, &plugin, &action.id)
+        });
+        stop();
+        gtk::glib::Propagation::Stop
+    });
+    choose.add_controller(keys);
 }
 
 /// Whether a key's symbol name is a modifier's, which only ever goes with another key.

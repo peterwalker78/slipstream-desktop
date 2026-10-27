@@ -492,7 +492,13 @@ impl Slipstream {
             .handle()
             .insert_source(scans, |event, _, state| {
                 if let channel::Event::Msg(scan) = event {
+                    let offered = state.plugins.offered();
                     state.plugins.scanned(scan);
+                    // A plugin turned on or off takes the keys for its actions with it.
+                    if state.plugins.offered() != offered {
+                        let keys = state.settings.keys.clone();
+                        state.set_own_keys(&keys);
+                    }
                 }
             })
             .expect("a channel source always inserts");
@@ -668,8 +674,15 @@ impl Slipstream {
                 .map(|app| app.name)
                 .unwrap_or_else(|| id.to_string())
         };
-        let own =
-            crate::shortcuts::own::usable(keys.style, &keys.apps, self.shortcuts.granted(), name);
+        let granted = self.shortcuts.granted();
+        let own = crate::shortcuts::own::usable(keys.style, &keys.apps, granted, name);
+        let own = crate::shortcuts::own::with_plugin_keys(
+            own,
+            keys.style,
+            &keys.plugins,
+            granted,
+            &self.plugins.offered(),
+        );
         self.shortcuts.set_own(own);
     }
 

@@ -29,6 +29,8 @@ pub(super) struct Look {
     pub(super) decode_step: Option<u64>,
     /// The keys named in it.
     pub(super) keys: Keys,
+    /// What plugins asked about the query have to show.
+    pub(super) answers: Vec<crate::plugins::Answers>,
 }
 
 impl Explorer {
@@ -83,6 +85,7 @@ impl Explorer {
                 scale,
                 decode_step,
                 keys,
+                answers: self.answers.clone(),
             }
         };
         if self.shown.as_ref() != Some(&look) {
@@ -347,6 +350,9 @@ impl Explorer {
     /// what's typed rather than running it.
     fn paint_side(&mut self, side: &mut Side, results: &Results) -> bool {
         let look = side.look;
+        for answers in &results.plugin {
+            paint_answers(side, answers);
+        }
         if let Some(answer) = &results.answer {
             side.header("Answer");
             let selected = side.selected();
@@ -446,10 +452,50 @@ impl Explorer {
     }
 }
 
-/// Whether what's typed is a sum or an emoji search, which the apps grid and files list give way
-/// to.
+/// A plugin's section: its answers under its name, or a line saying why there are none yet. The
+/// answers to what was typed before stay, dimmed and out of reach, until the new ones come.
+fn paint_answers(side: &mut Side, answers: &crate::plugins::Answers) {
+    use crate::plugins::surfaces::icon;
+    side.header(&answers.name);
+    if answers.fresh {
+        for hit in &answers.hits {
+            let row = Row {
+                trailing: (!hit.detail.is_empty()).then(|| hit.detail.clone()),
+                ..Row::new(icon(hit.icon.as_deref()), hit.label.clone())
+            };
+            let item = Item::Plugin {
+                plugin: answers.plugin.clone(),
+                id: hit.id.clone(),
+            };
+            side.row(item, row);
+        }
+    } else {
+        for hit in &answers.hits {
+            side.note(icon(hit.icon.as_deref()), &hit.label);
+        }
+    }
+    let note = if answers.words.is_empty() {
+        Some("Type what to look for")
+    } else if let Some(problem) = &answers.problem {
+        Some(problem.as_str())
+    } else if answers.fresh && answers.hits.is_empty() {
+        Some("Nothing found")
+    } else if !answers.fresh && answers.hits.is_empty() {
+        Some("Looking…")
+    } else {
+        None
+    };
+    if let Some(note) = note {
+        side.note(icons::SEARCH, note);
+    }
+}
+
+/// Whether what's typed is a sum, an emoji search or a plugin's, which the apps grid and files
+/// list give way to.
 fn answering(look: &Look, results: &Results) -> bool {
-    results.answer.is_some() || look.query.trim_start().starts_with(':')
+    results.answer.is_some()
+        || look.query.trim_start().starts_with(':')
+        || !results.plugin.is_empty()
 }
 
 /// The footer: what the keys do, with Enter's word for what's chosen.
@@ -467,6 +513,7 @@ fn paint_footer(
     let enter = match &chosen {
         Some(Item::Answer(_)) => "copy",
         Some(Item::Emoji(..)) => "type",
+        Some(Item::Plugin { .. }) => "use",
         Some(Item::Run(_)) if !run_opens => "run",
         _ => "open",
     };

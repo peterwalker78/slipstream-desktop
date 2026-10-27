@@ -416,7 +416,7 @@ fn with_own(mut sections: Vec<Section>, own: &[OwnKey]) -> Vec<Section> {
     {
         section.rows.extend(own.iter().map(|own| Row {
             keys: vec![own.trigger.label()],
-            does: format!("open {}", own.name),
+            does: own.says(),
             bindings: vec![(own.trigger.mods, own.trigger.key)],
         }));
     }

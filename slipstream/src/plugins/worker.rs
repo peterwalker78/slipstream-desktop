@@ -641,7 +641,7 @@ fn next_backoff(backoff: Duration, ran: Duration) -> Duration {
 }
 
 /// Why a run has nothing new to show.
-fn why(run: &Run) -> String {
+pub(super) fn why(run: &Run) -> String {
     match run {
         Run::Printed(_) => "It ran".into(),
         Run::Failed { error, .. } if error.starts_with("bwrap: ") => {

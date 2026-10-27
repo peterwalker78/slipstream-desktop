@@ -230,6 +230,7 @@ fn card_elements(
     };
     let mut elements = Vec::new();
     if state.explorer.is_open() {
+        state.ask_plugins();
         let running = state.running_apps();
         let ring = state.panel_ring();
         let keys = crate::explorer::Keys::new(|action| state.key_label(action));
