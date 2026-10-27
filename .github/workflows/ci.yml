@@ -20,8 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: registry.fedoraproject.org/fedora:44
-      # The plugin sandbox tests run bubblewrap, which needs to make namespaces.
-      options: --privileged
+      # The plugin sandbox tests run bubblewrap, which makes namespaces and mounts /proc: what
+      # Docker's seccomp and AppArmor profiles and its masked /proc paths otherwise refuse.
+      options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install toolchain and libraries
         run: |
@@ -73,8 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: docker.io/library/debian:13
-      # As above: the plugin sandbox tests make namespaces.
-      options: --privileged
+      # As above, for the plugin sandbox tests.
+      options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install toolchain and libraries
         env:
