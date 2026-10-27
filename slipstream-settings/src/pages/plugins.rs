@@ -46,11 +46,12 @@ fn fill(list: &gtk::Box, store: &Store) {
         &about,
         "Only what it says",
         Some(
-            "A plugin runs in a sandbox, from a copy of its folder taken when you turn it on. It \
-             reaches only what it lists, such as the internet or your notifications, and each one \
-             says what that is below. Its card is only ever shown, and its buttons only run its \
-             own program again. A plugin that changes after you turn it on waits until you turn \
-             it on again.",
+            "Each plugin runs in a sandbox and can do only what's listed under its name. Safe \
+             means it can't see or send anything of yours that matters. Worth a thought means it \
+             can see something private, or send what it sees online, so think about who made it. \
+             Full access means it can do anything you can, like a program you install yourself: \
+             switch it on only if you trust where it came from. A plugin that changes after you \
+             switch it on stays off until you switch it on again.",
         ),
         &link,
     );
@@ -228,19 +229,29 @@ fn plugin_row(
     }
     // What a held update means goes under the rest in smaller print.
     let details = explained.to_vec();
-    let unconfined = plugin.manifest.unconfined();
-    if !unconfined {
-        about.push(plugin.manifest.reach());
-    }
+    // What it can do, each with a picture and how much thought it deserves: the commands it
+    // adds run as you whenever they're run, so they count too.
+    let mut abilities = plugin.manifest.abilities();
     let commands = commands_of(&plugin.id);
     if !commands.is_empty() {
-        let (one, many) = ("the command", "the commands");
-        about.push(format!(
-            "It also adds {} {}, which {} as you, outside the sandbox.",
-            if commands.len() == 1 { one } else { many },
-            plugins::listed(&commands),
-            if commands.len() == 1 { "runs" } else { "run" },
-        ));
+        abilities.push(plugins::Ability {
+            what: plugins::What::Everything,
+            says: format!(
+                "Adds {} {}, which can do anything you can when {} run",
+                if commands.len() == 1 {
+                    "the command"
+                } else {
+                    "the commands"
+                },
+                plugins::listed(&commands),
+                if commands.len() == 1 {
+                    "it's"
+                } else {
+                    "they're"
+                },
+            ),
+            care: plugins::Care::Thought,
+        });
     }
     if !plugin.own {
         about.push(format!(
@@ -306,20 +317,62 @@ fn plugin_row(
     let about = about.join("\n");
     let sub = row(card, &plugin.manifest.name, Some(&about), &controls)
         .expect("the row has a line of explanation");
-    // An unsandboxed plugin with nothing to say about itself has only its amber line below.
+    // A plugin with nothing to say about itself has only what it can do below its name.
     sub.set_visible(!about.is_empty());
     let Some(text) = sub.parent().and_downcast::<gtk::Box>() else {
         return;
     };
     // The program it runs, for anyone who wants to look it up.
     text.set_tooltip_text(Some(&format!("Runs {}", plugin.manifest.exec.join(" "))));
+    // The verdict beside the name: the most thought anything it can do deserves.
+    let care = abilities
+        .iter()
+        .map(|ability| ability.care)
+        .max()
+        .unwrap_or(plugins::Care::Safe);
+    if let Some(title) = text.first_child() {
+        let named = gtk::Box::builder().spacing(10).build();
+        text.remove(&title);
+        named.append(&title);
+        let verdict = label(care.verdict(), "verdict");
+        verdict.add_css_class(care_class(care));
+        verdict.set_valign(gtk::Align::Center);
+        named.append(&verdict);
+        text.prepend(&named);
+    }
+    let can = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(3)
+        .css_classes(["abilities"])
+        .build();
+    for ability in &abilities {
+        let line = gtk::Box::builder().spacing(8).build();
+        let icon = gtk::Image::from_icon_name(match ability.what {
+            plugins::What::Nothing => "security-high-symbolic",
+            plugins::What::Files => "folder-symbolic",
+            plugins::What::Notifications => "mail-unread-symbolic",
+            plugins::What::Online => "network-transmit-receive-symbolic",
+            plugins::What::Windows => "window-new-symbolic",
+            plugins::What::Notify => "preferences-system-notifications-symbolic",
+            plugins::What::Everything => "dialog-warning-symbolic",
+        });
+        icon.add_css_class(care_class(ability.care));
+        icon.set_valign(gtk::Align::Start);
+        line.append(&icon);
+        let says = label(&ability.says, "row-sub");
+        says.set_hexpand(true);
+        says.add_css_class(care_class(ability.care));
+        line.append(&says);
+        can.append(&line);
+    }
+    text.append(&can);
     let mut warnings = Vec::new();
     if held {
         warnings.push("Updated, so it's off until you switch it on again.".to_string());
     }
-    if unconfined {
-        warnings.push(plugin.manifest.reach());
-    } else if let Err(why) = slipstream_config::plugins::sandbox::bwrap() {
+    if !plugin.manifest.unconfined()
+        && let Err(why) = slipstream_config::plugins::sandbox::bwrap()
+    {
         warnings.push(format!("{why}."));
     }
     for warning in warnings {
@@ -331,6 +384,16 @@ fn plugin_row(
         let small = label(&details.join("\n"), "row-sub");
         small.add_css_class("detail");
         text.append(&small);
+    }
+}
+
+/// The style for how much thought something deserves: as quiet as the rest, the colour of what
+/// wants attention, or the critical orange.
+fn care_class(care: plugins::Care) -> &'static str {
+    match care {
+        plugins::Care::Safe => "safe",
+        plugins::Care::Thought => "needed",
+        plugins::Care::Full => "hot",
     }
 }
 

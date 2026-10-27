@@ -101,6 +101,33 @@ window.slipstream-settings headerbar windowcontrols button {
   color: #8b91a0;
 }
 
+/* A plugin's verdict beside its name, and what it can do under it, each line with its picture.
+   What deserves a thought takes the secondary colour (main.rs); full access the critical
+   orange, which stays fixed. */
+.verdict {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 1px 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #aeb3bf;
+}
+
+.abilities {
+  margin-top: 6px;
+}
+
+.abilities image {
+  -gtk-icon-size: 14px;
+  margin-top: 2px;
+  color: #8b91a0;
+}
+
+.verdict.hot,
+.abilities .hot {
+  color: #ff7a45;
+}
+
 /* The small print under a row: what a plugin runs, and what its update means. */
 .row-sub.detail {
   margin-top: 4px;

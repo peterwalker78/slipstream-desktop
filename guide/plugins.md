@@ -58,7 +58,7 @@ The card is only ever shown. Nothing in it is run, and a button can only run the
 
 A plugin runs in a sandbox, made with [bubblewrap](https://github.com/containers/bubblewrap), the tool Flatpak uses. In it, the program sees the system's programs, libraries and settings, read-only, and of your own files only its folder, read-only, its own folder for what it keeps, and the folders its `read` names, read-only. Your home folder is empty and `/tmp` is its own. It can't see or signal any other program, and it has no network, no display and no session bus. Its environment is only `HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, the language and time zone settings, the `$XDG_…_HOME` folders, and the proxy settings for one that goes online, so the SSH and GPG agents are left out too.
 
-`needs` adds to that, and **Settings → Plugins** says in plain words what each plugin can reach before you turn it on:
+`needs` adds to that. **Settings → Plugins** lists what each plugin can do in everyday words before you turn it on, and sums it up beside its name: **Safe** when it can't see or send anything of yours that matters, **Worth a thought** when it can see something private or send what it sees online, and **Full access** for one that needs `everything`:
 
 - `network`: the internet and your local network. It shares the computer's own network, so it can also reach any program listening for other programs there.
 - `windows`: the display, to open windows of its own. Its windows are treated as a Flatpak app's are: it can't type as your keyboard, read the clipboard while you're elsewhere, or draw over the desktop.

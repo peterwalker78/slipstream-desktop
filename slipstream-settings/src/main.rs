@@ -241,7 +241,7 @@ fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
          .batt progressbar progress {{ background-image: linear-gradient(90deg, {charge}); }}
          .batt progressbar.charging progress {{ background-image: linear-gradient(90deg, \
          {p} 0%, {p} 35%, {shine} 50%, {p} 65%, {} 100%); }}
-         .row-sub.needed {{ color: {s}; }}
+         .row-sub.needed, .abilities image.needed, .verdict.needed {{ color: {s}; }}
          .side > row:selected {{ background: {}; color: {}; }}
          .row switch:checked, .row checkbutton check:checked, .variation checkbutton check:checked, \
          .row checkbutton radio:checked {{ border-color: {t}; background: {t}; color: {}; }}

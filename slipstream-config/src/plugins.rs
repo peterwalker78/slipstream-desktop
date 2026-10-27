@@ -236,6 +236,46 @@ impl Need {
     }
 }
 
+/// How much thought something a plugin can do deserves, from someone deciding whether to switch
+/// it on: none, some, or the trust given to a program they run themselves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Care {
+    Safe,
+    Thought,
+    Full,
+}
+
+impl Care {
+    /// What it comes to, said beside the plugin's name.
+    pub fn verdict(self) -> &'static str {
+        match self {
+            Care::Safe => "Safe",
+            Care::Thought => "Worth a thought",
+            Care::Full => "Full access",
+        }
+    }
+}
+
+/// Which kind of thing a plugin can do, for the picture beside its words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum What {
+    Nothing,
+    Files,
+    Notifications,
+    Online,
+    Windows,
+    Notify,
+    Everything,
+}
+
+/// One thing a plugin can do, in everyday words, and how much thought it deserves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ability {
+    pub what: What,
+    pub says: String,
+    pub care: Care,
+}
+
 /// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
 /// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
 pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
@@ -398,31 +438,60 @@ impl Manifest {
         self.needs(Need::Everything)
     }
 
-    /// What it can do, as a sentence for Settings to show before it is turned on.
-    pub fn reach(&self) -> String {
+    /// What it can do, each in everyday words with how much thought it deserves, for Settings to
+    /// show before it is turned on.
+    pub fn abilities(&self) -> Vec<Ability> {
         if self.unconfined() {
-            return "Full access: it can do anything you can on this computer, like a program \
-                    you run yourself. Switch it on only if you trust where it came from."
-                .to_string();
+            return vec![Ability {
+                what: What::Everything,
+                says: "Can do anything you can: open your files, use your accounts and change \
+                       your settings"
+                    .into(),
+                care: Care::Full,
+            }];
         }
-        let can = self.can();
-        if can.is_empty() {
-            "Keeps to itself: it can't see your files, go online or reach other apps.".to_string()
-        } else {
-            format!("It can {}, and nothing else.", listed(&can))
-        }
-    }
-
-    /// What it can do, each in everyday words: what it needs, then the folders it looks in.
-    pub fn can(&self) -> Vec<String> {
-        let mut can: Vec<String> = Need::ALL
-            .into_iter()
-            .filter(|need| self.needs(*need))
-            .map(|need| need.says().to_string())
-            .collect();
+        let mut can = Vec::new();
+        let mut add = |what, says: String, care| can.push(Ability { what, says, care });
         if !self.read.is_empty() {
             let folders: Vec<String> = self.read.iter().map(|f| shown_folder(f)).collect();
-            can.push(format!("look in {}", listed(&folders)));
+            add(
+                What::Files,
+                format!("Looks at the files in {}", listed(&folders)),
+                Care::Safe,
+            );
+        }
+        if self.needs(Need::Notifications) {
+            add(
+                What::Notifications,
+                "Reads your notifications, which can hold messages and sign-in codes".into(),
+                Care::Thought,
+            );
+        }
+        if self.needs(Need::Network) {
+            // Online with nothing of yours to see, it can only fetch; with something, it could
+            // send it away.
+            if self.read.is_empty() && !self.needs(Need::Notifications) {
+                add(What::Online, "Goes online".into(), Care::Safe);
+            } else {
+                add(
+                    What::Online,
+                    "Goes online, so what it sees could leave this computer".into(),
+                    Care::Thought,
+                );
+            }
+        }
+        if self.needs(Need::Windows) {
+            add(What::Windows, "Opens windows of its own".into(), Care::Safe);
+        }
+        if self.needs(Need::Notify) {
+            add(What::Notify, "Sends you notifications".into(), Care::Safe);
+        }
+        if can.is_empty() {
+            can.push(Ability {
+                what: What::Nothing,
+                says: "Keeps to itself: it can't see your files or go online".into(),
+                care: Care::Safe,
+            });
         }
         can
     }
@@ -1013,23 +1082,56 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
     }
 
-    /// What Settings shows before a plugin is turned on says what it can reach, and says plainly
-    /// when it isn't sandboxed at all.
+    /// What Settings shows before a plugin is turned on: what it can do in everyday words, and
+    /// what deserves a thought. Going online is harmless with nothing of yours to send; with
+    /// your files or notifications to see, it's worth a thought; running unsandboxed is full
+    /// access.
     #[test]
-    fn a_manifest_says_what_its_plugin_can_reach() {
-        let reach = |text: &str| parse_manifest(text.as_bytes()).unwrap().reach();
+    fn a_manifest_says_what_its_plugin_can_do_and_how_safe_that_is() {
+        let can = |text: &str| -> Vec<(String, Care)> {
+            let manifest = parse_manifest(text.as_bytes()).unwrap();
+            manifest
+                .abilities()
+                .into_iter()
+                .map(|a| (a.says, a.care))
+                .collect()
+        };
         let bare = "name = \"Disk\"\nexec = [\"./disk\"]\n";
         assert_eq!(
-            reach(bare),
-            "Keeps to itself: it can't see your files, go online or reach other apps."
+            can(bare),
+            [(
+                "Keeps to itself: it can't see your files or go online".into(),
+                Care::Safe
+            )]
         );
         assert_eq!(
-            reach(&format!(
-                "{bare}needs = [\"network\", \"notify\"]\nread = [\"$HOME/notes\"]\n"
-            )),
-            "It can go online, send you notifications and look in ~/notes, and nothing else."
+            can(&format!("{bare}needs = [\"network\", \"notify\"]\n")),
+            [
+                ("Goes online".into(), Care::Safe),
+                ("Sends you notifications".into(), Care::Safe)
+            ]
         );
-        assert!(reach(&format!("{bare}needs = [\"everything\"]\n")).starts_with("Full access"));
+        assert_eq!(
+            can(&format!(
+                "{bare}needs = [\"network\"]\nread = [\"$HOME/notes\", \"$HOME/Music\"]\n"
+            )),
+            [
+                (
+                    "Looks at the files in ~/notes and ~/Music".into(),
+                    Care::Safe
+                ),
+                (
+                    "Goes online, so what it sees could leave this computer".into(),
+                    Care::Thought
+                )
+            ]
+        );
+        let history = can(&format!("{bare}needs = [\"notifications\"]\n"));
+        assert_eq!(history[0].1, Care::Thought);
+        let full = can(&format!("{bare}needs = [\"everything\", \"network\"]\n"));
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].1, Care::Full);
+        assert_eq!(Care::Full.verdict(), "Full access");
         let unknown = parse_manifest(format!("{bare}needs = [\"camera\"]\n").as_bytes());
         assert!(unknown.unwrap_err().contains("camera"));
     }
