@@ -233,6 +233,13 @@ impl State {
         Some(finished)
     }
 
+    /// Nothing ran between `seen` and now: the computer slept, or the program was stopped. The
+    /// session running ends where it was last seen, as stopped early, so time away is never
+    /// counted as focus.
+    pub fn away(&mut self, seen: i64, keyboard: &mut Keyboard) -> Option<Finished> {
+        self.end(seen, true, keyboard)
+    }
+
     fn start(&mut self, kind: Kind, secs: i64, now: i64, keyboard: &mut Keyboard) {
         self.session = Some(Session {
             kind,
@@ -320,6 +327,20 @@ mod tests {
         assert_eq!(over.kind, Kind::Break);
         assert!(over.apps.is_empty() && state.session.is_none());
         assert_eq!(state.today, 1500);
+    }
+
+    #[test]
+    fn time_asleep_is_never_counted_as_focus() {
+        let (mut state, mut keyboard) = (State::default(), Keyboard::default());
+        keyboard.moved(Some("code".into()), 0, &mut state);
+        state.ask(Ask::Start(Kind::Focus, 25), 0, &mut keyboard);
+        // Last seen three minutes in; the lid opens an hour later.
+        let finished = state.away(180, &mut keyboard).unwrap();
+        assert_eq!((finished.spent, finished.early), (180, true));
+        assert_eq!(finished.apps, [("code".to_string(), 180)]);
+        assert_eq!(state.today, 180);
+        assert!(state.session.is_none());
+        assert_eq!(state.tick(3780, &mut keyboard), None);
     }
 
     #[test]

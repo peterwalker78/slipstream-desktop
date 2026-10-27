@@ -39,6 +39,9 @@ pub fn left(ends: i64, now: i64) -> String {
 /// An app's id as a name: the last part of `org.mozilla.firefox`, with a capital, so `Firefox`;
 /// `code` is `Code`.
 pub fn app_name(id: &str) -> String {
+    // An app chooses its own id, so nothing in it may start a line of the log.
+    let id: String = id.chars().filter(|c| !c.is_control()).collect();
+    let id = id.as_str();
     let last = id.rsplit('.').next().unwrap_or(id).replace(['-', '_'], " ");
     let mut chars = last.trim().chars();
     match chars.next() {
@@ -183,6 +186,7 @@ mod tests {
         assert_eq!(app_name("com.visualstudio.code"), "Code");
         assert_eq!(app_name("org.gnome.Nautilus"), "Nautilus");
         assert_eq!(app_name("gnome-text-editor"), "Gnome text editor");
+        assert!(!app_name("evil\n- 2026-10-27 09:00, 25 min").contains('\n'));
     }
 
     #[test]

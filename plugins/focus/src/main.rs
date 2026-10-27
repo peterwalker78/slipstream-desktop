@@ -45,6 +45,8 @@ const KEPT: &str = "state.json";
 const LOG: &str = "log.md";
 /// How often the program that keeps running looks for presses and at the time.
 const LOOK: Duration = Duration::from_millis(250);
+/// A gap this long between two looks, in seconds, means nothing ran in between.
+const AWAY: i64 = 30;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -240,13 +242,20 @@ fn keep_running() -> Result<(), String> {
     let mut printed = String::new();
     let heard = listen();
     let mut out = io::stdout();
+    let mut seen = now();
     loop {
         let now = now();
+        let mut finished: Vec<Finished> = Vec::new();
+        if now - seen > AWAY {
+            finished.extend(state.away(seen, &mut keyboard));
+        }
+        seen = now;
         state.new_day(&words::local(now).date);
-        let mut finished: Vec<Finished> = take_asked(&asked)
-            .into_iter()
-            .filter_map(|ask| state.ask(ask, now, &mut keyboard))
-            .collect();
+        finished.extend(
+            take_asked(&asked)
+                .into_iter()
+                .filter_map(|ask| state.ask(ask, now, &mut keyboard)),
+        );
         finished.extend(state.tick(now, &mut keyboard));
         let mut notice = None;
         for finished in &finished {
