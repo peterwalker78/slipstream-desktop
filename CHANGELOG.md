@@ -32,6 +32,7 @@
 - **Extras can be plugins.** A file in `extras/` naming `plugin=` installs a plugin's packed folder, checked against its SHA-256, into `~/.local/share/slipstream/plugins/`, and links its programs into `~/.local/bin`. It starts off until you turn it on in Settings › Plugins, and its programs lead to the copy you turned on, so they do nothing until then. A program of your own with the same name is left alone.
 - **Apps that start with the session can open X11 windows.** They used to start before XWayland was ready, so an X11 app such as Steam found no display and could show an error saying so; they now wait for it.
 - **X11 helper windows stay out of your layout.** A window that isn't meant to be seen, such as KDE's screen-sharing bridge for X11 apps, no longer takes a tile, and neither do desktop widgets, X11 docks or X11 notifications: each keeps the place it asks for. X11 windows that ask to be see-through are drawn that way, and X11 dialogs, palettes and splash screens float.
+- **Logging out with the lid shut shows the login screen.** With the lid closed and a monitor plugged in, logging out could suspend the laptop instead; the screens now stay lit until the session has ended.
 - **A window you can't see can't take your clicks or typing.** One too see-through to be seen is passed over: clicks go to what's under it, and it never gets the keyboard.
 
 ## 1.0.0-rc.1 - 2026-10-21

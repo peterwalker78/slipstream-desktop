@@ -43,7 +43,7 @@ Most screens now are built to keep you constantly checking one last thing, over 
 
 Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in - the wallpaper was running behind your windows the whole time.
 
-**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it.
+**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it, or press F7 to keep a picture of it.
 
 [**All twenty →**](guide/wallpapers.md)
 
@@ -58,7 +58,7 @@ Step away from your desk and the desktop dissolves and hands over the screen. Th
 
 Put a window away and it pours down the side of the screen as a stream of falling light, and carries on running there, with its name down the card like the spine of a book.
 
-**The stream is a readout.** A busy app pours fast, bright green streaks. A quiet one sends down a few slow grey ones. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it.
+**The stream is a readout.** A busy app pours fast, bright green streaks. A quiet one sends down a few slow grey ones. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it. Rest the pointer on a stream for the app's memory, processor and traffic.
 
 **Pop-ups you never asked for are sent there too.** An app that opens a window by itself, or throws one in front of you while you're typing, pours straight into the rain instead of taking the screen, with a quiet toast to say what happened. Windows you opened yourself, dialogs belonging to the app you're in, and anything that appears just after a click still come to you as normal.
 
@@ -97,11 +97,11 @@ Slipstream puts your concentration first.
 </tr>
 </table>
 
-**Little apps, your own or other people's, in a panel that drops from the bar.** The weather, a timer, anything a program can report: each plugin adds a card of lines, gauges and buttons, drawn in Slipstream's own style. The chip beside the date shows the headline of the one you choose, and turns amber when one wants your attention. Click it, or press Super+Y.
+**Little apps, your own or other people's, in a panel that drops from the bar.** The weather, a timer, anything a program can report: each plugin adds a card of lines, gauges and buttons, drawn in Slipstream's own style. The chip beside the date shows the headline of the one you choose, and turns amber when one wants your attention. Click it, or press Super+Y. A plugin can also add a tile to quick settings, answer the explorer after a word of its own, or do something on keys you choose.
 
 **Write one in anything.** If it can print a line of JSON, it can be a plugin: a shell script, Python, a compiled program. [Writing a plugin →](guide/plugins.md)
 
-**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists, and if it changes after that, it waits for you to turn it on again.
+**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first, and Settings says in plain words what it can reach and how safe that is. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists, and if it changes after that, it waits for you to turn it on again.
 
 **One comes with it.** Focus times spells of work and keeps an honest log of where they went. It starts off like any other, and updates with Slipstream.
 
@@ -136,6 +136,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 
 - **Keys your hands already know.** Slipstream starts with Windows' keys, or follows a Mac's or Omarchy's habits instead, and the key list, the tour and every hint on screen follow your choice. Give any app keys of its own in Settings.
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
+- **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
 - **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
