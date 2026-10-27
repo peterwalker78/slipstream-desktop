@@ -35,7 +35,7 @@ Slipstream can tell that you're typing - never what - and keeps out of the way w
 
 - **Notifications wait for a pause,** then arrive together as one card. Urgent ones never wait, and nothing waits more than 15 minutes.
 - **Windows you didn't ask for can't barge in** or run off with your keyboard. They pour into a stream at the edge of the screen instead, with a quiet toast to say so.
-- **Hold Caps Lock for Awake,** and the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
+- **Hold Caps Lock for Awake,** and the desktop won't fade or lock by itself until you hold it again. A quick press still turns capitals on and off.
 
 ## What you put away keeps you posted
 
@@ -48,7 +48,9 @@ Slipstream can tell that you're typing - never what - and keeps out of the way w
 
 Put a window away and it pours down the side of the screen as a stream of light, and keeps running there.
 
-**The stream is a readout.** A busy app pours fast and bright, a quiet one sends a few slow grey streaks, so a build finishing catches your eye without you going to look. Rest the pointer on one for its memory, processor and traffic; click it to bring the window back.
+**The stream is a readout.** A busy app pours fast and bright, a quiet one sends a few slow grey streaks, so a build finishing catches your eye without you going to look.
+
+**Rest the pointer on a stream for the numbers behind it.** A small card names the app and what it's using right now: its memory, its share of the processor, and what it's downloading and uploading, with its helper processes counted in. Click the stream to bring the window back.
 
 Prefer the film's code rain? Settings → Appearance → Effects swaps the light for falling green code, each stream spelling out its app's name.
 
