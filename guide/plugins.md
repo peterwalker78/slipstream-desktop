@@ -48,7 +48,7 @@ Every field is optional.
 - `lines`: up to six lines of text.
 - `sections`: named groups of gauges, up to four. Each gauge has a `label` and a `percent`, and can have `resets`, when it starts over in seconds since the Unix epoch, which shows as the time left, and `window`, how long it lasts in seconds. With both, the part of the window gone by is shaded in the gauge, in the focus ring's colour, and anything used beyond it shows in the bullet-time colour. A gauge without a `percent` shows only that, and the time left, as a timer's does. A section can have a `detail` beside its name, a `note` under it, and `stale` to dim it.
 - `buttons`: up to three. Pressing one runs the plugin's program again with `press` and the button's `id` after its own words: `./weather.sh press refresh`. It waits for a run already under way to finish, and anything it leaves running is stopped when it exits. A button can instead have Slipstream do one thing for it, when you press it, and then the program isn't run: open a web address in your browser, with `"open": "https://…"`, for a plugin that needs `open`; copy text, with `"copy": "…"`, for one that needs `clipboard`; or control what's playing, with the id `media:play-pause`, `media:next` or `media:previous`, for one that needs `media`.
-- A card with sections has a cog, which slides it across to a switch for each one, to hide the ones you don't want.
+- A card with two or more sections has a cog, which slides it across to a switch for each one, to hide the ones you don't want.
 - `glance`: what the chip shows when this plugin is the one chosen for it. Without it, the chip shows the first section's first two gauges and the larger of their percentages.
 - `attention`: turns the chip amber. A gauge at 75% or more does the same.
 - `notify`: a notification to send as this card arrives, as `{"title": "Tea's ready", "body": "It's been four minutes"}`, for a plugin that needs `notify`. It comes from the plugin by name, marked as a plugin's so it can't pass for an app's, a few a minute at most. A program that runs every so often should only include it on the run that has something to say.
@@ -82,9 +82,11 @@ A plugin whose `plugin.toml` names a `keyword` answers the searches that start w
 
 ```toml
 keyword = "="
+example = "=2+2"
 ```
 
 - A keyword is one to three symbols, such as `=`, `?` or `!!`, so that no ordinary search starts with one. It can't start with `:`, `/`, `~` or `.`, which Slipstream's own emoji and file searches use.
+- `example` is a search Settings shows beside the keyword, so people know what to type. It starts with the keyword.
 - Each search runs the plugin's program with `search` and the words typed after the keyword, as one word: `./sums.sh search "2+2"`. That is the same for a program that runs every so often and one that keeps running: the search is a run of its own, beside the program's usual runs, so a program that keeps running needn't read anything for it. A search with nothing after the keyword isn't run.
 - The program prints its answers as one line of JSON, and exits:
 
@@ -199,6 +201,7 @@ needs = ["notify", "sound", "media", "open-windows", "write"]
 write = ["$HOME/Documents/Focus"]
 tile = true
 keyword = "!"
+example = "!45"
 
 [[actions]]
 id = "toggle"

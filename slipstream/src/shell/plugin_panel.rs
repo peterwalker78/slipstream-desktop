@@ -6,12 +6,13 @@
 //! gauges with the time until each starts over, and up to three buttons. A gauge whose allowance
 //! says how long it lasts has the part of that time gone by shaded in the focus ring's colour, and
 //! whatever has been used beyond it in the second colour: used faster than time goes by. A card
-//! with sections has a cog, which slides it across to a switch for each section.
+//! with two or more sections has a cog, which slides it across to a switch for each section.
 //!
 //! While the panel is open it takes every key: Tab or the arrows move between the cogs, buttons and
 //! the settings link, Enter or Space presses, Esc slides a card back or closes. A ring shows where
 //! the keyboard is.
 
+use slipstream_config::plugins::Card;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -159,7 +160,7 @@ fn items(facts: &Facts, switches: Option<&str>) -> Vec<Item> {
             );
             continue;
         }
-        if !card.sections.is_empty() {
+        if has_choice(card) {
             items.push(Item::Cog(shown.id.clone()));
         }
         items.extend(
@@ -554,6 +555,11 @@ fn front_height(shown: &Shown) -> f32 {
 }
 
 /// Whether any of a card's gauges, shown or hidden, knows how far through its window it is.
+/// Whether a card has sections to choose between: hiding its only one would just empty it.
+fn has_choice(card: &Card) -> bool {
+    card.sections.len() > 1
+}
+
 fn has_time(shown: &Shown) -> bool {
     shown.card.iter().any(|card| {
         card.sections
@@ -597,10 +603,7 @@ fn paint_front(
     let mut y = y + CARD_PAD;
     let stale = shown.problem.is_some();
     let shade = |rgba: u32| if stale { card::dim(rgba) } else { rgba };
-    let has_sections = shown
-        .card
-        .as_ref()
-        .is_some_and(|card| !card.sections.is_empty());
+    let has_sections = shown.card.as_ref().is_some_and(has_choice);
     let name = Style::new(Face::BodyBold, 15.0, INK);
     let name_room = if has_sections {
         inner - ROUND - 8.0
@@ -997,7 +1000,7 @@ impl Slipstream {
 mod tests {
     use slipstream_config::{
         card::{Gauge, Section},
-        plugins::{Button, Card},
+        plugins::Button,
     };
 
     use super::*;
@@ -1113,6 +1116,13 @@ mod tests {
         assert_eq!(panel.switches(), None);
         assert_eq!(panel.selected(&facts), Item::Cog("allotments".into()));
         assert_eq!(panel.key(Keysym::Escape, false, &facts), Request::Close);
+    }
+
+    /// A card with one section, like a timer's running session, has nothing to choose: no cog.
+    #[test]
+    fn a_card_with_one_section_has_no_cog() {
+        let timer = with_sections("timer", &["Focusing"], Some(0.5));
+        assert_eq!(items(&facts(vec![timer]), None), [Item::Settings]);
     }
 
     #[test]

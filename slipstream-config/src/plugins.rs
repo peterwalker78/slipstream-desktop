@@ -232,6 +232,9 @@ pub struct Manifest {
     /// What a search in the explorer starts with for it to be asked.
     #[serde(default)]
     pub keyword: Option<String>,
+    /// A search shown in Settings as an example of what it answers, starting with its keyword.
+    #[serde(default)]
+    pub example: Option<String>,
     /// What it offers keys for, which the person chooses in Settings.
     #[serde(default)]
     pub actions: Vec<surfaces::Action>,

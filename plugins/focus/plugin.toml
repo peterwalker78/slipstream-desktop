@@ -9,6 +9,7 @@ write = ["$HOME/Documents/Focus"]
 # A tile in quick settings, answers to searches like !45, and keys for starting and stopping.
 tile = true
 keyword = "!"
+example = "!45"
 
 [[actions]]
 id = "toggle"

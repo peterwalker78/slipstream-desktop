@@ -5,7 +5,8 @@
 //!   its card: `{"tile": {"id": "awake", "label": "Keep awake", "icon": "sun", "on": true}}`;
 //! - answers in the explorer, for a plugin whose manifest names a `keyword`: only a search that
 //!   starts with it reaches the plugin, run as `search <words>`, and it prints
-//!   `{"results": [{"id": …, "label": …, "detail": …, "icon": …}]}`;
+//!   `{"results": [{"id": …, "label": …, "detail": …, "icon": …}]}`, and an `example` search
+//!   shows in Settings;
 //! - keys, for the `actions` its manifest lists (`[[actions]] id = "start" label = "Start"`),
 //!   which the person binds in Settings. A plugin never chooses or grabs keys itself.
 //!
@@ -30,6 +31,7 @@ const TILE_LABEL_CHARS: usize = 24;
 const ACTION_LABEL_CHARS: usize = 40;
 const HIT_LABEL_CHARS: usize = 80;
 const HIT_DETAIL_CHARS: usize = 32;
+const EXAMPLE_CHARS: usize = 24;
 
 /// Something a plugin offers keys for.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -90,6 +92,16 @@ pub(super) fn check(manifest: &mut Manifest) -> Result<(), String> {
              such as = or ?, and can't start with :, /, ~ or ., which Slipstream's own search uses"
         ));
     }
+    // An example is kept only when it is a search that would reach the plugin.
+    manifest.example = manifest
+        .example
+        .as_deref()
+        .map(|example| clip(example, EXAMPLE_CHARS))
+        .filter(|example| {
+            manifest
+                .searched(example)
+                .is_some_and(|words| !words.is_empty())
+        });
     if manifest.actions.len() > MAX_ACTIONS {
         return Err(format!("{MANIFEST} lists more than {MAX_ACTIONS} actions"));
     }
@@ -155,7 +167,12 @@ impl Manifest {
             adds.push("Adds a tile to quick settings".to_string());
         }
         if let Some(keyword) = &self.keyword {
-            adds.push(format!("Answers searches that start with {keyword}"));
+            adds.push(match &self.example {
+                Some(example) => {
+                    format!("Answers searches that start with {keyword}, such as {example}")
+                }
+                None => format!("Answers searches that start with {keyword}"),
+            });
         }
         if !self.actions.is_empty() {
             let labels: Vec<String> = self
@@ -202,6 +219,29 @@ mod tests {
         let manifest =
             parse_manifest(b"name = \"Sums\"\nexec = [\"./s\"]\nkeyword = \"=\"\n").unwrap();
         assert_eq!(manifest.keyword.as_deref(), Some("="));
+    }
+
+    /// Settings shows an example search beside the keyword, when it is one that would reach the
+    /// plugin.
+    #[test]
+    fn settings_shows_an_example_search_only_when_it_reaches_the_plugin() {
+        let sums = |example: &str| {
+            let toml = format!(
+                "name = \"Sums\"\nexec = [\"./s\"]\nkeyword = \"=\"\nexample = \"{example}\"\n"
+            );
+            parse_manifest(toml.as_bytes()).unwrap().adds()
+        };
+        assert_eq!(
+            sums("=2+2"),
+            ["Answers searches that start with =, such as =2+2"]
+        );
+        for unusable in ["2+2", "=", "?2+2"] {
+            assert_eq!(
+                sums(unusable),
+                ["Answers searches that start with ="],
+                "{unusable}"
+            );
+        }
     }
 
     /// No keyword, no search: a plugin without one never sees what is typed, and one with one
