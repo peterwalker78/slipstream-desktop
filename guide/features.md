@@ -89,7 +89,7 @@ Slipstream is a complete desktop session of its own, written in Rust on [Smithay
 - **Notifications** (Super+N): pop-ups with action buttons, sounds from your sound theme, a notification centre, do not disturb. Each notification knows the window it came from, even `notify-send` in a terminal or a program working in the background for one, and opening it takes you there. The centre also lists [the apps running in the background](help.md#apps-running-in-the-background), tray icons and their menus included.
 - **Lock screen** (Super+L), before sleep and optionally after a while idle.
 - **The screens turn off when nobody's there:** after 15 minutes with no input (Settings → Session), and a minute after the lock screen comes up. Awake, a fullscreen window, a playing video or an app that asks, Flatpaks included, holds it off; any key or movement lights them again.
-- **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied, and F7 while the wallpaper is showing for a picture of it.
+- **Screenshots and snips** (Print, Super+Shift+S), saved to Pictures/Screenshots and copied, and F7 while the wallpaper is showing for a screenshot of it.
 - **Zoom** (Super+= and Super+-, or Super and the wheel): the whole screen magnified around the pointer, so moving the pointer moves the view. Super+0 puts it back.
 - **Three-finger swipes** on a touchpad follow your fingers: left and right for the next or previous workspace, up for bullet time and down to leave it. In bullet time, swiping sideways looks at the next workspace.
 - **Mouse & keyboard** (Settings → Mouse & keyboard): pointer speed, scrolling and tap to click, and keyboard layouts, taking effect straight away. Alt+Shift switches layout.

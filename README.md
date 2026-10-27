@@ -43,7 +43,7 @@ Most screens now are built to keep you constantly checking one last thing, over 
 
 Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in - the wallpaper was running behind your windows the whole time.
 
-**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it, or press F7 to keep a picture of it.
+**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it. Press F7 instead to take a screenshot of the wallpaper.
 
 [**All twenty →**](guide/wallpapers.md)
 

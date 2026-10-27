@@ -125,4 +125,4 @@ In any panel or card, Esc backs out one level, Tab and the arrows move, Enter pr
 | M, Del | Minimise, close |
 | Esc | Back, with nothing changed |
 
-Once the desktop has faded to the wallpaper, F7 saves a picture of it and any other key brings the desktop back.
+Once the desktop has faded to the wallpaper, F7 takes a screenshot of it and any other key brings the desktop back.
