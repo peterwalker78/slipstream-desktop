@@ -35,7 +35,7 @@ fn fill(list: &gtk::Box, store: &Store) {
     let add = group(list, "Add a plugin");
     add_rows(&add, refill.clone());
 
-    let yours = group(list, "Your plugins");
+    let yours = cards(list, "Your plugins");
     // Folders that aren't plugins go here, between the plugins and what a plugin can do.
     let skipped = gtk::Box::new(gtk::Orientation::Vertical, 18);
     list.append(&skipped);
@@ -49,9 +49,10 @@ fn fill(list: &gtk::Box, store: &Store) {
             "Each plugin runs in a sandbox and can do only what's listed under its name. Safe \
              means it can't see or send anything of yours that matters. Worth a thought means it \
              can see something private, or send what it sees online, so think about who made it. \
-             Full access means it can do anything you can, like a program you install yourself: \
-             switch it on only if you trust where it came from. A plugin that changes after you \
-             switch it on stays off until you switch it on again.",
+             Full access means it runs outside the sandbox, as a program you install yourself \
+             does, and what that allows is listed under it: switch it on only if you trust where \
+             it came from. A plugin that changes after you switch it on stays off until you switch \
+             it on again.",
         ),
         &link,
     );
@@ -71,8 +72,9 @@ fn fill(list: &gtk::Box, store: &Store) {
             return;
         }
         if looked.plugins.is_empty() {
+            let card = card(&yours);
             row(
-                &yours,
+                &card,
                 "No plugins yet",
                 Some(
                     "Add one above. It starts off, so you can read its files before turning it on.",
@@ -81,7 +83,7 @@ fn fill(list: &gtk::Box, store: &Store) {
             );
         }
         for (plugin, explained) in &looked.plugins {
-            plugin_row(&yours, &store, plugin, explained, &settings, refill.clone());
+            plugin_card(&yours, &store, plugin, explained, &settings, refill.clone());
         }
         if !looked.problems.is_empty() {
             let group = group(&skipped, "Folders that aren't plugins");
@@ -211,140 +213,140 @@ fn add_rows(card: &gtk::Box, refill: impl Fn() + Clone + 'static) {
     });
 }
 
-/// A plugin's row: what it is and what it runs, then where its headline goes, removing it, and
-/// its switch. `explained` says what a held plugin's update means.
-fn plugin_row(
-    card: &gtk::Box,
+/// A titled column of cards in `list`, one per plugin, so what belongs to each stays together.
+fn cards(list: &gtk::Box, title: &str) -> gtk::Box {
+    let group = gtk::Box::new(gtk::Orientation::Vertical, 7);
+    group.append(&label(&title.to_uppercase(), "group-title"));
+    let cards = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    group.append(&cards);
+    list.append(&group);
+    cards
+}
+
+/// A card of its own in `cards`, its rows divided as a group's are.
+fn card(cards: &gtk::Box) -> gtk::Box {
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .overflow(gtk::Overflow::Hidden)
+        .css_classes(["card"])
+        .build();
+    cards.append(&card);
+    card
+}
+
+/// A plugin's card. On top, its name, how safe it is and its switch; under that, anything that
+/// stops the switch, then what it can do, then where its headline goes and removing it.
+/// `explained` says what a held plugin's update means.
+fn plugin_card(
+    cards: &gtk::Box,
     store: &Store,
     plugin: &Plugin,
     explained: &[String],
     settings: &Settings,
     refill: impl Fn() + Clone + 'static,
 ) {
+    let card = card(cards);
     let on = settings.plugins.is_on(&plugin.id);
     let held = on && !settings.plugins.approved(plugin);
-    let mut about = Vec::new();
-    if !plugin.manifest.description.trim().is_empty() {
-        about.push(plugin.manifest.description.trim().to_string());
-    }
-    // What a held update means goes under the rest in smaller print.
-    let details = explained.to_vec();
     // What it can do, each with a picture and how much thought it deserves: the commands it
     // adds run as you whenever they're run, so they count too.
     let mut abilities = plugin.manifest.abilities();
     let commands = commands_of(&plugin.id);
     if !commands.is_empty() {
+        let one = commands.len() == 1;
         abilities.push(plugins::Ability {
             what: plugins::What::Everything,
             says: format!(
-                "Adds {} {}, which can do anything you can when {} run",
-                if commands.len() == 1 {
-                    "the command"
-                } else {
-                    "the commands"
-                },
+                "Adds {} {}. Whenever you or one of your tools runs {}, it runs outside the \
+                 sandbox, as you, and can:",
+                if one { "the command" } else { "the commands" },
                 plugins::listed(&commands),
-                if commands.len() == 1 {
-                    "it's"
-                } else {
-                    "they're"
-                },
+                if one { "it" } else { "one" },
             ),
             care: plugins::Care::Thought,
         });
     }
-    if !plugin.own {
-        about.push(format!(
-            "Installed for everyone in {}",
-            plugin.dir.display()
-        ));
-    }
-    if let Some(why) = &plugin.too_big {
-        about.push(format!(
-            "Too big to check: {why}. It can't be turned on until it holds less."
-        ));
-    }
-    let controls = gtk::Box::builder().spacing(10).build();
-    if on && !held {
-        controls.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
-    }
-    if plugin.own {
-        let remove = remove_button();
-        let (store_c, refill_c, id, dir) = (
-            store.clone(),
-            refill.clone(),
-            plugin.id.clone(),
-            plugin.dir.clone(),
-        );
-        remove.connect_clicked(move |button| {
-            if confirmed(button) {
-                store_c.change(|settings| settings.plugins.set_on(&id, None));
-                approval::forget(&id);
-                let removed = std::fs::remove_dir_all(&dir).and_then(|()| store::remove(&id));
-                if let Err(err) = removed {
-                    button.set_tooltip_text(Some(&format!("Couldn't remove it: {err}")));
-                }
-                refill_c();
-            }
-        });
-        controls.append(&remove);
-    }
-    // Centred, as every control in the row is: the Remove button beside it is taller, and a
-    // switch left to fill the row's height is drawn stretched.
+
+    // Centred, as every control in the row is: a switch left to fill the row's height is drawn
+    // stretched.
     let switch = gtk::Switch::builder()
         .active(on && !held)
         .sensitive(on || plugin.too_big.is_none())
         .valign(gtk::Align::Center)
         .build();
-    let (store_c, shown) = (store.clone(), plugin.clone());
-    switch.connect_state_set(move |_, turned_on| {
-        // What is approved is what this row showed: its fingerprint, and what it asks for, kept
-        // to compare an update with. If the folder has changed since, the compositor holds it.
-        if turned_on {
-            if shown.too_big.is_some() {
-                return gtk::glib::Propagation::Stop;
+    {
+        let (store, shown, refill) = (store.clone(), plugin.clone(), refill.clone());
+        switch.connect_state_set(move |_, turned_on| {
+            // What is approved is what this card showed: its fingerprint, and what it asks for,
+            // kept to compare an update with. If the folder has changed since, the compositor
+            // holds it.
+            if turned_on {
+                if shown.too_big.is_some() {
+                    return gtk::glib::Propagation::Stop;
+                }
+                let _ = approval::save(&shown);
+            } else {
+                approval::forget(&shown.id);
             }
-            let _ = approval::save(&shown);
-        } else {
-            approval::forget(&shown.id);
-        }
-        let fingerprint = turned_on.then(|| shown.fingerprint.clone());
-        store_c.change(|settings| settings.plugins.set_on(&shown.id, fingerprint));
-        refill();
-        gtk::glib::Propagation::Proceed
-    });
-    controls.append(&switch);
-    let about = about.join("\n");
-    let sub = row(card, &plugin.manifest.name, Some(&about), &controls)
-        .expect("the row has a line of explanation");
-    // A plugin with nothing to say about itself has only what it can do below its name.
-    sub.set_visible(!about.is_empty());
-    let Some(text) = sub.parent().and_downcast::<gtk::Box>() else {
-        return;
-    };
-    // The program it runs, for anyone who wants to look it up.
-    text.set_tooltip_text(Some(&format!("Runs {}", plugin.manifest.exec.join(" "))));
-    // The verdict beside the name: the most thought anything it can do deserves.
-    let care = abilities
-        .iter()
-        .map(|ability| ability.care)
-        .max()
-        .unwrap_or(plugins::Care::Safe);
-    if let Some(title) = text.first_child() {
-        let named = gtk::Box::builder().spacing(10).build();
-        text.remove(&title);
-        named.append(&title);
-        let verdict = label(care.verdict(), "verdict");
-        verdict.add_css_class(care_class(care));
-        verdict.set_valign(gtk::Align::Center);
-        named.append(&verdict);
-        text.prepend(&named);
+            let fingerprint = turned_on.then(|| shown.fingerprint.clone());
+            store.change(|settings| settings.plugins.set_on(&shown.id, fingerprint));
+            refill();
+            gtk::glib::Propagation::Proceed
+        });
     }
+    let description = plugin.manifest.description.trim();
+    let sub = row(&card, &plugin.manifest.name, Some(description), &switch)
+        .expect("the row has a line of explanation");
+    // A plugin with nothing to say about itself has only its name.
+    sub.set_visible(!description.is_empty());
+    if let Some(text) = sub.parent().and_downcast::<gtk::Box>() {
+        // The program it runs, for anyone who wants to look it up.
+        text.set_tooltip_text(Some(&format!("Runs {}", plugin.manifest.exec.join(" "))));
+        // The verdict beside the name: the most thought anything it can do deserves.
+        let care = abilities
+            .iter()
+            .map(|ability| ability.care)
+            .max()
+            .unwrap_or(plugins::Care::Safe);
+        if let Some(title) = text.first_child() {
+            let named = gtk::Box::builder().spacing(10).build();
+            text.remove(&title);
+            named.append(&title);
+            let verdict = label(care.verdict(), "verdict");
+            verdict.add_css_class(care_class(care));
+            verdict.set_valign(gtk::Align::Center);
+            named.append(&verdict);
+            text.prepend(&named);
+        }
+    }
+
+    // Why the switch is off, or can't stay on, straight under it.
+    if held {
+        notice(
+            &card,
+            "Updated, so it's off until you switch it on again.",
+            explained,
+        );
+    }
+    if let Some(why) = &plugin.too_big {
+        notice(
+            &card,
+            &format!("Too big to check: {why}. It can't be switched on until it holds less."),
+            &[],
+        );
+    }
+    if !plugin.manifest.unconfined()
+        && let Err(why) = slipstream_config::plugins::sandbox::bwrap()
+    {
+        notice(&card, &format!("{why}."), &[]);
+    }
+
     let can = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
-        .css_classes(["abilities"])
+        .css_classes(["row", "abilities"])
         .build();
+    can.append(&label("What it can do", "row-sub"));
     for ability in &abilities {
         let line = gtk::Box::builder().spacing(8).build();
         let icon = gtk::Image::from_icon_name(match ability.what {
@@ -364,27 +366,86 @@ fn plugin_row(
         says.add_css_class(care_class(ability.care));
         line.append(&says);
         can.append(&line);
+        // Outside the sandbox, what that means, plainly, under the line that says so.
+        if ability.what == plugins::What::Everything {
+            let means = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(3)
+                .css_classes(["means"])
+                .build();
+            for power in plugins::OUTSIDE_THE_SANDBOX {
+                let point = gtk::Box::builder().spacing(6).build();
+                let bullet = label("•", "row-sub");
+                bullet.set_valign(gtk::Align::Start);
+                point.append(&bullet);
+                let says = label(power, "row-sub");
+                says.set_hexpand(true);
+                point.append(&says);
+                means.append(&point);
+            }
+            means.append(&label(plugins::NOT_AS_ROOT, "row-sub"));
+            can.append(&means);
+        }
     }
-    text.append(&can);
-    let mut warnings = Vec::new();
-    if held {
-        warnings.push("Updated, so it's off until you switch it on again.".to_string());
+    card.append(&can);
+
+    // Where its headline goes, where it's installed and removing it, at the foot.
+    let foot = gtk::Box::builder().spacing(10).css_classes(["row"]).build();
+    if on && !held {
+        foot.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
     }
-    if !plugin.manifest.unconfined()
-        && let Err(why) = slipstream_config::plugins::sandbox::bwrap()
-    {
-        warnings.push(format!("{why}."));
+    if !plugin.own {
+        let shared = label(
+            &format!("Installed for everyone in {}", plugin.dir.display()),
+            "row-sub",
+        );
+        shared.set_valign(gtk::Align::Center);
+        foot.append(&shared);
     }
-    for warning in warnings {
-        let warning = label(&warning, "row-sub");
-        warning.add_css_class("needed");
-        text.append(&warning);
+    foot.append(&gtk::Box::builder().hexpand(true).build());
+    if plugin.own {
+        let remove = remove_button();
+        let (store, id, dir) = (store.clone(), plugin.id.clone(), plugin.dir.clone());
+        remove.connect_clicked(move |button| {
+            if confirmed(button) {
+                store.change(|settings| settings.plugins.set_on(&id, None));
+                approval::forget(&id);
+                let removed = std::fs::remove_dir_all(&dir).and_then(|()| store::remove(&id));
+                if let Err(err) = removed {
+                    button.set_tooltip_text(Some(&format!("Couldn't remove it: {err}")));
+                }
+                refill();
+            }
+        });
+        foot.append(&remove);
     }
+    card.append(&foot);
+}
+
+/// A line in the plugin's card, in the colour of what wants attention, saying why its switch is
+/// off; `details` go under it in smaller print.
+fn notice(card: &gtk::Box, says: &str, details: &[String]) {
+    let notice = gtk::Box::builder()
+        .spacing(8)
+        .css_classes(["row", "notice"])
+        .build();
+    let icon = gtk::Image::from_icon_name("dialog-warning-symbolic");
+    icon.add_css_class("needed");
+    icon.set_valign(gtk::Align::Start);
+    notice.append(&icon);
+    let text = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(3)
+        .hexpand(true)
+        .build();
+    let said = label(says, "row-sub");
+    said.add_css_class("needed");
+    text.append(&said);
     if !details.is_empty() {
-        let small = label(&details.join("\n"), "row-sub");
-        small.add_css_class("detail");
-        text.append(&small);
+        text.append(&label(&details.join("\n"), "row-sub"));
     }
+    notice.append(&text);
+    card.append(&notice);
 }
 
 /// The style for how much thought something deserves: as quiet as the rest, the colour of what

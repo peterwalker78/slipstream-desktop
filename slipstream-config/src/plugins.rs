@@ -277,6 +277,23 @@ pub struct Ability {
     pub care: Care,
 }
 
+/// What a program running outside the sandbox can do, said under any ability that is one: the
+/// compositor lets such a program be an input method, a virtual keyboard and a clipboard manager,
+/// and nothing stops it writing a login item, so seeing keys and outliving its switch are real.
+/// sudo still wants the password, but it could be caught on the way in.
+pub const OUTSIDE_THE_SANDBOX: [&str; 3] = [
+    "Open, change or send away any of your files, including saved passwords, browser sign-ins \
+     and SSH keys",
+    "See your screen and what you type and copy, and type into your other windows",
+    "Set itself up to start whenever you log in, so switching it off or removing it may not \
+     stop it",
+];
+
+/// What it can't do, said after that: become root by itself.
+pub const NOT_AS_ROOT: &str = "It can't use sudo or act as root by itself, but it could catch \
+                               your password as you type it, or type into a terminal where you've \
+                               just used sudo.";
+
 /// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
 /// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
 pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
@@ -445,9 +462,7 @@ impl Manifest {
         if self.unconfined() {
             return vec![Ability {
                 what: What::Everything,
-                says: "Can do anything you can: open your files, use your accounts and change \
-                       your settings"
-                    .into(),
+                says: "Runs outside the sandbox, as you, so it can:".into(),
                 care: Care::Full,
             }];
         }
