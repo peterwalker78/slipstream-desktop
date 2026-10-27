@@ -55,6 +55,7 @@
 pub mod approval;
 pub mod contents;
 pub mod sandbox;
+pub mod seccomp;
 pub mod store;
 
 use std::{

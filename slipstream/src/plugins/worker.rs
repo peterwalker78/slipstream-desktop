@@ -12,7 +12,7 @@
 
 use std::{
     collections::VecDeque,
-    os::unix::process::CommandExt,
+    os::{fd::AsRawFd, unix::process::CommandExt},
     path::{Path, PathBuf},
     process::Command,
     sync::{
@@ -544,11 +544,14 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         let bwrap = sandbox::bwrap()?;
         let session = sandbox::Session::now();
         let mut command = Command::new(bwrap);
-        // A session keyring of its own, empty: the one it would share can hold the keys that
-        // unlock your files or shares, and the sandbox doesn't otherwise keep them out.
-        // SAFETY: one system call between fork and exec, which allocates nothing.
+        let seccomp = seccomp_file()?;
+        let seccomp_fd = seccomp.as_ref().map(|file| file.as_raw_fd());
+        // SAFETY: two system calls between fork and exec, which allocate nothing. The filter's
+        // file is moved in, so it stays open for as long as the command can be started.
         unsafe {
-            command.pre_exec(|| {
+            command.pre_exec(move || {
+                // A session keyring of its own, empty: the one it would share can hold the keys
+                // that unlock your files or shares.
                 let joined = libc::syscall(
                     libc::SYS_keyctl,
                     libc::KEYCTL_JOIN_SESSION_KEYRING,
@@ -558,6 +561,12 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
                 // A kernel without keyrings has none to keep out.
                 if joined < 0 && error.raw_os_error() != Some(libc::ENOSYS) {
                     return Err(error);
+                }
+                // The filter's file, left open across the exec for bubblewrap to read.
+                if let Some(file) = &seccomp
+                    && libc::fcntl(file.as_raw_fd(), libc::F_SETFD, 0) < 0
+                {
+                    return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
             });
@@ -569,6 +578,7 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
                 state,
                 &reads,
                 &session,
+                seccomp_fd,
             ))
             .arg(program)
             .env_clear();
@@ -594,6 +604,28 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         command.env(format!("SLIPSTREAM_PLUGIN_READ_{n}"), &folder.named);
     }
     Ok(command)
+}
+
+/// The filter of system calls a sandboxed plugin is refused (`seccomp`), in a file of its own in
+/// memory, open for the next program started and closed again with the command: bubblewrap reads
+/// it from there. None where there is no filter for this kind of computer.
+fn seccomp_file() -> Result<Option<std::fs::File>, String> {
+    use std::io::{Seek, Write};
+    use std::os::fd::FromRawFd;
+    let Some(program) = plugins::seccomp::program() else {
+        return Ok(None);
+    };
+    let why = |err: std::io::Error| format!("Its sandbox's filter couldn't be made: {err}");
+    // SAFETY: a name that is a valid C string; the descriptor returned is owned from here.
+    let fd = unsafe { libc::memfd_create(c"slipstream-plugin-filter".as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        return Err(why(std::io::Error::last_os_error()));
+    }
+    // SAFETY: `fd` was just opened above and nothing else owns it.
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    file.write_all(&program).map_err(why)?;
+    file.rewind().map_err(why)?;
+    Ok(Some(file))
 }
 
 /// The wait before starting a program that keeps running again: `RESTART`, doubled each time it

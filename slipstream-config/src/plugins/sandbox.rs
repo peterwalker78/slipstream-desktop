@@ -114,6 +114,7 @@ pub fn args(
     state: &Path,
     reads: &[ReadFolder],
     session: &Session,
+    seccomp: Option<i32>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
     let mut add = |words: &[&std::ffi::OsStr]| args.extend(words.iter().map(OsString::from));
@@ -201,6 +202,11 @@ pub fn args(
     // Last, so that nothing it reads covers them.
     add(&["--ro-bind".as_ref(), dir.as_os_str(), dir.as_os_str()]);
     add(&["--bind".as_ref(), state.as_os_str(), state.as_os_str()]);
+    // The system calls it's refused (`seccomp`), read by bubblewrap from this open file.
+    if let Some(fd) = seccomp {
+        let fd = fd.to_string();
+        add(&["--seccomp".as_ref(), fd.as_ref()]);
+    }
     add(&["--chdir".as_ref(), dir.as_os_str(), "--".as_ref()]);
     args
 }
@@ -266,7 +272,15 @@ mod tests {
             named: "/home/ada/.cache/ferry".into(),
             real: "/var/home/ada/.cache/ferry".into(),
         }];
-        let bare = words(&args(&manifest(&[]), dir, state, &reads, &session()));
+        let bare = words(&args(
+            &manifest(&[]),
+            dir,
+            state,
+            &reads,
+            &session(),
+            Some(9),
+        ));
+        assert!(bare.contains("--seccomp 9 --chdir"), "{bare}");
         assert!(bare.starts_with(
             "--unshare-all --unshare-user --disable-userns --die-with-parent --new-session \
              --ro-bind /dev/null /.slipstream-plugin"
@@ -289,7 +303,7 @@ mod tests {
         assert!(environment(&manifest(&[]), &session()).is_empty());
 
         let all = manifest(&[Need::Network, Need::Windows]);
-        let given = words(&args(&all, dir, state, &[], &session()));
+        let given = words(&args(&all, dir, state, &[], &session(), None));
         assert!(given.contains("--share-net"), "{given}");
         assert!(given.contains("--ro-bind-try /run/user/1000/wayland-1 /run/user/1000/wayland-1"));
         assert_eq!(environment(&all, &session()).len(), 2);
@@ -304,7 +318,14 @@ mod tests {
             named: "/".into(),
             real: "/".into(),
         };
-        let given = words(&args(&manifest(&[]), dir, state, &[everything], &session()));
+        let given = words(&args(
+            &manifest(&[]),
+            dir,
+            state,
+            &[everything],
+            &session(),
+            None,
+        ));
         let read = given.find("--ro-bind-try / /").unwrap();
         let own = given.find("--bind /home/ada/state").unwrap();
         assert!(read < own, "{given}");

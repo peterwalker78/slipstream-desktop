@@ -845,7 +845,7 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
              echo kept > \"$SLIPSTREAM_PLUGIN_STATE/kept\" && echo wrote-state; \
              touch ./mine 2>/dev/null && echo wrote-own; \
              unshare -Urm true 2>/dev/null && echo nested-namespace; \
-             grep -c : /proc/net/dev",
+             grep -c : /proc/net/dev; grep -c '^Seccomp:.2' /proc/self/status",
             secret = secret.display(),
             bus = bus.display(),
         );
@@ -865,7 +865,8 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             .unwrap();
         let said = String::from_utf8_lossy(&out.stdout);
         let err = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(said, "hello\nwrote-state\n1\n", "{err}");
+        // The last line: the filter of system calls is in force.
+        assert_eq!(said, "hello\nwrote-state\n1\n1\n", "{err}");
         assert_eq!(
             std::fs::read_to_string(state.join("kept")).unwrap(),
             "kept\n"
