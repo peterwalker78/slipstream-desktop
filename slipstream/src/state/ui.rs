@@ -428,10 +428,17 @@ impl Slipstream {
 
     pub fn explorer_key(&mut self, sym: Keysym, ch: Option<char>, mods: Mods) {
         match self.explorer.key(sym, ch, mods) {
-            Outcome::Nothing => {}
+            Outcome::Nothing => self.ask_plugins(),
             Outcome::Close => self.explorer.close(),
             Outcome::Activate(item, fresh) => self.explorer_activate(item, fresh),
         }
+    }
+
+    /// Asks the plugins whose keyword the explorer's query starts with, and hands the explorer
+    /// what they have so far. Each frame does it too, so their answers show as they come.
+    pub fn ask_plugins(&mut self) {
+        let answers = self.plugins.search(self.explorer.query());
+        self.explorer.set_answers(answers);
     }
 
     /// A click while the explorer is open, in logical pixels from the output's corner: on an item
@@ -499,6 +506,7 @@ impl Slipstream {
                 tracing::info!(name, "typing an emoji from the explorer");
                 self.put_on_clipboard(crate::history::Clip::Text(emoji.into()), true);
             }
+            Item::Plugin { plugin, id } => self.plugin_press(&plugin, &id),
             Item::System(action) => {
                 tracing::info!(?action, "chosen in the explorer");
                 match action {

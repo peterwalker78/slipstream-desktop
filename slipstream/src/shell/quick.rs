@@ -61,7 +61,12 @@ pub enum Control {
     Volume,
     Brightness,
     AllSettings,
+    /// A plugin's tile, by its place among them.
+    Plugin(usize),
 }
+
+/// The most plugin tiles shown, in rows of two under Slipstream's own.
+const MOST_PLUGIN_TILES: usize = 4;
 
 const TILES: [Control; 6] = [
     Control::WiFi,
@@ -113,6 +118,7 @@ impl Control {
             Self::Volume => "Volume",
             Self::Brightness => "Brightness",
             Self::AllSettings => "All settings",
+            Self::Plugin(_) => "",
         }
     }
 }
@@ -143,6 +149,8 @@ pub struct Facts {
     pub accent: u32,
     /// The key that opens and closes the panel.
     pub key: String,
+    /// The tiles of plugins that are on, up to `MOST_PLUGIN_TILES`.
+    pub tiles: Vec<crate::plugins::PluginTile>,
 }
 
 impl Default for Facts {
@@ -156,6 +164,7 @@ impl Default for Facts {
             ring: crate::panel::FOCUS,
             accent: crate::panel::ACCENT,
             key: String::new(),
+            tiles: Vec::new(),
         }
     }
 }
@@ -281,6 +290,7 @@ impl QuickSettings {
                 .flat_map(|tile| std::iter::once(*tile).chain(tile.page()))
                 .collect()
         }));
+        rows.extend(plugin_tiles(facts).chunks(2).map(<[Control]>::to_vec));
         rows.push(vec![Control::Volume]);
         if facts.status.brightness.is_some() {
             rows.push(vec![Control::Brightness]);
@@ -454,12 +464,13 @@ impl QuickSettings {
         let facts = &look.facts;
         let sliders = sliders(&facts.status);
         let menu_h = if look.power_menu { MENU_H + GAP } else { 0.0 };
+        let tile_rows = (TILES.len() + plugin_tiles(facts).len()).div_ceil(2) as f32;
+        let tiles_h = tile_rows * TILE_H + (tile_rows - 1.0) * TILE_GAP;
         let height = PADDING
             + HEAD_H
             + GAP
             + menu_h
-            + 3.0 * TILE_H
-            + 2.0 * TILE_GAP
+            + tiles_h
             + GAP
             + sliders.len() as f32 * (SLIDER_H + GAP)
             + FOOT_H
@@ -489,7 +500,7 @@ impl QuickSettings {
                 y += MENU_H + GAP;
             }
             paint_tiles(p, facts, x0, y, &mut hits);
-            y += 3.0 * TILE_H + 2.0 * TILE_GAP + GAP;
+            y += tiles_h + GAP;
             for &slider in &sliders {
                 paint_slider(p, facts, slider, place, y, &mut hits);
                 y += SLIDER_H + GAP;
@@ -606,12 +617,20 @@ fn paint_power_menu(p: &mut Painter, x0: f32, y: f32, hits: &mut Hits) {
     }
 }
 
-/// The tiles, two by three: amber when on.
+/// The plugin tiles shown, in order.
+fn plugin_tiles(facts: &Facts) -> Vec<Control> {
+    (0..facts.tiles.len().min(MOST_PLUGIN_TILES))
+        .map(Control::Plugin)
+        .collect()
+}
+
+/// The tiles, two by three and then the plugins' in rows of two: amber when on.
 fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits) {
     let status = &facts.status;
     let inner = WIDTH - 2.0 * PADDING;
     let tile_w = (inner - TILE_GAP) / 2.0;
-    for (i, control) in TILES.into_iter().enumerate() {
+    let controls = TILES.into_iter().chain(plugin_tiles(facts));
+    for (i, control) in controls.enumerate() {
         let x = x0 + (i % 2) as f32 * (tile_w + TILE_GAP);
         let top = y + (i / 2) as f32 * (TILE_H + TILE_GAP);
         let (on, detail) = tile(control, facts);
@@ -625,14 +644,21 @@ fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits)
             Control::DoNotDisturb => icons::DND,
             Control::NightLight => icons::MOON,
             Control::ReducedMotion => icons::RUN,
+            Control::Plugin(at) => crate::plugins::surfaces::icon(
+                facts.tiles.get(at).and_then(|it| it.tile.icon.as_deref()),
+            ),
             _ => icons::GAUGE,
         };
         p.icon(icon, x + 14.0, top + (TILE_H - 22.0) / 2.0, 22.0, Some(ink));
         let page = control.page();
         let room = tile_w - 48.0 - 10.0 - if page.is_some() { CHEVRON_W } else { 0.0 };
         let title = Style::new(Face::BodyBold, 15.0, ink);
+        let label = match control {
+            Control::Plugin(at) => facts.tiles.get(at).map_or("", |it| it.tile.label.as_str()),
+            _ => control.label(),
+        };
         p.text(
-            &text::ellipsize(control.label(), &title, room),
+            &text::ellipsize(label, &title, room),
             x + 48.0,
             top + 22.0,
             &title,
@@ -774,6 +800,11 @@ fn tile(control: Control, facts: &Facts) -> (bool, String) {
             Some(_) => (false, "Balanced".to_string()),
             None => (false, "Unavailable".to_string()),
         },
+        // Named for its plugin, so it can't pass for one of Slipstream's own.
+        Control::Plugin(at) => facts
+            .tiles
+            .get(at)
+            .map_or((false, String::new()), |it| (it.tile.on, it.name.clone())),
         _ => (false, String::new()),
     }
 }
@@ -836,6 +867,7 @@ impl Slipstream {
             ring: self.panel_ring(),
             accent: self.panel_accent(),
             key: self.key_label(crate::keys::Action::QuickSettings),
+            tiles: self.plugins.tiles(),
         }
     }
 
@@ -972,6 +1004,14 @@ impl Slipstream {
             Control::Battery => {
                 self.quick.close();
                 self.open_slipstream_settings("power");
+            }
+            // As a press of a button on its card: the tile shows the change once its card does.
+            Control::Plugin(at) => {
+                let pressed = (self.plugins.tiles().get(at))
+                    .map(|it| (it.plugin.clone(), it.tile.id.clone()));
+                if let Some((plugin, id)) = pressed {
+                    self.plugin_press(&plugin, &id);
+                }
             }
             Control::WiFiPage | Control::BluetoothPage => {
                 self.quick.close();
@@ -1235,5 +1275,50 @@ mod tests {
             slider_request(Control::Brightness, 0),
             Request::Brightness(1)
         ));
+    }
+
+    fn plugin_tile(plugin: &str, label: &str, on: bool) -> crate::plugins::PluginTile {
+        crate::plugins::PluginTile {
+            plugin: plugin.into(),
+            name: "Example".into(),
+            tile: slipstream_config::plugins::surfaces::Tile {
+                id: "flip".into(),
+                label: label.into(),
+                icon: None,
+                on,
+            },
+        }
+    }
+
+    /// Plugins' tiles sit under Slipstream's own in rows of two, the keyboard reaches them like
+    /// any other tile, and a press asks for the plugin's tile, never one of Slipstream's.
+    #[test]
+    fn plugin_tiles_follow_slipstream_s_own_and_the_keyboard_reaches_them() {
+        let mut quick = QuickSettings::default();
+        quick.open(0.0);
+        let mut facts = facts();
+        facts.tiles = (0..MOST_PLUGIN_TILES + 2)
+            .map(|n| plugin_tile(&format!("p{n}"), "Keep awake", n == 0))
+            .collect();
+        let rows = quick.rows(&facts);
+        let tiles: Vec<Control> = rows
+            .concat()
+            .into_iter()
+            .filter(|c| matches!(c, Control::Plugin(_)))
+            .collect();
+        assert_eq!(tiles.len(), MOST_PLUGIN_TILES);
+        assert!(
+            rows.iter()
+                .any(|row| row == &vec![Control::Plugin(0), Control::Plugin(1)])
+        );
+        quick.selected = Control::ReducedMotion;
+        assert_eq!(quick.key(Keysym::Down, false, &facts), Request::Nothing);
+        assert_eq!(quick.selected, Control::Plugin(0));
+        assert_eq!(
+            quick.key(Keysym::Return, false, &facts),
+            Request::Press(Control::Plugin(0))
+        );
+        assert_eq!(tile(Control::Plugin(0), &facts), (true, "Example".into()));
+        assert_eq!(tile(Control::Plugin(1), &facts), (false, "Example".into()));
     }
 }

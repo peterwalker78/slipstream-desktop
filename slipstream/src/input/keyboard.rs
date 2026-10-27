@@ -67,6 +67,8 @@ enum KeyUse {
     Zoom(crate::zoom::Step),
     /// One of the person's own shortcuts: the desktop file ID of the app it opens.
     OpenApp(String),
+    /// One of the person's own shortcuts, for a plugin's action: the plugin's id and the action's.
+    PluginAction(String, String),
 }
 
 /// The character `sym` types into a panel's search: none with Super, Ctrl or Alt held, since
@@ -542,9 +544,14 @@ impl Slipstream {
                         }
                         return FilterResult::Intercept(None);
                     }
-                    if let Some(app) = state.shortcuts.own_app(mods, key) {
+                    if let Some(does) = state.shortcuts.own_key(mods, key) {
                         state.keys.suppressed_keys.push(key);
-                        return FilterResult::Intercept(Some(KeyUse::OpenApp(app)));
+                        return FilterResult::Intercept(Some(match does {
+                            crate::shortcuts::own::Does::Open(app) => KeyUse::OpenApp(app),
+                            crate::shortcuts::own::Does::Plugin { plugin, action, .. } => {
+                                KeyUse::PluginAction(plugin, action)
+                            }
+                        }));
                     }
                 } else if release_suppressed(&mut state.keys.suppressed_keys, key) {
                     return FilterResult::Intercept(None);
@@ -701,6 +708,7 @@ impl Slipstream {
         match used {
             KeyUse::Action(action) => self.run_bound(action),
             KeyUse::OpenApp(app) => self.open_own_key(&app),
+            KeyUse::PluginAction(plugin, action) => self.plugins.act(&plugin, &action),
             KeyUse::Explorer(sym, ch, mods) => self.explorer_key(sym, ch, mods),
             KeyUse::Bullet(key, mods) => self.bullet_key(key, mods),
             KeyUse::Quick(key, shift) => self.quick_key(key, shift),

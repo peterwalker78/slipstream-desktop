@@ -1,22 +1,54 @@
-//! Shortcuts of the person's own, each opening an app: the settings file's `[[keys.app]]`.
+//! Shortcuts of the person's own, each opening an app (the settings file's `[[keys.app]]`) or
+//! doing one of a plugin's actions (`[[keys.plugin]]`).
 //!
 //! One works only while its keys mean nothing else: not a key of the style in force, not one kept
 //! for input methods, screen readers and games, not a key that types, and not an app's own
 //! shortcut. One that clashes after the style changes is kept, does nothing, and works again if
 //! the style changes back; the Settings app says why it does nothing meanwhile.
 
-use slipstream_config::{AppKey, KeyStyle, shortcuts::Granted};
+use slipstream_config::{AppKey, KeyStyle, PluginKey, shortcuts::Granted};
 
 use super::trigger::{Refusal, Trigger};
+
+/// What one does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Does {
+    /// Opens the app with this desktop file ID.
+    Open(String),
+    /// Does a plugin's action, as a press of a button with its id: the plugin's id and name, and
+    /// the action's id.
+    Plugin {
+        plugin: String,
+        from: String,
+        action: String,
+    },
+}
 
 /// One that works.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnKey {
     pub trigger: Trigger,
-    /// The app's desktop file ID.
-    pub app: String,
-    /// The app's name, for the key list.
+    pub does: Does,
+    /// The app's name, or the action's label, for the key list.
     pub name: String,
+}
+
+impl OwnKey {
+    /// What it does, for the key list.
+    pub fn says(&self) -> String {
+        match &self.does {
+            Does::Open(_) => format!("open {}", self.name),
+            Does::Plugin { from, .. } => format!("{from}: {}", self.name),
+        }
+    }
+
+    /// Why an app can't have its keys too.
+    pub fn refusal(&self) -> Refusal {
+        match &self.does {
+            Does::Open(_) => Refusal::Opens(self.name.clone()),
+            Does::Plugin { from, .. } => Refusal::Taken(from.clone()),
+        }
+    }
 }
 
 /// Why `trigger` can't open an app in `style`, if it can't.
@@ -53,11 +85,50 @@ pub fn usable(
         }
         usable.push(OwnKey {
             trigger,
-            app: key.app.clone(),
+            does: Does::Open(key.app.clone()),
             name: name(&key.app),
         });
     }
     usable
+}
+
+/// `own` with the keys for plugins' actions that work in `style` added, after the ones there: for
+/// a plugin that's on and lists the action (`offered`), on keys nothing else has.
+pub fn with_plugin_keys(
+    mut own: Vec<OwnKey>,
+    style: KeyStyle,
+    keys: &[PluginKey],
+    granted: &Granted,
+    offered: &[crate::plugins::Offered],
+) -> Vec<OwnKey> {
+    for key in keys {
+        let Some(trigger) = Trigger::parse(&key.keys) else {
+            continue;
+        };
+        let Some((from, action)) = offered
+            .iter()
+            .filter(|offered| offered.plugin == key.plugin)
+            .find_map(|offered| {
+                let action = offered.actions.iter().find(|a| a.id == key.action)?;
+                Some((offered.name.clone(), action.label.clone()))
+            })
+        else {
+            continue;
+        };
+        if refusal(style, trigger, granted).is_some() || own.iter().any(|o| o.trigger == trigger) {
+            continue;
+        }
+        own.push(OwnKey {
+            trigger,
+            does: Does::Plugin {
+                plugin: key.plugin.clone(),
+                from,
+                action: key.action.clone(),
+            },
+            name: action,
+        });
+    }
+    own
 }
 
 /// `slipstream --check-keys`, for the Settings app: a line for each of `specs`, of its keys as
@@ -208,8 +279,55 @@ mod tests {
         });
         assert_eq!(own.len(), 1);
         assert_eq!(
-            (own[0].app.as_str(), own[0].name.as_str()),
-            ("org.example.Files", "Files")
+            (&own[0].does, own[0].name.as_str()),
+            (&Does::Open("org.example.Files".into()), "Files")
+        );
+    }
+
+    /// A plugin can't bind keys itself: only the person's own `[[keys.plugin]]` give its actions
+    /// keys, and only for a plugin that's on and lists the action, on keys nothing else has.
+    #[test]
+    fn a_plugin_s_action_has_keys_only_the_person_gave_it() {
+        use slipstream_config::plugins::surfaces::Action;
+        let offered = [crate::plugins::Offered {
+            plugin: "timer".into(),
+            name: "Timer".into(),
+            actions: vec![Action {
+                id: "start".into(),
+                label: "Start the timer".into(),
+            }],
+        }];
+        let plugin_key = |keys: &str, plugin: &str, action: &str| PluginKey {
+            keys: keys.into(),
+            plugin: plugin.into(),
+            action: action.into(),
+        };
+        let apps = vec![app_key("LOGO+CTRL+g", "org.example.Files")];
+        let own = usable(KeyStyle::Windows, &apps, &Granted::new(), |id| id.into());
+        let keys = [
+            plugin_key("LOGO+CTRL+t", "timer", "start"),
+            // Not an action it lists, a plugin that isn't on, keys an app already opens, and a
+            // key of the style's own.
+            plugin_key("LOGO+CTRL+y", "timer", "format-disk"),
+            plugin_key("LOGO+CTRL+u", "lamp", "start"),
+            plugin_key("LOGO+CTRL+g", "timer", "start"),
+            plugin_key("F12", "timer", "start"),
+        ];
+        let own = with_plugin_keys(own, KeyStyle::Windows, &keys, &Granted::new(), &offered);
+        assert_eq!(own.len(), 2);
+        assert_eq!(own[1].trigger, trigger("LOGO+CTRL+t"));
+        assert_eq!(
+            own[1].does,
+            Does::Plugin {
+                plugin: "timer".into(),
+                from: "Timer".into(),
+                action: "start".into()
+            }
+        );
+        assert_eq!(own[1].says(), "Timer: Start the timer");
+        assert_eq!(own[1].refusal(), Refusal::Taken("Timer".into()));
+        assert!(
+            with_plugin_keys(Vec::new(), KeyStyle::Windows, &keys, &Granted::new(), &[]).is_empty()
         );
     }
 

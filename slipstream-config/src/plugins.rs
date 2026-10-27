@@ -60,6 +60,7 @@ pub mod contents;
 pub mod sandbox;
 pub mod seccomp;
 pub mod store;
+pub mod surfaces;
 
 use std::{
     collections::BTreeMap,
@@ -182,7 +183,7 @@ impl Plugins {
 }
 
 /// `plugin.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Manifest {
     pub name: String,
@@ -205,6 +206,15 @@ pub struct Manifest {
     /// What it reaches beyond its folders, in the sandbox or from Slipstream.
     #[serde(default)]
     pub needs: Vec<Need>,
+    /// It has a tile in quick settings, from the `tile` on its card (`surfaces`).
+    #[serde(default)]
+    pub tile: bool,
+    /// What a search in the explorer starts with for it to be asked.
+    #[serde(default)]
+    pub keyword: Option<String>,
+    /// What it offers keys for, which the person chooses in Settings.
+    #[serde(default)]
+    pub actions: Vec<surfaces::Action>,
 }
 
 /// Something a plugin reaches beyond its own folders and the folders it reads.
@@ -883,6 +893,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
              plugin is given that"
         ));
     }
+    surfaces::check(&mut manifest)?;
     Ok(manifest)
 }
 
@@ -1158,6 +1169,8 @@ pub struct Card {
     /// A sound from the sound theme to play as this card arrives, with its notification if it
     /// has one, for a plugin that needs `sound`.
     pub sound: Option<String>,
+    /// Its tile in quick settings, for a plugin whose manifest says it has one.
+    pub tile: Option<surfaces::Tile>,
 }
 
 /// A notification a plugin sends from its card.
@@ -1210,6 +1223,7 @@ struct Printed {
     notify: Option<Notify>,
     #[serde(default)]
     sound: Option<String>,
+    tile: Option<surfaces::Tile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1302,6 +1316,7 @@ impl Card {
                     body: clip(&notify.body, BODY_CHARS),
                 }),
             sound: printed.sound.as_deref().and_then(sound_name),
+            tile: surfaces::tile(printed.tile),
         })
     }
 
@@ -1775,6 +1790,7 @@ mod tests {
             read: read.iter().map(|folder| folder.to_string()).collect(),
             write: Vec::new(),
             needs: Vec::new(),
+            ..Manifest::default()
         };
         let (notes_s, sneaky_s) = (notes.display().to_string(), sneaky.display().to_string());
         assert_eq!(

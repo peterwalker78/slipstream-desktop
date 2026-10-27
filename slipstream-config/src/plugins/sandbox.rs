@@ -288,6 +288,7 @@ mod tests {
             read: Vec::new(),
             write: Vec::new(),
             needs: needs.to_vec(),
+            ..Manifest::default()
         }
     }
 

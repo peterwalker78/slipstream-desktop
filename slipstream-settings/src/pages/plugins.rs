@@ -425,6 +425,28 @@ fn plugin_card(
     }
     card.append(&can);
 
+    // Where it shows up besides its card: a tile, a keyword in the explorer, keys of yours.
+    let adds = plugin.manifest.adds();
+    if !adds.is_empty() {
+        let shows = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(3)
+            .css_classes(["row", "abilities"])
+            .build();
+        shows.append(&label("Where it shows", "row-sub"));
+        for says in adds {
+            let line = gtk::Box::builder().spacing(8).build();
+            let icon = gtk::Image::from_icon_name("view-grid-symbolic");
+            icon.set_valign(gtk::Align::Start);
+            line.append(&icon);
+            let says = label(&says, "row-sub");
+            says.set_hexpand(true);
+            line.append(&says);
+            shows.append(&line);
+        }
+        card.append(&shows);
+    }
+
     // Where its headline goes, where it's installed and removing it, at the foot.
     let foot = gtk::Box::builder().spacing(10).css_classes(["row"]).build();
     if on && !held {

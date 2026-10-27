@@ -156,6 +156,8 @@ pub(super) struct Results {
     pub(super) files: Vec<Found>,
     pub(super) run: Option<String>,
     pub(super) system: Vec<System>,
+    /// What plugins answer a search that starts with their keyword, which nothing else does.
+    pub(super) plugin: Vec<crate::plugins::Answers>,
     /// Where Enter lands before anything is chosen: the best match, in selection order.
     pub(super) best: usize,
 }
@@ -164,6 +166,10 @@ impl Results {
     /// Everything selectable, in selection order: the grid, then the side column top to bottom.
     pub(super) fn items(&self) -> Vec<Item> {
         let mut items: Vec<Item> = self.apps.iter().cloned().map(Item::App).collect();
+        items.extend(self.plugin_hits().map(|(plugin, hit)| Item::Plugin {
+            plugin: plugin.to_string(),
+            id: hit.id.clone(),
+        }));
         items.extend(self.answer.clone().map(Item::Answer));
         items.extend(
             self.emoji
@@ -188,15 +194,20 @@ impl Results {
     /// Where each group starts in selection order, for Tab: the grid, then each section of the
     /// side column.
     pub(super) fn group_starts(&self) -> Vec<usize> {
-        let sizes = [
-            self.apps.len(),
+        let mut sizes = vec![self.apps.len()];
+        sizes.extend(self.plugin.iter().map(
+            |answers| {
+                if answers.fresh { answers.hits.len() } else { 0 }
+            },
+        ));
+        sizes.extend([
             usize::from(self.answer.is_some()),
             self.emoji.len(),
             self.settings.len(),
             self.files.len(),
             usize::from(self.run.is_some()),
             self.system.len(),
-        ];
+        ]);
         let mut starts = Vec::new();
         let mut at = 0;
         for size in sizes {
@@ -220,6 +231,7 @@ impl Results {
         let mut ranked: Vec<u8> = Vec::new();
         ranked.extend(app_score.map(|score| score * 2));
         ranked.extend(self.apps.iter().skip(1).map(|_| u8::MAX));
+        ranked.extend(self.plugin_hits().map(|_| 0));
         // A sum's answer is as good as a word of an app's name.
         ranked.extend(self.answer.as_ref().map(|_| 2));
         ranked.extend(self.emoji.iter().map(|_| 0));
@@ -261,6 +273,21 @@ impl Explorer {
                 files: Vec::new(),
                 run: None,
                 system: Vec::new(),
+                plugin: Vec::new(),
+                best: 0,
+            };
+        }
+        // A search that starts with a plugin's keyword is that plugin's alone.
+        if !self.answers.is_empty() {
+            return Results {
+                apps: Vec::new(),
+                answer: None,
+                emoji: Vec::new(),
+                settings: Vec::new(),
+                files: Vec::new(),
+                run: None,
+                system: Vec::new(),
+                plugin: self.answers.clone(),
                 best: 0,
             };
         }
@@ -308,6 +335,7 @@ impl Explorer {
             files,
             run,
             system,
+            plugin: Vec::new(),
             best: 0,
         };
         results.fit_side_column();
@@ -317,6 +345,22 @@ impl Explorer {
 }
 
 impl Results {
+    /// The plugins' answers that can be chosen, by plugin: only those for what is typed now, not
+    /// ones still shown from before.
+    pub(super) fn plugin_hits(
+        &self,
+    ) -> impl Iterator<Item = (&str, &slipstream_config::plugins::surfaces::Hit)> {
+        self.plugin
+            .iter()
+            .filter(|answers| answers.fresh)
+            .flat_map(|answers| {
+                answers
+                    .hits
+                    .iter()
+                    .map(|hit| (answers.plugin.as_str(), hit))
+            })
+    }
+
     /// Lists fewer of the longest sections until the side column fits, worst matches first.
     fn fit_side_column(&mut self) {
         let section = |rows: usize| {

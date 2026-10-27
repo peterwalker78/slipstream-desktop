@@ -164,6 +164,21 @@ pub struct Keys {
     /// style never loses any.
     #[serde(rename = "app", skip_serializing_if = "Vec::is_empty")]
     pub apps: Vec<AppKey>,
+    /// Shortcuts of the person's own, each doing one of a plugin's actions. Kept, as an app's
+    /// are, while they clash or the plugin is off, and doing nothing meanwhile.
+    #[serde(rename = "plugin", skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<PluginKey>,
+}
+
+/// One shortcut that does a plugin's action, as its manifest lists it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct PluginKey {
+    /// The keys, as the XDG shortcuts specification writes them: `LOGO+t`.
+    pub keys: String,
+    /// The plugin's id, and the action's.
+    pub plugin: String,
+    pub action: String,
 }
 
 /// One shortcut that opens an app.
@@ -189,6 +204,32 @@ impl Keys {
     /// Takes away the shortcut on these keys.
     pub fn remove_app_key(&mut self, keys: &str) {
         self.apps.retain(|key| key.keys != keys);
+    }
+
+    /// Gives a plugin's action these keys, in place of any keys it had and of any other plugin
+    /// action on them.
+    pub fn add_plugin_key(&mut self, keys: &str, plugin: &str, action: &str) {
+        self.remove_plugin_key(plugin, action);
+        self.plugins.retain(|key| key.keys != keys);
+        self.plugins.push(PluginKey {
+            keys: keys.to_string(),
+            plugin: plugin.to_string(),
+            action: action.to_string(),
+        });
+    }
+
+    /// Takes away the keys of a plugin's action.
+    pub fn remove_plugin_key(&mut self, plugin: &str, action: &str) {
+        self.plugins
+            .retain(|key| key.plugin != plugin || key.action != action);
+    }
+
+    /// The keys a plugin's action has, if any.
+    pub fn plugin_key(&self, plugin: &str, action: &str) -> Option<&str> {
+        self.plugins
+            .iter()
+            .find(|key| key.plugin == plugin && key.action == action)
+            .map(|key| key.keys.as_str())
     }
 }
 
@@ -744,6 +785,11 @@ mod tests {
                     keys: "LOGO+g".into(),
                     app: "org.example.Files".into(),
                 }],
+                plugins: vec![PluginKey {
+                    keys: "LOGO+t".into(),
+                    plugin: "timer".into(),
+                    action: "start".into(),
+                }],
             },
             mouse: Mouse {
                 speed: 0.5,
@@ -832,5 +878,26 @@ mod tests {
         );
         keys.remove_app_key("LOGO+h");
         assert_eq!(keys.apps.len(), 1);
+    }
+
+    #[test]
+    fn a_plugin_action_has_one_set_of_keys_and_keys_one_action() {
+        let mut keys = Keys::default();
+        keys.add_plugin_key("LOGO+t", "timer", "start");
+        keys.add_plugin_key("LOGO+y", "timer", "start");
+        keys.add_plugin_key("LOGO+u", "timer", "stop");
+        keys.add_plugin_key("LOGO+u", "lamp", "toggle");
+        assert_eq!(keys.plugin_key("timer", "start"), Some("LOGO+y"));
+        assert_eq!(keys.plugin_key("timer", "stop"), None);
+        assert_eq!(keys.plugin_key("lamp", "toggle"), Some("LOGO+u"));
+        let text = toml::to_string(&Settings {
+            keys: keys.clone(),
+            ..Settings::default()
+        })
+        .unwrap();
+        let read = parse(&text).unwrap();
+        assert_eq!(read.keys, keys, "{text}");
+        keys.remove_plugin_key("timer", "start");
+        assert_eq!(keys.plugins.len(), 1);
     }
 }
