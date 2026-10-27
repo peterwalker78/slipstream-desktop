@@ -234,8 +234,8 @@ fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
     let shine = lighter(primary, 0.85);
     format!(
         ".side > row:focus-visible, .row switch:focus-visible, .row checkbutton:focus-visible, \
-         .row button:focus-visible, dropdown > button:focus-visible, \
-         .variations > row:focus-visible, .note > button:focus-visible {{ outline-color: {p}; }}
+         window.slipstream-settings button:focus-visible, \
+         .variations > row:focus-visible {{ outline-color: {p}; }}
          .variations > row:selected {{ background: {}; }}
          .row entry:focus-within {{ border-color: {p}; }}
          .batt progressbar progress {{ background-image: linear-gradient(90deg, {charge}); }}
@@ -248,7 +248,9 @@ fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
          .row switch:checked slider {{ background: {}; }}
          .row checkbutton check:indeterminate {{ border-color: {t}; color: {t}; }}
          .row scale highlight {{ background: {t}; }}
-         .picker button.suggested-action {{ background: {t}; color: {}; }}",
+         window.slipstream-settings button.text-button.suggested-action {{ background: {t}; \
+         color: {}; }}
+         window.slipstream-settings button.text-button.suggested-action:hover {{ background: {}; }}",
         faint(primary, 0.10),
         lighter(primary, 0.45),
         faint(tertiary, 0.12),
@@ -256,6 +258,7 @@ fn colours_css([primary, secondary, tertiary]: [[f32; 3]; 3]) -> String {
         ink_on(tertiary),
         ink_on(tertiary),
         ink_on(tertiary),
+        lighter(tertiary, 0.15),
     )
 }
 
@@ -327,12 +330,18 @@ fn activate(app: &gtk::Application, page: Option<&str>, screenshot: Option<PathB
     let window = open_window(app, page, None);
     if let Some(path) = screenshot {
         let app = app.clone();
-        glib::timeout_add_local_once(Duration::from_millis(800), move || {
+        // Taken once the window has drawn, which on a slow start takes longer than the first
+        // try: asked again every so often, for ten seconds at most.
+        let mut tries = 0;
+        glib::timeout_add_local(Duration::from_millis(800), move || {
+            tries += 1;
             match save_png(&window, &path) {
                 Ok(()) => println!("saved {}", path.display()),
+                Err(_) if tries < 12 => return glib::ControlFlow::Continue,
                 Err(err) => eprintln!("slipstream-settings: screenshot failed: {err}"),
             }
             app.quit();
+            glib::ControlFlow::Break
         });
     }
 }

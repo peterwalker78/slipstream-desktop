@@ -33,6 +33,7 @@ impl ColourButton {
         let swatch = swatch(&colour, 32, 18);
         let button = gtk::Button::builder()
             .child(&swatch)
+            .css_classes(["swatch"])
             .tooltip_text(title)
             .valign(gtk::Align::Center)
             .build();

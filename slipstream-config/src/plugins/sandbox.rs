@@ -6,8 +6,10 @@
 //! copy, its own folder for what it keeps, and the folders its manifest says it reads, read-only.
 //! It has its own process, IPC and host-name namespaces, so it can't see or signal anything
 //! outside, and no network unless it needs `network`. It has no session bus and no display;
-//! one that needs `windows` is given the Wayland socket alone. It is ended with whatever started
-//! it, and it can't reach the terminal of anything that started it.
+//! one that needs `windows` is given the Wayland socket alone, and `MARKER` in its root tells the
+//! compositor it is sandboxed, so it gets nothing kept for unsandboxed programs (typing as the
+//! keyboard, the clipboard at any time, layers over the desktop). It is ended with whatever
+//! started it, and it can't reach the terminal of anything that started it.
 
 use std::{
     ffi::OsString,
@@ -35,6 +37,10 @@ fn is_program(path: &Path) -> bool {
     std::fs::metadata(path)
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
+
+/// A file at the root of every plugin's sandbox, by which the compositor knows a client that
+/// connects from one is sandboxed, as Flatpak's `/.flatpak-info` says so of its apps.
+pub const MARKER: &str = ".slipstream-plugin";
 
 /// Why a plugin that runs in the sandbox can't run here, when it can't.
 pub const NO_BWRAP: &str = "It runs in a sandbox, which needs bubblewrap (bwrap), and that isn't \
@@ -92,6 +98,12 @@ pub fn args(
         "--unshare-all".as_ref(),
         "--die-with-parent".as_ref(),
         "--new-session".as_ref(),
+    ]);
+    let marker = Path::new("/").join(MARKER);
+    add(&[
+        "--ro-bind".as_ref(),
+        "/dev/null".as_ref(),
+        marker.as_os_str(),
     ]);
     if manifest.needs(Need::Network) {
         add(&["--share-net".as_ref()]);
@@ -206,7 +218,9 @@ mod tests {
         let state = Path::new("/home/ada/.local/state/slipstream/plugins/ferry/state");
         let reads = [PathBuf::from("/home/ada/.cache/ferry")];
         let bare = words(&args(&manifest(&[]), dir, state, &reads, &session()));
-        assert!(bare.starts_with("--unshare-all --die-with-parent --new-session"));
+        assert!(bare.starts_with(
+            "--unshare-all --die-with-parent --new-session --ro-bind /dev/null /.slipstream-plugin"
+        ));
         assert!(!bare.contains("--share-net"), "{bare}");
         assert!(
             !bare.contains("wayland-1") && !bare.contains("/dev/dri"),

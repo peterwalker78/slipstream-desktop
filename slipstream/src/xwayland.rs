@@ -54,7 +54,11 @@ impl Slipstream {
             None,
             std::iter::empty::<(String, String)>(),
             std::iter::empty::<String>(),
-            true,
+            // No abstract socket: XWayland takes no password, and an abstract socket can be
+            // reached from anything sharing the network namespace, a sandboxed plugin that goes
+            // online among them. X11 apps connect through `/tmp/.X11-unix` instead, which a
+            // sandbox doesn't have.
+            false,
             Stdio::null(),
             Stdio::null(),
             |_| (),

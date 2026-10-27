@@ -95,71 +95,39 @@ pub fn remember_if_missing_in(folder: &Path, plugin: &Plugin, approved: &str) {
     }
 }
 
-/// How a plugin now differs from what was approved.
+/// How a plugin now differs from what was approved, in what it asks for.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Change {
-    /// The program and words it runs, before and now, if they changed.
-    pub program: Option<(Vec<String>, Vec<String>)>,
-    /// How often it runs, before and now (none: it keeps running), if that changed.
-    pub schedule: Option<(Option<u64>, Option<u64>)>,
+    /// It runs another program, or the same with other words.
+    pub program: bool,
     pub reads_added: Vec<String>,
-    pub reads_removed: Vec<String>,
     pub needs_added: Vec<Need>,
-    pub needs_removed: Vec<Need>,
-    pub files_changed: Vec<String>,
-    pub files_added: Vec<String>,
-    pub files_removed: Vec<String>,
 }
 
 impl Change {
     /// Whether it asks for more than was agreed to: another program, folders it didn't read, or
-    /// something it didn't need.
+    /// something it didn't need. Asking for less, or running more or less often, isn't more.
     pub fn asks_for_more(&self) -> bool {
-        self.program.is_some() || !self.reads_added.is_empty() || !self.needs_added.is_empty()
-    }
-
-    /// Whether what it asks for is as it was, whatever happened to its files.
-    pub fn like_for_like(&self) -> bool {
-        self.program.is_none()
-            && self.schedule.is_none()
-            && self.reads_added.is_empty()
-            && self.reads_removed.is_empty()
-            && self.needs_added.is_empty()
-            && self.needs_removed.is_empty()
+        self.program || !self.reads_added.is_empty() || !self.needs_added.is_empty()
     }
 }
 
 /// How `now` differs from `before`.
 pub fn compare(before: &Approval, now: &Approval) -> Change {
-    fn not_in<T: Clone + PartialEq>(list: &[T], other: &[T]) -> Vec<T> {
-        list.iter()
-            .filter(|item| !other.contains(item))
-            .cloned()
-            .collect()
-    }
-    let changed = |a: &BTreeMap<String, String>, b: &BTreeMap<String, String>| -> Vec<String> {
-        a.iter()
-            .filter(|(name, hash)| b.get(*name).is_some_and(|other| other != *hash))
-            .map(|(name, _)| name.clone())
-            .collect()
-    };
-    let only_in = |a: &BTreeMap<String, String>, b: &BTreeMap<String, String>| -> Vec<String> {
-        a.keys()
-            .filter(|name| !b.contains_key(*name))
-            .cloned()
-            .collect()
-    };
     Change {
-        program: (before.exec != now.exec).then(|| (before.exec.clone(), now.exec.clone())),
-        schedule: (before.every_secs != now.every_secs)
-            .then_some((before.every_secs, now.every_secs)),
-        reads_added: not_in(&now.read, &before.read),
-        reads_removed: not_in(&before.read, &now.read),
-        needs_added: not_in(&now.needs, &before.needs),
-        needs_removed: not_in(&before.needs, &now.needs),
-        files_changed: changed(&before.files, &now.files),
-        files_added: only_in(&now.files, &before.files),
-        files_removed: only_in(&before.files, &now.files),
+        program: before.exec != now.exec,
+        reads_added: now
+            .read
+            .iter()
+            .filter(|folder| !before.read.contains(folder))
+            .cloned()
+            .collect(),
+        needs_added: now
+            .needs
+            .iter()
+            .filter(|need| !before.needs.contains(need))
+            .copied()
+            .collect(),
     }
 }
 
@@ -237,124 +205,63 @@ fn newest(dir: &Path) -> Option<SystemTime> {
     newest
 }
 
-/// What a held plugin's update means, as short lines for Settings to show under the plugin, below
-/// its own line saying it was updated. `change` is none when nothing was kept of what it was
-/// approved with.
-pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec<String> {
+/// What a held plugin's update means, in a sentence or two for Settings to show under the
+/// plugin, below its own line saying it was updated: what it wants now that it didn't, and where
+/// it came from. `change` is none when nothing was kept of what it was approved with.
+pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
     let mut lines = Vec::new();
     match change {
-        None => lines.push(format!(
-            "Slipstream can't compare it with the version you turned on. It runs {}{}; read its \
-             plugin.toml first.",
-            plugin.manifest.exec.join(" "),
-            reads(&plugin.manifest.read),
-        )),
-        Some(change) if change.like_for_like() => lines.push(
-            "It does what it did before: the same program, as often, reading the same folders and \
-             needing the same."
+        None => lines.push(
+            "Slipstream can't tell what changed, so have a look at it before switching it on."
                 .to_string(),
         ),
+        Some(change) if change.needs_added.contains(&Need::Everything) => {
+            lines.push("It now wants full access to your computer.".to_string());
+        }
         Some(change) => {
-            let mut asks = Vec::new();
-            if let Some((before, now)) = &change.program {
-                asks.push(format!(
-                    "it now runs {} (it ran {})",
-                    now.join(" "),
-                    before.join(" ")
-                ));
-            }
-            for folder in &change.reads_added {
-                asks.push(format!("it now says it reads {folder}"));
-            }
-            for folder in &change.reads_removed {
-                asks.push(format!("it no longer reads {folder}"));
-            }
-            for need in &change.needs_added {
-                asks.push(format!("it can now {}", need.says()));
-            }
-            for need in &change.needs_removed {
-                asks.push(format!("it no longer can {}", need.says()));
-            }
-            if let Some((before, now)) = change.schedule {
-                asks.push(format!(
-                    "it now {} (it {})",
-                    schedule(now),
-                    schedule(before)
-                ));
-            }
-            let head = if change.asks_for_more() {
-                "It asks for more than before"
-            } else {
-                "What it asks for has changed"
-            };
-            lines.push(format!("{head}: {}.", asks.join("; ")));
-        }
-    }
-    if let Some(change) = change {
-        let mut files = Vec::new();
-        files.extend(change.files_changed.iter().map(|name| name.to_string()));
-        files.extend(
-            change
-                .files_added
+            let mut wants: Vec<String> = change
+                .needs_added
                 .iter()
-                .map(|name| format!("{name} (new)")),
-        );
-        files.extend(
-            change
-                .files_removed
-                .iter()
-                .map(|name| format!("{name} (gone)")),
-        );
-        if !files.is_empty() {
-            let shown = files.len().min(4);
-            let more = files.len() - shown;
-            let mut list = files[..shown].join(", ");
-            if more > 0 {
-                list.push_str(&format!(" and {more} more"));
+                .map(|need| need.says().to_string())
+                .collect();
+            if !change.reads_added.is_empty() {
+                let folders: Vec<String> = change
+                    .reads_added
+                    .iter()
+                    .map(|f| super::shown_folder(f))
+                    .collect();
+                wants.push(format!("look in {}", super::listed(&folders)));
             }
-            lines.push(format!("Changed files: {list}."));
+            lines.push(match (wants.is_empty(), change.program) {
+                (true, false) => "It doesn't ask for anything new.".to_string(),
+                (true, true) => "It doesn't ask for anything new, but it now starts a different \
+                                 program."
+                    .to_string(),
+                (false, program) => format!(
+                    "It now also wants to {}.{}",
+                    super::listed(&wants),
+                    if program {
+                        " It starts a different program too."
+                    } else {
+                        ""
+                    }
+                ),
+            });
         }
     }
-    lines.push(match source {
-        Source::Release => {
-            "It came from its official release, and the download matched its published checksum."
-                .to_string()
+    lines.push(
+        match source {
+            Source::Release => {
+                "It's from the plugin's official release, and passed Slipstream's \
+                                checks."
+            }
+            Source::Checkout(_) => "You built it on this computer, from its source.",
+            Source::ChangedSince => "Its files were changed after Slipstream installed it.",
+            Source::Unknown => "Slipstream didn't install it, so it can't say where it came from.",
         }
-        Source::Checkout(commit) if !commit.is_empty() => format!(
-            "It was built on this computer from your copy of its source (commit {}).",
-            commit.chars().take(12).collect::<String>()
-        ),
-        Source::Checkout(_) => {
-            "It was built on this computer from your copy of its source.".to_string()
-        }
-        Source::ChangedSince => {
-            "Something changed its files after Slipstream installed it.".to_string()
-        }
-        Source::Unknown => {
-            "Slipstream didn't install this update, so it can't say where it came from.".to_string()
-        }
-    });
-    if plugin.manifest.unconfined() {
-        lines.push(
-            "It isn't sandboxed, so switch it on only if you trust where it came from.".into(),
-        );
-    }
+        .to_string(),
+    );
     lines
-}
-
-fn reads(folders: &[String]) -> String {
-    if folders.is_empty() {
-        String::new()
-    } else {
-        format!(" and says it reads {}", folders.join(", "))
-    }
-}
-
-fn schedule(every: Option<u64>) -> String {
-    match every {
-        Some(secs) => format!("runs every {secs} s"),
-        None => "keeps running".to_string(),
-    }
 }
 
 #[cfg(test)]
@@ -386,77 +293,62 @@ mod tests {
         "name = \"Timer\"\nexec = [\"./timer\", \"card\"]\nread = [\"$XDG_CACHE_HOME/timer\"]\n";
 
     #[test]
-    fn an_update_of_its_code_alone_is_like_for_like() {
+    fn an_update_of_its_code_alone_asks_for_nothing_new() {
         let root = scratch("like");
         let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
         let now = Approval::of(&timer(&root, MANIFEST, "echo two"));
         let change = compare(&before, &now);
-        assert!(change.like_for_like());
-        assert!(!change.asks_for_more());
-        assert_eq!(change.files_changed, ["timer"]);
-        let plugin = timer(&root, MANIFEST, "echo two");
-        let said = explain(&plugin, Some(&change), &Source::Release).join("\n");
-        assert!(said.contains("does what it did before"), "{said}");
-        assert!(said.contains("Changed files: timer."), "{said}");
-        assert!(said.contains("matched its published checksum"), "{said}");
+        assert_eq!(change, Change::default());
+        let said = explain(Some(&change), &Source::Release).join("\n");
+        assert_eq!(
+            said,
+            "It doesn't ask for anything new.\nIt's from the plugin's official release, and \
+             passed Slipstream's checks."
+        );
     }
 
-    /// The promise in the guide: an update that asks for more than was turned on says so.
+    /// The promise in the guide: an update that asks for more than was turned on says so, in
+    /// everyday words.
     #[test]
     fn an_update_that_asks_for_more_says_what() {
         let root = scratch("more");
         let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
         let more = "name = \"Timer\"\nexec = [\"./timer\", \"card\", \"--upload\"]\n\
-                    read = [\"$XDG_CACHE_HOME/timer\", \"$HOME/.ssh\"]\nevery-secs = 5\n";
+                    read = [\"$XDG_CACHE_HOME/timer\", \"$HOME/.ssh\"]\nevery-secs = 5\n\
+                    needs = [\"network\"]\n";
         let plugin = timer(&root, more, "echo one");
         let change = compare(&before, &Approval::of(&plugin));
         assert!(change.asks_for_more());
-        assert_eq!(change.reads_added, ["$HOME/.ssh"]);
-        assert_eq!(change.files_changed, ["plugin.toml"]);
-        let said = explain(&plugin, Some(&change), &Source::Unknown).join("\n");
-        assert!(said.contains("It asks for more than before:"), "{said}");
-        assert!(said.contains("it now says it reads $HOME/.ssh"), "{said}");
-        assert!(said.contains("it now runs ./timer card --upload"), "{said}");
-        assert!(
-            said.contains("it now runs every 5 s (it keeps running)"),
-            "{said}"
+        let said = explain(Some(&change), &Source::Unknown).join("\n");
+        assert_eq!(
+            said,
+            "It now also wants to go online and look in ~/.ssh. It starts a different program \
+             too.\nSlipstream didn't install it, so it can't say where it came from."
         );
-        assert!(said.contains("can't say where it came from"), "{said}");
+        // Running more often, or needing less, asks for nothing more.
+        let now = Approval::of(&plugin);
+        let quieter = Approval {
+            needs: Vec::new(),
+            every_secs: Some(600),
+            ..now.clone()
+        };
+        assert!(!compare(&now, &quieter).asks_for_more());
     }
 
-    /// Leaving the sandbox, or needing something new, is asking for more; giving one up isn't.
     #[test]
-    fn an_update_that_leaves_the_sandbox_or_needs_more_says_so() {
+    fn an_update_that_wants_full_access_says_so_first() {
         let root = scratch("needs");
         let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
         let out = format!("{MANIFEST}needs = [\"notify\", \"everything\"]\n");
         let plugin = timer(&root, &out, "echo one");
         let change = compare(&before, &Approval::of(&plugin));
-        assert!(change.asks_for_more() && !change.like_for_like());
-        let said = explain(&plugin, Some(&change), &Source::Unknown).join("\n");
-        assert!(
-            said.contains("it can now reach everything you can, outside the sandbox"),
-            "{said}"
+        assert!(change.asks_for_more());
+        let said = explain(Some(&change), &Source::Checkout("ab12".into())).join("\n");
+        assert_eq!(
+            said,
+            "It now wants full access to your computer.\nYou built it on this computer, from \
+             its source."
         );
-        assert!(said.contains("it can now send you notifications"), "{said}");
-        assert!(
-            said.contains("only if you trust where it came from"),
-            "{said}"
-        );
-
-        let back = compare(&Approval::of(&plugin), &before);
-        assert!(!back.asks_for_more() && !back.like_for_like());
-        let said = explain(
-            &timer(&root, MANIFEST, "echo one"),
-            Some(&back),
-            &Source::Unknown,
-        )
-        .join("\n");
-        assert!(
-            said.contains("it no longer can reach everything you can"),
-            "{said}"
-        );
-        assert!(!said.contains("trust"), "{said}");
     }
 
     /// A record kept before plugins said what they need still loads, as needing nothing.
@@ -487,8 +379,8 @@ mod tests {
         remember_if_missing_in(&records, &plugin, &plugin.fingerprint);
         let kept = load_from(&records, "timer").unwrap();
         assert_eq!(kept, Approval::of(&plugin));
-        let said = explain(&plugin, None, &Source::Unknown).join("\n");
-        assert!(said.contains("can't compare it"), "{said}");
+        let said = explain(None, &Source::Unknown).join("\n");
+        assert!(said.contains("can't tell what changed"), "{said}");
     }
 
     #[test]

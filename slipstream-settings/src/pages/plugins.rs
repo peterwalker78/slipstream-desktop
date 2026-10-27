@@ -15,8 +15,8 @@ const HOW_TO: &str =
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Plugins",
-        "Little apps that add a card to the panel beside the clock. Each one is a program of its \
-         own and can do anything you can, so only add plugins you trust.",
+        "Little apps that add a card to the panel beside the clock. Each one says what it can do \
+         before you switch it on, and can't do anything else.",
     );
     let list = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.append(&list);
@@ -117,7 +117,7 @@ fn look(approved: &plugins::Plugins) -> Looked {
                 let change = approval::load(&plugin.id)
                     .filter(|kept| approved.fingerprints.get(&plugin.id) == Some(&kept.fingerprint))
                     .map(|kept| approval::compare(&kept, &approval::Approval::of(&plugin)));
-                approval::explain(&plugin, change.as_ref(), &approval::source(&plugin))
+                approval::explain(change.as_ref(), &approval::source(&plugin))
             } else {
                 Vec::new()
             };
@@ -226,15 +226,21 @@ fn plugin_row(
     if !plugin.manifest.description.trim().is_empty() {
         about.push(plugin.manifest.description.trim().to_string());
     }
-    // What it runs, and what a held update means, go under the rest in smaller print.
-    let mut details = vec![format!("Runs {}", plugin.manifest.exec.join(" "))];
-    details.extend(explained.iter().cloned());
-    if about.is_empty() {
-        about.push(details.remove(0));
-    }
+    // What a held update means goes under the rest in smaller print.
+    let details = explained.to_vec();
     let unconfined = plugin.manifest.unconfined();
     if !unconfined {
         about.push(plugin.manifest.reach());
+    }
+    let commands = commands_of(&plugin.id);
+    if !commands.is_empty() {
+        let (one, many) = ("the command", "the commands");
+        about.push(format!(
+            "It also adds {} {}, which {} as you, outside the sandbox.",
+            if commands.len() == 1 { one } else { many },
+            plugins::listed(&commands),
+            if commands.len() == 1 { "runs" } else { "run" },
+        ));
     }
     if !plugin.own {
         about.push(format!(
@@ -297,16 +303,16 @@ fn plugin_row(
         gtk::glib::Propagation::Proceed
     });
     controls.append(&switch);
-    let sub = row(
-        card,
-        &plugin.manifest.name,
-        Some(&about.join("\n")),
-        &controls,
-    )
-    .expect("the row has a line of explanation");
+    let about = about.join("\n");
+    let sub = row(card, &plugin.manifest.name, Some(&about), &controls)
+        .expect("the row has a line of explanation");
+    // An unsandboxed plugin with nothing to say about itself has only its amber line below.
+    sub.set_visible(!about.is_empty());
     let Some(text) = sub.parent().and_downcast::<gtk::Box>() else {
         return;
     };
+    // The program it runs, for anyone who wants to look it up.
+    text.set_tooltip_text(Some(&format!("Runs {}", plugin.manifest.exec.join(" "))));
     let mut warnings = Vec::new();
     if held {
         warnings.push("Updated, so it's off until you switch it on again.".to_string());
@@ -358,6 +364,25 @@ fn glance_choice(
         refill();
     });
     choice
+}
+
+/// The commands Slipstream's installer linked into `~/.local/bin` from plugin `id`: they lead to
+/// its approved copy, and run as you, outside the sandbox, whenever you or your tools run them.
+fn commands_of(id: &str) -> Vec<String> {
+    let current = store::of(id).join("current");
+    let bin = slipstream_config::xdg_home("HOME", "").join(".local/bin");
+    let Ok(entries) = std::fs::read_dir(bin) else {
+        return Vec::new();
+    };
+    let mut commands: Vec<String> = entries
+        .flatten()
+        .filter(|entry| {
+            std::fs::read_link(entry.path()).is_ok_and(|target| target.starts_with(&current))
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    commands.sort();
+    commands
 }
 
 /// A Remove button, centred in its row.

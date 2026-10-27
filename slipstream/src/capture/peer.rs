@@ -49,7 +49,8 @@ impl Peer {
 
 /// The connecting process, only when it is still running, its root filesystem could be opened,
 /// and that root definitely has no `/.flatpak-info` — the file a Flatpak sees in its own root,
-/// and the same check the portal makes. Read through `/proc`, so it is the kernel's view of the
+/// and the same check the portal makes — nor the file a plugin's sandbox has in its root
+/// (`sandbox::MARKER`). Read through `/proc`, so it is the kernel's view of the
 /// process and not anything the client said. One look serves every decision made about a new
 /// client: the capture globals here, and the clipboard's data control.
 ///
@@ -105,15 +106,21 @@ pub fn unsandboxed_peer(stream: &UnixStream) -> Option<Peer> {
     })
 }
 
-/// Whether a process's root directory definitely has no `.flatpak-info`. A file, a directory or
+/// Whether a process's root directory definitely has no `.flatpak-info`, nor a plugin sandbox's
+/// marker. A file, a directory or
 /// a link of that name is there, and a root that can't be looked in is unknowable: either way,
 /// not proof of anything but a sandbox.
 fn root_is_unsandboxed(root: &OwnedFd) -> bool {
     use rustix::{fs::AtFlags, io::Errno};
-    matches!(
-        rustix::fs::statat(root, ".flatpak-info", AtFlags::SYMLINK_NOFOLLOW),
-        Err(Errno::NOENT)
-    )
+    // Flatpak's apps, and Slipstream's own plugins in theirs.
+    [".flatpak-info", slipstream_config::plugins::sandbox::MARKER]
+        .into_iter()
+        .all(|marker| {
+            matches!(
+                rustix::fs::statat(root, marker, AtFlags::SYMLINK_NOFOLLOW),
+                Err(Errno::NOENT)
+            )
+        })
 }
 
 /// Whether an executable, by the path its process was started from and its file's owner and
@@ -330,6 +337,12 @@ mod tests {
         let directory = root("directory");
         std::fs::create_dir(directory.join(".flatpak-info")).unwrap();
         assert!(!root_is_unsandboxed(&open(&directory)));
+        let plugin = root("plugin");
+        std::fs::write(plugin.join(slipstream_config::plugins::sandbox::MARKER), "").unwrap();
+        assert!(
+            !root_is_unsandboxed(&open(&plugin)),
+            "a plugin with windows gets what a Flatpak gets, and no more"
+        );
         let link = root("link");
         std::os::unix::fs::symlink("/nowhere/at/all", link.join(".flatpak-info")).unwrap();
         assert!(

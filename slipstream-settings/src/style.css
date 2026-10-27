@@ -220,7 +220,7 @@ picture.preview {
   box-shadow: none;
 }
 
-/* Text entries, and the flat icon buttons beside them. */
+/* Text entries. */
 .row entry {
   min-height: 30px;
   padding: 0 10px;
@@ -230,24 +230,60 @@ picture.preview {
   color: #dfe2e9;
 }
 
-
-.row button.flat {
-  min-width: 30px;
+/* Buttons, three kinds. One with words on it (GTK marks it `text-button`), a link or a colour's
+   swatch looks the same wherever it is. One with only an icon is drawn flat, beside what it acts
+   on. The one main choice in a window (`suggested-action`) takes the tertiary colour (main.rs). */
+window.slipstream-settings button.text-button,
+window.slipstream-settings button.link,
+window.slipstream-settings button.swatch {
   min-height: 30px;
-  padding: 0;
+  padding: 0 14px;
+  border: none;
   border-radius: 7px;
-  color: #aeb3bf;
+  box-shadow: none;
+  background: #2a2e38;
+  color: #dfe2e9;
 }
 
-.row button.flat:disabled {
+window.slipstream-settings button.link > label {
+  text-decoration: none;
+}
+
+window.slipstream-settings button.text-button:hover,
+window.slipstream-settings button.link:hover,
+window.slipstream-settings button.swatch:hover {
+  background: #333846;
+}
+
+window.slipstream-settings button.text-button:active,
+window.slipstream-settings button.link:active,
+window.slipstream-settings button.swatch:active {
+  background: #3b4151;
+}
+
+window.slipstream-settings button.text-button:disabled {
   color: #4a4f5c;
 }
 
-.row > button {
-  padding: 5px 14px;
+.main button.image-button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
   border-radius: 7px;
-  background: #2a2e38;
+  box-shadow: none;
+  background: none;
+  color: #aeb3bf;
+}
+
+.main button.image-button:hover {
+  background: rgba(255, 255, 255, 0.06);
   color: #dfe2e9;
+}
+
+.main button.image-button:disabled {
+  background: none;
+  color: #4a4f5c;
 }
 
 dropdown > button {
@@ -261,8 +297,7 @@ dropdown > button {
 .side > row:focus-visible,
 .row switch:focus-visible,
 .row checkbutton:focus-visible,
-.row button:focus-visible,
-dropdown > button:focus-visible {
+window.slipstream-settings button:focus-visible {
   outline: 2px solid;
   outline-offset: -2px;
 }
@@ -277,18 +312,6 @@ dropdown > button:focus-visible {
 
 .note .told {
   color: #aeb3bf;
-}
-
-.note > button {
-  padding: 5px 14px;
-  border-radius: 7px;
-  background: #2a2e38;
-  color: #dfe2e9;
-}
-
-.note > button:focus-visible {
-  outline: 2px solid;
-  outline-offset: -2px;
 }
 
 /* Power: the battery card, with its charge in a bar of the primary colour. */

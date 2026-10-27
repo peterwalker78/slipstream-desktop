@@ -552,7 +552,12 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
             ))
             .arg(program)
             .env_clear();
+        // A proxy's address can carry its password, so only a plugin that goes online sees it.
+        let online = manifest.needs(Need::Network);
         for name in plugins::ENVIRONMENT {
+            if !online && name.to_lowercase().ends_with("_proxy") {
+                continue;
+            }
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
             }

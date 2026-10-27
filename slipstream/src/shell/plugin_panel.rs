@@ -746,11 +746,11 @@ fn paint_front(
         let mut at = x0;
         for button in &card.buttons {
             let bw = text::width(&button.label, &label) + 28.0;
-            panel::quiet_button(p, at, y, bw, BUTTON_H, 8.0, false);
+            panel::quiet_button(p, at, y, bw, BUTTON_H, panel::ROW_RADIUS, false);
             p.text(&button.label, at + 14.0, y + BUTTON_H / 2.0, &label);
             shapes.push((
                 Item::Button(shown.id.clone(), button.id.clone()),
-                [at, y, bw, BUTTON_H, 8.0],
+                [at, y, bw, BUTTON_H, panel::ROW_RADIUS],
             ));
             at += bw + BUTTON_GAP;
         }

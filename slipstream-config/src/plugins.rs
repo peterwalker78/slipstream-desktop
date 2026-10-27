@@ -75,6 +75,7 @@ pub const MAX_BUTTONS: usize = 3;
 /// The longest a line or a glance is shown, in characters.
 const LINE_CHARS: usize = 80;
 const GLANCE_CHARS: usize = 12;
+const NAME_CHARS: usize = 40;
 const LABEL_CHARS: usize = 20;
 /// A gauge this full or fuller asks for attention.
 pub const ATTENTION_PERCENT: u8 = 75;
@@ -223,56 +224,97 @@ impl Need {
         Need::Everything,
     ];
 
-    /// What it lets a plugin do, to follow "it can".
+    /// What it lets a plugin do, in everyday words, to follow "it can".
     pub fn says(self) -> &'static str {
         match self {
-            Need::Network => "use the internet",
-            Need::Windows => "open windows",
+            Need::Network => "go online",
+            Need::Windows => "open windows of its own",
             Need::Notify => "send you notifications",
-            Need::Notifications => "see the notifications you get",
-            Need::Everything => "reach everything you can, outside the sandbox",
+            Need::Notifications => "read your notifications",
+            Need::Everything => "do anything you can on this computer",
         }
     }
 }
 
-/// The folders a manifest's `read` names, as paths; one that isn't absolute once its folder is
-/// put in is left out.
+/// The folders a manifest's `read` names, as paths, every link in them followed; one that isn't
+/// absolute once its folder is put in, isn't there, or is `off_limits`, is left out.
 pub fn read_folders(manifest: &Manifest) -> Vec<PathBuf> {
-    let home = || crate::xdg_home("HOME", "");
-    let runtime = || {
-        std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute())
-    };
     manifest
         .read
         .iter()
-        .filter_map(|folder| {
-            let (name, rest) = match folder.strip_prefix('$') {
-                Some(after) => {
-                    let after = after.strip_prefix('{').map_or(after, |a| a);
-                    let end = after
-                        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                        .unwrap_or(after.len());
-                    let rest = after[end..].strip_prefix('}').unwrap_or(&after[end..]);
-                    (Some(&after[..end]), rest)
-                }
-                None => (None, folder.as_str()),
-            };
-            let base = match name {
-                None => PathBuf::from("/"),
-                Some("HOME") => home(),
-                Some("XDG_RUNTIME_DIR") => runtime()?,
-                Some("XDG_CONFIG_HOME") => crate::xdg_home("XDG_CONFIG_HOME", ".config"),
-                Some("XDG_DATA_HOME") => crate::xdg_home("XDG_DATA_HOME", ".local/share"),
-                Some("XDG_CACHE_HOME") => crate::xdg_home("XDG_CACHE_HOME", ".cache"),
-                Some("XDG_STATE_HOME") => crate::xdg_home("XDG_STATE_HOME", ".local/state"),
-                Some(_) => return None,
-            };
-            let path = base.join(rest.trim_start_matches('/'));
-            (path.is_absolute() && !rest.split('/').any(|part| part == "..")).then_some(path)
-        })
+        .filter_map(|folder| std::fs::canonicalize(expand(folder)?).ok())
+        .filter(|path| !off_limits(path))
         .collect()
+}
+
+/// Where a plugin is never given a look: anything holding sockets, which a read-only folder
+/// doesn't stop a program connecting to, or the system's live state. Your session's bus, sound,
+/// display and keys all have theirs in `/run` and `$XDG_RUNTIME_DIR`, X11's are in `/tmp`, and
+/// `/proc` lists every program's command line. A folder inside one of them, or holding one, as
+/// `/` does, is off limits.
+const OFF_LIMITS: &[&str] = &[
+    "/run", "/var/run", "/tmp", "/var/tmp", "/proc", "/sys", "/dev",
+];
+
+fn off_limits(path: &Path) -> bool {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    OFF_LIMITS
+        .iter()
+        .map(PathBuf::from)
+        .chain(runtime)
+        .any(|limit| path.starts_with(&limit) || limit.starts_with(path))
+}
+
+/// A folder `read` names as a path, its `$HOME`, `$XDG_RUNTIME_DIR` or `$XDG_…_HOME` put in.
+fn expand(folder: &str) -> Option<PathBuf> {
+    let (name, rest) = match folder.strip_prefix('$') {
+        Some(after) => {
+            let after = after.strip_prefix('{').map_or(after, |a| a);
+            let end = after
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(after.len());
+            let rest = after[end..].strip_prefix('}').unwrap_or(&after[end..]);
+            (Some(&after[..end]), rest)
+        }
+        None => (None, folder),
+    };
+    let base = match name {
+        None => PathBuf::from("/"),
+        Some("HOME") => crate::xdg_home("HOME", ""),
+        Some("XDG_RUNTIME_DIR") => std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())?,
+        Some("XDG_CONFIG_HOME") => crate::xdg_home("XDG_CONFIG_HOME", ".config"),
+        Some("XDG_DATA_HOME") => crate::xdg_home("XDG_DATA_HOME", ".local/share"),
+        Some("XDG_CACHE_HOME") => crate::xdg_home("XDG_CACHE_HOME", ".cache"),
+        Some("XDG_STATE_HOME") => crate::xdg_home("XDG_STATE_HOME", ".local/state"),
+        Some(_) => return None,
+    };
+    let path = base.join(rest.trim_start_matches('/'));
+    (path.is_absolute() && !rest.split('/').any(|part| part == "..")).then_some(path)
+}
+
+/// A folder `read` names as a person would write it: `~/.cache/weather` rather than
+/// `$XDG_CACHE_HOME/weather`.
+pub fn shown_folder(folder: &str) -> String {
+    let Some(path) = expand(folder) else {
+        return folder.to_string();
+    };
+    let home = crate::xdg_home("HOME", "");
+    match path.strip_prefix(&home) {
+        Ok(rest) if home != Path::new("/") && rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) if home != Path::new("/") => format!("~/{}", rest.display()),
+        _ => path.display().to_string(),
+    }
+}
+
+/// `items` as a list in a sentence: "a", "a and b", "a, b and c".
+pub fn listed(items: &[String]) -> String {
+    match items.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 impl Manifest {
@@ -285,30 +327,33 @@ impl Manifest {
         self.needs(Need::Everything)
     }
 
-    /// What it can reach, as a sentence for Settings to show before it is turned on.
+    /// What it can do, as a sentence for Settings to show before it is turned on.
     pub fn reach(&self) -> String {
         if self.unconfined() {
-            return "It isn't sandboxed: it can reach everything you can, your files and your \
-                    session's keys included."
+            return "Full access: it can do anything you can on this computer, like a program \
+                    you run yourself. Switch it on only if you trust where it came from."
                 .to_string();
         }
+        let can = self.can();
+        if can.is_empty() {
+            "Keeps to itself: it can't see your files, go online or reach other apps.".to_string()
+        } else {
+            format!("It can {}, and nothing else.", listed(&can))
+        }
+    }
+
+    /// What it can do, each in everyday words: what it needs, then the folders it looks in.
+    pub fn can(&self) -> Vec<String> {
         let mut can: Vec<String> = Need::ALL
             .into_iter()
             .filter(|need| self.needs(*need))
             .map(|need| need.says().to_string())
             .collect();
         if !self.read.is_empty() {
-            can.push(format!("read {}", self.read.join(", ")));
+            let folders: Vec<String> = self.read.iter().map(|f| shown_folder(f)).collect();
+            can.push(format!("look in {}", listed(&folders)));
         }
-        match can.split_last() {
-            None => "It runs in a sandbox and reaches nothing of yours outside its own folder."
-                .to_string(),
-            Some((last, [])) => format!("It runs in a sandbox. It can {last}, and nothing more."),
-            Some((last, rest)) => format!(
-                "It runs in a sandbox. It can {} and {last}, and nothing more.",
-                rest.join(", ")
-            ),
-        }
+        can
     }
 
     /// `every_secs`, kept between a second and a day.
@@ -443,8 +488,11 @@ fn read_manifest(path: &Path) -> Result<Manifest, String> {
 /// own outside its folder.
 fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
     let text = std::str::from_utf8(bytes).map_err(|err| format!("{MANIFEST}: {err}"))?;
-    let manifest: Manifest = toml::from_str(text).map_err(|err| format!("{MANIFEST}: {err}"))?;
-    if manifest.name.trim().is_empty() {
+    let mut manifest: Manifest =
+        toml::from_str(text).map_err(|err| format!("{MANIFEST}: {err}"))?;
+    manifest.name = clip(&manifest.name, NAME_CHARS);
+    manifest.description = clip(&manifest.description, LINE_CHARS);
+    if manifest.name.is_empty() {
         return Err(format!("{MANIFEST} gives it no name"));
     }
     let Some(program) = manifest
@@ -460,6 +508,15 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
         return Err(format!(
             "{MANIFEST} runs {program}, outside the plugin's folder: a program of its own is \
              named from its folder, without '..', and any other by its name alone"
+        ));
+    }
+    if let Some(folder) = manifest.read.iter().find(|folder| {
+        folder.contains("XDG_RUNTIME_DIR")
+            || (folder.starts_with('/') && off_limits(Path::new(folder.as_str())))
+    }) {
+        return Err(format!(
+            "{MANIFEST} asks to look in {folder}, where your session keeps what lets programs \
+             reach each other: no plugin is given that"
         ));
     }
     Ok(manifest)
@@ -702,6 +759,7 @@ struct PrintedButton {
 fn clip(text: &str, chars: usize) -> String {
     let line: String = text
         .chars()
+        .filter(|c| !hides(*c))
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
     let line = line.trim();
@@ -709,6 +767,17 @@ fn clip(text: &str, chars: usize) -> String {
         Some((at, _)) => format!("{}…", line[..at].trim_end()),
         None => line.to_string(),
     }
+}
+
+/// Characters that change how the text around them shows without showing themselves: the ones
+/// that turn it round, as the right-to-left override does, and those of no width. Taken out of
+/// anything a plugin prints, so what it says reads as what it is.
+fn hides(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}'
+            | '\u{feff}'
+    )
 }
 
 impl Card {
@@ -801,9 +870,15 @@ impl Card {
 mod tests {
     use super::*;
 
+    /// A folder of its own for one test, under the workspace's `target/test-scratch`, never in
+    /// `/tmp`, which no plugin may read.
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("slipstream-plugins-{name}-{}", std::process::id()));
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dir = manifest
+            .parent()
+            .unwrap_or(manifest)
+            .join("target/test-scratch")
+            .join(format!("plugins-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -874,18 +949,15 @@ mod tests {
         let bare = "name = \"Disk\"\nexec = [\"./disk\"]\n";
         assert_eq!(
             reach(bare),
-            "It runs in a sandbox and reaches nothing of yours outside its own folder."
+            "Keeps to itself: it can't see your files, go online or reach other apps."
         );
         assert_eq!(
             reach(&format!(
                 "{bare}needs = [\"network\", \"notify\"]\nread = [\"$HOME/notes\"]\n"
             )),
-            "It runs in a sandbox. It can use the internet, send you notifications and read \
-             $HOME/notes, and nothing more."
+            "It can go online, send you notifications and look in ~/notes, and nothing else."
         );
-        assert!(
-            reach(&format!("{bare}needs = [\"everything\"]\n")).starts_with("It isn't sandboxed")
-        );
+        assert!(reach(&format!("{bare}needs = [\"everything\"]\n")).starts_with("Full access"));
         let unknown = parse_manifest(format!("{bare}needs = [\"camera\"]\n").as_bytes());
         assert!(unknown.unwrap_err().contains("camera"));
     }
@@ -910,6 +982,8 @@ mod tests {
                 .notify
                 .is_none()
         );
+        let turned = Card::parse("{\"lines\": [\"safe\\u202etxt.exe\"]}", false, 0).unwrap();
+        assert_eq!(turned.lines, ["safetxt.exe"], "text can't be turned round");
         let line = notification_line("Mail", "Ferry\ndelayed", &"x".repeat(1000), 7);
         let read: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(read["notification"]["title"], "Ferry delayed");
@@ -919,27 +993,66 @@ mod tests {
 
     #[test]
     fn the_folders_a_plugin_reads_are_put_in_and_nothing_else_is() {
-        let manifest = Manifest {
+        let expanded: Vec<Option<PathBuf>> = [
+            "$HOME/notes",
+            "${XDG_CACHE_HOME}/weather",
+            "/srv/shared",
+            "relative",
+            "$SSH_AUTH_SOCK",
+            "$HOME/../root",
+        ]
+        .into_iter()
+        .map(expand)
+        .collect();
+        assert!(expanded[0].as_ref().unwrap().ends_with("notes"));
+        assert!(expanded[0].as_ref().unwrap().is_absolute());
+        assert!(expanded[1].as_ref().unwrap().ends_with("weather"));
+        assert_eq!(expanded[2], Some(PathBuf::from("/srv/shared")));
+        assert_eq!(expanded[3], Some(PathBuf::from("/relative")));
+        assert_eq!(expanded[4..], [None, None]);
+    }
+
+    /// The promise in the guide: a plugin is never given a look where your session keeps its
+    /// sockets, whatever its manifest says, nor through a link that leads there.
+    #[test]
+    fn a_plugin_never_reads_where_sockets_live() {
+        let root = scratch("off-limits");
+        let notes = root.join("notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        let sneaky = root.join("sneaky");
+        std::os::unix::fs::symlink("/run", &sneaky).unwrap();
+        let manifest = |read: &[&str]| Manifest {
             name: "x".into(),
             description: String::new(),
             exec: vec!["x".into()],
             every_secs: None,
-            read: vec![
-                "$HOME/notes".into(),
-                "${XDG_CACHE_HOME}/weather".into(),
-                "/srv/shared".into(),
-                "relative".into(),
-                "$SSH_AUTH_SOCK".into(),
-                "$HOME/../root".into(),
-            ],
+            read: read.iter().map(|folder| folder.to_string()).collect(),
             needs: Vec::new(),
         };
-        let folders = read_folders(&manifest);
-        assert_eq!(folders.len(), 4, "{folders:?}");
-        assert!(folders[0].ends_with("notes") && folders[0].is_absolute());
-        assert!(folders[1].ends_with("weather"));
-        assert_eq!(folders[2], PathBuf::from("/srv/shared"));
-        assert_eq!(folders[3], PathBuf::from("/relative"));
+        let (notes_s, sneaky_s) = (notes.display().to_string(), sneaky.display().to_string());
+        let folders = read_folders(&manifest(&[&notes_s, &sneaky_s, "/", "/proc", "/tmp/x"]));
+        assert_eq!(folders, [std::fs::canonicalize(&notes).unwrap()]);
+
+        for refused in [
+            "/",
+            "/run/user/1000",
+            "/var/run",
+            "/tmp/.X11-unix",
+            "/proc",
+            "/var",
+        ] {
+            let text = format!("name = \"x\"\nexec = [\"x\"]\nread = [\"{refused}\"]\n");
+            // `/var` holds `/var/run`, and `/` holds them all.
+            assert!(parse_manifest(text.as_bytes()).is_err(), "{refused}");
+        }
+        let runtime = "name = \"x\"\nexec = [\"x\"]\nread = [\"$XDG_RUNTIME_DIR/bus\"]\n";
+        assert!(
+            parse_manifest(runtime.as_bytes())
+                .unwrap_err()
+                .contains("$XDG_RUNTIME_DIR")
+        );
+        let fine = format!("name = \"x\"\nexec = [\"x\"]\nread = [\"{notes_s}\"]\n");
+        assert!(parse_manifest(fine.as_bytes()).is_ok());
     }
 
     #[test]

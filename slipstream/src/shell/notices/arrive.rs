@@ -52,11 +52,14 @@ impl Slipstream {
         });
     }
 
-    /// A notification a plugin sent from its card, signed with the plugin's name.
+    /// A notification a plugin sent from its card, signed as the plugin it is, so that one called
+    /// after an app, or after Slipstream, can't pass as it: the name says plugin, and no app's
+    /// icon is looked up by it.
     pub fn notify_from_plugin(&mut self, sent: crate::plugins::Sent) {
         self.notification_arrived(Incoming {
             id: notify::next_id(),
-            app_name: sent.name,
+            app_name: format!("{} (plugin)", sent.name),
+            app_icon: "application-x-addon-symbolic".to_string(),
             summary: sent.title,
             body: sent.body,
             urgency: 1,
