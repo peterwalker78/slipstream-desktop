@@ -264,6 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     sound::restore();
     // Nothing a plugin's program started outlives the compositor.
     state.plugins.stop_all();
+    state.leave_screens_lit();
     end_session();
     tracing::info!("stopped cleanly");
     drop(owner);

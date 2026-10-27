@@ -1195,6 +1195,18 @@ impl Slipstream {
         }
     }
 
+    /// On the way out, leaves every screen showing what it shows for the login screen to take
+    /// over. Otherwise Smithay blanks each one as it goes, and with the lid shut logind finds no
+    /// other screen lit once the lid switch is back in its hands, and suspends the laptop instead
+    /// of showing the login screen on the monitor.
+    pub fn leave_screens_lit(&mut self) {
+        if let Some(udev) = self.udev.as_mut() {
+            for gpu in udev.gpus.values_mut() {
+                gpu.manager.pause();
+            }
+        }
+    }
+
     /// Caps Lock and Num Lock lights.
     pub fn update_leds(&mut self, leds: LedState) {
         if let Some(udev) = self.udev.as_mut() {
