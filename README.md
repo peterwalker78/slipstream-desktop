@@ -52,11 +52,11 @@ You know the moment: halfway through a thought, something pops up, and the thoug
 
 Put a window away and it pours down the side of the screen as a stream of light, and keeps running there.
 
-**The stream is a readout.** A busy app pours fast and bright, a quiet one sends a few slow grey streaks, so a build finishing catches your eye without you going to look.
+**The stream is a readout.** A busy app pours fast and bright, a quiet one sends a few slow grey streaks, so a download finishing, or a tab running away with itself, catches your eye without you going to look.
 
 **Rest the pointer on a stream for the numbers behind it.** A small card names the app and what it's using right now: its memory, its share of the processor, and what it's downloading and uploading, with its helper processes counted in. Click the stream to bring the window back.
 
-Prefer the film's code rain? Settings → Appearance → Effects swaps the light for falling green code, each stream spelling out its app's name.
+Prefer falling green code? Settings → Appearance → Effects swaps the light for the classic code rain, each stream spelling out its app's name.
 
 <br clear="right">
 
@@ -89,9 +89,7 @@ Prefer the film's code rain? Settings → Appearance → Effects swaps the light
 </tr>
 </table>
 
-Leave your desk and your windows sink back into the wallpaper, which was running behind them all along. Touch any key and they rise back into place, exactly as you left them. Press F7 instead to take a screenshot of the wallpaper.
-
-There are twenty, and most of them aren't animations at all: they're worked out live as you watch, so they never run quite the same way twice.
+The wallpaper in the clip at the top is one of twenty, and most of them aren't animations at all: they're worked out live as you watch, so they never run quite the same way twice. Whichever you choose runs behind your windows all along, and takes the screen when you step away. Press F7 while it's showing to take a screenshot of it.
 
 [**All twenty →**](guide/wallpapers.md)
 
