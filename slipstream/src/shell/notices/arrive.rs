@@ -52,6 +52,20 @@ impl Slipstream {
         });
     }
 
+    /// A notification a plugin sent from its card, signed with the plugin's name.
+    pub fn notify_from_plugin(&mut self, sent: crate::plugins::Sent) {
+        self.notification_arrived(Incoming {
+            id: notify::next_id(),
+            app_name: sent.name,
+            summary: sent.title,
+            body: sent.body,
+            urgency: 1,
+            expire_timeout: -1,
+            plugin: Some(sent.id),
+            ..Incoming::default()
+        });
+    }
+
     pub fn notification_event(&mut self, event: notify::Event) {
         match event {
             notify::Event::Notify(incoming) => self.notification_arrived(*incoming),
@@ -156,6 +170,15 @@ impl Slipstream {
             watching,
             "notification"
         );
+        // Plugins that need to see notifications see the ones kept, as the centre does.
+        if !notice.transient {
+            self.plugins.notification(
+                &notice.app,
+                &notice.summary,
+                &notice.body,
+                incoming.plugin.as_deref(),
+            );
+        }
         let now = self.clock.tick();
         let wall = self.wall();
         let unread = !self.centre.is_open();

@@ -44,12 +44,13 @@ fn fill(list: &gtk::Box, store: &Store) {
     let link = gtk::LinkButton::with_label(HOW_TO, "How to write one");
     row(
         &about,
-        "Anything you can",
+        "Only what it says",
         Some(
-            "A plugin's program runs as you, from a copy of its folder taken when you turn it \
-             on, without your session's keys or sockets. Its card is only ever shown, and its \
-             buttons only run its own program again. A plugin that changes after you turn it on \
-             waits until you turn it on again.",
+            "A plugin runs in a sandbox, from a copy of its folder taken when you turn it on. It \
+             reaches only what it lists, such as the internet or your notifications, and each one \
+             says what that is below. Its card is only ever shown, and its buttons only run its \
+             own program again. A plugin that changes after you turn it on waits until you turn \
+             it on again.",
         ),
         &link,
     );
@@ -231,6 +232,10 @@ fn plugin_row(
     if about.is_empty() {
         about.push(details.remove(0));
     }
+    let unconfined = plugin.manifest.unconfined();
+    if !unconfined {
+        about.push(plugin.manifest.reach());
+    }
     if !plugin.own {
         about.push(format!(
             "Installed for everyone in {}",
@@ -302,13 +307,22 @@ fn plugin_row(
     let Some(text) = sub.parent().and_downcast::<gtk::Box>() else {
         return;
     };
+    let mut warnings = Vec::new();
     if held {
-        let updated = label(
-            "Updated, so it's off until you switch it on again.",
-            "row-sub",
-        );
-        updated.add_css_class("needed");
-        text.append(&updated);
+        warnings.push("Updated, so it's off until you switch it on again.".to_string());
+    }
+    if unconfined {
+        warnings.push(plugin.manifest.reach());
+    } else if slipstream_config::plugins::sandbox::bwrap().is_none() {
+        warnings.push(format!(
+            "{}.",
+            slipstream_config::plugins::sandbox::NO_BWRAP
+        ));
+    }
+    for warning in warnings {
+        let warning = label(&warning, "row-sub");
+        warning.add_css_class("needed");
+        text.append(&warning);
     }
     if !details.is_empty() {
         let small = label(&details.join("\n"), "row-sub");

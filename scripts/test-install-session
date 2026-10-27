@@ -444,5 +444,28 @@ if [ -s "$work/packages" ]; then
 fi
 [ -f "$installed_bin" ] || fail "$case_name: didn't install the files it could"
 
+case_name="bubblewrap is offered when it's missing, for the plugins' sandbox"
+fresh
+make_download
+make_portals gtk
+rm -f "$work/packages"
+rm -rf "$work/no-bwrap"
+mkdir -p "$work/no-bwrap"
+for tool in /usr/bin/* /bin/*; do
+    name=${tool##*/}
+    if [ "$name" != bwrap ] && ! [ -e "$work/no-bwrap/$name" ]; then
+        ln -s "$tool" "$work/no-bwrap/$name"
+    fi
+done
+# Set and put back by hand: a variable set in front of a function call outlives it.
+saved_path=$PATH
+# shellcheck disable=SC2123 # on purpose: only the tools linked there
+PATH=$work/no-bwrap
+PORTAL_DIR=$work/portals PKG_LOG=$work/packages SCRIPT=$download/scripts/install-session \
+    expect_status 0 --yes || true
+PATH=$saved_path
+grep -q "^sudo dnf install -y .*bubblewrap" "$work/packages" \
+    || fail "$case_name: $(cat "$work/packages" 2>/dev/null)"
+
 echo "install-session ($shell): $passed checks passed, $failures failed"
 [ "$failures" -eq 0 ]

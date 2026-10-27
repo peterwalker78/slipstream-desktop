@@ -16,7 +16,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::Plugin;
+use super::{Need, Plugin};
 
 /// What a plugin asked for, and what its folder held, when it was turned on.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +26,9 @@ pub struct Approval {
     pub exec: Vec<String>,
     pub every_secs: Option<u64>,
     pub read: Vec<String>,
+    /// What it needed beyond its folders. A record from before plugins said has none, which is
+    /// right: they couldn't.
+    pub needs: Vec<Need>,
     /// The SHA-256 of each file, by its path in the plugin's folder.
     pub files: BTreeMap<String, String>,
 }
@@ -38,6 +41,7 @@ impl Approval {
             exec: plugin.manifest.exec.clone(),
             every_secs: plugin.manifest.every_secs,
             read: plugin.manifest.read.clone(),
+            needs: plugin.manifest.needs.clone(),
             files: plugin.files.clone(),
         }
     }
@@ -100,15 +104,18 @@ pub struct Change {
     pub schedule: Option<(Option<u64>, Option<u64>)>,
     pub reads_added: Vec<String>,
     pub reads_removed: Vec<String>,
+    pub needs_added: Vec<Need>,
+    pub needs_removed: Vec<Need>,
     pub files_changed: Vec<String>,
     pub files_added: Vec<String>,
     pub files_removed: Vec<String>,
 }
 
 impl Change {
-    /// Whether it asks for more than was agreed to: another program, or folders it didn't read.
+    /// Whether it asks for more than was agreed to: another program, folders it didn't read, or
+    /// something it didn't need.
     pub fn asks_for_more(&self) -> bool {
-        self.program.is_some() || !self.reads_added.is_empty()
+        self.program.is_some() || !self.reads_added.is_empty() || !self.needs_added.is_empty()
     }
 
     /// Whether what it asks for is as it was, whatever happened to its files.
@@ -117,17 +124,19 @@ impl Change {
             && self.schedule.is_none()
             && self.reads_added.is_empty()
             && self.reads_removed.is_empty()
+            && self.needs_added.is_empty()
+            && self.needs_removed.is_empty()
     }
 }
 
 /// How `now` differs from `before`.
 pub fn compare(before: &Approval, now: &Approval) -> Change {
-    let not_in = |list: &[String], other: &[String]| -> Vec<String> {
+    fn not_in<T: Clone + PartialEq>(list: &[T], other: &[T]) -> Vec<T> {
         list.iter()
             .filter(|item| !other.contains(item))
             .cloned()
             .collect()
-    };
+    }
     let changed = |a: &BTreeMap<String, String>, b: &BTreeMap<String, String>| -> Vec<String> {
         a.iter()
             .filter(|(name, hash)| b.get(*name).is_some_and(|other| other != *hash))
@@ -146,6 +155,8 @@ pub fn compare(before: &Approval, now: &Approval) -> Change {
             .then_some((before.every_secs, now.every_secs)),
         reads_added: not_in(&now.read, &before.read),
         reads_removed: not_in(&before.read, &now.read),
+        needs_added: not_in(&now.needs, &before.needs),
+        needs_removed: not_in(&before.needs, &now.needs),
         files_changed: changed(&before.files, &now.files),
         files_added: only_in(&now.files, &before.files),
         files_removed: only_in(&before.files, &now.files),
@@ -239,7 +250,8 @@ pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec
             reads(&plugin.manifest.read),
         )),
         Some(change) if change.like_for_like() => lines.push(
-            "It does what it did before: the same program, as often, reading the same folders."
+            "It does what it did before: the same program, as often, reading the same folders and \
+             needing the same."
                 .to_string(),
         ),
         Some(change) => {
@@ -256,6 +268,12 @@ pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec
             }
             for folder in &change.reads_removed {
                 asks.push(format!("it no longer reads {folder}"));
+            }
+            for need in &change.needs_added {
+                asks.push(format!("it can now {}", need.says()));
+            }
+            for need in &change.needs_removed {
+                asks.push(format!("it no longer can {}", need.says()));
             }
             if let Some((before, now)) = change.schedule {
                 asks.push(format!(
@@ -316,8 +334,11 @@ pub fn explain(plugin: &Plugin, change: Option<&Change>, source: &Source) -> Vec
             "Slipstream didn't install this update, so it can't say where it came from.".to_string()
         }
     });
-    lines
-        .push("Its code runs as you, so switch it on only if you trust where it came from.".into());
+    if plugin.manifest.unconfined() {
+        lines.push(
+            "It isn't sandboxed, so switch it on only if you trust where it came from.".into(),
+        );
+    }
     lines
 }
 
@@ -401,6 +422,55 @@ mod tests {
             "{said}"
         );
         assert!(said.contains("can't say where it came from"), "{said}");
+    }
+
+    /// Leaving the sandbox, or needing something new, is asking for more; giving one up isn't.
+    #[test]
+    fn an_update_that_leaves_the_sandbox_or_needs_more_says_so() {
+        let root = scratch("needs");
+        let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
+        let out = format!("{MANIFEST}needs = [\"notify\", \"everything\"]\n");
+        let plugin = timer(&root, &out, "echo one");
+        let change = compare(&before, &Approval::of(&plugin));
+        assert!(change.asks_for_more() && !change.like_for_like());
+        let said = explain(&plugin, Some(&change), &Source::Unknown).join("\n");
+        assert!(
+            said.contains("it can now reach everything you can, outside the sandbox"),
+            "{said}"
+        );
+        assert!(said.contains("it can now send you notifications"), "{said}");
+        assert!(
+            said.contains("only if you trust where it came from"),
+            "{said}"
+        );
+
+        let back = compare(&Approval::of(&plugin), &before);
+        assert!(!back.asks_for_more() && !back.like_for_like());
+        let said = explain(
+            &timer(&root, MANIFEST, "echo one"),
+            Some(&back),
+            &Source::Unknown,
+        )
+        .join("\n");
+        assert!(
+            said.contains("it no longer can reach everything you can"),
+            "{said}"
+        );
+        assert!(!said.contains("trust"), "{said}");
+    }
+
+    /// A record kept before plugins said what they need still loads, as needing nothing.
+    #[test]
+    fn a_record_from_before_needs_still_loads() {
+        let root = scratch("old-record");
+        std::fs::write(
+            root.join("timer.toml"),
+            "fingerprint = \"ab\"\nexec = [\"./timer\"]\nread = []\n[files]\ntimer = \"cd\"\n",
+        )
+        .unwrap();
+        let kept = load_from(&root, "timer").unwrap();
+        assert!(kept.needs.is_empty());
+        assert_eq!(kept.fingerprint, "ab");
     }
 
     #[test]

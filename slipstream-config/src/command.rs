@@ -7,9 +7,9 @@
 //! the compositor can stop them all on its way out ([`end_all`]).
 
 use std::{
-    io::{self, Read},
-    os::unix::process::CommandExt,
-    process::{Child, Command, Stdio},
+    io::{self, Read, Write},
+    os::{fd::AsRawFd, unix::process::CommandExt},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{Mutex, mpsc},
     time::{Duration, Instant},
 };
@@ -120,13 +120,19 @@ pub fn end_all() {
 /// Runs `command`, whose standard input, output and error this sets, stopping it after `limit`.
 /// Whatever it leaves running when it exits is left alone.
 pub fn run(command: Command, limit: Duration) -> Run {
-    run_with(command, limit, &|| false, false).unwrap_or(Run::TimedOut)
+    run_with(command, limit, &|| false, false, None).unwrap_or(Run::TimedOut)
 }
 
 /// `run`, but `stop` is asked every so often, and once it says so the run is ended at once and
-/// there is no answer. Whatever the command leaves running when it exits is ended too.
-pub fn run_tidily(command: Command, limit: Duration, stop: &dyn Fn() -> bool) -> Option<Run> {
-    run_with(command, limit, stop, true)
+/// there is no answer. Whatever the command leaves running when it exits is ended too. `input`,
+/// if any, is what it reads on its standard input: as much of it as fits in the pipe at once.
+pub fn run_tidily(
+    command: Command,
+    limit: Duration,
+    stop: &dyn Fn() -> bool,
+    input: Option<&[u8]>,
+) -> Option<Run> {
+    run_with(command, limit, stop, true, input)
 }
 
 fn run_with(
@@ -134,15 +140,23 @@ fn run_with(
     limit: Duration,
     stop: &dyn Fn() -> bool,
     tidy: bool,
+    input: Option<&[u8]>,
 ) -> Option<Run> {
     command
-        .stdin(Stdio::null())
+        .stdin(stdin(input.is_some()))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let (mut child, group) = match Group::spawn(&mut command) {
         Ok(started) => started,
         Err(err) => return Some(Run::CouldntStart(err.to_string())),
     };
+    if let (Some(input), Some(pipe)) = (input, child.stdin.take()) {
+        // Never waits on a program that doesn't read: what doesn't fit is left out, and closing
+        // the pipe tells it there is no more.
+        if let Ok(pipe) = Input::new(pipe) {
+            pipe.write(input);
+        }
+    }
     let stdout = collect(child.stdout.take());
     let stderr = collect(child.stderr.take());
     let started = Instant::now();
@@ -225,6 +239,7 @@ fn gather(chunks: &mpsc::Receiver<Vec<u8>>, deadline: Instant) -> Vec<u8> {
 pub struct Lines {
     child: Child,
     group: Group,
+    input: Option<Input>,
     lines: mpsc::Receiver<Message>,
     /// For `waker`: kept here, the channel stays open until the reader says the output ended.
     sender: mpsc::SyncSender<Message>,
@@ -268,16 +283,18 @@ const WAITING_LINES: usize = 64;
 
 impl Lines {
     /// Starts `command`. Each line it writes to standard error goes to `errors`, on a thread of
-    /// its own.
+    /// its own. One that `listens` can be written to (`say`); any other has nothing to read.
     pub fn start(
         mut command: Command,
+        listens: bool,
         mut errors: impl FnMut(String) + Send + 'static,
     ) -> io::Result<Lines> {
         command
-            .stdin(Stdio::null())
+            .stdin(stdin(listens))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let (mut child, group) = Group::spawn(&mut command)?;
+        let input = child.stdin.take().map(Input::new).transpose()?;
         // Bounded, so a command that prints faster than it is read waits on its pipe rather than
         // filling memory.
         let (sender, lines) = mpsc::sync_channel(WAITING_LINES);
@@ -299,6 +316,7 @@ impl Lines {
         Ok(Lines {
             child,
             group,
+            input,
             lines,
             sender,
         })
@@ -311,6 +329,12 @@ impl Lines {
     /// What wakes a wait in `next` from another thread.
     pub fn waker(&self) -> Waker {
         Waker(self.sender.clone())
+    }
+
+    /// Writes what fits of `bytes` to its standard input, without waiting, and says how much
+    /// that was: none when it isn't reading, or doesn't listen.
+    pub fn say(&self, bytes: &[u8]) -> usize {
+        self.input.as_ref().map_or(0, |input| input.write(bytes))
     }
 
     /// The next line, waiting up to `wait` for it.
@@ -327,6 +351,43 @@ impl Lines {
 impl Drop for Lines {
     fn drop(&mut self) {
         self.group.end(&mut self.child, GRACE);
+    }
+}
+
+fn stdin(piped: bool) -> Stdio {
+    if piped { Stdio::piped() } else { Stdio::null() }
+}
+
+/// A command's standard input, written to without ever waiting on it.
+struct Input(ChildStdin);
+
+impl Input {
+    fn new(pipe: ChildStdin) -> io::Result<Input> {
+        let fd = pipe.as_raw_fd();
+        // SAFETY: `fd` is the open pipe `pipe` owns; this only sets a flag on it.
+        let set = unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
+        };
+        if set {
+            Ok(Input(pipe))
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
+    /// Writes what fits of `bytes`, and says how much.
+    fn write(&self, bytes: &[u8]) -> usize {
+        let mut written = 0;
+        while written < bytes.len() {
+            match (&self.0).write(&bytes[written..]) {
+                Ok(0) => break,
+                Ok(n) => written += n,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        written
     }
 }
 
@@ -489,9 +550,12 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(150));
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
             });
-            let ran = run_tidily(sh("sleep 20"), Duration::from_secs(30), &|| {
-                stop.load(std::sync::atomic::Ordering::Relaxed)
-            });
+            let ran = run_tidily(
+                sh("sleep 20"),
+                Duration::from_secs(30),
+                &|| stop.load(std::sync::atomic::Ordering::Relaxed),
+                None,
+            );
             assert_eq!(ran, None);
         });
         assert!(started.elapsed() < Duration::from_secs(5));
@@ -502,7 +566,7 @@ mod tests {
             file.display()
         );
         assert_eq!(
-            run_tidily(sh(&script), Duration::from_secs(30), &|| false),
+            run_tidily(sh(&script), Duration::from_secs(30), &|| false, None),
             Some(Run::Printed("done\n".into()))
         );
         assert!(gone_soon(pid_in(&file)), "what it left running was ended");
@@ -515,7 +579,7 @@ mod tests {
             "sleep 30 & echo $! > '{}'; echo one; echo two; while :; do sleep 1; done",
             file.display()
         );
-        let lines = Lines::start(sh(&script), |_| {}).unwrap();
+        let lines = Lines::start(sh(&script), false, |_| {}).unwrap();
         let wait = Duration::from_secs(5);
         assert_eq!(lines.next(wait), Said::Line("one".into()));
         assert_eq!(lines.next(wait), Said::Line("two".into()));
@@ -527,7 +591,7 @@ mod tests {
 
     #[test]
     fn a_waker_cuts_a_wait_short_and_the_end_still_comes() {
-        let lines = Lines::start(sh("echo up; sleep 30"), |_| {}).unwrap();
+        let lines = Lines::start(sh("echo up; sleep 30"), false, |_| {}).unwrap();
         assert_eq!(lines.next(Duration::from_secs(5)), Said::Line("up".into()));
         let waker = lines.waker();
         std::thread::spawn(move || {
@@ -538,7 +602,7 @@ mod tests {
         assert_eq!(lines.next(Duration::from_secs(30)), Said::Woken);
         assert!(started.elapsed() < Duration::from_secs(1));
 
-        let lines = Lines::start(sh("echo last"), |_| {}).unwrap();
+        let lines = Lines::start(sh("echo last"), false, |_| {}).unwrap();
         let _waker = lines.waker();
         let wait = Duration::from_secs(5);
         assert_eq!(lines.next(wait), Said::Line("last".into()));
@@ -553,6 +617,7 @@ mod tests {
     fn a_command_that_ignores_sigterm_is_made_to_stop() {
         let lines = Lines::start(
             sh("trap '' TERM; echo up; while :; do sleep 1; done"),
+            false,
             |_| {},
         )
         .unwrap();
@@ -564,10 +629,39 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 
+    /// What a command is told reaches it, and one that never reads holds nothing up.
+    #[test]
+    fn input_reaches_a_command_and_never_waits_on_one() {
+        let ran = run_tidily(
+            sh("cat"),
+            Duration::from_secs(5),
+            &|| false,
+            Some(b"a\nb\n"),
+        );
+        assert_eq!(ran, Some(Run::Printed("a\nb\n".into())));
+        let lines = Lines::start(sh("read line; echo \"got $line\""), true, |_| {}).unwrap();
+        assert_eq!(lines.say(b"hello\n"), 6);
+        assert_eq!(
+            lines.next(Duration::from_secs(5)),
+            Said::Line("got hello".into())
+        );
+
+        let deaf = Lines::start(sh("echo up; sleep 30"), true, |_| {}).unwrap();
+        assert_eq!(deaf.next(Duration::from_secs(5)), Said::Line("up".into()));
+        let started = Instant::now();
+        let big = vec![b'x'; 1 << 20];
+        assert!(deaf.say(&big) < big.len(), "a full pipe takes no more");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            Lines::start(sh("true"), false, |_| {}).unwrap().say(b"x"),
+            0
+        );
+    }
+
     #[test]
     fn errors_are_handed_on_and_an_exit_ends_the_lines() {
         let (sender, errors) = mpsc::channel();
-        let lines = Lines::start(sh("echo oops >&2; echo last"), move |line| {
+        let lines = Lines::start(sh("echo oops >&2; echo last"), false, move |line| {
             let _ = sender.send(line);
         })
         .unwrap();

@@ -8,15 +8,22 @@
 //! description = "Free space on each drive"
 //! exec = ["./disk.sh", "card"]   # the program and its words, run in the plugin's folder
 //! every-secs = 60                # leave it out for a program that keeps running
+//! needs = ["network"]            # what it reaches beyond its own folders
 //! ```
 //!
 //! The program is run as it is written, with no shell, so what Settings shows before a plugin is
 //! turned on is exactly what runs. It runs from a read-only copy of its folder (`store`), so
 //! whatever it keeps goes in a folder of its own beside that copy, which it is given as
 //! `SLIPSTREAM_PLUGIN_STATE`. Folders it reads from outside are named in its manifest
-//! (`read = ["$XDG_CACHE_HOME/weather"]`) and given as `SLIPSTREAM_PLUGIN_READ_0`, `_1` and on. It starts from a cleared environment: only the variables that
-//! say who and where the person is, and their language, are passed on (`ENVIRONMENT`), so a
-//! plugin can't use the session's keys or sockets it wasn't given.
+//! (`read = ["$XDG_CACHE_HOME/weather"]`) and given as `SLIPSTREAM_PLUGIN_READ_0`, `_1` and on.
+//!
+//! A plugin runs in a sandbox (`sandbox`), seeing the system's programs and libraries, its own
+//! folders and the folders it reads, and nothing else of the person's: no home folder, session
+//! bus, display or network unless it `needs` them (`Need`). It starts from a cleared environment:
+//! only the variables that say who and where the person is, and their language, are passed on
+//! (`ENVIRONMENT`). The one thing a sandbox can't give is the session bus, since whatever reaches
+//! it can have the person's service manager start anything outside: a plugin that needs
+//! `everything` runs with their whole session and no sandbox, and Settings says so.
 //!
 //! The program prints a card as one line of JSON, every time it runs or, when it keeps running,
 //! whenever the card changes:
@@ -30,7 +37,10 @@
 //! Every field is optional. `sections` are named groups of gauges (`card`), each with when it
 //! starts over. A pressed button runs the plugin's own program
 //! again with `press <id>` after it, and that is the only thing anything on a card can do: a card
-//! is shown, as text and gauges in Slipstream's own style, and nothing in it is ever run.
+//! is shown, as text and gauges in Slipstream's own style, and nothing in it is ever run. A
+//! plugin that needs `notify` can put `"notify": {"title": …, "body": …}` on a card to send a
+//! notification, and one that needs `notifications` is told of each one that arrives, as a line
+//! of JSON on its standard input (`notification_line`).
 //!
 //! Plugins live in `$XDG_DATA_HOME/slipstream/plugins/<id>/` (the person's own) and in
 //! `slipstream/plugins/` under each of `$XDG_DATA_DIRS` (installed for everyone). A plugin is off
@@ -44,6 +54,7 @@
 
 pub mod approval;
 pub mod contents;
+pub mod sandbox;
 pub mod store;
 
 use std::{
@@ -69,9 +80,9 @@ const LABEL_CHARS: usize = 20;
 pub const ATTENTION_PERCENT: u8 = 75;
 /// The largest `plugin.toml` read.
 const MOST_MANIFEST: u64 = 64 << 10;
-/// The environment a plugin's program is given: who and where the person is, their language,
-/// and the way to the network through a proxy. Everything else, the session bus, the display and
-/// the SSH and GPG agents among it, is left out.
+/// The environment a plugin's program is given, unless it runs as the person: who and where the
+/// person is, their language, and the way to the network through a proxy. Everything else, the
+/// session bus, the display and the SSH and GPG agents among it, is left out.
 pub const ENVIRONMENT: &[&str] = &[
     "HOME",
     "USER",
@@ -182,6 +193,46 @@ pub struct Manifest {
     /// `$XDG_…_HOME` folders, `$XDG_RUNTIME_DIR` or `$HOME`.
     #[serde(default)]
     pub read: Vec<String>,
+    /// What it reaches beyond its folders, in the sandbox or from Slipstream.
+    #[serde(default)]
+    pub needs: Vec<Need>,
+}
+
+/// Something a plugin reaches beyond its own folders and the folders it reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Need {
+    /// The internet and the local network.
+    Network,
+    /// The display, to open windows of its own.
+    Windows,
+    /// Sending notifications, from its card.
+    Notify,
+    /// Seeing the notifications that arrive, on its standard input.
+    Notifications,
+    /// Everything the person's session has, the session bus among it: no sandbox at all.
+    Everything,
+}
+
+impl Need {
+    pub const ALL: [Need; 5] = [
+        Need::Network,
+        Need::Windows,
+        Need::Notify,
+        Need::Notifications,
+        Need::Everything,
+    ];
+
+    /// What it lets a plugin do, to follow "it can".
+    pub fn says(self) -> &'static str {
+        match self {
+            Need::Network => "use the internet",
+            Need::Windows => "open windows",
+            Need::Notify => "send you notifications",
+            Need::Notifications => "see the notifications you get",
+            Need::Everything => "reach everything you can, outside the sandbox",
+        }
+    }
 }
 
 /// The folders a manifest's `read` names, as paths; one that isn't absolute once its folder is
@@ -225,6 +276,41 @@ pub fn read_folders(manifest: &Manifest) -> Vec<PathBuf> {
 }
 
 impl Manifest {
+    pub fn needs(&self, need: Need) -> bool {
+        self.needs.contains(&need)
+    }
+
+    /// It runs with the person's whole session, and no sandbox.
+    pub fn unconfined(&self) -> bool {
+        self.needs(Need::Everything)
+    }
+
+    /// What it can reach, as a sentence for Settings to show before it is turned on.
+    pub fn reach(&self) -> String {
+        if self.unconfined() {
+            return "It isn't sandboxed: it can reach everything you can, your files and your \
+                    session's keys included."
+                .to_string();
+        }
+        let mut can: Vec<String> = Need::ALL
+            .into_iter()
+            .filter(|need| self.needs(*need))
+            .map(|need| need.says().to_string())
+            .collect();
+        if !self.read.is_empty() {
+            can.push(format!("read {}", self.read.join(", ")));
+        }
+        match can.split_last() {
+            None => "It runs in a sandbox and reaches nothing of yours outside its own folder."
+                .to_string(),
+            Some((last, [])) => format!("It runs in a sandbox. It can {last}, and nothing more."),
+            Some((last, rest)) => format!(
+                "It runs in a sandbox. It can {} and {last}, and nothing more.",
+                rest.join(", ")
+            ),
+        }
+    }
+
     /// `every_secs`, kept between a second and a day.
     pub fn every(&self) -> Option<std::time::Duration> {
         self.every_secs
@@ -473,6 +559,11 @@ pub fn move_meter(
         ]),
     );
     manifest.insert("every-secs".into(), every.into());
+    // The person's own command, which ran with everything they have: it still does.
+    manifest.insert(
+        "needs".into(),
+        toml::Value::Array(vec!["everything".into()]),
+    );
     let manifest = match toml::to_string(&manifest) {
         Ok(manifest) => manifest,
         Err(err) => return Some(Err(err.to_string())),
@@ -547,6 +638,34 @@ pub struct Card {
     pub headline: Option<String>,
     /// The plugin says something wants looking at (`attention`).
     pub flagged: bool,
+    /// A notification to send as this card arrives, for a plugin that needs `notify`.
+    pub notify: Option<Notify>,
+}
+
+/// A notification a plugin sends from its card.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Notify {
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+}
+
+const TITLE_CHARS: usize = 80;
+const BODY_CHARS: usize = 400;
+
+/// The line a plugin that needs `notifications` reads on its standard input when one arrives:
+/// `{"notification": {"app": …, "title": …, "body": …, "time": …}}`, the time in seconds since
+/// the Unix epoch.
+pub fn notification_line(app: &str, title: &str, body: &str, time: i64) -> String {
+    let notification = serde_json::json!({
+        "notification": {
+            "app": clip(app, TITLE_CHARS),
+            "title": clip(title, TITLE_CHARS),
+            "body": clip(body, BODY_CHARS),
+            "time": time,
+        }
+    });
+    format!("{notification}\n")
 }
 
 /// A plugin's headline on the chip.
@@ -569,6 +688,8 @@ struct Printed {
     glance: Option<String>,
     #[serde(default)]
     attention: bool,
+    #[serde(default)]
+    notify: Option<Notify>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -622,6 +743,13 @@ impl Card {
                 .filter(|glance| !glance.trim().is_empty())
                 .map(|text| clip(&text, GLANCE_CHARS)),
             flagged: printed.attention,
+            notify: printed
+                .notify
+                .filter(|notify| !notify.title.trim().is_empty())
+                .map(|notify| Notify {
+                    title: clip(&notify.title, TITLE_CHARS),
+                    body: clip(&notify.body, BODY_CHARS),
+                }),
         })
     }
 
@@ -738,6 +866,57 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
     }
 
+    /// What Settings shows before a plugin is turned on says what it can reach, and says plainly
+    /// when it isn't sandboxed at all.
+    #[test]
+    fn a_manifest_says_what_its_plugin_can_reach() {
+        let reach = |text: &str| parse_manifest(text.as_bytes()).unwrap().reach();
+        let bare = "name = \"Disk\"\nexec = [\"./disk\"]\n";
+        assert_eq!(
+            reach(bare),
+            "It runs in a sandbox and reaches nothing of yours outside its own folder."
+        );
+        assert_eq!(
+            reach(&format!(
+                "{bare}needs = [\"network\", \"notify\"]\nread = [\"$HOME/notes\"]\n"
+            )),
+            "It runs in a sandbox. It can use the internet, send you notifications and read \
+             $HOME/notes, and nothing more."
+        );
+        assert!(
+            reach(&format!("{bare}needs = [\"everything\"]\n")).starts_with("It isn't sandboxed")
+        );
+        let unknown = parse_manifest(format!("{bare}needs = [\"camera\"]\n").as_bytes());
+        assert!(unknown.unwrap_err().contains("camera"));
+    }
+
+    /// A card's notification is only taken with a title, and cut to size.
+    #[test]
+    fn a_card_can_carry_a_notification() {
+        let card = Card::parse(
+            r#"{"notify": {"title": "Tea's ready", "body": "Steeped"}}"#,
+            false,
+            0,
+        )
+        .unwrap();
+        let notify = card.notify.unwrap();
+        assert_eq!(
+            (notify.title.as_str(), notify.body.as_str()),
+            ("Tea's ready", "Steeped")
+        );
+        assert!(
+            Card::parse(r#"{"notify": {"title": " "}}"#, false, 0)
+                .unwrap()
+                .notify
+                .is_none()
+        );
+        let line = notification_line("Mail", "Ferry\ndelayed", &"x".repeat(1000), 7);
+        let read: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(read["notification"]["title"], "Ferry delayed");
+        assert_eq!(read["notification"]["time"], 7);
+        assert!(line.ends_with('\n') && line.len() < 600, "{}", line.len());
+    }
+
     #[test]
     fn the_folders_a_plugin_reads_are_put_in_and_nothing_else_is() {
         let manifest = Manifest {
@@ -753,6 +932,7 @@ mod tests {
                 "$SSH_AUTH_SOCK".into(),
                 "$HOME/../root".into(),
             ],
+            needs: Vec::new(),
         };
         let folders = read_folders(&manifest);
         assert_eq!(folders.len(), 4, "{folders:?}");

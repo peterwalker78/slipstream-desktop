@@ -101,7 +101,7 @@ Slipstream puts your concentration first.
 
 **Write one in anything.** If it can print a line of JSON, it can be a plugin: a shell script, Python, a compiled program. [Writing a plugin →](guide/plugins.md)
 
-**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first. Turning it on runs a read-only copy of what you saw, and if it changes after that, it waits for you to turn it on again.
+**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists, and if it changes after that, it waits for you to turn it on again.
 
 ## New to tiling? Take the tour
 

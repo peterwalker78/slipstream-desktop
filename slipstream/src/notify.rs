@@ -76,6 +76,8 @@ pub struct Incoming {
     /// The process that sent it, then its parent, and so on up: nearest first. Empty when that
     /// couldn't be told for certain.
     pub origin: Vec<u32>,
+    /// The plugin that sent it from its card, which isn't told of its own.
+    pub plugin: Option<String>,
 }
 
 /// A picture sent as pixels: straight RGBA, 8 bits per channel.
@@ -185,6 +187,7 @@ impl Server {
                     .map(|pid| named(Path::new("/proc"), pid))
                     .unwrap_or_default(),
             ),
+            plugin: None,
         };
         self.send(Event::Notify(Box::new(incoming)));
         id

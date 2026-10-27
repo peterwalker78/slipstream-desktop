@@ -7,7 +7,8 @@
 //! Plugin folders are looked at on a thread of their own too (`scan.rs`), since reading and
 //! fingerprinting them can take a while: at the start, whenever the settings change, when a
 //! plugins folder changes and when the panel opens. A plugin that's on runs from the read-only
-//! copy kept when it was approved (`slipstream_config::plugins::store`), never from its folder.
+//! copy kept when it was approved (`slipstream_config::plugins::store`), never from its folder,
+//! and in its sandbox unless it needs `everything`.
 
 pub mod card;
 mod scan;
@@ -15,13 +16,16 @@ mod worker;
 
 pub use scan::Scan;
 pub use slipstream_config::plugins::Glance;
+pub use worker::Sent;
+
+use std::sync::Arc;
 
 use slipstream_config::{
     Settings,
-    plugins::{self, Card},
+    plugins::{self, Card, Need},
 };
 
-use worker::{Approved, Worker};
+use worker::{Approved, Sink, Worker};
 
 /// One plugin that's on, as it runs.
 struct Running {
@@ -75,16 +79,24 @@ pub struct Plugins {
     /// What was last logged as wrong, so a settings change elsewhere doesn't log it again.
     reported: Vec<String>,
     scanner: scan::Scanner,
+    sink: Sink,
 }
 
 impl Plugins {
     /// Plugins looked for where they are installed, each look's result handed to `found`, from
-    /// the thread that looks.
-    pub fn new(found: impl Fn(Scan) + Send + 'static) -> Plugins {
-        Plugins::looking_in(scan::Places::real(), found)
+    /// the thread that looks. The notifications their cards send go to `sent`, from theirs.
+    pub fn new(
+        found: impl Fn(Scan) + Send + 'static,
+        sent: impl Fn(Sent) + Send + Sync + 'static,
+    ) -> Plugins {
+        Plugins::looking_in(scan::Places::real(), found, sent)
     }
 
-    fn looking_in(places: scan::Places, found: impl Fn(Scan) + Send + 'static) -> Plugins {
+    fn looking_in(
+        places: scan::Places,
+        found: impl Fn(Scan) + Send + 'static,
+        sent: impl Fn(Sent) + Send + Sync + 'static,
+    ) -> Plugins {
         Plugins {
             installed: 0,
             running: Vec::new(),
@@ -92,6 +104,7 @@ impl Plugins {
             wanted: plugins::Plugins::default(),
             reported: Vec::new(),
             scanner: scan::Scanner::start(places, Box::new(found)),
+            sink: Arc::new(sent),
         }
     }
 
@@ -145,7 +158,7 @@ impl Plugins {
             let running = kept.unwrap_or_else(|| {
                 tracing::debug!("starting plugin {}", approved.plugin.id);
                 Running {
-                    worker: Worker::start(approved.clone()),
+                    worker: Worker::start(approved.clone(), self.sink.clone()),
                     approved,
                     hidden: Vec::new(),
                 }
@@ -216,6 +229,26 @@ impl Plugins {
         }
     }
 
+    /// A notification arrived: the plugins that need to see them are told, except the one that
+    /// sent it, if a plugin did.
+    pub fn notification(&self, app: &str, title: &str, body: &str, from: Option<&str>) {
+        let mut line = None;
+        for running in &self.running {
+            let plugin = &running.approved.plugin;
+            if plugin.manifest.needs(Need::Notifications) && from != Some(plugin.id.as_str()) {
+                let line = line.get_or_insert_with(|| {
+                    plugins::notification_line(
+                        app,
+                        title,
+                        body,
+                        slipstream_config::card::unix_now(),
+                    )
+                });
+                running.worker.hear(line);
+            }
+        }
+    }
+
     /// Stops every plugin, now: the compositor is on its way out.
     pub fn stop_all(&mut self) {
         self.running.clear();
@@ -258,9 +291,13 @@ mod tests {
             stores: root.join("stores"),
             approvals: root.join("approvals"),
         };
-        let plugins = Plugins::looking_in(places, move |scan| {
-            let _ = found.send(scan);
-        });
+        let plugins = Plugins::looking_in(
+            places,
+            move |scan| {
+                let _ = found.send(scan);
+            },
+            |_| {},
+        );
         (plugins, scans)
     }
 
@@ -295,8 +332,20 @@ mod tests {
         !path.exists()
     }
 
-    /// Writes plugin `id` into `root/plugins`, its manifest running `sh -c script`.
+    /// Writes plugin `id` into `root/plugins`, its manifest running `sh -c script` with
+    /// everything the test has: its own files, and process ids that mean the same outside.
     fn install(root: &Path, id: &str, script: &str, every: Option<u64>) -> Plugin {
+        install_needing(root, id, script, every, &["everything"])
+    }
+
+    /// `install`, but needing only `needs`, in its sandbox otherwise.
+    fn install_needing(
+        root: &Path,
+        id: &str,
+        script: &str,
+        every: Option<u64>,
+        needs: &[&str],
+    ) -> Plugin {
         let dir = root.join("plugins").join(id);
         std::fs::create_dir_all(&dir).unwrap();
         let mut manifest = toml::Table::new();
@@ -308,6 +357,8 @@ mod tests {
         if let Some(every) = every {
             manifest.insert("every-secs".into(), (every as i64).into());
         }
+        let needs = needs.iter().map(|need| toml::Value::from(*need)).collect();
+        manifest.insert("needs".into(), toml::Value::Array(needs));
         std::fs::write(
             dir.join(plugins::MANIFEST),
             toml::to_string(&manifest).unwrap(),
@@ -461,11 +512,14 @@ mod tests {
         // Read-only, but its owner can still open it up and add to it.
         std::fs::set_permissions(&copied.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::write(copied.dir.join("extra"), "x").unwrap();
-        let worker = Worker::start(Approved {
-            plugin: copied,
-            state: kept.join(store::STATE),
-            store: Some(kept),
-        });
+        let worker = Worker::start(
+            Approved {
+                plugin: copied,
+                state: kept.join(store::STATE),
+                store: Some(kept),
+            },
+            Arc::new(|_| {}),
+        );
         let deadline = Instant::now() + Duration::from_secs(5);
         while worker.published().problem.is_none() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));
@@ -530,11 +584,14 @@ mod tests {
 
     /// Starts a worker for `plugin` straight from its folder.
     fn worker(root: &Path, plugin: Plugin) -> Worker {
-        Worker::start(Approved {
-            plugin,
-            state: root.join("state"),
-            store: None,
-        })
+        Worker::start(
+            Approved {
+                plugin,
+                state: root.join("state"),
+                store: None,
+            },
+            Arc::new(|_| {}),
+        )
     }
 
     /// Whether anything is still running in process group `group`. One that has ended stays in
@@ -676,9 +733,14 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             .unwrap();
         let meter = plugins::read(&moved).unwrap();
         let state = root.join("state");
-        let out = worker::program(&meter, &state, &[]).output().unwrap();
+        assert!(meter.manifest.unconfined(), "it ran as the person before");
+        let out = worker::program(&meter, &state, &[])
+            .unwrap()
+            .output()
+            .unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), r#"{"lines":["ran"]}"#);
         let out = worker::program(&meter, &state, &["press", "go"])
+            .unwrap()
             .output()
             .unwrap();
         assert_eq!(
@@ -693,11 +755,14 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
     #[test]
     fn a_plugin_s_program_runs_without_the_session_s_secrets() {
         let root = scratch("env");
-        let plugin = install(&root, "env", "env; pwd", None);
+        let plugin = install_needing(&root, "env", "env; pwd", None, &[]);
         // The test runs with all of cargo's environment, and the session's: none of it gets
         // through but what the list names, and what `sh` sets for itself.
         let state = root.join("state");
-        let out = worker::program(&plugin, &state, &[]).output().unwrap();
+        let out = worker::program(&plugin, &state, &[])
+            .unwrap()
+            .output()
+            .unwrap();
         let said = String::from_utf8_lossy(&out.stdout);
         let (env, folder) = said.trim_end().rsplit_once('\n').unwrap();
         for line in env.lines() {
@@ -718,6 +783,115 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             plugin.dir.display().to_string(),
             "run in its folder"
         );
+    }
+
+    /// The promise in the guide: in its sandbox a plugin reaches its own folders and what it says
+    /// it reads, and nothing else of yours: not your files, not your session bus, not the network.
+    #[test]
+    fn a_sandboxed_plugin_reaches_only_what_it_says() {
+        let root = scratch("sandbox");
+        let secret = root.join("secret");
+        std::fs::write(&secret, "x").unwrap();
+        let shared = root.join("shared");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("note"), "hello").unwrap();
+        let bus = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(|dir| PathBuf::from(dir).join("bus"))
+            .unwrap_or_default();
+        let script = format!(
+            "test -e '{secret}' && echo saw-secret; test -e '{bus}' && echo saw-bus; \
+             cat \"$SLIPSTREAM_PLUGIN_READ_0/note\"; echo; \
+             echo kept > \"$SLIPSTREAM_PLUGIN_STATE/kept\" && echo wrote-state; \
+             touch ./mine 2>/dev/null && echo wrote-own; \
+             grep -c : /proc/net/dev",
+            secret = secret.display(),
+            bus = bus.display(),
+        );
+        let dir = root.join("plugins/sandboxed");
+        let plugin = install_needing(&root, "sandboxed", &script, None, &[]);
+        let mut manifest = std::fs::read_to_string(dir.join(plugins::MANIFEST)).unwrap();
+        manifest.push_str(&format!("read = [\"{}\"]\n", shared.display()));
+        std::fs::write(dir.join(plugins::MANIFEST), manifest).unwrap();
+        let plugin = plugins::Plugin {
+            manifest: plugins::read(&dir).unwrap().manifest,
+            ..plugin
+        };
+        let state = root.join("state");
+        let out = worker::program(&plugin, &state, &[])
+            .unwrap()
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(said, "hello\nwrote-state\n1\n", "{err}");
+        assert_eq!(
+            std::fs::read_to_string(state.join("kept")).unwrap(),
+            "kept\n"
+        );
+    }
+
+    /// The promise in the guide: a plugin that needs `notifications` is told of each one that
+    /// arrives, and one that needs `notify` sends them from its card. One that doesn't need them
+    /// is told nothing, and its card sends nothing.
+    #[test]
+    fn a_plugin_hears_notifications_and_sends_them_only_if_it_needs_to() {
+        let root = scratch("notifications");
+        let (found, scans) = mpsc::channel();
+        let (sink, sent) = mpsc::channel();
+        let sink = std::sync::Mutex::new(sink);
+        let places = scan::Places {
+            dirs: vec![root.join("plugins")],
+            stores: root.join("stores"),
+            approvals: root.join("approvals"),
+        };
+        let mut plugins = Plugins::looking_in(
+            places,
+            move |scan| {
+                let _ = found.send(scan);
+            },
+            move |notice| {
+                let _ = sink.lock().unwrap().send(notice);
+            },
+        );
+        let echo = r#"while read -r line; do
+            title=$(printf '%s' "$line" | sed 's/.*"title":"\([^"]*\)".*/\1/')
+            printf '{"lines":["%s"],"notify":{"title":"heard %s"}}\n' "$title" "$title"
+        done"#;
+        let listener = install_needing(&root, "log", echo, None, &["notify", "notifications"]);
+        let deaf = install_needing(&root, "deaf", echo, None, &[]);
+        let mut settings = turned_on(&listener);
+        settings
+            .plugins
+            .set_on(&deaf.id, Some(deaf.fingerprint.clone()));
+        follow(&mut plugins, &scans, &settings);
+        // Wait for both to be running, then a notification arrives.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while plugins.running.len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        plugins.notification("Mail", "Ferry delayed", "The 9:40 is running late", None);
+        let shown = settle(&plugins, |shown| {
+            shown.iter().any(|shown| shown.card.is_some())
+        });
+        let log = shown.iter().find(|shown| shown.id == "log").unwrap();
+        assert_eq!(
+            log.card.as_ref().map(|card| card.lines.clone()),
+            Some(vec!["Ferry delayed".to_string()]),
+            "{shown:?}"
+        );
+        let notice = sent.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(notice.title, "heard Ferry delayed");
+        assert_eq!((notice.id.as_str(), notice.name.as_str()), ("log", "log"));
+        // Its own, coming back, isn't told to it.
+        plugins.notification("log", &notice.title, "", Some("log"));
+        std::thread::sleep(Duration::from_millis(500));
+        let deaf = plugins.shown().into_iter().find(|shown| shown.id == "deaf");
+        assert!(
+            deaf.unwrap().card.is_none(),
+            "one that doesn't need it hears nothing"
+        );
+        assert!(sent.try_recv().is_err());
     }
 
     #[test]

@@ -2,8 +2,13 @@
 //! prints, and publishes what the panel should show. Nothing here runs on the event loop, and
 //! nothing waits on it: stopping is a flag the thread is woken to look at, and the thread ends
 //! the program's whole process group on its way out. A button pressed on the card is run by the
-//! same thread, in its turn, so it never overlaps a run of the program and stops with it. Before each start of the program, its
-//! approved copy is checked against the fingerprint it was approved with.
+//! same thread, in its turn, so it never overlaps a run of the program and stops with it. Before
+//! each start of the program, its approved copy is checked against the fingerprint it was
+//! approved with.
+//!
+//! A plugin that needs `notifications` is handed each one as it arrives (`Worker::hear`): written
+//! to a program that keeps running as it comes, and to one that runs every so often as what it
+//! reads at its next run. A notification on a card goes to the `Sink`, a few a minute at most.
 
 use std::{
     collections::VecDeque,
@@ -20,8 +25,21 @@ use std::{
 use slipstream_config::{
     card::{RUN_LIMIT, unix_now},
     command::{self, Lines, Run, Said, Waker},
-    plugins::{self, Card, Plugin, store},
+    plugins::{self, Card, Need, Plugin, sandbox, store},
 };
+
+/// A notification a plugin sent from its card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    /// The plugin's id, and its name, which its notification is signed with.
+    pub id: String,
+    pub name: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Where the notifications plugins send go, from their threads.
+pub type Sink = Arc<dyn Fn(Sent) + Send + Sync>;
 
 /// A plugin approved to run, as it runs.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +84,11 @@ pub struct Published {
 
 /// The most presses waiting to be run; more are dropped.
 const MOST_PRESSES: usize = 8;
+/// The most notifications waiting to be handed to a program; more are dropped. Each line is a
+/// little over 600 bytes at most, so they always fit in a pipe at once.
+const MOST_HEARD: usize = 32;
+/// The most of what it is told kept for a program that keeps running and is slow to read it.
+const MOST_UNREAD: usize = 64 << 10;
 
 /// Why a rest ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +104,8 @@ struct Control {
     stop: AtomicBool,
     /// Buttons pressed and not yet run, oldest first.
     presses: Mutex<VecDeque<String>>,
+    /// Notifications arrived and not yet handed on, as the lines the program reads.
+    heard: Mutex<VecDeque<String>>,
     /// Cuts short the wait for a line from a program that keeps running, while one runs.
     waker: Mutex<Option<Waker>>,
 }
@@ -99,8 +124,8 @@ pub struct Worker {
 }
 
 impl Worker {
-    /// Starts `approved`'s worker.
-    pub fn start(approved: Approved) -> Worker {
+    /// Starts `approved`'s worker, the notifications it sends going to `sink`.
+    pub fn start(approved: Approved, sink: Sink) -> Worker {
         let control = Arc::new(Control::default());
         let published = Arc::new(Mutex::new(Published::default()));
         let job = Job {
@@ -112,6 +137,8 @@ impl Worker {
             last: None,
             fresh: None,
             failures: Throttle::default(),
+            sink,
+            sent: Throttle::default(),
         };
         let thread = std::thread::Builder::new()
             .name("plugin".into())
@@ -136,6 +163,18 @@ impl Worker {
             if presses.len() < MOST_PRESSES {
                 presses.push_back(button.to_string());
             }
+        }
+        self.nudge();
+    }
+
+    /// A notification arrived, as the line its program reads: handed on in its turn.
+    pub fn hear(&self, line: &str) {
+        {
+            let mut heard = self.control.heard.lock().unwrap();
+            if heard.len() >= MOST_HEARD {
+                heard.pop_front();
+            }
+            heard.push_back(line.to_string());
         }
         self.nudge();
     }
@@ -172,6 +211,9 @@ struct Job {
     last: Option<String>,
     fresh: Option<Card>,
     failures: Throttle,
+    sink: Sink,
+    /// Lets a few of the notifications its cards send through a minute.
+    sent: Throttle,
 }
 
 impl Job {
@@ -187,7 +229,16 @@ impl Job {
     /// otherwise.
     fn program(&self, args: &[&str]) -> Result<Command, String> {
         store::verify(&self.plugin.dir, &self.plugin.fingerprint)?;
-        Ok(program(&self.plugin, &self.state, args))
+        program(&self.plugin, &self.state, args)
+    }
+
+    /// What a run reads on its standard input: the notifications heard since the last, for a
+    /// plugin that needs them, and nothing to read for any other.
+    fn input(&self) -> Option<Vec<u8>> {
+        self.plugin.manifest.needs(Need::Notifications).then(|| {
+            let mut heard = self.control.heard.lock().unwrap();
+            heard.drain(..).collect::<String>().into_bytes()
+        })
     }
 
     fn stopped(&self) -> bool {
@@ -208,7 +259,8 @@ impl Job {
                     continue;
                 }
             };
-            match command::run_tidily(program, RUN_LIMIT, &|| self.stopped()) {
+            let input = self.input();
+            match command::run_tidily(program, RUN_LIMIT, &|| self.stopped(), input.as_deref()) {
                 None => return false,
                 Some(Run::Printed(_)) => {}
                 Some(ran) => self.failed(&format!("A press: {}", why(&ran))),
@@ -226,13 +278,33 @@ impl Job {
         *self.published.lock().unwrap() = Published { card, problem };
     }
 
-    /// Takes `line` as the new card if it reads as one; says why not otherwise.
+    /// Takes `line` as the new card if it reads as one, sending the notification on it; says why
+    /// not otherwise.
     fn read(&mut self, line: &str) -> Result<(), String> {
-        let card = Card::parse(line, false, unix_now())
+        let mut card = Card::parse(line, false, unix_now())
             .map_err(|err| format!("Its card can't be read: {err}"))?;
         self.last = Some(line.to_string());
+        if let Some(notify) = card.notify.take() {
+            self.send(notify.title, notify.body);
+        }
         self.fresh = Some(card);
         Ok(())
+    }
+
+    fn send(&mut self, title: String, body: String) {
+        if !self.plugin.manifest.needs(Need::Notify) {
+            self.failed("Its card sends a notification, but it doesn't say it needs notify");
+        } else if self.sent.admit(Instant::now()).is_some() {
+            (self.sink)(Sent {
+                id: self.plugin.id.clone(),
+                name: self.plugin.manifest.name.clone(),
+                title,
+                body,
+            });
+        } else {
+            let id = &self.plugin.id;
+            tracing::debug!("plugin {id}: a notification more than a few a minute, left out");
+        }
     }
 
     /// Waits up to `wait`, or until told to stop or to run again, and says which.
@@ -271,7 +343,10 @@ impl Job {
         loop {
             let problem = match self.program(&[]) {
                 Ok(program) => {
-                    let Some(ran) = command::run_tidily(program, RUN_LIMIT, &|| self.stopped())
+                    let input = self.input();
+                    let stop = || self.stopped();
+                    let Some(ran) =
+                        command::run_tidily(program, RUN_LIMIT, &stop, input.as_deref())
                     else {
                         return;
                     };
@@ -343,7 +418,8 @@ impl Job {
                 return !self.stopped();
             }
         };
-        let lines = match Lines::start(program, move |line| {
+        let listens = self.plugin.manifest.needs(Need::Notifications);
+        let lines = match Lines::start(program, listens, move |line| {
             if let Some(dropped) = errors.lock().unwrap().admit(Instant::now()) {
                 let more = if dropped > 0 {
                     format!(" ({dropped} more lines not logged)")
@@ -373,6 +449,8 @@ impl Job {
     fn follow_lines(&mut self, lines: &Lines) -> bool {
         let mut waiting = false;
         let mut last = Instant::now() - UPDATE_GAP;
+        // What it has been told and hasn't read yet.
+        let mut unread: Vec<u8> = Vec::new();
         loop {
             if self.stopped() {
                 return false;
@@ -380,8 +458,18 @@ impl Job {
             if self.control.pressed() && !self.run_presses() {
                 return false;
             }
+            if let Some(heard) = self.input() {
+                if unread.len() + heard.len() <= MOST_UNREAD {
+                    unread.extend(heard);
+                }
+                let taken = lines.say(&unread);
+                unread.drain(..taken);
+            }
             let wait = if waiting {
                 (last + UPDATE_GAP).saturating_duration_since(Instant::now())
+            } else if !unread.is_empty() {
+                // Tried again shortly, until it has read what it was told.
+                UPDATE_GAP
             } else {
                 RECOUNT
             };
@@ -434,33 +522,53 @@ impl Drop for Job {
 }
 
 /// The plugin's program, with `args` after its own words: run as its manifest writes it, in its
-/// folder, from a cleared environment (`plugins::ENVIRONMENT`), with `state` as its own folder.
-pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Command {
-    let exec = &plugin.manifest.exec;
-    let program = &exec[0];
-    let mut command = if program.contains('/') {
-        Command::new(plugin.dir.join(program))
+/// folder, with `state` as its own folder. It runs in its sandbox, from a cleared environment
+/// (`plugins::ENVIRONMENT`), unless it needs `everything`, when it runs with the session's own.
+pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, String> {
+    let manifest = &plugin.manifest;
+    let exec = &manifest.exec;
+    let program = if exec[0].contains('/') {
+        plugin.dir.join(&exec[0]).into_os_string()
     } else {
+        exec[0].clone().into()
+    };
+    if let Err(err) = std::fs::create_dir_all(state) {
+        tracing::warn!("plugin {}: no folder for its state: {err}", plugin.id);
+    }
+    let reads = plugins::read_folders(manifest);
+    let mut command = if manifest.unconfined() {
         Command::new(program)
+    } else {
+        let bwrap = sandbox::bwrap().ok_or(sandbox::NO_BWRAP)?;
+        let session = sandbox::Session::now();
+        let mut command = Command::new(bwrap);
+        command
+            .args(sandbox::args(
+                manifest,
+                &plugin.dir,
+                state,
+                &reads,
+                &session,
+            ))
+            .arg(program)
+            .env_clear();
+        for name in plugins::ENVIRONMENT {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        command.envs(sandbox::environment(manifest, &session));
+        command
     };
     command
         .args(&exec[1..])
         .args(args)
         .current_dir(&plugin.dir)
-        .env_clear();
-    for name in plugins::ENVIRONMENT {
-        if let Some(value) = std::env::var_os(name) {
-            command.env(name, value);
-        }
-    }
-    if let Err(err) = std::fs::create_dir_all(state) {
-        tracing::warn!("plugin {}: no folder for its state: {err}", plugin.id);
-    }
-    command.env("SLIPSTREAM_PLUGIN_STATE", state);
-    for (n, folder) in plugins::read_folders(&plugin.manifest).iter().enumerate() {
+        .env("SLIPSTREAM_PLUGIN_STATE", state);
+    for (n, folder) in reads.iter().enumerate() {
         command.env(format!("SLIPSTREAM_PLUGIN_READ_{n}"), folder);
     }
-    command
+    Ok(command)
 }
 
 /// The wait before starting a program that keeps running again: `RESTART`, doubled each time it
@@ -477,6 +585,12 @@ fn next_backoff(backoff: Duration, ran: Duration) -> Duration {
 fn why(run: &Run) -> String {
     match run {
         Run::Printed(_) => "It ran".into(),
+        Run::Failed { error, .. } if error.starts_with("bwrap: ") => {
+            format!(
+                "Its sandbox couldn't be set up: {}",
+                &error["bwrap: ".len()..]
+            )
+        }
         Run::Failed { code, error } => {
             let stopped = match code {
                 Some(code) => format!("Stopped with error {code}"),

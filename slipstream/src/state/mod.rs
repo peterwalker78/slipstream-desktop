@@ -496,9 +496,25 @@ impl Slipstream {
                 }
             })
             .expect("a channel source always inserts");
-        let mut plugins = crate::plugins::Plugins::new(move |scan| {
-            let _ = plugin_scans.send(scan);
-        });
+        // The notifications plugins send from their cards, from their threads.
+        let (plugin_notices, notices) = channel::channel();
+        event_loop
+            .handle()
+            .insert_source(notices, |event, _, state| {
+                if let channel::Event::Msg(sent) = event {
+                    state.notify_from_plugin(sent);
+                }
+            })
+            .expect("a channel source always inserts");
+        let plugin_notices = std::sync::Mutex::new(plugin_notices);
+        let mut plugins = crate::plugins::Plugins::new(
+            move |scan| {
+                let _ = plugin_scans.send(scan);
+            },
+            move |sent| {
+                let _ = plugin_notices.lock().unwrap().send(sent);
+            },
+        );
         plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();
         let bullet_rgb = settings.borders.bullet_time_rgb();

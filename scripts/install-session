@@ -376,6 +376,7 @@ package() {
         bluetoothctl:*) echo bluez ;;
         power-profiles:*) echo power-profiles-daemon ;;
         terminal:*) echo foot ;;
+        bwrap:*) echo bubblewrap ;;
     esac
 }
 
@@ -731,6 +732,7 @@ check() {
     have pw-play || lacks pw-play "pw-play: no click at the new volume"
     have nmcli || lacks nmcli "nmcli: quick settings' Wi-Fi tile does nothing"
     have bluetoothctl || lacks bluetoothctl "bluetoothctl: quick settings' Bluetooth tile does nothing"
+    have bwrap || lacks bwrap "bubblewrap: plugins have no sandbox to run in, so they stay off"
     if have busctl && ! busctl --system status org.freedesktop.UPower.PowerProfiles >/dev/null 2>&1 \
         && ! busctl --system status net.hadess.PowerProfiles >/dev/null 2>&1; then
         lacks power-profiles "power-profiles-daemon: quick settings' Power mode tile does nothing"
