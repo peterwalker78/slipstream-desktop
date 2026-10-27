@@ -15,6 +15,11 @@ concurrency:
 permissions:
   contents: read
 
+# Incremental data is only of use to a build that runs again in the same place, and it would fill
+# the cached target folder, and the runner's disk with it.
+env:
+  CARGO_INCREMENTAL: "0"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,9 +60,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: cargo-fedora44-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-fedora44-
+          key: registry-fedora44-${{ hashFiles('Cargo.lock') }}
+          restore-keys: registry-fedora44-
+
+      # Only ever for the same Cargo.lock: cargo never clears out what an older one built, so a
+      # target folder carried over from one lock to the next only grows.
+      - uses: actions/cache@v6
+        with:
+          path: target
+          key: target-fedora44-${{ hashFiles('Cargo.lock') }}
 
       - name: Format
         run: . ~/.cargo/env && cargo fmt --all --check
@@ -96,9 +107,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: cargo-debian13-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-debian13-
+          key: registry-debian13-${{ hashFiles('Cargo.lock') }}
+          restore-keys: registry-debian13-
+
+      # Only ever for the same Cargo.lock: cargo never clears out what an older one built, so a
+      # target folder carried over from one lock to the next only grows.
+      - uses: actions/cache@v6
+        with:
+          path: target
+          key: target-debian13-${{ hashFiles('Cargo.lock') }}
 
       - name: Build the way the download is built
         run: scripts/build-portable
