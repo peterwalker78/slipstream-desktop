@@ -166,8 +166,18 @@ fi
 [ -x /usr/local/bin/slipstream-session ] || fail "the session launcher isn't installed"
 [ -r /etc/pam.d/slipstream ] || fail "the lock screen's PAM service isn't installed"
 
-# The plugin that comes with Slipstream, installed from its own release: a download from before it
-# came along has no file describing it.
+# Focus, the plugin that comes with Slipstream's programs: a download from before it has none.
+focus=/usr/local/share/slipstream/bundled/focus
+if [ -d "$folder/share/slipstream/bundled/focus" ]; then
+    if ! [ -f "$focus/plugin.toml" ] || ! [ -x "$focus/focus" ]; then
+        fail "Focus, the plugin that comes with Slipstream, isn't installed"
+    elif ! as_user "$focus/focus search 25" | grep -q '"focus-25"'; then
+        fail "Focus doesn't run here"
+    fi
+fi
+
+# agent-notify, an extra plugin installed from its own release: a download from before it came
+# along has no file describing it.
 if [ -f "$folder/extras/agent-notify.conf" ]; then
     plugin=$home/.local/share/slipstream/plugins/agent-notify
     if ! [ -f "$plugin/plugin.toml" ]; then
@@ -184,7 +194,8 @@ sed 's/^/  /' "$home/check.log"
 
 say "Removing"
 as_user "cd '$folder' && sh scripts/install-session --uninstall --yes --purge" || fail "uninstall failed"
-for path in /usr/local/bin/slipstream /usr/local/bin/slipstream-session /etc/pam.d/slipstream; do
+for path in /usr/local/bin/slipstream /usr/local/bin/slipstream-session /etc/pam.d/slipstream \
+    "$focus/focus"; do
     if [ -e "$path" ]; then
         fail "$path is still here after --uninstall"
     fi

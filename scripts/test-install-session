@@ -285,6 +285,9 @@ make_download() {
     printf '#!/bin/sh\necho "slipstream 9.9.9"\n' >"$download/bin/slipstream"
     printf '#!/bin/sh\n' >"$download/bin/slipstream-settings"
     chmod 755 "$download/bin/slipstream" "$download/bin/slipstream-settings"
+    mkdir -p "$download/share/slipstream/bundled/focus"
+    cp "$repo/plugins/focus/plugin.toml" "$download/share/slipstream/bundled/focus/"
+    printf '#!/bin/sh\n' >"$download/share/slipstream/bundled/focus/focus"
 }
 # A machine with a screen-sharing backend new enough, and one desktop's backend beside it.
 make_portals() {
@@ -300,6 +303,7 @@ portals_conf=$r/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
 wlr_conf=$r/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 unit=$r/usr/local/lib/systemd/user/slipstream-session.target
 portal_backend=$r/usr/local/share/xdg-desktop-portal/portals/slipstream.portal
+focus=$r/usr/local/share/slipstream/bundled/focus
 
 case_name="a download installs the programs where everyone can run them"
 fresh
@@ -316,6 +320,12 @@ grep -q "^default=kde;gtk$" "$portals_conf" || fail "$case_name: portals default
 grep -q "^chooser_cmd=/usr/local/bin/slipstream --choose-share$" "$wlr_conf" \
     || fail "$case_name: the sharing picker isn't the installed program"
 grep -q "^/usr/local/bin/slipstream$" "$manifest" || fail "$case_name: the manifest doesn't list the program"
+
+case_name="a download installs Focus where the installed compositor finds it"
+[ "$(mode_of "$focus/focus")" = 755 ] || fail "$case_name: its program isn't installed 755"
+grep -q '^name = "Focus"$' "$focus/plugin.toml" || fail "$case_name: no manifest"
+grep -q "^/usr/local/share/slipstream/bundled/focus/focus$" "$manifest" \
+    || fail "$case_name: the manifest doesn't list it"
 
 case_name="a download installs the backend that tells apps dark or light"
 fresh
@@ -349,7 +359,7 @@ case_name="uninstalling a download takes the programs with it"
 PORTAL_DIR=$work/portals SCRIPT=$download/scripts/install-session \
     expect_status 0 --uninstall --yes || true
 for f in "$installed_bin" "$installed_settings" "$unit" "$portals_conf" "$portal_backend" \
-    "$wlr_conf"; do
+    "$wlr_conf" "$focus" "${focus%/*}" "$r/usr/local/share/slipstream"; do
     if [ -e "$f" ]; then
         fail "$case_name: $f still there"
     fi

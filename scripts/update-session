@@ -90,6 +90,16 @@ else
     built=${CARGO_TARGET_DIR:-$repo/target}/session
 fi
 
+# Focus, the plugin that comes with Slipstream: a release carries it ready to install, a build
+# makes its program beside the others.
+if [ "$built" = "$repo/bin" ]; then
+    focus_program=$repo/share/slipstream/bundled/focus/focus
+    focus_manifest=$repo/share/slipstream/bundled/focus/plugin.toml
+else
+    focus_program=$built/focus
+    focus_manifest=$repo/plugins/focus/plugin.toml
+fi
+
 for program in slipstream slipstream-settings; do
     if ! [ -x "$built/$program" ]; then
         echo "update-session: $built/$program isn't there, so nothing was installed." >&2
@@ -167,6 +177,30 @@ launcher=${SLIPSTREAM_TEST_ROOT:-}/usr/local/bin/slipstream-session
 
 put 755 "$built/slipstream" "$bin_dir/slipstream"
 put 755 "$built/slipstream-settings" "$bin_dir/slipstream-settings"
+# The plugins that come with Slipstream go in share/slipstream/bundled beside the bin folder the
+# compositor runs from, which is where it looks for them. A changed copy is put together next to
+# the old and moved in, so it's never seen half written; an unchanged one is left alone, so a
+# running Focus isn't restarted for nothing.
+bundled=$HOME/.local/share/slipstream/bundled
+if [ -x "$focus_program" ] && [ -f "$focus_manifest" ]; then
+    if ! cmp -s "$focus_program" "$bundled/focus/focus" \
+        || ! cmp -s "$focus_manifest" "$bundled/focus/plugin.toml"; then
+        mkdir -p "$bundled"
+        rm -rf "$bundled.focus-new" "$bundled.focus-old"
+        mkdir "$bundled.focus-new"
+        cp "$focus_manifest" "$bundled.focus-new/plugin.toml"
+        cp "$focus_program" "$bundled.focus-new/focus"
+        chmod 644 "$bundled.focus-new/plugin.toml"
+        chmod 755 "$bundled.focus-new/focus"
+        if [ -d "$bundled/focus" ]; then
+            mv "$bundled/focus" "$bundled.focus-old"
+        fi
+        mv "$bundled.focus-new" "$bundled/focus"
+        rm -rf "$bundled.focus-old"
+    fi
+else
+    echo "update-session: Focus wasn't built, so the plugin that comes with Slipstream wasn't updated." >&2
+fi
 # The Settings app's entry, so the explorer lists it (in Slipstream only).
 entry=io.github.peterwalker78.SlipstreamSettings.desktop
 put 644 "$repo/slipstream-settings/$entry" "$data/applications/$entry"

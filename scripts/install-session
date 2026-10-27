@@ -322,6 +322,9 @@ portals_conf=/usr/local/share/xdg-desktop-portal/slipstream-portals.conf
 # among them.
 portal_backend=/usr/local/share/xdg-desktop-portal/portals/slipstream.portal
 wlr_conf=/etc/xdg/xdg-desktop-portal-wlr/Slipstream
+# The plugins that come with Slipstream, where the compositor finds them beside its own bin folder.
+focus_manifest=/usr/local/share/slipstream/bundled/focus/plugin.toml
+focus_program=/usr/local/share/slipstream/bundled/focus/focus
 
 ours() {
     case $1 in
@@ -329,7 +332,8 @@ ours() {
             | /etc/lightdm/lightdm.conf.d/50-slipstream.conf | "$manifest" \
             | "$installed_bin" | "$installed_settings" | "$settings_entry" \
             | "$session_target" | "$shutdown_target" | "$autostart_target" \
-            | "$portals_conf" | "$portal_backend" | "$wlr_conf") return 0 ;;
+            | "$portals_conf" | "$portal_backend" | "$wlr_conf" \
+            | "$focus_manifest" | "$focus_program") return 0 ;;
     esac
     return 1
 }
@@ -963,6 +967,11 @@ while IFS= read -r path; do
     rm -f "$path"
     case $path in
         */share/slipstream/installed) rmdir "$(dirname "$path")" 2>/dev/null || true ;;
+        */share/slipstream/bundled/*/*)
+            bundled_plugin=$(dirname "$path")
+            rmdir "$bundled_plugin" "$(dirname "$bundled_plugin")" 2>/dev/null || true
+            rmdir "$(dirname "$(dirname "$bundled_plugin")")" 2>/dev/null || true
+            ;;
     esac
 done <"$remove"
 exit 0
@@ -1031,7 +1040,7 @@ if [ "$mode" = uninstall ]; then
                 "$session_entry" "$pam_file" "$portals_conf" "$portal_backend" \
                 "$wlr_conf" "$installed_bin" \
                 "$installed_settings" "$settings_entry" "$session_target" "$shutdown_target" \
-                "$autostart_target" "$manifest"
+                "$autostart_target" "$focus_manifest" "$focus_program" "$manifest"
         } | sed '/^$/d' | sort -u
     )
     system_files=
@@ -1056,7 +1065,9 @@ $config/systemd/user/slipstream-shutdown.target
 $config/systemd/user/slipstream-autostart.target
 $config/xdg-desktop-portal/slipstream-portals.conf
 $data/xdg-desktop-portal/portals/slipstream.portal
-$config/xdg-desktop-portal-wlr/Slipstream"
+$config/xdg-desktop-portal-wlr/Slipstream
+$HOME/.local/share/slipstream/bundled/focus/plugin.toml
+$HOME/.local/share/slipstream/bundled/focus/focus"
     bold "This removes:"
     printf '%s%s\n' "$system_files" "$user_files" | while IFS= read -r f; do
         if [ -n "$f" ] && [ -e "$f" ]; then
@@ -1091,6 +1102,8 @@ $config/xdg-desktop-portal-wlr/Slipstream"
         fi
     fi
     printf '%s\n' "$user_files" | while IFS= read -r f; do rm -f "$f"; done
+    rmdir "$HOME/.local/share/slipstream/bundled/focus" "$HOME/.local/share/slipstream/bundled" \
+        2>/dev/null || true
     if [ "$purge" = yes ]; then
         rm -rf "$config/slipstream" "$state/slipstream"
     fi
@@ -1213,6 +1226,11 @@ if [ -n "$programs" ]; then
     escaped=$(printf '%s\n' "$installed_bin" | sed 's/[\\&|]/\\&/g')
     sed "s|@SLIPSTREAM@|$escaped|" "$repo/session/xdg-desktop-portal-wlr.conf" >"$scratch/wlr.conf"
     put 644 "$scratch/wlr.conf" "$wlr_conf"
+    # Focus, the plugin that comes with Slipstream. It starts off, like every plugin.
+    if [ -f "$repo/share/slipstream/bundled/focus/plugin.toml" ]; then
+        put 644 "$repo/share/slipstream/bundled/focus/plugin.toml" "$focus_manifest"
+        put 755 "$repo/share/slipstream/bundled/focus/focus" "$focus_program"
+    fi
 fi
 if [ -n "$lightdm_dropin" ]; then
     printf '%s\n' \
