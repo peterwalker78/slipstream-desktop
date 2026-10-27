@@ -29,7 +29,7 @@ Nothing that interrupts you, and nothing that leaves your machine.
 
 Keep your phone simple - calls, messages, not much else - and the computer is where the rest of your day happens. Slipstream is made for that: a desktop that's good to sit down at and make things on, and easy to get up from when you're done.
 
-It's one of three apps made with that aim. Slipstream is where you work. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it sends you outside.
+It's one of three apps made with that aim. Slipstream is where you work. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
 
 Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
 
