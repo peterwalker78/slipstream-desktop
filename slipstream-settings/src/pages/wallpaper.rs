@@ -74,7 +74,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     );
     row(
         &idle,
-        "Want a picture of the wallpaper?",
+        "Screenshot the wallpaper",
         Some(
             "Press F7 while the wallpaper is showing, and a screenshot of it is saved to your \
              Screenshots folder. The wallpaper keeps going.",
