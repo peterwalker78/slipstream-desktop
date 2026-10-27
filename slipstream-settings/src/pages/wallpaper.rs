@@ -72,6 +72,15 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         ),
         &fade,
     );
+    row(
+        &idle,
+        "Want a picture of the wallpaper?",
+        Some(
+            "Press F7 while the wallpaper is showing, and a screenshot of it is saved to your \
+             Screenshots folder. The wallpaper keeps going.",
+        ),
+        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
+    );
 
     let turns = group(&page, "Taking turns");
     let chosen: Vec<&str> = store

@@ -81,6 +81,11 @@ fn typed_char(sym: Keysym, mods: Mods) -> Option<char> {
         .filter(|ch| !ch.is_control())
 }
 
+/// The key that saves a picture of the wallpaper while it's showing. F7 is no binding's, and not
+/// one of the F-keys games, overlays and apps rely on (F5, F10, F11, F12), which it couldn't
+/// take from them in any case: only on the faded screen does it mean this.
+pub const WALLPAPER_SHOT: Keysym = Keysym::F7;
+
 /// Forgets one press of `key` kept back from the focused app, whose release is then kept back
 /// too. Whether there was one.
 fn release_suppressed(suppressed: &mut Vec<Keysym>, key: Keysym) -> bool {
@@ -391,17 +396,26 @@ impl Slipstream {
                 // Injected keys mean what they mean in the login session: no
                 // nested Alt standing in for Super.
                 let mods = Mods::from_state(modifiers, state.nested && !injected);
-                // A screenshot or a snip, pressed or let go of, leaves the faded screen as it is,
-                // so the picture is of it, the screensaver still going: a snip brings the UI back
-                // once its frame is frozen.
-                let shot = matches!(
-                    keys::action_for(&state.bindings, mods, key),
-                    Some(Action::Screenshot { .. })
-                );
-                let leaves_faded = shot && state.idle.is_faded() && state.lock.is_none();
-                if !leaves_faded {
-                    waking = state.wake_ui() && pressed && state.lock.is_none();
+                // F7 on its own, while the wallpaper is showing, saves a picture of it as it is
+                // and leaves it showing: any other key brings the desktop back, so a screenshot's
+                // usual keys can't. No app gets a key pressed on the faded screen, and no binding
+                // runs, so nothing else is F7 there, unless an app has made it a shortcut of its
+                // own, which then wins.
+                if key == WALLPAPER_SHOT
+                    && mods == Mods::default()
+                    && state.idle.is_faded()
+                    && !state.screens_off
+                    && state.lock.is_none()
+                    && !state.shortcuts.is_shortcut(mods, key)
+                {
+                    if pressed {
+                        return FilterResult::Intercept(Some(KeyUse::Action(Action::Screenshot {
+                            window: false,
+                        })));
+                    }
+                    return FilterResult::Intercept(None);
                 }
+                waking = state.wake_ui() && pressed && state.lock.is_none();
                 if pressed && !key.is_modifier_key() {
                     typed_shortcut = Some(mods.ctrl || mods.alt || mods.logo);
                 }

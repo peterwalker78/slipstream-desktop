@@ -261,8 +261,6 @@ impl Slipstream {
                 readout: None,
             });
         }
-        // Started from the faded screen, it froze that; now the UI comes back to choose on.
-        self.wake_ui();
     }
 
     /// The windows on `screen` as drawn that can be seen, topmost first, clipped to it, each
