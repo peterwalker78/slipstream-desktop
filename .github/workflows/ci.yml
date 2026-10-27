@@ -1,22 +1,25 @@
 name: build
 
-# Runs on every push and on demand; superseded runs are cancelled. Public repositories get
-# runners for nothing, so there's no reason to be sparing with it.
+# Runs on every push and on demand. Public repositories get runners for nothing, so there's no
+# reason to be sparing with it.
 on:
   push:
     # Every branch; tags are the release workflow's job.
     branches: ["**"]
   workflow_dispatch:
 
+# A newer push cancels a branch's run, except on main: the badge counts a cancelled run as a
+# failure, so every run there goes to the end.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 # Incremental data is only of use to a build that runs again in the same place, and it would fill
-# the cached target folder, and the runner's disk with it.
+# the runner's disk. The target folder isn't cached for the same reason: a build fits on the disk,
+# but unpacking one on top of what the job already holds does not.
 env:
   CARGO_INCREMENTAL: "0"
 
@@ -63,13 +66,6 @@ jobs:
           key: registry-fedora44-${{ hashFiles('Cargo.lock') }}
           restore-keys: registry-fedora44-
 
-      # Only ever for the same Cargo.lock: cargo never clears out what an older one built, so a
-      # target folder carried over from one lock to the next only grows.
-      - uses: actions/cache@v6
-        with:
-          path: target
-          key: target-fedora44-${{ hashFiles('Cargo.lock') }}
-
       - name: Format
         run: . ~/.cargo/env && cargo fmt --all --check
 
@@ -109,13 +105,6 @@ jobs:
             ~/.cargo/git
           key: registry-debian13-${{ hashFiles('Cargo.lock') }}
           restore-keys: registry-debian13-
-
-      # Only ever for the same Cargo.lock: cargo never clears out what an older one built, so a
-      # target folder carried over from one lock to the next only grows.
-      - uses: actions/cache@v6
-        with:
-          path: target
-          key: target-debian13-${{ hashFiles('Cargo.lock') }}
 
       - name: Build the way the download is built
         run: scripts/build-portable
