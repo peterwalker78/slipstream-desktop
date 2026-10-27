@@ -144,7 +144,7 @@ Then log out and choose **Slipstream** on the login screen. Tap Super for your a
 - **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
 - **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
-- **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A tap is still Caps Lock.
+- **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A quick press still turns capitals on and off.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **Light, for a desktop that looks like this.** Settings → About shows its Featherweight score: how light Slipstream is in real use beside other desktops, each one measured the same way.
 - **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
