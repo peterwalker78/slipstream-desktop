@@ -25,6 +25,14 @@ Nothing that interrupts you, and nothing that leaves your machine.
 
 </div>
 
+## Built to help you be human again
+
+Keep your phone simple - calls, messages, not much else - and the computer is where the rest of your day happens. Slipstream is made for that: a desktop that's good to sit down at and make things on, and easy to get up from when you're done.
+
+It's one of three apps made with that aim. Slipstream is where you work. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it sends you outside.
+
+Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
+
 Films showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. Slipstream is built on the part they got right.
 
 ## Nothing interrupts you
@@ -177,8 +185,6 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 **What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
 
 ## Companions
-
-Slipstream is one of three apps made with one aim: to give people back their focus.
 
 <table>
 <tr>
