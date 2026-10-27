@@ -103,7 +103,9 @@ Leave your desk and the desktop sinks back into its wallpaper, which was running
 - **One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
 - **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 
-**A workshop, not a slot machine.** Everything a keystroke away, nothing competing for your attention, and good-looking enough that you want to sit down at it.
+## Why it's built this way
+
+Most of what's on our screens now is designed to keep us checking one more thing. Slipstream is built the other way round: it stays out of your way while you work, lets you see what's going on without going to look, and keeps everything a keystroke away. **A workshop, not a slot machine:** somewhere you sit down to make things, and get lost in the work rather than the machine.
 
 ## Get Slipstream
 
