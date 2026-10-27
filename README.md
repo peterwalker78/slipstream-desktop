@@ -5,7 +5,7 @@
   <img src="assets/readme/wordmark-light.svg" alt="Slipstream" width="560">
 </picture>
 
-**The Linux desktop the movies promised.**
+**The desktop that's on your side.**
 
 A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,
 in one download that installs beside the desktop you have.
@@ -20,13 +20,13 @@ in one download that installs beside the desktop you have.
 
 ## Built to help you be human again
 
-Films showed computers the way they could feel: falling code, one key that does something enormous, someone who never reaches for the mouse. What they got right was the person at the keyboard - absorbed, making something, in charge of the machine.
-
-Most screens since have been built for the opposite: to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's happening without asking for a look, and measures nothing about you. Keep your phone simple, and let the computer be where the rest of your day happens: good to sit down at and make things on, and easy to get up from.
+Most of the screens in your life are built to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's happening without asking for a look, and measures nothing about you. Keep your phone simple, and let the computer be where the rest of your day happens: good to sit down at and make things on, and easy to get up from.
 
 It's one of three apps made with that aim. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
 
 Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
+
+And along the way, it turns out to be quite something to look at.
 
 ## Nothing interrupts you
 
