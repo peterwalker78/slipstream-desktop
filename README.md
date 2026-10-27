@@ -5,33 +5,81 @@
   <img src="assets/readme/wordmark-light.svg" alt="Slipstream" width="560">
 </picture>
 
-**The Linux desktop the movies promised.**
+**The desktop that's on your side.**
 
-A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,
-in one download that installs beside the desktop you have.
+A keyboard-first desktop for Linux, in one download that installs beside the one you have.
 
-Windows that pour away into digital rain. Wallpapers that come alive when you step away.<br>
-Nothing that interrupts you, and nothing that leaves your machine.
+<img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
+
+<sub>Three messages arrive while you type. Nothing pops up until you pause.</sub>
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=release)](https://github.com/peterwalker78/slipstream-desktop/releases)
 [![licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 
-<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
-
-<sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
-
 [**Get it**](#get-slipstream) · [**Questions**](#questions) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
 
 </div>
 
-## Why Slipstream exists
+Most of the screens in your life are built to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's going on without asking for a look, and measures nothing about you. It's somewhere to sit down and make things, and easy to get up from when you're done.
 
-Films always showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. That last part is the one the films got right. The people who look like wizards on screen are just people who do everything from the keyboard.
+Two companion apps share that aim. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
 
-Most screens now are built to keep you constantly checking one last thing, over and over. **Slipstream is a workshop, not a slot machine.** Good-looking enough that you want to sit down at it, quiet enough that you get lost in the work instead of the machine, and everything a keystroke away. It's a whole desktop with nothing to assemble, free and open source, and it sits beside the one you use now: pick it at the login screen, and go back whenever you like.
+Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
 
-## Your wallpaper is alive
+And along the way, it turns out to be quite something to look at.
+
+<img src="assets/readme/hero.webp" alt="A Slipstream desktop with a note being written, a to-do list and a letter, beside Settings' Wallpaper page. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
+
+<sub>Step away and your windows sink into a living wallpaper; one key brings them back. Recorded from Slipstream itself.</sub>
+
+## Nothing interrupts you
+
+You know the moment: halfway through a thought, something pops up, and the thought is gone. Slipstream can tell that you're typing - never what - and keeps that moment yours.
+
+- **Notifications wait for a pause,** then arrive together as one card. Urgent ones never wait, and nothing waits more than 15 minutes.
+- **Windows you didn't ask for can't barge in** or run off with your keyboard. They pour into a stream at the edge of the screen instead, with a quiet toast to say so.
+- **Hold Caps Lock for Awake,** and the desktop won't fade or lock by itself until you hold it again. A quick press still turns capitals on and off.
+
+## What you put away keeps you posted
+
+<table align="right">
+<tr>
+<td align="center"><img src="assets/readme/streams-slipstream.webp" alt="The right edge of the screen in Slipstream's own effects: a window pours into a new stream beside two that are already running, each under its app's icon, and a moment later it comes back out. The busy app's stream pours fast, bright green streaks of light; the idle one sends a few slow grey ones." width="180"><br><sub>Slipstream</sub></td>
+<td align="center"><img src="assets/readme/streams-matrix.webp" alt="The same scene in the code rain: a window pours into a new stream of falling green code beside two that are already running, and comes back out. The busy app's rain falls fast and bright, the idle one slow and grey, and each stream spells out its app's name." width="180"><br><sub>Code rain</sub></td>
+</tr>
+</table>
+
+Put a window away and it pours down the side of the screen as a stream of light, and keeps running there.
+
+**The stream is a readout.** A busy app pours fast and bright, a quiet one sends a few slow grey streaks, so a download finishing, or a tab running away with itself, catches your eye without you going to look.
+
+**Rest the pointer on a stream for the numbers behind it.** A small card names the app and what it's using right now: its memory, its share of the processor, and what it's downloading and uploading, with its helper processes counted in. Click the stream to bring the window back.
+
+Prefer falling green code? Settings → Appearance → Effects swaps the light for the classic code rain, each stream spelling out its app's name.
+
+<br clear="right">
+
+**Closing, too.** A closed window drops while a shower of streaks eats it away from the top, with the scanlines and flicker of a failing CRT.
+
+<img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
+
+## Every window, one key away
+
+<img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
+
+**Bullet time.** One shortcut tips the whole desktop back, with every workspace laid out in front of you and a letter on each window, and everything slows to a quarter of its speed while you look. Press a letter to land on that window. On a touchpad, swipe up with three fingers.
+
+- **Keys your hands already know.** Windows' keys from the start, or a Mac's or Omarchy's habits instead, and every hint on screen follows your choice. Give any app keys of its own in Settings.
+- **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
+- **An explorer that answers.** Tap Super and type an app, a setting, a file, `15% of 80`, `5 km in miles` or `:fire`.
+- **One window that stays in view.** Super+W docks the window you're in to the bar as a pane of glass, on every workspace.
+
+**New to tiling? Take the tour.** Press Super+/, then Enter. Fourteen short lessons start from the keys your hands already know, say why before what to press, and play out on a miniature of your own desktop, never on your real windows.
+
+<img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, gravity arranging them round the one in use, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
+
+## Step away, and it comes alive
 
 <table>
 <tr>
@@ -41,54 +89,11 @@ Most screens now are built to keep you constantly checking one last thing, over 
 </tr>
 </table>
 
-Step away from your desk and the desktop dissolves and hands over the screen. There's no screensaver waiting to kick in - the wallpaper was running behind your windows the whole time.
-
-**There are twenty, and most of them aren't animations at all.** They're worked out live as you watch, so they never run quite the same way twice. Touch any key and your work comes straight back, exactly as you left it. Press F7 instead to take a screenshot of the wallpaper.
+The wallpaper in the clip at the top is one of twenty, and most of them aren't animations at all: they're worked out live as you watch, so they never run quite the same way twice. Whichever you choose runs behind your windows all along, and takes the screen when you step away. Press F7 while it's showing to take a screenshot of it.
 
 [**All twenty →**](guide/wallpapers.md)
 
-## Windows pour away into light
-
-<table align="right">
-<tr>
-<td align="center"><img src="assets/readme/streams-slipstream.webp" alt="The right edge of the screen in Slipstream's own effects: a window pours into a new stream beside two that are already running, each under its app's icon, and a moment later it comes back out. The busy app's stream pours fast, bright green streaks of light; the idle one sends a few slow grey ones." width="180"><br><sub>Slipstream</sub></td>
-<td align="center"><img src="assets/readme/streams-matrix.webp" alt="The same scene in the code rain: a window pours into a new stream of falling green code beside two that are already running, and comes back out. The busy app's rain falls fast and bright, the idle one slow and grey, and each stream spells out its app's name." width="180"><br><sub>Code rain</sub></td>
-</tr>
-</table>
-
-Put a window away and it pours down the side of the screen as a stream of falling light, and carries on running there, with its name down the card like the spine of a book.
-
-**The stream is a readout.** A busy app pours fast, bright green streaks. A quiet one sends down a few slow grey ones. So a build finishing, or a tab running away with itself, catches your eye without you going to look for it. Rest the pointer on a stream for the app's memory, processor and traffic.
-
-**Pop-ups you never asked for are sent there too.** An app that opens a window by itself, or throws one in front of you while you're typing, pours straight into the rain instead of taking the screen, with a quiet toast to say what happened. Windows you opened yourself, dialogs belonging to the app you're in, and anything that appears just after a click still come to you as normal.
-
-Click a stream to bring the window back.
-
-**Or the film's code rain.** Settings → Appearance → Effects swaps the light for falling green code, each stream spelling out its app's name as it falls. It reads the same way.
-
-<br clear="right">
-
-**Closing, too.** Close a window and it drops while a shower of streaks pours down through it, eating it away from the top; with the code rain, it's read out into falling code. Either way it goes with the scanlines and flicker of a failing CRT.
-
-<img src="assets/readme/close.webp" alt="A terminal full of text closes: a shower of green streaks of light pours down through it faster than it falls, biting it away from the top along a glowing edge, while the window beside it spreads out to take the space. Two streams of streaks run down the right edge of the screen." width="960">
-
-## Bullet time
-
-<img src="assets/readme/bullet.webp" alt="Bullet time: the desktop tips back into 3D with every workspace beside the last and an amber letter over each window, a key press glides the view across to the next workspace, and Enter drops back into it." width="960">
-
-One shortcut tips the whole desktop back into the distance, with every window you have open laid out in front of you - and everything on screen drops to a quarter of its speed while you're looking. Press the letter on a window to land on it, or move windows between workspaces from up there. On a touchpad, swipe up with three fingers and the desktop tips back under them, at your pace.
-
-## Nothing interrupts you
-
-<img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
-
-Slipstream puts your concentration first.
-
-- **Pop-ups wait until you pause for breath,** then arrive together as a single card. Urgent ones never wait, and nothing waits more than 15 minutes.
-- **Windows you didn't ask for can't barge in front of your work** or run off with your keyboard. They pour into a stream at the edge instead, with a quiet toast to say so.
-- **Slipstream can tell that you're typing, so it knows not to interrupt you** - but never what you're typing.
-
-## Plugins beside the clock
+## Make it yours
 
 <table>
 <tr>
@@ -97,19 +102,14 @@ Slipstream puts your concentration first.
 </tr>
 </table>
 
-**Little apps, your own or other people's, in a panel that drops from the bar.** The weather, a timer, anything a program can report: each plugin adds a card of lines, gauges and buttons, drawn in Slipstream's own style. The chip beside the date shows the headline of the one you choose, and turns amber when one wants your attention. Click it, or press Super+Y. A plugin can also add a tile to quick settings, answer the explorer after a word of its own, or do something on keys you choose.
+- **Plugins beside the clock.** Little apps, your own or other people's, add a card to a panel that drops from the bar (Super+Y), and can add a tile to quick settings, an answer in the explorer or an action on keys you choose. Anything that prints a line of JSON can be one. [Writing a plugin →](guide/plugins.md)
+- **Nothing runs until you've looked.** Each plugin runs in a sandbox that reaches only what it lists, and Settings says in plain words what that is, and how safe, before you turn it on. If its files change later, it switches itself off until you've had another look and turned it back on.
+- **One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
+- **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 
-**Write one in anything.** If it can print a line of JSON, it can be a plugin: a shell script, Python, a compiled program. [Writing a plugin →](guide/plugins.md)
+## A workshop, not a slot machine
 
-**Nothing runs until you've looked.** A new plugin starts off, so you can read its files first, and Settings says in plain words what it can reach and how safe that is. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists. If its files change later, it switches itself off until you've had another look and turned it back on.
-
-**One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
-
-## New to tiling? Take the tour
-
-<img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, gravity arranging them round the one in use, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
-
-Press Super+/, then Enter. Fourteen short lessons start by asking whose keys your hands already know - Windows, a Mac or Omarchy - then take you from what tiling is, and why it beats piling windows on top of each other, through arranging and getting around, to the other places a window can be: floating, in a stream at the edge, or docked to the bar. Each one says why before what to press, and plays out on a miniature of your own desktop with the key lighting up as it goes down. Press a lesson's keys to try the move right there - it plays on the miniature, never on your real windows.
+That's the whole idea: a desktop that stays out of your way while you work, lets you see what's going on without going to look, and keeps everything a keystroke away. Somewhere you sit down to make things, and get lost in the work rather than the machine.
 
 ## Get Slipstream
 
@@ -145,17 +145,11 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 ## Everything else you'd expect
 
-- **Keys your hands already know.** Slipstream starts with Windows' keys, or follows a Mac's or Omarchy's habits instead, and the key list, the tour and every hint on screen follow your choice. Give any app keys of its own in Settings.
 - **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
-- **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
 - **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
-- **An explorer that answers.** Type `15% of 80`, `5 km in miles` or `:fire` and get an answer rather than a search.
-- **One window that stays in view.** Super+W docks the window you're in to the bar as a pane of glass, in front of your other windows and on every workspace, in three sizes.
-- **Tiling that isn't all or nothing.** Hold Super+T and pick an arrangement - grid, centre, wide, spotlight - from pictures of your own windows, which move as you choose.
 - **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
-- **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A quick press still turns capitals on and off.
 - **Zoom whenever your eyes need it.** Super+= magnifies the whole screen around the pointer, so small text never has to be a strain, and Super+0 puts it back.
 - **Pick up where you left off.** Turn on Remember the layout in Settings, and the apps you had open start again in the same places at your next login.
 - **Every screen in its place.** Arrange your screens in Settings the way they sit on your desk, give each its own workspaces, and shut the laptop lid to hand everything to the screen that's left.
@@ -190,8 +184,6 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 **What doesn't work yet?** ARM machines, Ubuntu 24.04 and the distributions built on it, and screen sharing where xdg-desktop-portal-wlr is older than 0.8. NVIDIA's driver hasn't been tried. If something else doesn't work, [say so in an issue](https://github.com/peterwalker78/slipstream-desktop/issues).
 
 ## Companions
-
-Slipstream is one of three apps made with one aim: to give people back their focus.
 
 <table>
 <tr>
