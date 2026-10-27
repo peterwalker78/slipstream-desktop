@@ -403,6 +403,13 @@ impl Shortcuts {
         signals
     }
 
+    /// Whether `key` with `mods` is an app's shortcut.
+    pub fn is_shortcut(&self, mods: Mods, key: Keysym) -> bool {
+        self.sessions
+            .values()
+            .any(|open| open.bound.iter().any(|b| b.trigger.matches(mods, key)))
+    }
+
     /// Whether this key went down as a shortcut and hasn't come up yet.
     pub fn is_held(&self, keycode: Keycode) -> bool {
         self.held.iter().any(|held| held.keycode == keycode)
