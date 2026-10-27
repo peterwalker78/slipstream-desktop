@@ -474,6 +474,8 @@ fn plugin_card(
         };
         let shared = label(&installed, "row-sub");
         shared.set_valign(gtk::Align::Center);
+        // The room the row has, so it wraps only where it must.
+        shared.set_hexpand(true);
         foot.append(&shared);
     }
     foot.append(&gtk::Box::builder().hexpand(true).build());
