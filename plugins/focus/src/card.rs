@@ -46,13 +46,15 @@ pub fn card(
     let mut buttons = Vec::new();
     let mut sections = Vec::new();
     let mut glance = None;
+    // The tile says what it does while off, and how long is left while on, over the plugin's name.
+    let mut tile = "Focus".to_string();
     let button = |ask: Ask, label: &str| json!({"id": ask.id(), "label": label});
 
     match &state.session {
         Some(session) => {
             let (name, length, stop) = match session.kind {
-                Kind::Focus => ("Focus", "session", "Stop"),
-                Kind::Break => ("Break", "break", "End break"),
+                Kind::Focus => ("Focusing", "session", "Stop"),
+                Kind::Break => ("On a break", "break", "End break"),
             };
             // No percent: the gauge shows only the time gone by and the time left.
             sections.push(json!({
@@ -67,6 +69,9 @@ pub fn card(
             buttons.push(button(Ask::Stop, stop));
             buttons.push(button(Ask::More, "+5 min"));
             let left = words::left(session.ends(), now);
+            if session.kind == Kind::Focus {
+                tile = format!("{left} left");
+            }
             glance = Some(match session.kind {
                 Kind::Focus => left,
                 Kind::Break => format!("{left} break"),
@@ -105,7 +110,7 @@ pub fn card(
         "lines": lines,
         "sections": sections,
         "buttons": buttons,
-        "tile": {"id": Ask::Toggle.id(), "label": "Focus", "icon": "eye", "on": state.focusing()},
+        "tile": {"id": Ask::Toggle.id(), "label": tile, "icon": "eye", "on": state.focusing()},
     });
     if let Some(glance) = glance {
         card["glance"] = json!(glance);
@@ -172,6 +177,8 @@ mod tests {
         let card = card(&running(Kind::Focus), None, 7 * 60, None, None);
         assert_eq!(card["glance"], "18 min");
         assert_eq!(card["tile"]["on"], true);
+        assert_eq!(card["tile"]["label"], "18 min left");
+        assert_eq!(card["sections"][0]["name"], "Focusing");
         let meter = &card["sections"][0]["meters"][0];
         assert_eq!(meter["label"], "25 min session");
         assert_eq!(
@@ -197,6 +204,7 @@ mod tests {
             json!(["50 min of focus today", "Last: 25 minutes, mostly in Code"])
         );
         assert_eq!(card["tile"]["on"], false);
+        assert_eq!(card["tile"]["label"], "Focus");
         assert!(card.get("glance").is_none());
         // Its tile, pressed, starts the usual session.
         state.ask(Ask::from_id("toggle").unwrap(), 0, &mut Keyboard::default());
