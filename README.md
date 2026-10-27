@@ -7,8 +7,11 @@
 
 **The desktop that's on your side.**
 
-A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,
-in one download that installs beside the desktop you have.
+A keyboard-first desktop for Linux, in one download that installs beside the one you have.
+
+<img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
+
+<sub>Three messages arrive while you type. Nothing pops up until you pause.</sub>
 
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=release)](https://github.com/peterwalker78/slipstream-desktop/releases)
@@ -18,21 +21,21 @@ in one download that installs beside the desktop you have.
 
 </div>
 
-## Built to help you be human again
+Most of the screens in your life are built to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's going on without asking for a look, and measures nothing about you. It's somewhere to sit down and make things, and easy to get up from when you're done.
 
-Most of the screens in your life are built to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's happening without asking for a look, and measures nothing about you. Keep your phone simple, and let the computer be where the rest of your day happens: good to sit down at and make things on, and easy to get up from.
-
-It's one of three apps made with that aim. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
+Two companion apps share that aim. [Glimmerwood](https://github.com/peterwalker78/glimmerwood) is a quiet browser whose small wisp brightens when you read, learn or make something, and grows sleepy in an endless feed. [Westering](https://github.com/peterwalker78/westering) is for the end of the day: a few quiet minutes under tonight's real sky, and then it suggests you go and look at the real stars, or go to bed.
 
 Nothing here stops you scrolling a feed. It's just much less fun than what Slipstream is built for.
 
 And along the way, it turns out to be quite something to look at.
 
+<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
+
+<sub>Step away and your windows sink into a living wallpaper; one key brings them back. Recorded from Slipstream itself.</sub>
+
 ## Nothing interrupts you
 
-<img src="assets/readme/concentration.webp" alt="Typing in a terminal while the bell on the bar counts three notifications and nothing pops up. At the pause, one card appears: 3 while you were typing." width="960">
-
-Slipstream can tell that you're typing - never what - and keeps out of the way while you do.
+You know the moment: halfway through a thought, something pops up, and the thought is gone. Slipstream can tell that you're typing - never what - and keeps that moment yours.
 
 - **Notifications wait for a pause,** then arrive together as one card. Urgent ones never wait, and nothing waits more than 15 minutes.
 - **Windows you didn't ask for can't barge in** or run off with your keyboard. They pour into a stream at the edge of the screen instead, with a quiet toast to say so.
@@ -78,10 +81,6 @@ Prefer the film's code rain? Settings → Appearance → Effects swaps the light
 
 ## Step away, and it comes alive
 
-<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
-
-Leave your desk and your windows tip back and sink into the wallpaper, which was running behind them all along. Touch any key and they rise back into place, exactly as you left them. Press F7 instead to take a screenshot of the wallpaper. This one is Vortex, recorded from Slipstream itself.
-
 <table>
 <tr>
 <td align="center"><img src="assets/readme/wallpaper-galaxies.webp" alt="Galaxies: two spiral galaxies drawn in dots, circling each other" width="280"><br><b>Galaxies</b><br><sub>Two galaxies collide, then the collision runs backwards.</sub></td>
@@ -89,6 +88,8 @@ Leave your desk and your windows tip back and sink into the wallpaper, which was
 <td align="center"><img src="assets/readme/wallpaper-life.webp" alt="Life: glowing, colourful Game of Life cells swirling round the logo" width="280"><br><b>Life</b><br><sub>Conway's Game of Life, glowing and swirling to a beat.</sub></td>
 </tr>
 </table>
+
+Leave your desk and your windows sink back into the wallpaper, which was running behind them all along. Touch any key and they rise back into place, exactly as you left them. Press F7 instead to take a screenshot of the wallpaper.
 
 There are twenty, and most of them aren't animations at all: they're worked out live as you watch, so they never run quite the same way twice.
 
