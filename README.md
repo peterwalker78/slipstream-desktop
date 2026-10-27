@@ -85,7 +85,7 @@ Prefer the film's code rain? Settings → Appearance → Effects swaps the light
 </tr>
 </table>
 
-Leave your desk and the desktop sinks back into its wallpaper, which was running behind your windows all along. There are twenty, and most are worked out live as you watch, so they never run quite the same way twice. Touch any key and your work is back exactly as you left it, or press F7 to keep a picture.
+Leave your desk and the desktop sinks back into its wallpaper, which was running behind your windows all along. There are twenty, and most are worked out live as you watch, so they never run quite the same way twice. Touch any key and your work is back exactly as you left it. Press F7 instead to take a screenshot of the wallpaper.
 
 [**All twenty →**](guide/wallpapers.md)
 
