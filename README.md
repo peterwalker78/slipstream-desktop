@@ -25,7 +25,7 @@ Nothing that interrupts you, and nothing that leaves your machine.
 
 </div>
 
-Films showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. Slipstream is built on the part they got right. Everything is a keystroke away, nothing competes for your attention, and it looks good enough that you want to sit down at it. **A workshop, not a slot machine.**
+Films showed computers the way they could feel: screens of falling code, one key that does something enormous, someone who never reaches for the mouse. Slipstream is built on the part they got right.
 
 ## Nothing interrupts you
 
@@ -100,6 +100,8 @@ Leave your desk and the desktop sinks back into its wallpaper, which was running
 - **Nothing runs until you've looked.** Each plugin runs in a sandbox that reaches only what it lists, and Settings says in plain words what that is, and how safe, before you turn it on. One that changes waits for you again.
 - **Focus comes with it:** a timer for spells of work that keeps an honest log of where they went.
 - **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
+
+**A workshop, not a slot machine.** Everything a keystroke away, nothing competing for your attention, and good-looking enough that you want to sit down at it.
 
 ## Get Slipstream
 
