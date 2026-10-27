@@ -156,6 +156,9 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 - **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
 - **A screen that stays on when you want it to.** Hold Caps Lock for Awake: the desktop won't fade or lock by itself until you hold it again. A quick press still turns capitals on and off.
+- **Zoom whenever your eyes need it.** Super+= magnifies the whole screen around the pointer, so small text never has to be a strain, and Super+0 puts it back.
+- **Pick up where you left off.** Turn on Remember the layout in Settings, and the apps you had open start again in the same places at your next login.
+- **Every screen in its place.** Arrange your screens in Settings the way they sit on your desk, give each its own workspaces, and shut the laptop lid to hand everything to the screen that's left.
 - **Games and virtual machines behave.** They can hold the mouse and every key, and one shortcut always takes it back.
 - **Light, for a desktop that looks like this.** Settings → About shows its Featherweight score: how light Slipstream is in real use beside other desktops, each one measured the same way.
 - **The Linux tools you already have keep working.** Screenshot and recording tools like `grim` and `wf-recorder`, idle tools, colour-temperature tools - and nothing records your screen without asking you first, by name.
