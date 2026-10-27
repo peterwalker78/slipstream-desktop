@@ -272,7 +272,11 @@ mod tests {
             let mode = fs::metadata(folder).unwrap().permissions().mode();
             assert_eq!(mode & 0o222, 0, "{} can be written to", folder.display());
         }
-        assert!(fs::write(copy.join("added"), "x").is_err());
+        // Root writes past the modes (as in CI's containers), so only check it as anyone else.
+        // SAFETY: geteuid has no failure mode.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(fs::write(copy.join("added"), "x").is_err());
+        }
 
         // Altered all the same, it no longer runs, and is made again from the folder.
         fs::set_permissions(&copy, fs::Permissions::from_mode(0o755)).unwrap();
