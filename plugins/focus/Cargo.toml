@@ -1,0 +1,22 @@
+[package]
+name = "slipstream-focus"
+description = "Focus, the plugin that comes with Slipstream: a timer for spells of work, and a log of them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "focus"
+path = "src/main.rs"
+
+[dependencies]
+# The local time, for the log and the card.
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Its manifest, read as Slipstream reads it.
+slipstream-config.workspace = true

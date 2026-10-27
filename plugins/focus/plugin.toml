@@ -1,0 +1,15 @@
+name = "Focus"
+description = "A timer for spells of work, and a log of what you spent them on"
+# A program that keeps running: it prints a new card whenever something changes.
+exec = ["./focus"]
+# Its notifications and their sound, what's playing (to offer a pause in a break), which app has
+# the keyboard (to say where the time went), and its log.
+needs = ["notify", "sound", "media", "open-windows", "write"]
+write = ["$HOME/Documents/Focus"]
+# A tile in quick settings, answers to searches like !45, and keys for starting and stopping.
+tile = true
+keyword = "!"
+
+[[actions]]
+id = "toggle"
+label = "Start or stop a focus session"

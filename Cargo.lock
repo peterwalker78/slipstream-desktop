@@ -2347,6 +2347,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slipstream-focus"
+version = "1.0.0-rc.1"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "slipstream-config",
+]
+
+[[package]]
 name = "slipstream-settings"
 version = "1.0.0-rc.1"
 dependencies = [
