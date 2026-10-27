@@ -10,16 +10,9 @@
 A keyboard-first tiling desktop for Linux: its own Wayland compositor, bar, notifications, lock screen and Settings,
 in one download that installs beside the desktop you have.
 
-Windows that pour away into digital rain. Wallpapers that come alive when you step away.<br>
-Nothing that interrupts you, and nothing that leaves your machine.
-
 [![build](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/peterwalker78/slipstream-desktop/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/peterwalker78/slipstream-desktop?include_prereleases&label=release)](https://github.com/peterwalker78/slipstream-desktop/releases)
 [![licence](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
-
-<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
-
-<sub>Recorded from Slipstream itself: the desktop fading into its living wallpaper, and one key bringing it back.</sub>
 
 [**Get it**](#get-slipstream) · [**Questions**](#questions) · [**Every key**](guide/keys.md) · [**Help**](guide/help.md)
 
@@ -85,6 +78,10 @@ Prefer the film's code rain? Settings → Appearance → Effects swaps the light
 
 ## Step away, and it comes alive
 
+<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
+
+Leave your desk and your windows tip back and sink into the wallpaper, which was running behind them all along. Touch any key and they rise back into place, exactly as you left them. Press F7 instead to take a screenshot of the wallpaper. This one is Vortex, recorded from Slipstream itself.
+
 <table>
 <tr>
 <td align="center"><img src="assets/readme/wallpaper-galaxies.webp" alt="Galaxies: two spiral galaxies drawn in dots, circling each other" width="280"><br><b>Galaxies</b><br><sub>Two galaxies collide, then the collision runs backwards.</sub></td>
@@ -93,7 +90,7 @@ Prefer the film's code rain? Settings → Appearance → Effects swaps the light
 </tr>
 </table>
 
-Leave your desk and the desktop sinks back into its wallpaper, which was running behind your windows all along. There are twenty, and most are worked out live as you watch, so they never run quite the same way twice. Touch any key and your work is back exactly as you left it. Press F7 instead to take a screenshot of the wallpaper.
+There are twenty, and most of them aren't animations at all: they're worked out live as you watch, so they never run quite the same way twice.
 
 [**All twenty →**](guide/wallpapers.md)
 
