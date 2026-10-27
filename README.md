@@ -121,10 +121,21 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 Then log out and choose **Slipstream** on the login screen. Tap Super for your apps, Super+Enter for a terminal, Super and the arrows to move around, Super+Tab for bullet time, and Super+/ for every key and the tour.
 
-- **Look first.** Add `-- --try` to the end and it opens in a window on the desktop you're using now, installing nothing. `-- --check` says what it would do and writes nothing.
 - **Check it.** Read [`install.sh`](install.sh) before you run it, or confirm a download was built here: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
 - **Two companion apps come with it,** Glimmerwood and Westering, as Flatpaks. The installer asks about each one first.
-- **Take it away** with the same command and `-- --uninstall`. It removes exactly what it wrote.
+
+The same command can also try Slipstream first, or take it away again:
+
+```sh
+# Open it in a window on the desktop you're using now, installing nothing
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
+
+# Say what it would do, writing nothing
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --check
+
+# Remove exactly what it wrote
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --uninstall
+```
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 

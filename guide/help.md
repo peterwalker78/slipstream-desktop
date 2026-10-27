@@ -4,7 +4,11 @@
 
 ## When something goes wrong
 
-The installer's check finds most problems, and writes nothing. If you installed with the one command, run it again with `-- --check` on the end; from a download or a clone, run `scripts/install-session --check`.
+The installer's check finds most problems, and writes nothing. If you installed with the one command, run this; from a download or a clone, run `scripts/install-session --check`.
+
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --check
+```
 
 - **Back at the login screen straight away:** read `~/.local/state/slipstream/slipstream.log` (the previous session's is `slipstream.log.old`).
 - **Super+L doesn't lock:** install again (the one command, or `scripts/install-session`), which puts the lock screen's PAM service in place.
