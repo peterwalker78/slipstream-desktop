@@ -31,6 +31,11 @@ pub struct Approval {
     /// What it needed beyond its folders. A record from before plugins said has none, which is
     /// right: they couldn't.
     pub needs: Vec<Need>,
+    /// Where it showed besides its card: a tile, a keyword in the explorer, and the ids of the
+    /// actions it offered keys for. A record from before those has none.
+    pub tile: bool,
+    pub keyword: Option<String>,
+    pub actions: Vec<String>,
     /// The SHA-256 of each file, by its path in the plugin's folder.
     pub files: BTreeMap<String, String>,
 }
@@ -45,6 +50,14 @@ impl Approval {
             read: plugin.manifest.read.clone(),
             write: plugin.manifest.write.clone(),
             needs: plugin.manifest.needs.clone(),
+            tile: plugin.manifest.tile,
+            keyword: plugin.manifest.keyword.clone(),
+            actions: plugin
+                .manifest
+                .actions
+                .iter()
+                .map(|action| action.id.clone())
+                .collect(),
             files: plugin.files.clone(),
         }
     }
@@ -62,7 +75,8 @@ pub fn load(id: &str) -> Option<Approval> {
     load_from(&folder(), id)
 }
 
-fn load_from(folder: &Path, id: &str) -> Option<Approval> {
+/// The approval kept for plugin `id` in `folder`, if one was.
+pub fn load_from(folder: &Path, id: &str) -> Option<Approval> {
     let text = std::fs::read_to_string(folder.join(format!("{id}.toml"))).ok()?;
     toml::from_str(&text).ok()
 }
@@ -106,16 +120,26 @@ pub struct Change {
     pub reads_added: Vec<String>,
     pub writes_added: Vec<String>,
     pub needs_added: Vec<Need>,
+    /// It now adds a tile to quick settings.
+    pub tile_added: bool,
+    /// It now answers searches that start with this, where it answered none or others.
+    pub keyword_added: Option<String>,
+    /// The ids of the actions it now offers keys for that it didn't.
+    pub actions_added: Vec<String>,
 }
 
 impl Change {
-    /// Whether it asks for more than was agreed to: another program, folders it didn't read, or
-    /// something it didn't need. Asking for less, or running more or less often, isn't more.
+    /// Whether it asks for more than was agreed to: another program, folders it didn't read,
+    /// something it didn't need, or a place to show it didn't have. Asking for less, or running
+    /// more or less often, isn't more.
     pub fn asks_for_more(&self) -> bool {
         self.program
             || !self.reads_added.is_empty()
             || !self.writes_added.is_empty()
             || !self.needs_added.is_empty()
+            || self.tile_added
+            || self.keyword_added.is_some()
+            || !self.actions_added.is_empty()
     }
 }
 
@@ -141,6 +165,17 @@ pub fn compare(before: &Approval, now: &Approval) -> Change {
             .filter(|need| !before.needs.contains(need))
             .copied()
             .collect(),
+        tile_added: now.tile && !before.tile,
+        keyword_added: now
+            .keyword
+            .clone()
+            .filter(|keyword| before.keyword.as_ref() != Some(keyword)),
+        actions_added: now
+            .actions
+            .iter()
+            .filter(|action| !before.actions.contains(action))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -153,6 +188,8 @@ pub enum Source {
     Checkout(String),
     /// Changed after the installer put it there.
     ChangedSince,
+    /// It comes with Slipstream, installed with Slipstream's own programs.
+    Bundled,
     /// Not put there by the installer.
     Unknown,
 }
@@ -161,6 +198,9 @@ pub enum Source {
 /// (`$XDG_STATE_HOME/slipstream/extras/<id>`), so long as nothing in the folder is newer than
 /// the record.
 pub fn source(plugin: &Plugin) -> Source {
+    if plugin.bundled {
+        return Source::Bundled;
+    }
     let record = crate::xdg_home("XDG_STATE_HOME", ".local/state")
         .join("slipstream")
         .join("extras")
@@ -255,6 +295,15 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
                     .collect();
                 wants.push(format!("change the files in {}", super::listed(&folders)));
             }
+            if change.tile_added {
+                wants.push("add a tile to quick settings".to_string());
+            }
+            if let Some(keyword) = &change.keyword_added {
+                wants.push(format!("answer searches that start with {keyword}"));
+            }
+            if !change.actions_added.is_empty() {
+                wants.push("offer actions you can give keys".to_string());
+            }
             lines.push(match (wants.is_empty(), change.program) {
                 (true, false) => "It doesn't ask for anything new.".to_string(),
                 (true, true) => "It doesn't ask for anything new, but it now starts a different \
@@ -280,6 +329,7 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
             }
             Source::Checkout(_) => "You built it on this computer, from its source.",
             Source::ChangedSince => "Its files were changed after Slipstream installed it.",
+            Source::Bundled => "It comes with Slipstream, and was updated with it.",
             Source::Unknown => "Slipstream didn't install it, so it can't say where it came from.",
         }
         .to_string(),
@@ -382,6 +432,41 @@ mod tests {
             let now = Approval::of(&timer(&root, &asks, "echo one"));
             assert!(compare(&before, &now).asks_for_more(), "{need:?}");
         }
+    }
+
+    /// A place to show it didn't have before is asking for more too, said as the place.
+    #[test]
+    fn an_update_that_shows_in_more_places_says_where() {
+        let root = scratch("surfaces");
+        let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
+        let more = format!(
+            "{MANIFEST}tile = true\nkeyword = \"!\"\n[[actions]]\nid = \"start\"\nlabel = \"Start\"\n"
+        );
+        let now = Approval::of(&timer(&root, &more, "echo one"));
+        let change = compare(&before, &now);
+        assert!(change.asks_for_more());
+        assert_eq!(
+            explain(Some(&change), &Source::Bundled),
+            [
+                "It now also wants to add a tile to quick settings, answer searches that start \
+                 with ! and offer actions you can give keys.",
+                "It comes with Slipstream, and was updated with it.",
+            ]
+        );
+        // The same places again ask for nothing more; another keyword does.
+        assert!(!compare(&now, &now).asks_for_more());
+        let other = Approval {
+            keyword: Some("?".into()),
+            ..now.clone()
+        };
+        assert_eq!(compare(&now, &other).keyword_added.as_deref(), Some("?"));
+        let fewer = Approval {
+            tile: false,
+            keyword: None,
+            actions: Vec::new(),
+            ..now.clone()
+        };
+        assert!(!compare(&now, &fewer).asks_for_more());
     }
 
     #[test]

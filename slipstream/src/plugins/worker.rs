@@ -52,6 +52,10 @@ pub type Sink = Arc<dyn Fn(Sent) + Send + Sync>;
 pub struct Approved {
     /// The plugin, its folder the approved copy.
     pub plugin: Plugin,
+    /// The fingerprint the settings had it switched on with when it started: its own, or for a
+    /// plugin that comes with Slipstream, the one before a like-for-like update. It runs while
+    /// the settings still say that.
+    pub granted: String,
     /// Its own folder for what it keeps (`SLIPSTREAM_PLUGIN_STATE`).
     pub state: PathBuf,
     /// The store its copy is in, which clears the copy away once nothing runs from it and it is

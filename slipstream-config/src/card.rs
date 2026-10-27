@@ -8,7 +8,8 @@
 //!
 //! `resets` is when that allowance starts over, in seconds since the Unix epoch, and `window` how
 //! long it lasts, in seconds, so that how far through it is can be shown. `detail`, `note`,
-//! `stale`, `resets` and `window` are optional; `stale` dims a section whose numbers are old.
+//! `stale`, `resets` and `window` are optional; `stale` dims a section whose numbers are old. A
+//! meter without a `percent` measures nothing used, and shows only its time, as a timer does.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -38,6 +39,8 @@ pub struct Section {
 pub struct Gauge {
     pub label: String,
     pub percent: u8,
+    /// It says how much is used: a gauge without a percent shows only its time.
+    pub measured: bool,
     /// How long until it starts over, e.g. `2 h 5 min`.
     pub resets_in: Option<String>,
     /// How far through its window it is, from 0 to 1, when the report says how long that is.
@@ -67,7 +70,8 @@ struct ReportSection {
 #[derive(Debug, Deserialize)]
 struct ReportMeter {
     label: String,
-    percent: f64,
+    #[serde(default)]
+    percent: Option<f64>,
     /// Seconds since the Unix epoch.
     #[serde(default)]
     resets: Option<f64>,
@@ -96,11 +100,13 @@ impl Report {
                         .iter()
                         .map(|meter| Gauge {
                             label: meter.label.clone(),
-                            percent: if meter.percent.is_finite() {
-                                meter.percent.round().clamp(0.0, 100.0) as u8
-                            } else {
-                                0
+                            percent: match meter.percent {
+                                Some(percent) if percent.is_finite() => {
+                                    percent.round().clamp(0.0, 100.0) as u8
+                                }
+                                _ => 0,
                             },
+                            measured: meter.percent.is_some(),
                             resets_in: meter
                                 .resets
                                 .filter(|at| at.is_finite())
@@ -177,6 +183,7 @@ mod tests {
             Gauge {
                 label: "Daily".into(),
                 percent: 42,
+                measured: true,
                 resets_in: Some("2 h".into()),
                 through: None,
             }
@@ -194,6 +201,14 @@ mod tests {
         let day = &report.reading(false, 0).sections[0];
         assert_eq!(day.gauges[0].through, Some(0.75));
         assert_eq!(day.gauges[1].through, None, "no window, no position in it");
+        let timer = Report::parse(
+            r#"{"sections": [{"name": "Timer", "meters": [
+                {"label": "Tea", "resets": 120, "window": 240}]}]}"#,
+        )
+        .unwrap();
+        let tea = &timer.reading(false, 0).sections[0].gauges[0];
+        assert!(!tea.measured && tea.percent == 0);
+        assert_eq!(tea.through, Some(0.5));
         let mail = &shown.sections[1];
         assert!(mail.stale && mail.gauges.is_empty());
         assert_eq!(mail.detail, None);

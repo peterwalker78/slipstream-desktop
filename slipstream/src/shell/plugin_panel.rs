@@ -685,7 +685,12 @@ fn paint_front(
                 centre,
                 &label,
             );
-            let percent = format!("{}%", gauge.percent);
+            // A gauge that only shows time, as a timer's does, has no number.
+            let percent = if gauge.measured {
+                format!("{}%", gauge.percent)
+            } else {
+                String::new()
+            };
             let number = Style {
                 tabular: true,
                 ..Style::new(
@@ -1028,6 +1033,7 @@ mod tests {
                 gauges: vec![Gauge {
                     label: "Week".into(),
                     percent: 40,
+                    measured: true,
                     resets_in: None,
                     through,
                 }],

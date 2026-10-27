@@ -192,7 +192,7 @@ impl Plugins {
         let wanted = &self.wanted;
         // Whatever is dropped here is stopped.
         self.running
-            .retain(|running| wanted.approved(&running.approved.plugin));
+            .retain(|running| still_wanted(wanted, &running.approved));
         for running in &mut self.running {
             // Which sections show is only the panel's business: the program carries on.
             running.hidden = wanted.hidden(&running.approved.plugin.id).to_vec();
@@ -225,7 +225,7 @@ impl Plugins {
             .collect();
         let mut old = std::mem::take(&mut self.running);
         for approved in scan.run {
-            if !self.wanted.approved(&approved.plugin) {
+            if !still_wanted(&self.wanted, &approved) {
                 continue;
             }
             let hidden = self.wanted.hidden(&approved.plugin.id).to_vec();
@@ -535,6 +535,12 @@ impl Plugins {
 }
 
 /// The control a media button's id names.
+/// Whether the settings still have `approved` switched on as it was when it started.
+fn still_wanted(wanted: &plugins::Plugins, approved: &Approved) -> bool {
+    wanted.is_on(&approved.plugin.id)
+        && wanted.fingerprints.get(&approved.plugin.id) == Some(&approved.granted)
+}
+
 fn media_control(id: &str) -> Option<crate::media::Transport> {
     use crate::media::Transport;
     match id {
@@ -576,7 +582,8 @@ mod tests {
     fn looking(root: &Path) -> (Plugins, mpsc::Receiver<Scan>) {
         let (found, scans) = mpsc::channel();
         let places = scan::Places {
-            dirs: vec![root.join("plugins")],
+            dirs: vec![root.join("plugins"), root.join("bundled")],
+            bundled: Some(root.join("bundled")),
             stores: root.join("stores"),
             approvals: root.join("approvals"),
         };
@@ -719,6 +726,54 @@ mod tests {
         );
     }
 
+    /// The promise in the guide: a plugin that comes with Slipstream runs its update straight
+    /// away when it asks for nothing more, without the settings changing, and is held when it
+    /// asks for more.
+    #[test]
+    fn a_bundled_plugin_runs_a_like_for_like_update_and_holds_one_asking_for_more() {
+        let root = scratch("bundled");
+        let plugin = install(&root, "clock", SAYS_WHERE, Some(60));
+        let dir = root.join("bundled/clock");
+        std::fs::create_dir_all(root.join("bundled")).unwrap();
+        std::fs::rename(&plugin.dir, &dir).unwrap();
+        let (mut plugins, scans) = looking(&root);
+        let settings = turned_on(&plugin);
+        follow(&mut plugins, &scans, &settings);
+        let shown = settle(&plugins, |shown| first_line(shown).is_some());
+        assert_eq!(first_line(&shown), Some(plugin.fingerprint.clone()));
+
+        std::fs::write(dir.join("extra.sh"), "echo more\n").unwrap();
+        let updated = plugins::read(&dir).unwrap();
+        plugins.rescan();
+        looked(&mut plugins, &scans);
+        let shown = settle(&plugins, |shown| {
+            first_line(shown).as_deref() == Some(updated.fingerprint.as_str())
+        });
+        assert!(!shown[0].held, "{shown:?}");
+        assert_eq!(first_line(&shown), Some(updated.fingerprint.clone()));
+        let kept = root.join("stores/clock");
+        assert_eq!(
+            store::current(&kept).as_deref(),
+            Some(updated.fingerprint.as_str())
+        );
+        assert!(gone(&kept.join(&plugin.fingerprint)), "the old copy goes");
+        // A settings change elsewhere keeps it running as it is.
+        plugins.configure(&settings);
+        assert_eq!(plugins.shown().len(), 1);
+        looked(&mut plugins, &scans);
+
+        let manifest = std::fs::read_to_string(dir.join(plugins::MANIFEST)).unwrap();
+        std::fs::write(
+            dir.join(plugins::MANIFEST),
+            format!("{manifest}tile = true\n"),
+        )
+        .unwrap();
+        plugins.rescan();
+        looked(&mut plugins, &scans);
+        let shown = plugins.shown();
+        assert!(shown[0].held && shown[0].card.is_none(), "{shown:?}");
+    }
+
     #[test]
     fn making_a_file_a_program_since_it_was_approved_holds_the_plugin() {
         let root = scratch("mode");
@@ -803,6 +858,7 @@ mod tests {
         std::fs::write(copied.dir.join("extra"), "x").unwrap();
         let worker = Worker::start(
             Approved {
+                granted: copied.fingerprint.clone(),
                 plugin: copied,
                 state: kept.join(store::STATE),
                 store: Some(kept),
@@ -946,6 +1002,7 @@ esac"#,
     fn worker(root: &Path, plugin: Plugin) -> Worker {
         Worker::start(
             Approved {
+                granted: plugin.fingerprint.clone(),
                 plugin,
                 state: root.join("state"),
                 store: None,
@@ -1244,6 +1301,7 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
         let sink = std::sync::Mutex::new(sink);
         let places = scan::Places {
             dirs: vec![root.join("plugins")],
+            bundled: None,
             stores: root.join("stores"),
             approvals: root.join("approvals"),
         };

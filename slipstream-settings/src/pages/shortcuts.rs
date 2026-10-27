@@ -1,6 +1,6 @@
 //! Shortcuts: whose habits the desktop's keys follow.
 
-use slipstream_config::{KeyStyle, plugins};
+use slipstream_config::{KeyStyle, plugins, plugins::approval};
 
 use super::*;
 
@@ -338,7 +338,12 @@ fn plugin_actions(settings: &Settings) -> Vec<Offered> {
     plugins::find()
         .0
         .into_iter()
-        .filter(|plugin| !plugin.manifest.actions.is_empty() && settings.plugins.approved(plugin))
+        .filter(|plugin| {
+            !plugin.manifest.actions.is_empty()
+                && settings
+                    .plugins
+                    .runs(plugin, approval::load(&plugin.id).as_ref())
+        })
         .map(|plugin| (plugin.id, plugin.manifest.name, plugin.manifest.actions))
         .collect()
 }

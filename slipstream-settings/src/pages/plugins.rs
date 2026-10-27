@@ -142,7 +142,8 @@ fn look(approved: &plugins::Plugins) -> Looked {
     let plugins = found
         .into_iter()
         .map(|plugin| {
-            let held = approved.is_on(&plugin.id) && !approved.approved(&plugin);
+            let held = approved.is_on(&plugin.id)
+                && !approved.runs(&plugin, approval::load(&plugin.id).as_ref());
             let explained = if held && plugin.too_big.is_none() {
                 // Compared with what it asked for when it was turned on, if that was kept for the
                 // approval the settings hold.
@@ -276,10 +277,21 @@ fn plugin_card(
 ) {
     let card = card(cards);
     let on = settings.plugins.is_on(&plugin.id);
-    let held = on && !settings.plugins.approved(plugin);
+    let held = on
+        && !settings
+            .plugins
+            .runs(plugin, approval::load(&plugin.id).as_ref());
     // What it can do, each with a picture and how much thought it deserves: the commands it
     // adds run as you whenever they're run, so they count too.
     let mut abilities = plugin.manifest.abilities();
+    // A folder it changes that isn't there yet is made as it is switched on.
+    if !on && !plugins::missing_write_folders(&plugin.manifest).is_empty() {
+        for ability in &mut abilities {
+            if ability.what == plugins::What::Changes {
+                ability.says.push_str(", made for it as you switch it on");
+            }
+        }
+    }
     let commands = commands_of(&plugin.id);
     if !commands.is_empty() {
         let one = commands.len() == 1;
@@ -314,6 +326,8 @@ fn plugin_card(
                 if shown.too_big.is_some() {
                     return gtk::glib::Propagation::Stop;
                 }
+                // Without its folder it runs all the same, and the folder can be made by hand.
+                let _ = plugins::make_write_folders(&shown.manifest);
                 let _ = approval::save(&shown);
             } else {
                 approval::forget(&shown.id);
@@ -453,10 +467,12 @@ fn plugin_card(
         foot.append(&glance_choice(store, &plugin.id, settings, refill.clone()));
     }
     if !plugin.own {
-        let shared = label(
-            &format!("Installed for everyone in {}", plugin.dir.display()),
-            "row-sub",
-        );
+        let installed = if plugin.bundled {
+            "Comes with Slipstream".to_string()
+        } else {
+            format!("Installed for everyone in {}", plugin.dir.display())
+        };
+        let shared = label(&installed, "row-sub");
         shared.set_valign(gtk::Align::Center);
         foot.append(&shared);
     }

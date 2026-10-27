@@ -180,6 +180,26 @@ impl Plugins {
             && self.is_on(&plugin.id)
             && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
     }
+
+    /// Whether `plugin` may run as its folder holds it now: it is `approved`, or it comes with
+    /// Slipstream, is on, and its update asks for nothing more than it did when it was turned on
+    /// (`kept`, what it asked for then). Whoever can change the files of a plugin that comes with
+    /// Slipstream can change Slipstream itself, so asking again about a like-for-like update
+    /// would protect nothing; one that asks for more is held as any other plugin's is. It is
+    /// always compared with what was turned on, never with the update before, so a run of small
+    /// updates can't add up to more.
+    pub fn runs(&self, plugin: &Plugin, kept: Option<&approval::Approval>) -> bool {
+        if self.approved(plugin) {
+            return true;
+        }
+        plugin.bundled
+            && plugin.too_big.is_none()
+            && self.is_on(&plugin.id)
+            && kept.is_some_and(|kept| {
+                self.fingerprints.get(&plugin.id) == Some(&kept.fingerprint)
+                    && !approval::compare(kept, &approval::Approval::of(plugin)).asks_for_more()
+            })
+    }
 }
 
 /// `plugin.toml`.
@@ -357,6 +377,66 @@ pub fn write_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
         return Ok(Vec::new());
     }
     folders(&manifest.write, true)
+}
+
+/// The folders a manifest's `write` names that aren't there yet, as they are shown.
+pub fn missing_write_folders(manifest: &Manifest) -> Vec<String> {
+    if !manifest.needs(Need::Write) {
+        return Vec::new();
+    }
+    manifest
+        .write
+        .iter()
+        .filter(|folder| expand(folder).is_some_and(|path| !path.exists()))
+        .map(|folder| shown_folder(folder))
+        .collect()
+}
+
+/// Makes the folders a manifest's `write` names that aren't there yet, as it is switched on, so
+/// a plugin that keeps a log in a folder of its own needn't be given one by hand. Only folders in
+/// the home folder are made, and only where a plugin could be given them: what is already there
+/// of each, every link followed, is checked as `write_folders` checks a folder.
+pub fn make_write_folders(manifest: &Manifest) -> Result<(), String> {
+    if !manifest.needs(Need::Write) {
+        return Ok(());
+    }
+    let home = canonical(&crate::xdg_home("HOME", ""));
+    for folder in &manifest.write {
+        let Some(named) = expand(folder) else {
+            continue;
+        };
+        if named.exists() {
+            continue;
+        }
+        // The nearest part of it that is there, where it really is, and the rest after it.
+        let mut there = named.as_path();
+        let mut rest = Vec::new();
+        while !there.exists() {
+            let (Some(parent), Some(name)) = (there.parent(), there.file_name()) else {
+                break;
+            };
+            rest.push(name);
+            there = parent;
+        }
+        let mut real = canonical(there);
+        real.extend(rest.iter().rev());
+        let plugins = canonical(&store::root());
+        if home == Path::new("/")
+            || !real.starts_with(&home)
+            || real == home
+            || off_limits(&real)
+            || runs_from(&real)
+            || real.starts_with(&plugins)
+        {
+            return Err(format!(
+                "{} isn't a folder Slipstream makes for a plugin",
+                shown_folder(folder)
+            ));
+        }
+        std::fs::create_dir_all(&real)
+            .map_err(|err| format!("{} couldn't be made: {err}", shown_folder(folder)))?;
+    }
+    Ok(())
 }
 
 fn folders(list: &[String], change: bool) -> Result<Vec<ReadFolder>, String> {
@@ -732,6 +812,8 @@ pub struct Plugin {
     pub manifest: Manifest,
     /// In the person's own folder, so it can be removed from Settings.
     pub own: bool,
+    /// It comes with Slipstream (`bundled_dir`).
+    pub bundled: bool,
     /// What its folder holds now (`contents`); empty when it is too big to check.
     pub fingerprint: String,
     /// Each file's own fingerprint, by its path in the folder.
@@ -756,7 +838,25 @@ pub fn own_dir() -> PathBuf {
         .join("plugins")
 }
 
-/// Every folder plugins are looked for in, the person's own first.
+/// Where the plugins that come with Slipstream are: `share/slipstream/bundled` beside the `bin`
+/// folder the running program is in, so `/usr/local/bin/slipstream` has them in
+/// `/usr/local/share/slipstream/bundled` and `~/.local/bin/slipstream` in
+/// `~/.local/share/slipstream/bundled`. The compositor and Settings sit side by side, so both
+/// find the same folder, and it can only be changed by whoever can change them.
+pub fn bundled_dir() -> Option<PathBuf> {
+    let program = std::env::current_exe().ok()?;
+    Some(
+        program
+            .parent()?
+            .parent()?
+            .join("share")
+            .join("slipstream")
+            .join("bundled"),
+    )
+}
+
+/// Every folder plugins are looked for in, the person's own first and those that come with
+/// Slipstream last, so either kind installed under the same name takes its place.
 pub fn dirs() -> Vec<PathBuf> {
     let shared = std::env::var("XDG_DATA_DIRS")
         .ok()
@@ -770,6 +870,7 @@ pub fn dirs() -> Vec<PathBuf> {
                 .filter(|dir| dir.is_absolute())
                 .map(|dir| dir.join("slipstream").join("plugins")),
         )
+        .chain(bundled_dir())
         .collect()
 }
 
@@ -806,6 +907,7 @@ pub fn read(dir: &Path) -> Result<Plugin, String> {
         dir: dir.to_path_buf(),
         manifest,
         own: dir.starts_with(own_dir()),
+        bundled: false,
         fingerprint,
         files,
         too_big,
@@ -898,8 +1000,9 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
 }
 
 /// Every plugin in `dirs`, by name, with why the folders that aren't plugins were left out. Where
-/// two folders share an id, the first in `dirs` wins.
-pub fn find_in(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
+/// two folders share an id, the first in `dirs` wins. Those in `bundled`, one of `dirs`, come with
+/// Slipstream.
+pub fn find_in(dirs: &[PathBuf], bundled: Option<&Path>) -> (Vec<Plugin>, Vec<String>) {
     let mut found: Vec<Plugin> = Vec::new();
     let mut problems = Vec::new();
     for dir in dirs {
@@ -912,10 +1015,15 @@ pub fn find_in(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
             .filter(|path| path.is_dir())
             .collect();
         folders.sort();
+        let comes_with = bundled == Some(dir.as_path());
         for folder in folders {
             match read(&folder) {
                 Ok(plugin) if found.iter().any(|other| other.id == plugin.id) => {}
-                Ok(plugin) => found.push(plugin),
+                Ok(plugin) => found.push(Plugin {
+                    own: plugin.own && !comes_with,
+                    bundled: comes_with,
+                    ..plugin
+                }),
                 Err(why) => problems.push(format!("{}: {why}", folder.display())),
             }
         }
@@ -926,7 +1034,7 @@ pub fn find_in(dirs: &[PathBuf]) -> (Vec<Plugin>, Vec<String>) {
 
 /// Every plugin there is.
 pub fn find() -> (Vec<Plugin>, Vec<String>) {
-    find_in(&dirs())
+    find_in(&dirs(), bundled_dir().as_deref())
 }
 
 /// Moves a `[meter] command` from a settings file from before plugins into a plugin of its own,
@@ -1339,8 +1447,11 @@ impl Card {
         let gauges: Vec<u8> = self
             .sections
             .iter()
-            .find(|section| !section.gauges.is_empty())
-            .map(|section| section.gauges.iter().take(2).map(|g| g.percent).collect())
+            .find(|section| section.gauges.iter().any(|g| g.measured))
+            .map(|section| {
+                let measured = section.gauges.iter().filter(|g| g.measured);
+                measured.take(2).map(|g| g.percent).collect()
+            })
             .unwrap_or_default();
         Glance {
             text: gauges
@@ -1430,7 +1541,7 @@ mod tests {
         );
         plugin(&shared, "broken", "name = \"\"\nexec = [\"x\"]\n");
         std::fs::create_dir_all(shared.join("bad name")).unwrap();
-        let (found, problems) = find_in(&[own.clone(), shared.clone()]);
+        let (found, problems) = find_in(&[own.clone(), shared.clone()], None);
         let names: Vec<_> = found.iter().map(|p| p.manifest.name.as_str()).collect();
         assert_eq!(names, ["Disk space", "Timer"]);
         assert_eq!(
@@ -1978,6 +2089,66 @@ mod tests {
         assert!(read(&root.join("timer")).unwrap_err().contains("link"));
     }
 
+    /// The promise in the guide: a plugin that comes with Slipstream stays on through an update
+    /// that asks for nothing more than it was switched on with, and is held, like any other, by
+    /// one that asks for more. One of the person's own is held by either.
+    #[test]
+    fn a_bundled_plugin_stays_on_through_a_like_for_like_update_only() {
+        let root = scratch("bundled");
+        let (own, bundled) = (root.join("own"), root.join("bundled"));
+        let manifest = "name = \"Timer\"\nexec = [\"./timer\"]\nneeds = [\"notify\"]\n";
+        plugin(&bundled, "timer", manifest);
+        plugin(&own, "mine", manifest);
+        let dirs = [own.clone(), bundled.clone()];
+        let look = |id: &str| {
+            let (found, _) = find_in(&dirs, Some(&bundled));
+            found.into_iter().find(|plugin| plugin.id == id).unwrap()
+        };
+        let (first, mine) = (look("timer"), look("mine"));
+        assert!(
+            first.bundled && !first.own,
+            "found where it comes with Slipstream"
+        );
+        assert!(!mine.bundled);
+        let mut wanted = Plugins::default();
+        wanted.set_on("timer", Some(first.fingerprint.clone()));
+        wanted.set_on("mine", Some(mine.fingerprint.clone()));
+        let kept = approval::Approval::of(&first);
+        let kept_mine = approval::Approval::of(&mine);
+        assert!(wanted.runs(&first, Some(&kept)));
+
+        std::fs::write(bundled.join("timer").join("timer"), "echo two\n").unwrap();
+        std::fs::write(own.join("mine").join("timer"), "echo two\n").unwrap();
+        let (updated, mine) = (look("timer"), look("mine"));
+        assert!(!wanted.approved(&updated));
+        assert!(
+            wanted.runs(&updated, Some(&kept)),
+            "like for like: still on"
+        );
+        assert!(
+            !wanted.runs(&updated, None),
+            "nothing to compare with: held"
+        );
+        assert!(
+            !wanted.runs(&mine, Some(&kept_mine)),
+            "the person's own: held"
+        );
+
+        for more in [
+            "needs = [\"notify\", \"network\"]\n",
+            "needs = [\"notify\"]\ntile = true\n",
+        ] {
+            let asks = format!("name = \"Timer\"\nexec = [\"./timer\"]\n{more}");
+            std::fs::write(bundled.join("timer").join(MANIFEST), asks).unwrap();
+            assert!(
+                !wanted.runs(&look("timer"), Some(&kept)),
+                "asks for more: held"
+            );
+        }
+        wanted.set_on("timer", None);
+        assert!(!wanted.runs(&updated, Some(&kept)), "off is off");
+    }
+
     /// The promise in the guide: a plugin too big to check is listed, and can't be turned on.
     #[test]
     fn a_plugin_too_big_to_check_can_t_be_turned_on() {
@@ -1987,7 +2158,7 @@ mod tests {
             .unwrap()
             .set_len(100 << 30)
             .unwrap();
-        let (found, problems) = find_in(std::slice::from_ref(&root));
+        let (found, problems) = find_in(std::slice::from_ref(&root), None);
         assert!(problems.is_empty(), "{problems:?}");
         let atlas = &found[0];
         assert_eq!(atlas.manifest.name, "Atlas");

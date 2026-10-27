@@ -17,6 +17,8 @@ use super::worker::{self, Approved};
 pub struct Places {
     /// The plugins folders, the person's own first.
     pub dirs: Vec<PathBuf>,
+    /// The one of them holding the plugins that come with Slipstream.
+    pub bundled: Option<PathBuf>,
     /// Where each plugin's store goes (`store::root`).
     pub stores: PathBuf,
     /// Where what each plugin asked for when it was approved is kept (`approval`).
@@ -27,6 +29,7 @@ impl Places {
     pub fn real() -> Places {
         Places {
             dirs: plugins::dirs(),
+            bundled: plugins::bundled_dir(),
             stores: store::root(),
             approvals: approval::folder(),
         }
@@ -53,11 +56,7 @@ pub struct Scan {
 }
 
 /// What a look is asked to follow: the plugins on, and what each was approved as.
-#[derive(Debug, Clone)]
-struct Ask {
-    on: Vec<String>,
-    fingerprints: BTreeMap<String, String>,
-}
+type Ask = plugins::Plugins;
 
 /// The thread that looks. Dropping it lets the thread finish.
 pub struct Scanner {
@@ -83,18 +82,18 @@ impl Scanner {
 
     /// Asks for a look that follows `wanted`.
     pub fn ask(&self, wanted: &plugins::Plugins) {
-        let _ = self.ask.send(Ask {
-            on: wanted.on.clone(),
-            fingerprints: wanted.fingerprints.clone(),
-        });
+        let _ = self.ask.send(wanted.clone());
     }
 }
 
 /// One look, as `ask` says.
 fn scan(places: &Places, ask: &Ask) -> Scan {
-    let (found, problems) = plugins::find_in(&places.dirs);
+    let (found, problems) = plugins::find_in(&places.dirs, places.bundled.as_deref());
     let mut run = Vec::new();
     let mut held = Vec::new();
+    // The copy each plugin that's on is approved as: the one it runs from, or for one that's
+    // held, the one it was switched on with.
+    let mut keep = BTreeMap::new();
     // Nothing a worker runs from is cleared away while this looks.
     let in_use = worker::copies_in_use();
     for id in &ask.on {
@@ -110,7 +109,13 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
             held.push(hold(Some(format!("Too big to check: {why}"))));
             continue;
         }
-        if ask.fingerprints.get(id) != Some(&plugin.fingerprint) {
+        let Some(granted) = ask.fingerprints.get(id) else {
+            held.push(hold(None));
+            continue;
+        };
+        keep.insert(id.clone(), granted.clone());
+        let asked = approval::load_from(&places.approvals, id);
+        if !ask.runs(plugin, asked.as_ref()) {
             held.push(hold(None));
             continue;
         }
@@ -123,8 +128,10 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
                 }
                 // So a later update can be compared with it, where it was turned on before what
                 // a plugin asks for was kept.
-                approval::remember_if_missing_in(&places.approvals, &copied, &plugin.fingerprint);
+                approval::remember_if_missing_in(&places.approvals, &copied, granted);
+                keep.insert(id.clone(), plugin.fingerprint.clone());
                 run.push(Approved {
+                    granted: granted.clone(),
                     plugin: copied,
                     state: kept.join(store::STATE),
                     store: Some(kept),
@@ -133,7 +140,7 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
             Err(why) => held.push(hold(Some(format!("Couldn't keep a copy to run: {why}")))),
         }
     }
-    tidy(&places.stores, ask, &|path| {
+    tidy(&places.stores, &keep, &|path| {
         in_use.iter().any(|used| used == path)
     });
     Scan {
@@ -144,9 +151,9 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
     }
 }
 
-/// Clears away each store's copies that nothing is approved as or runs from, and the `current`
-/// link of every plugin that's off.
-fn tidy(stores: &Path, ask: &Ask, in_use: &dyn Fn(&Path) -> bool) {
+/// Clears away each store's copies that nothing is approved as (`keep`) or runs from, and the
+/// `current` link of every plugin that's off.
+fn tidy(stores: &Path, keep: &BTreeMap<String, String>, in_use: &dyn Fn(&Path) -> bool) {
     let Ok(entries) = std::fs::read_dir(stores) else {
         return;
     };
@@ -155,11 +162,7 @@ fn tidy(stores: &Path, ask: &Ask, in_use: &dyn Fn(&Path) -> bool) {
             continue;
         };
         let kept = entry.path();
-        let approved = ask
-            .on
-            .contains(&id)
-            .then(|| ask.fingerprints.get(&id))
-            .flatten();
+        let approved = keep.get(&id);
         if approved.is_none() {
             store::clear_current(&kept);
         }
