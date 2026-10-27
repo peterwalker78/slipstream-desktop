@@ -282,17 +282,15 @@ pub struct Ability {
 /// and nothing stops it writing a login item, so seeing keys and outliving its switch are real.
 /// sudo still wants the password, but it could be caught on the way in.
 pub const OUTSIDE_THE_SANDBOX: [&str; 3] = [
-    "Open, change or send away any of your files, including saved passwords, browser sign-ins \
-     and SSH keys",
-    "See your screen and what you type and copy, and type into your other windows",
-    "Set itself up to start whenever you log in, so switching it off or removing it may not \
-     stop it",
+    "your files, saved passwords and SSH keys included",
+    "your screen, what you type and copy, and your other windows",
+    "starting itself at login, even after it's switched off or removed",
 ];
 
-/// What it can't do, said after that: become root by itself.
-pub const NOT_AS_ROOT: &str = "It can't use sudo or act as root by itself, but it could catch \
-                               your password as you type it, or type into a terminal where you've \
-                               just used sudo.";
+/// What it can't do, said after that, and what to weigh up: becoming root by itself.
+pub const NOT_AS_ROOT: &str = "It can't act as root by itself, but could catch your password as \
+                               you type it, or use a terminal you've just typed it in. Only switch \
+                               it on if you trust whoever made it.";
 
 /// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
 /// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
@@ -472,7 +470,7 @@ impl Manifest {
         if self.unconfined() {
             return vec![Ability {
                 what: What::Everything,
-                says: "Runs outside the sandbox, as you, so it can:".into(),
+                says: "Runs outside the sandbox, with everything you can reach:".into(),
                 care: Care::Full,
             }];
         }

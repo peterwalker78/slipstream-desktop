@@ -257,11 +257,12 @@ fn plugin_card(
         abilities.push(plugins::Ability {
             what: plugins::What::Everything,
             says: format!(
-                "Adds {} {}. Whenever you or one of your tools runs {}, it runs outside the \
-                 sandbox, as you, and can:",
+                "Adds {} {}, which {} outside the sandbox whenever you or your tools run {}, \
+                 with everything you can reach:",
                 if one { "the command" } else { "the commands" },
                 plugins::listed(&commands),
-                if one { "it" } else { "one" },
+                if one { "runs" } else { "run" },
+                if one { "it" } else { "them" },
             ),
             care: plugins::Care::Full,
         });
