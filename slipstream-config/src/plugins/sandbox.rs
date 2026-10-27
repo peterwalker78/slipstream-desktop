@@ -94,8 +94,12 @@ pub fn args(
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
     let mut add = |words: &[&std::ffi::OsStr]| args.extend(words.iter().map(OsString::from));
+    // No namespaces of its own inside: in one it could make a root without the marker, and
+    // connect from there as though it weren't sandboxed.
     add(&[
         "--unshare-all".as_ref(),
+        "--unshare-user".as_ref(),
+        "--disable-userns".as_ref(),
         "--die-with-parent".as_ref(),
         "--new-session".as_ref(),
     ]);
@@ -219,7 +223,8 @@ mod tests {
         let reads = [PathBuf::from("/home/ada/.cache/ferry")];
         let bare = words(&args(&manifest(&[]), dir, state, &reads, &session()));
         assert!(bare.starts_with(
-            "--unshare-all --die-with-parent --new-session --ro-bind /dev/null /.slipstream-plugin"
+            "--unshare-all --unshare-user --disable-userns --die-with-parent --new-session \
+             --ro-bind /dev/null /.slipstream-plugin"
         ));
         assert!(!bare.contains("--share-net"), "{bare}");
         assert!(

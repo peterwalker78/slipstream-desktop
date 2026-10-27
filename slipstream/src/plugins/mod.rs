@@ -803,6 +803,7 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
              cat \"$SLIPSTREAM_PLUGIN_READ_0/note\"; echo; \
              echo kept > \"$SLIPSTREAM_PLUGIN_STATE/kept\" && echo wrote-state; \
              touch ./mine 2>/dev/null && echo wrote-own; \
+             unshare -Urm true 2>/dev/null && echo nested-namespace; \
              grep -c : /proc/net/dev",
             secret = secret.display(),
             bus = bus.display(),

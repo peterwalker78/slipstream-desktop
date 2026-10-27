@@ -535,7 +535,7 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
     if let Err(err) = std::fs::create_dir_all(state) {
         tracing::warn!("plugin {}: no folder for its state: {err}", plugin.id);
     }
-    let reads = plugins::read_folders(manifest);
+    let reads = plugins::read_folders(manifest)?;
     let mut command = if manifest.unconfined() {
         Command::new(program)
     } else {

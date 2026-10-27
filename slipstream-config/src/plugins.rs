@@ -236,15 +236,56 @@ impl Need {
     }
 }
 
-/// The folders a manifest's `read` names, as paths, every link in them followed; one that isn't
-/// absolute once its folder is put in, isn't there, or is `off_limits`, is left out.
-pub fn read_folders(manifest: &Manifest) -> Vec<PathBuf> {
-    manifest
-        .read
-        .iter()
-        .filter_map(|folder| std::fs::canonicalize(expand(folder)?).ok())
-        .filter(|path| !off_limits(path))
-        .collect()
+/// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
+/// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
+pub fn read_folders(manifest: &Manifest) -> Result<Vec<PathBuf>, String> {
+    let mut folders = Vec::new();
+    for folder in &manifest.read {
+        let Some(path) = expand(folder).and_then(|path| std::fs::canonicalize(path).ok()) else {
+            continue;
+        };
+        let shown = shown_folder(folder);
+        if off_limits(&path) {
+            return Err(format!(
+                "It asks to look in {shown}, where your session keeps what lets programs reach \
+                 each other"
+            ));
+        }
+        socket_free(&path).map_err(|why| format!("It asks to look in {shown}, which {why}"))?;
+        folders.push(path);
+    }
+    Ok(folders)
+}
+
+/// The most a folder a plugin reads may hold before it is too much to check for sockets.
+const MOST_IN_A_READ: usize = 4096;
+
+/// Whether `path` holds no socket, which a read-only folder doesn't stop a program connecting
+/// to: says what it holds otherwise. Links aren't followed, since in the sandbox they lead only
+/// where it can already look.
+fn socket_free(path: &Path) -> Result<(), &'static str> {
+    use std::os::unix::fs::FileTypeExt;
+    let mut looked = 0;
+    let mut waiting = vec![path.to_path_buf()];
+    while let Some(next) = waiting.pop() {
+        let Ok(meta) = std::fs::symlink_metadata(&next) else {
+            continue;
+        };
+        let kind = meta.file_type();
+        if kind.is_socket() {
+            return Err("holds a way to reach another program, so it isn't given");
+        }
+        looked += 1;
+        if looked > MOST_IN_A_READ {
+            return Err("holds too much to check, so it isn't given");
+        }
+        if kind.is_dir()
+            && let Ok(entries) = std::fs::read_dir(&next)
+        {
+            waiting.extend(entries.flatten().map(|entry| entry.path()));
+        }
+    }
+    Ok(())
 }
 
 /// Where a plugin is never given a look: anything holding sockets, which a read-only folder
@@ -868,6 +909,8 @@ impl Card {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::ffi::OsStringExt;
+
     use super::*;
 
     /// A folder of its own for one test, under the workspace's `target/test-scratch`, never in
@@ -1030,8 +1073,25 @@ mod tests {
             needs: Vec::new(),
         };
         let (notes_s, sneaky_s) = (notes.display().to_string(), sneaky.display().to_string());
-        let folders = read_folders(&manifest(&[&notes_s, &sneaky_s, "/", "/proc", "/tmp/x"]));
-        assert_eq!(folders, [std::fs::canonicalize(&notes).unwrap()]);
+        assert_eq!(
+            read_folders(&manifest(&[&notes_s, "/no/such/folder"])).unwrap(),
+            [std::fs::canonicalize(&notes).unwrap()]
+        );
+        for refused in [sneaky_s.as_str(), "/", "/proc"] {
+            let why = read_folders(&manifest(&[&notes_s, refused])).unwrap_err();
+            assert!(why.contains("where your session keeps"), "{refused}: {why}");
+        }
+        // A socket of an app's own, somewhere a plugin may otherwise look.
+        let app = root.join("app");
+        std::fs::create_dir_all(app.join("deep")).unwrap();
+        // Made with mknod, since a scratch path can be longer than a socket address allows.
+        let sock = std::ffi::CString::new(app.join("deep/sock").into_os_string().into_vec());
+        // SAFETY: a valid C string for a path; this only creates a file.
+        let made = unsafe { libc::mknod(sock.unwrap().as_ptr(), libc::S_IFSOCK | 0o600, 0) };
+        assert_eq!(made, 0, "{}", std::io::Error::last_os_error());
+        let app_s = app.display().to_string();
+        let why = read_folders(&manifest(&[&app_s])).unwrap_err();
+        assert!(why.contains("a way to reach another program"), "{why}");
 
         for refused in [
             "/",
