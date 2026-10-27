@@ -100,7 +100,7 @@ Leave your desk and the desktop sinks back into its wallpaper, which was running
 
 - **Plugins beside the clock.** Little apps, your own or other people's, add a card to a panel that drops from the bar (Super+Y), and can add a tile to quick settings, an answer in the explorer or an action on keys you choose. Anything that prints a line of JSON can be one. [Writing a plugin →](guide/plugins.md)
 - **Nothing runs until you've looked.** Each plugin runs in a sandbox that reaches only what it lists, and Settings says in plain words what that is, and how safe, before you turn it on. If its files change later, it switches itself off until you've had another look and turned it back on.
-- **Focus comes with it:** a timer for spells of work that keeps an honest log of where they went.
+- **One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
 - **Your colours, everywhere.** Pick one of ten sets of three colours that go together, or any colour on a rainbow and the other two are chosen to match it. The whole desktop follows, Settings included.
 
 **A workshop, not a slot machine.** Everything a keystroke away, nothing competing for your attention, and good-looking enough that you want to sit down at it.
