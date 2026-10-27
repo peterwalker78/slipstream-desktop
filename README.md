@@ -29,7 +29,7 @@ Nothing here stops you scrolling a feed. It's just much less fun than what Slips
 
 And along the way, it turns out to be quite something to look at.
 
-<img src="assets/readme/hero.webp" alt="A Slipstream desktop with Settings and two terminals tiled. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
+<img src="assets/readme/hero.webp" alt="A Slipstream desktop with a note being written, a to-do list and a letter, beside Settings' Wallpaper page. The desktop tips back and sinks into the Vortex living wallpaper, which takes over the screen, then rises back into place." width="960">
 
 <sub>Step away and your windows sink into a living wallpaper; one key brings them back. Recorded from Slipstream itself.</sub>
 
