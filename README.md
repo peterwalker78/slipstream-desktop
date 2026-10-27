@@ -103,7 +103,7 @@ Slipstream puts your concentration first.
 
 **Nothing runs until you've looked.** A new plugin starts off, so you can read its files first, and Settings says in plain words what it can reach and how safe that is. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists. If its files change later, it switches itself off until you've had another look and turned it back on.
 
-**One comes with it.** Focus times spells of work and keeps an honest log of where they went. It starts off like any other, and updates with Slipstream.
+**One plugin comes with Slipstream.** Focus is a timer for spells of work that keeps an honest log of where they went. Switch it on in Settings, or read it as [a worked example](guide/plugins.md#focus-a-worked-example) of writing your own.
 
 ## New to tiling? Take the tour
 
