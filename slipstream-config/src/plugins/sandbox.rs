@@ -17,7 +17,7 @@ use std::{
     sync::OnceLock,
 };
 
-use super::{Manifest, Need};
+use super::{Manifest, Need, ReadFolder};
 
 /// Where `bwrap` is, if it's installed.
 pub fn bwrap() -> Option<&'static Path> {
@@ -84,12 +84,13 @@ const SYSTEM: &[&str] = &["/usr", "/etc", "/opt"];
 const MERGED: &[&str] = &["/bin", "/sbin", "/lib", "/lib64", "/lib32"];
 
 /// `bwrap`'s words for running `manifest`'s program from `dir`, keeping what it keeps in `state`
-/// and reading `reads`. The program and its own words follow them, after `--`.
+/// and reading `reads`, each where the plugin looks for it. The program and its own words follow
+/// them, after `--`.
 pub fn args(
     manifest: &Manifest,
     dir: &Path,
     state: &Path,
-    reads: &[PathBuf],
+    reads: &[ReadFolder],
     session: &Session,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
@@ -160,8 +161,8 @@ pub fn args(
     for folder in reads {
         add(&[
             "--ro-bind-try".as_ref(),
-            folder.as_os_str(),
-            folder.as_os_str(),
+            folder.real.as_os_str(),
+            folder.named.as_os_str(),
         ]);
     }
     // Last, so that nothing it reads covers them.
@@ -220,7 +221,10 @@ mod tests {
     fn a_sandboxed_plugin_gets_only_what_it_needs() {
         let dir = Path::new("/home/ada/.local/state/slipstream/plugins/ferry/ab12");
         let state = Path::new("/home/ada/.local/state/slipstream/plugins/ferry/state");
-        let reads = [PathBuf::from("/home/ada/.cache/ferry")];
+        let reads = [ReadFolder {
+            named: "/home/ada/.cache/ferry".into(),
+            real: "/var/home/ada/.cache/ferry".into(),
+        }];
         let bare = words(&args(&manifest(&[]), dir, state, &reads, &session()));
         assert!(bare.starts_with(
             "--unshare-all --unshare-user --disable-userns --die-with-parent --new-session \
@@ -233,7 +237,7 @@ mod tests {
         );
         assert!(!bare.contains("/run/user/1000"), "{bare}");
         assert!(bare.contains("--tmpfs /home/ada"), "{bare}");
-        assert!(bare.contains("--ro-bind-try /home/ada/.cache/ferry /home/ada/.cache/ferry"));
+        assert!(bare.contains("--ro-bind-try /var/home/ada/.cache/ferry /home/ada/.cache/ferry"));
         let own = format!(
             "--ro-bind {0} {0} --bind {1} {1}",
             dir.display(),
@@ -255,7 +259,11 @@ mod tests {
     fn what_it_reads_never_covers_its_own_folders() {
         let dir = Path::new("/home/ada/plugin");
         let state = Path::new("/home/ada/state");
-        let given = words(&args(&manifest(&[]), dir, state, &["/".into()], &session()));
+        let everything = ReadFolder {
+            named: "/".into(),
+            real: "/".into(),
+        };
+        let given = words(&args(&manifest(&[]), dir, state, &[everything], &session()));
         let read = given.find("--ro-bind-try / /").unwrap();
         let own = given.find("--bind /home/ada/state").unwrap();
         assert!(read < own, "{given}");

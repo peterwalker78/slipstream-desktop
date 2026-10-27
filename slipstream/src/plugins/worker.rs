@@ -571,7 +571,7 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         .current_dir(&plugin.dir)
         .env("SLIPSTREAM_PLUGIN_STATE", state);
     for (n, folder) in reads.iter().enumerate() {
-        command.env(format!("SLIPSTREAM_PLUGIN_READ_{n}"), folder);
+        command.env(format!("SLIPSTREAM_PLUGIN_READ_{n}"), &folder.named);
     }
     Ok(command)
 }

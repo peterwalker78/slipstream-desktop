@@ -238,10 +238,13 @@ impl Need {
 
 /// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
 /// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
-pub fn read_folders(manifest: &Manifest) -> Result<Vec<PathBuf>, String> {
+pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
     let mut folders = Vec::new();
     for folder in &manifest.read {
-        let Some(path) = expand(folder).and_then(|path| std::fs::canonicalize(path).ok()) else {
+        let Some(named) = expand(folder) else {
+            continue;
+        };
+        let Ok(path) = std::fs::canonicalize(&named) else {
             continue;
         };
         let shown = shown_folder(folder);
@@ -252,9 +255,19 @@ pub fn read_folders(manifest: &Manifest) -> Result<Vec<PathBuf>, String> {
             ));
         }
         socket_free(&path).map_err(|why| format!("It asks to look in {shown}, which {why}"))?;
-        folders.push(path);
+        folders.push(ReadFolder { named, real: path });
     }
     Ok(folders)
+}
+
+/// A folder a plugin reads: where it looks for it, as its manifest names it with the session's
+/// `HOME` and the rest put in, and where that really is, every link followed. They differ where
+/// the home folder is a link, as `/home` is to `/var/home` on some systems: in its sandbox the
+/// folder is found where the plugin looks, while what's checked is where it really is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFolder {
+    pub named: PathBuf,
+    pub real: PathBuf,
 }
 
 /// The most a folder a plugin reads may hold before it is too much to check for sockets.
@@ -1075,8 +1088,18 @@ mod tests {
         let (notes_s, sneaky_s) = (notes.display().to_string(), sneaky.display().to_string());
         assert_eq!(
             read_folders(&manifest(&[&notes_s, "/no/such/folder"])).unwrap(),
-            [std::fs::canonicalize(&notes).unwrap()]
+            [ReadFolder {
+                named: notes.clone(),
+                real: std::fs::canonicalize(&notes).unwrap()
+            }]
         );
+        // Named through a link, it's found where the plugin looks, and checked where it is.
+        let linked = root.join("linked");
+        std::os::unix::fs::symlink(&notes, &linked).unwrap();
+        let linked_s = linked.display().to_string();
+        let through = read_folders(&manifest(&[&linked_s])).unwrap();
+        assert_eq!(through[0].named, linked);
+        assert_eq!(through[0].real, std::fs::canonicalize(&notes).unwrap());
         for refused in [sneaky_s.as_str(), "/", "/proc"] {
             let why = read_folders(&manifest(&[&notes_s, refused])).unwrap_err();
             assert!(why.contains("where your session keeps"), "{refused}: {why}");
