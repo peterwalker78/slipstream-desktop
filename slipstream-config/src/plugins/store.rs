@@ -7,7 +7,10 @@
 
 use std::{
     fs, io,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
 };
 
@@ -209,17 +212,62 @@ pub fn remove_tree(path: &Path) -> io::Result<()> {
         Ok(meta) if !meta.is_dir() => return fs::remove_file(path),
         Ok(_) => {}
     }
-    let mut folders = vec![path.to_path_buf()];
-    while let Some(folder) = folders.pop() {
-        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700))?;
-        for entry in fs::read_dir(&folder)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                folders.push(entry.path());
-            }
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+    unseal(open_folder(libc::AT_FDCWD, &name)?, 0)?;
+    fs::remove_dir_all(path)
+}
+
+/// The deepest a store's folders are unsealed to: deeper than any plugin's folder may be, and
+/// than anything sensible a plugin keeps.
+const DEEPEST: usize = 64;
+
+/// Opens folder `name` in `at`, never through a link: one swapped in for the folder is refused.
+fn open_folder(at: libc::c_int, name: &std::ffi::CStr) -> io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::FromRawFd;
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    // SAFETY: a valid C string; the descriptor returned is owned from here.
+    let fd = unsafe { libc::openat(at, name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    Ok(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) })
+}
+
+/// Makes `folder` and every folder in it writable by its owner, so it can be emptied. Each is
+/// changed and listed through what was opened, and the folders in it opened from there without
+/// following links, so a plugin swapping a folder of its own for a link meanwhile, to somewhere
+/// of yours, has that link left alone rather than followed.
+fn unseal(folder: std::os::fd::OwnedFd, depth: usize) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    if depth > DEEPEST {
+        return Err(io::Error::other("folders too deep to remove"));
+    }
+    // SAFETY: an open descriptor this owns.
+    if unsafe { libc::fchmod(folder.as_raw_fd(), 0o700) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // The folder that was opened, by the descriptor's own entry, whatever its path leads to now.
+    for entry in fs::read_dir(format!("/proc/self/fd/{}", folder.as_raw_fd()))? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = std::ffi::CString::new(entry.file_name().as_bytes())
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+        match open_folder(folder.as_raw_fd(), &name) {
+            Ok(inner) => unseal(inner, depth + 1)?,
+            // Swapped for a link, or gone: nothing to unseal.
+            Err(err)
+                if matches!(
+                    err.raw_os_error(),
+                    Some(libc::ELOOP | libc::ENOTDIR | libc::ENOENT)
+                ) => {}
+            Err(err) => return Err(err),
         }
     }
-    fs::remove_dir_all(path)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -340,6 +388,27 @@ mod tests {
         );
         clear_current(&store);
         assert_eq!(current(&store), None);
+    }
+
+    /// A link a plugin leaves in what it keeps, to a folder of yours, is removed and never
+    /// followed: the folder it leads to keeps its permissions and everything in it.
+    #[test]
+    fn removing_a_store_never_follows_a_link_in_it() {
+        let root = scratch("remove-link");
+        let yours = root.join("yours");
+        std::fs::create_dir_all(yours.join("inner")).unwrap();
+        std::fs::set_permissions(yours.join("inner"), fs::Permissions::from_mode(0o500)).unwrap();
+        let store = root.join("store");
+        std::fs::create_dir_all(store.join(STATE).join("deep")).unwrap();
+        std::os::unix::fs::symlink(&yours, store.join(STATE).join("deep/away")).unwrap();
+        remove_tree(&store).unwrap();
+        assert!(!store.exists());
+        let mode = std::fs::metadata(yours.join("inner"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o500, "its permissions are as they were");
+        std::fs::set_permissions(yours.join("inner"), fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     /// The promise in the guide: removing a plugin removes everything Slipstream kept for it.

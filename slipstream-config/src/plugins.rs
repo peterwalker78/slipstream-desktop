@@ -380,7 +380,17 @@ const OFF_LIMITS: &[&str] = &[
 fn off_limits(path: &Path) -> bool {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     let home = crate::xdg_home("HOME", "");
-    let keys = [".ssh", ".gnupg"].map(|keys| home.join(keys));
+    // Where sockets turn up later: Flatpak's bus proxies and helpers, its apps' own folders,
+    // and containers' consoles.
+    let keys = [
+        ".ssh",
+        ".gnupg",
+        ".var",
+        ".cache/.dbus-proxy",
+        ".cache/.flatpak-helper",
+        ".local/share/containers",
+    ]
+    .map(|keys| home.join(keys));
     OFF_LIMITS
         .iter()
         .map(PathBuf::from)
@@ -484,10 +494,16 @@ impl Manifest {
             );
         }
         if self.needs(Need::Network) {
-            // Online with nothing of yours to see, it can only fetch; with something, it could
-            // send it away.
+            // Online it shares the computer's own network, so it can reach the programs here
+            // that take connections, games' and printers' among them; with something of yours
+            // to see, it could also send it away.
             if self.read.is_empty() && !self.needs(Need::Notifications) {
-                add(What::Online, "Goes online".into(), Care::Safe);
+                add(
+                    What::Online,
+                    "Goes online, and can reach programs on this computer that take connections"
+                        .into(),
+                    Care::Thought,
+                );
             } else {
                 add(
                     What::Online,
@@ -1121,11 +1137,18 @@ mod tests {
             )]
         );
         assert_eq!(
-            can(&format!("{bare}needs = [\"network\", \"notify\"]\n")),
+            can(&format!("{bare}needs = [\"windows\", \"notify\"]\n")),
             [
-                ("Goes online".into(), Care::Safe),
+                ("Opens windows of its own".into(), Care::Safe),
                 ("Sends you notifications".into(), Care::Safe)
             ]
+        );
+        assert_eq!(
+            can(&format!("{bare}needs = [\"network\"]\n")),
+            [(
+                "Goes online, and can reach programs on this computer that take connections".into(),
+                Care::Thought
+            )]
         );
         assert_eq!(
             can(&format!(

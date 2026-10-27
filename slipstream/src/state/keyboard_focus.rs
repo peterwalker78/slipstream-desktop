@@ -110,25 +110,44 @@ impl Slipstream {
         }
     }
 
-    /// A token's proof that someone asked: a click or key press on this seat since the keyboard
-    /// last moved, within a few seconds. Tokens Slipstream hands out itself carry no serial and
-    /// get longer, since an app can take a while to start.
+    /// A token's proof that someone asked: a click or key press on this seat, in the app that
+    /// asked for the token while it had the keyboard, since the keyboard last moved, within a few
+    /// seconds. Tokens Slipstream hands out itself carry no serial and get longer, since an app
+    /// can take a while to start.
     pub(super) fn activation_is_recent(
         &self,
         data: &smithay::wayland::xdg_activation::XdgActivationTokenData,
     ) -> bool {
         let age = data.timestamp.elapsed();
         match &data.serial {
-            Some((serial, seat)) => {
-                let keyboard = self.seat.get_keyboard().unwrap();
-                Seat::from_resource(seat).as_ref() == Some(&self.seat)
-                    && age < std::time::Duration::from_secs(15)
-                    && keyboard
-                        .last_enter()
-                        .is_some_and(|entered| serial.is_no_older_than(&entered))
-            }
+            Some(_) => age < std::time::Duration::from_secs(15) && self.asked_in_focus(data),
             None => data.client_id.is_none() && age < std::time::Duration::from_secs(60),
         }
+    }
+
+    /// Whether a token's serial can be a click or key press of yours: on this seat, no older
+    /// than the keyboard's last move, and asked for by the app that has the keyboard. Nothing
+    /// checks a serial a client sends is one it was given, so an app that doesn't have the
+    /// keyboard, one a plugin opened in the background say, can't claim one.
+    pub(crate) fn asked_in_focus(
+        &self,
+        data: &smithay::wayland::xdg_activation::XdgActivationTokenData,
+    ) -> bool {
+        use smithay::{reexports::wayland_server::Resource, wayland::seat::WaylandFocus};
+        let Some((serial, seat)) = &data.serial else {
+            return false;
+        };
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let focused_client = keyboard
+            .current_focus()
+            .and_then(|focus| focus.wl_surface().and_then(|surface| surface.client()))
+            .map(|client| client.id());
+        Seat::from_resource(seat).as_ref() == Some(&self.seat)
+            && data.client_id.is_some()
+            && data.client_id == focused_client
+            && keyboard
+                .last_enter()
+                .is_some_and(|entered| serial.is_no_older_than(&entered))
     }
 
     /// Brings a window forward wherever it is: out of the code rain, or on its own workspace.

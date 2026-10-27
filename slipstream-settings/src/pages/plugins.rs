@@ -263,7 +263,7 @@ fn plugin_card(
                 plugins::listed(&commands),
                 if one { "it" } else { "one" },
             ),
-            care: plugins::Care::Thought,
+            care: plugins::Care::Full,
         });
     }
 

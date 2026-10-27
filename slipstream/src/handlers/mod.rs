@@ -260,8 +260,9 @@ impl XdgActivationHandler for Slipstream {
     }
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
-        // A token for a click or key press means a window may be on its way because you asked.
-        if data.serial.is_some() {
+        // A token for a click or key press in the app you're in means a window may be on its
+        // way because you asked.
+        if self.asked_in_focus(&data) {
             self.concentration.asked(std::time::Instant::now());
         }
         // Tokens nobody used are dropped once they're too old to be honoured anyway.

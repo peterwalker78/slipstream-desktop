@@ -544,7 +544,9 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         let bwrap = sandbox::bwrap()?;
         let session = sandbox::Session::now();
         let mut command = Command::new(bwrap);
-        let seccomp = seccomp_file()?;
+        // Local sockets are for the display, and for looking names up online; a plugin with
+        // neither has no use for them.
+        let seccomp = seccomp_file(manifest.needs(Need::Windows) || manifest.needs(Need::Network))?;
         let seccomp_fd = seccomp.as_ref().map(|file| file.as_raw_fd());
         // SAFETY: two system calls between fork and exec, which allocate nothing. The filter's
         // file is moved in, so it stays open for as long as the command can be started.
@@ -609,10 +611,10 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
 /// The filter of system calls a sandboxed plugin is refused (`seccomp`), in a file of its own in
 /// memory, open for the next program started and closed again with the command: bubblewrap reads
 /// it from there. None where there is no filter for this kind of computer.
-fn seccomp_file() -> Result<Option<std::fs::File>, String> {
+fn seccomp_file(local: bool) -> Result<Option<std::fs::File>, String> {
     use std::io::{Seek, Write};
     use std::os::fd::FromRawFd;
-    let Some(program) = plugins::seccomp::program() else {
+    let Some(program) = plugins::seccomp::program(local) else {
         return Ok(None);
     };
     let why = |err: std::io::Error| format!("Its sandbox's filter couldn't be made: {err}");

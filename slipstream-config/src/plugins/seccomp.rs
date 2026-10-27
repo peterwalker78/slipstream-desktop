@@ -9,7 +9,11 @@
 //!   `perf_event_open`, `userfaultfd`, `ptrace` and reading other programs' memory, the kernel
 //!   log, and NUMA memory placement;
 //! - `io_uring`, which runs work out of the filter's sight;
-//! - sockets of any family but local, internet and netlink;
+//! - new namespaces made with `clone`, and `clone3`, whose flags a filter can't read: it's
+//!   answered as missing, and programs fall back to `clone`;
+//! - sockets of any family but local, internet and netlink, and local ones too for a plugin that
+//!   neither opens windows nor goes online: a read-only folder doesn't stop a program connecting
+//!   to a socket that turns up in it later;
 //! - and any system call from another architecture's table, the 32-bit one or x32's.
 //!
 //! What's refused fails with an error (EPERM, or ENOSYS for `io_uring`, so programs fall back to
@@ -28,6 +32,7 @@ pub struct Instruction {
 
 const LD_W_ABS: u16 = 0x20; // BPF_LD | BPF_W | BPF_ABS
 const JEQ_K: u16 = 0x15; // BPF_JMP | BPF_JEQ | BPF_K
+const JSET_K: u16 = 0x45; // BPF_JMP | BPF_JSET | BPF_K
 const JGE_K: u16 = 0x35; // BPF_JMP | BPF_JGE | BPF_K
 const RET_K: u16 = 0x06; // BPF_RET | BPF_K
 
@@ -47,14 +52,25 @@ const AUDIT_ARCH: u32 = 0xc000_003e;
 #[cfg(target_arch = "aarch64")]
 const AUDIT_ARCH: u32 = 0xc000_00b7;
 
-/// The socket families a plugin may open: local, internet (both) and netlink, which ordinary
-/// programs use to find their own addresses.
-const FAMILIES: [i32; 4] = [
-    libc::AF_UNIX,
-    libc::AF_INET,
-    libc::AF_INET6,
-    libc::AF_NETLINK,
-];
+/// The socket families a plugin may open: internet (both) and netlink, which ordinary programs
+/// use to find their own addresses, and local ones if `local`, for the display or the name
+/// lookups going online needs.
+fn families(local: bool) -> Vec<i32> {
+    let mut families = vec![libc::AF_INET, libc::AF_INET6, libc::AF_NETLINK];
+    if local {
+        families.push(libc::AF_UNIX);
+    }
+    families
+}
+
+/// The namespaces `clone` could make.
+const NEW_NAMESPACES: u32 = (libc::CLONE_NEWNS
+    | libc::CLONE_NEWCGROUP
+    | libc::CLONE_NEWUTS
+    | libc::CLONE_NEWIPC
+    | libc::CLONE_NEWUSER
+    | libc::CLONE_NEWPID
+    | libc::CLONE_NEWNET) as u32;
 
 /// The calls refused outright, with EPERM.
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
@@ -101,9 +117,10 @@ fn refused() -> Vec<i64> {
     calls
 }
 
-/// The filter, as bubblewrap reads it from a file: the instructions back to back.
-pub fn program() -> Option<Vec<u8>> {
-    let instructions = instructions()?;
+/// The filter, as bubblewrap reads it from a file: the instructions back to back. `local`
+/// lets it open local sockets.
+pub fn program(local: bool) -> Option<Vec<u8>> {
+    let instructions = instructions(local)?;
     let mut bytes = Vec::with_capacity(instructions.len() * 8);
     for i in instructions {
         bytes.extend(i.code.to_ne_bytes());
@@ -138,7 +155,7 @@ fn errno(errno: i32) -> Instruction {
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-pub fn instructions() -> Option<Vec<Instruction>> {
+pub fn instructions(local: bool) -> Option<Vec<Instruction>> {
     let mut p = vec![
         // Another architecture's numbers mean other calls: refuse them all.
         op(LD_W_ABS, ARCH),
@@ -169,9 +186,23 @@ pub fn instructions() -> Option<Vec<Instruction>> {
         libc::SYS_io_uring_setup,
         libc::SYS_io_uring_enter,
         libc::SYS_io_uring_register,
+        libc::SYS_clone3,
     ] {
         p.extend([jeq(call as u32, 1), errno(libc::ENOSYS)]);
     }
+    // clone: no new namespaces. Its flags are its first argument on both architectures.
+    p.extend([
+        jeq(libc::SYS_clone as u32, 4),
+        op(LD_W_ABS, arg_low(0)),
+        Instruction {
+            code: JSET_K,
+            jt: 0,
+            jf: 1,
+            k: NEW_NAMESPACES,
+        },
+        errno(libc::EPERM),
+        op(LD_W_ABS, NR),
+    ]);
     // ioctl: no typing into a terminal.
     p.extend([
         jeq(libc::SYS_ioctl as u32, 5),
@@ -184,12 +215,13 @@ pub fn instructions() -> Option<Vec<Instruction>> {
     // Reloads the number, which the ioctl check replaced, for the socket check after it.
     p.push(op(LD_W_ABS, NR));
     // socket: only the families it may use.
-    let families = FAMILIES.len() as u8;
+    let families = families(local);
+    let count = families.len() as u8;
     p.extend([
-        jeq(libc::SYS_socket as u32, 2 + 2 * families),
+        jeq(libc::SYS_socket as u32, 2 + 2 * count),
         op(LD_W_ABS, arg_low(0)),
     ]);
-    for family in FAMILIES {
+    for family in families {
         p.extend([jeq(family as u32, 1), op(RET_K, RET_ALLOW)]);
     }
     p.push(errno(libc::EAFNOSUPPORT));
@@ -198,7 +230,7 @@ pub fn instructions() -> Option<Vec<Instruction>> {
 }
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-pub fn instructions() -> Option<Vec<Instruction>> {
+pub fn instructions(_local: bool) -> Option<Vec<Instruction>> {
     None
 }
 
@@ -230,6 +262,7 @@ mod tests {
                 LD_W_ABS => a = word(i.k),
                 JEQ_K => pc += usize::from(if a == i.k { i.jt } else { i.jf }),
                 JGE_K => pc += usize::from(if a >= i.k { i.jt } else { i.jf }),
+                JSET_K => pc += usize::from(if a & i.k != 0 { i.jt } else { i.jf }),
                 RET_K => return i.k,
                 other => panic!("unexpected instruction {other:#x}"),
             }
@@ -237,7 +270,7 @@ mod tests {
     }
 
     fn call(nr: i64, args: [u64; 6]) -> u32 {
-        run(&instructions().unwrap(), AUDIT_ARCH, nr, args)
+        run(&instructions(true).unwrap(), AUDIT_ARCH, nr, args)
     }
 
     const NONE: [u64; 6] = [0; 6];
@@ -275,11 +308,41 @@ mod tests {
         assert_eq!(ioctl(libc::TIOCGWINSZ as u64), RET_ALLOW);
         // The request's high half doesn't hide it: the kernel only reads the low one.
         assert_eq!(ioctl((1 << 32) | libc::TIOCSTI as u64), EPERM);
-        // Sockets: local and internet ones only.
+        // New namespaces, by clone or by clone3, which is answered as missing.
+        let clone = |flags: i32| call(libc::SYS_clone, [flags as u64, 0, 0, 0, 0, 0]);
+        assert_eq!(clone(libc::SIGCHLD), RET_ALLOW, "an ordinary child");
+        assert_eq!(
+            clone(libc::CLONE_VM | libc::CLONE_THREAD | libc::CLONE_SIGHAND),
+            RET_ALLOW,
+            "a thread"
+        );
+        for new in [libc::CLONE_NEWUSER, libc::CLONE_NEWNS, libc::CLONE_NEWNET] {
+            assert_eq!(clone(libc::SIGCHLD | new), EPERM, "{new:#x}");
+        }
+        assert_eq!(
+            call(libc::SYS_clone3, NONE),
+            RET_ERRNO | libc::ENOSYS as u32
+        );
+        // Sockets: local and internet ones only, and local ones only for a plugin given them.
         let socket = |family: i32| call(libc::SYS_socket, [family as u64, 1, 0, 0, 0, 0]);
-        for family in FAMILIES {
+        for family in families(true) {
             assert_eq!(socket(family), RET_ALLOW, "{family}");
         }
+        let without_local = instructions(false).unwrap();
+        let local = run(
+            &without_local,
+            AUDIT_ARCH,
+            libc::SYS_socket,
+            [libc::AF_UNIX as u64, 1, 0, 0, 0, 0],
+        );
+        assert_eq!(local, RET_ERRNO | libc::EAFNOSUPPORT as u32);
+        let internet = run(
+            &without_local,
+            AUDIT_ARCH,
+            libc::SYS_socket,
+            [libc::AF_INET as u64, 1, 0, 0, 0, 0],
+        );
+        assert_eq!(internet, RET_ALLOW);
         for family in [
             libc::AF_PACKET,
             libc::AF_BLUETOOTH,
@@ -294,7 +357,12 @@ mod tests {
         }
         // Another architecture's calls, and x32's, are refused whatever they are.
         assert_eq!(
-            run(&instructions().unwrap(), 0x4000_0003, libc::SYS_read, NONE),
+            run(
+                &instructions(true).unwrap(),
+                0x4000_0003,
+                libc::SYS_read,
+                NONE
+            ),
             EPERM
         );
         #[cfg(target_arch = "x86_64")]
@@ -303,8 +371,11 @@ mod tests {
 
     #[test]
     fn the_filter_is_whole_instructions() {
-        let program = program().unwrap();
-        assert_eq!(program.len(), instructions().unwrap().len() * 8);
-        assert!(instructions().unwrap().len() < 4096, "the kernel's limit");
+        let program = program(true).unwrap();
+        assert_eq!(program.len(), instructions(true).unwrap().len() * 8);
+        assert!(
+            instructions(true).unwrap().len() < 4096,
+            "the kernel's limit"
+        );
     }
 }
