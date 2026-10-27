@@ -767,13 +767,18 @@ impl Slipstream {
         }
     }
 
-    /// An app has put something on the clipboard: a copy is read for the history, unless the
-    /// history is off or the copy is marked secret.
+    /// An app has put something on the clipboard: a copy is read for the history, and text for
+    /// the plugins that need to see what's copied, unless neither wants it or the copy is marked
+    /// secret.
     pub fn clipboard_changed(&mut self, types: Vec<String>, x11: bool) {
-        if !self.settings.clipboard.history || self.lock.is_some() {
+        let history = self.settings.clipboard.history;
+        let plugins = self
+            .plugins
+            .wants(slipstream_config::plugins::Need::Clipboard);
+        if !(history || plugins) || self.lock.is_some() {
             return;
         }
-        let Some(kind) = wanted(&types) else {
+        let Some(kind) = wanted(&types).filter(|kind| history || TEXT_TYPES.contains(kind)) else {
             return;
         };
         let Some((read, write)) = pipe() else {
@@ -800,7 +805,13 @@ impl Slipstream {
 
     /// A copy has been read.
     pub fn clip_read(&mut self, clip: Clip) {
-        if self.settings.clipboard.history && self.lock.is_none() {
+        if self.lock.is_some() {
+            return;
+        }
+        if let Clip::Text(text) = &clip {
+            self.plugins.copied(text);
+        }
+        if self.settings.clipboard.history {
             self.history.add(clip);
         }
     }

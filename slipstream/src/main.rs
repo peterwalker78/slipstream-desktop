@@ -542,6 +542,8 @@ fn pass(state: &mut Slipstream) {
     state.refresh_pointer_focus();
     // The portal picks windows to share from this list.
     let windows = state.all_open_windows();
+    // And so do the plugins that need to see them.
+    state.plugins_see_windows(&windows);
     state.sync_toplevels(windows);
     state.space.refresh();
     state.popups.cleanup();

@@ -40,7 +40,10 @@
 //! is shown, as text and gauges in Slipstream's own style, and nothing in it is ever run. A
 //! plugin that needs `notify` can put `"notify": {"title": …, "body": …}` on a card to send a
 //! notification, and one that needs `notifications` is told of each one that arrives, as a line
-//! of JSON on its standard input (`notification_line`).
+//! of JSON on its standard input (`notification_line`). Each of the rest a plugin can reach is a
+//! need of its own too, held to by its sandbox or done by Slipstream's hand: what's playing, the
+//! windows open and what's copied come the same way, and a button can open a web address, copy
+//! text or control what's playing (`Button`).
 //!
 //! Plugins live in `$XDG_DATA_HOME/slipstream/plugins/<id>/` (the person's own) and in
 //! `slipstream/plugins/` under each of `$XDG_DATA_DIRS` (installed for everyone). A plugin is off
@@ -195,6 +198,10 @@ pub struct Manifest {
     /// `$XDG_…_HOME` folders, `$XDG_RUNTIME_DIR` or `$HOME`.
     #[serde(default)]
     pub read: Vec<String>,
+    /// Folders outside its own it changes, named as `read`'s are, for a plugin that needs
+    /// `write`.
+    #[serde(default)]
+    pub write: Vec<String>,
     /// What it reaches beyond its folders, in the sandbox or from Slipstream.
     #[serde(default)]
     pub needs: Vec<Need>,
@@ -212,16 +219,37 @@ pub enum Need {
     Notify,
     /// Seeing the notifications that arrive, on its standard input.
     Notifications,
+    /// Changing the files in the folders its `write` names.
+    Write,
+    /// Reading the hardware's own state from `/sys`: battery, temperatures, fans and devices.
+    System,
+    /// Seeing what's playing, on its standard input, and its card's buttons controlling it.
+    Media,
+    /// Playing a sound from the sound theme with its card or notification.
+    Sound,
+    /// Its card's buttons opening web addresses, in the browser, when pressed.
+    Open,
+    /// Seeing which windows are open and which has the keyboard, on its standard input.
+    OpenWindows,
+    /// Seeing what is copied, on its standard input, and its card's buttons copying text.
+    Clipboard,
     /// Everything the person's session has, the session bus among it: no sandbox at all.
     Everything,
 }
 
 impl Need {
-    pub const ALL: [Need; 5] = [
+    pub const ALL: [Need; 12] = [
         Need::Network,
         Need::Windows,
         Need::Notify,
         Need::Notifications,
+        Need::Write,
+        Need::System,
+        Need::Media,
+        Need::Sound,
+        Need::Open,
+        Need::OpenWindows,
+        Need::Clipboard,
         Need::Everything,
     ];
 
@@ -232,6 +260,13 @@ impl Need {
             Need::Windows => "open windows of its own",
             Need::Notify => "send you notifications",
             Need::Notifications => "read your notifications",
+            Need::Write => "change files in the folders it names",
+            Need::System => "read your computer's battery, temperatures and hardware",
+            Need::Media => "see what's playing and control it",
+            Need::Sound => "play sounds",
+            Need::Open => "open links in your browser",
+            Need::OpenWindows => "see which windows you have open and their titles",
+            Need::Clipboard => "see what you copy",
             Need::Everything => "do anything you can on this computer",
         }
     }
@@ -266,6 +301,13 @@ pub enum What {
     Online,
     Windows,
     Notify,
+    Changes,
+    Hardware,
+    Media,
+    Sound,
+    Links,
+    OpenWindows,
+    Clipboard,
     Everything,
 }
 
@@ -295,8 +337,21 @@ pub const NOT_AS_ROOT: &str = "It can't act as root by itself, but could catch y
 /// The folders a manifest's `read` names, as paths, every link in them followed. One that isn't
 /// there is left out; one `off_limits`, or holding a socket, means the plugin doesn't run, and why.
 pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
+    folders(&manifest.read, false)
+}
+
+/// The folders a manifest's `write` names, for a plugin that needs `write`, checked as those it
+/// reads are, and none where programs keep their settings or what they start (`runs_from`).
+pub fn write_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
+    if !manifest.needs(Need::Write) {
+        return Ok(Vec::new());
+    }
+    folders(&manifest.write, true)
+}
+
+fn folders(list: &[String], change: bool) -> Result<Vec<ReadFolder>, String> {
     let mut folders = Vec::new();
-    for folder in &manifest.read {
+    for folder in list {
         let Some(named) = expand(folder) else {
             continue;
         };
@@ -304,34 +359,78 @@ pub fn read_folders(manifest: &Manifest) -> Result<Vec<ReadFolder>, String> {
             continue;
         };
         let shown = shown_folder(folder);
+        let asks = if change {
+            format!("It asks to change the files in {shown}")
+        } else {
+            format!("It asks to look in {shown}")
+        };
         if off_limits(&path) {
             return Err(format!(
-                "It asks to look in {shown}, where your session keeps what lets programs reach \
-                 each other"
+                "{asks}, where your session keeps what lets programs reach each other"
+            ));
+        }
+        if change && runs_from(&path) {
+            return Err(format!(
+                "{asks}, where programs keep their settings and what they start"
             ));
         }
         // Plugins write in there, their own state folders. One that could change a folder it
         // reads between this check and its sandbox starting could put a link there in its place.
         let plugins = canonical(&store::root());
         if path.starts_with(&plugins) || plugins.starts_with(&path) {
-            return Err(format!(
-                "It asks to look in {shown}, where plugins keep their own things"
-            ));
+            return Err(format!("{asks}, where plugins keep their own things"));
         }
-        socket_free(&path).map_err(|why| format!("It asks to look in {shown}, which {why}"))?;
-        folders.push(ReadFolder { named, real: path });
+        socket_free(&path).map_err(|why| format!("{asks}, which {why}"))?;
+        folders.push(ReadFolder {
+            named,
+            real: path,
+            fd: None,
+        });
     }
     Ok(folders)
 }
 
-/// A folder a plugin reads: where it looks for it, as its manifest names it with the session's
-/// `HOME` and the rest put in, and where that really is, every link followed. They differ where
-/// the home folder is a link, as `/home` is to `/var/home` on some systems: in its sandbox the
-/// folder is found where the plugin looks, while what's checked is where it really is.
+/// Where a plugin may never change anything, beyond `off_limits`: where programs keep their
+/// settings and what they start, so that changing them would start something outside its
+/// sandbox. That is the `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and `$XDG_STATE_HOME` folders, any
+/// hidden folder in the home folder (`~/.local`, a browser's profile), and `~/bin`, which some
+/// systems put on `PATH`.
+fn runs_from(path: &Path) -> bool {
+    let home = crate::xdg_home("HOME", "");
+    let settings = [
+        crate::xdg_home("XDG_CONFIG_HOME", ".config"),
+        crate::xdg_home("XDG_DATA_HOME", ".local/share"),
+        crate::xdg_home("XDG_STATE_HOME", ".local/state"),
+    ];
+    let inside_settings = settings
+        .iter()
+        .flat_map(|folder| [folder.clone(), canonical(folder)])
+        .any(|folder| path.starts_with(&folder) || folder.starts_with(path));
+    // A hidden folder further in is something of the folder it is in, as `.git` is, which a
+    // plugin allowed to change that folder could change anyway.
+    let hidden = [canonical(&home), home].iter().any(|home| {
+        path.strip_prefix(home).is_ok_and(|rest| {
+            rest.iter().next().is_some_and(|first| {
+                let first = first.to_string_lossy();
+                first == "bin" || first.starts_with('.')
+            })
+        })
+    });
+    inside_settings || hidden
+}
+
+/// A folder a plugin reads or changes: where it looks for it, as its manifest names it with the
+/// session's `HOME` and the rest put in, and where that really is, every link followed. They
+/// differ where the home folder is a link, as `/home` is to `/var/home` on some systems: in its
+/// sandbox the folder is found where the plugin looks, while what's checked is where it really
+/// is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadFolder {
     pub named: PathBuf,
     pub real: PathBuf,
+    /// The folder opened where it really is (`sandbox::open`), so that its sandbox is made from
+    /// what was checked rather than from the path a second time.
+    pub fd: Option<i32>,
 }
 
 /// The most a folder a plugin reads may hold before it is too much to check for sockets.
@@ -464,6 +563,39 @@ impl Manifest {
         self.needs(Need::Everything)
     }
 
+    /// It changes files of the person's: it needs `write`, and names folders to change.
+    pub fn changes(&self) -> bool {
+        self.needs(Need::Write) && !self.write.is_empty()
+    }
+
+    /// It is handed something of the person's to see, files or what Slipstream tells it, which
+    /// going online could send away.
+    fn sees_yours(&self) -> bool {
+        !self.read.is_empty()
+            || self.changes()
+            || [
+                Need::Notifications,
+                Need::OpenWindows,
+                Need::Clipboard,
+                Need::Media,
+            ]
+            .iter()
+            .any(|need| self.needs(*need))
+    }
+
+    /// It reads lines Slipstream writes on its standard input: notifications, what's playing,
+    /// the open windows or what's copied.
+    pub fn hears(&self) -> bool {
+        [
+            Need::Notifications,
+            Need::Media,
+            Need::OpenWindows,
+            Need::Clipboard,
+        ]
+        .iter()
+        .any(|need| self.needs(*need))
+    }
+
     /// What it can do, each in everyday words with how much thought it deserves, for Settings to
     /// show before it is turned on.
     pub fn abilities(&self) -> Vec<Ability> {
@@ -484,6 +616,14 @@ impl Manifest {
                 Care::Safe,
             );
         }
+        if self.changes() {
+            let folders: Vec<String> = self.write.iter().map(|f| shown_folder(f)).collect();
+            add(
+                What::Changes,
+                format!("Changes the files in {}", listed(&folders)),
+                Care::Thought,
+            );
+        }
         if self.needs(Need::Notifications) {
             add(
                 What::Notifications,
@@ -491,11 +631,27 @@ impl Manifest {
                 Care::Thought,
             );
         }
+        if self.needs(Need::OpenWindows) {
+            add(
+                What::OpenWindows,
+                "Sees which windows you have open and their titles, which can hold email \
+                 subjects and document names"
+                    .into(),
+                Care::Thought,
+            );
+        }
+        if self.needs(Need::Clipboard) {
+            add(
+                What::Clipboard,
+                "Sees what you copy, which can hold passwords".into(),
+                Care::Thought,
+            );
+        }
         if self.needs(Need::Network) {
             // Online it shares the computer's own network, so it can reach the programs here
             // that take connections, games' and printers' among them; with something of yours
             // to see, it could also send it away.
-            if self.read.is_empty() && !self.needs(Need::Notifications) {
+            if !self.sees_yours() {
                 add(
                     What::Online,
                     "Goes online, and can reach programs on this computer that take connections"
@@ -515,6 +671,30 @@ impl Manifest {
         }
         if self.needs(Need::Notify) {
             add(What::Notify, "Sends you notifications".into(), Care::Safe);
+        }
+        if self.needs(Need::System) {
+            add(
+                What::Hardware,
+                "Reads your computer's battery, temperatures and hardware".into(),
+                Care::Safe,
+            );
+        }
+        if self.needs(Need::Media) {
+            add(
+                What::Media,
+                "Sees what's playing and controls it".into(),
+                Care::Safe,
+            );
+        }
+        if self.needs(Need::Sound) {
+            add(What::Sound, "Plays sounds".into(), Care::Safe);
+        }
+        if self.needs(Need::Open) {
+            add(
+                What::Links,
+                "Opens links in your browser".into(),
+                Care::Safe,
+            );
         }
         if can.is_empty() {
             can.push(Ability {
@@ -688,6 +868,21 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, String> {
              reach each other: no plugin is given that"
         ));
     }
+    if !manifest.write.is_empty() && !manifest.needs(Need::Write) {
+        return Err(format!(
+            "{MANIFEST} names folders to change, but doesn't say it needs write"
+        ));
+    }
+    if let Some(folder) = manifest.write.iter().find(|folder| {
+        folder.contains("XDG_RUNTIME_DIR")
+            || expand(folder).is_none_or(|path| off_limits(&path) || runs_from(&path))
+    }) {
+        return Err(format!(
+            "{MANIFEST} asks to change the files in {folder}, where your session keeps what lets \
+             programs reach each other, or programs keep their settings and what they start: no \
+             plugin is given that"
+        ));
+    }
     Ok(manifest)
 }
 
@@ -848,10 +1043,104 @@ fn write_meter(dir: &Path, manifest: &str) -> Result<Option<PathBuf>, String> {
 }
 
 /// A button on a card.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Button {
     pub id: String,
     pub label: String,
+    /// A web address Slipstream opens in the browser when it is pressed, for a plugin that needs
+    /// `open`, rather than running the plugin's program.
+    pub open: Option<String>,
+    /// Text Slipstream puts on the clipboard when it is pressed, for a plugin that needs
+    /// `clipboard`.
+    pub copy: Option<String>,
+}
+
+/// The ids of the buttons that control what's playing, for a plugin that needs `media`: pressed,
+/// Slipstream sends the player the control itself, and the plugin's program isn't run.
+pub const MEDIA_BUTTONS: [&str; 3] = ["media:play-pause", "media:next", "media:previous"];
+
+/// The most characters a button copies.
+const COPY_CHARS: usize = 16_384;
+/// The most characters of what's copied a plugin is told.
+const COPIED_CHARS: usize = 1000;
+/// The most windows a plugin is told of at once.
+const MOST_WINDOWS: usize = 64;
+
+/// `text` as a web address to open in the browser, if it is one: `https` only, with somewhere to
+/// go, nothing that could be read as anything else, and no name and password before the place,
+/// which could make one address look like another.
+pub fn web_address(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("https://")?;
+    let place = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let fine = !place.is_empty()
+        && !place.contains('@')
+        && text.len() <= 2048
+        && !text
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || hides(c));
+    fine.then(|| text.to_string())
+}
+
+/// `name` if it can name a sound in the sound theme, as `complete` or `message-new-instant` do:
+/// lower-case letters, digits and `-`, so never a path.
+pub fn sound_name(name: &str) -> Option<String> {
+    let fine = name.len() <= 64
+        && name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    fine.then(|| name.to_string())
+}
+
+/// The line a plugin that needs `media` reads on its standard input when what's playing changes:
+/// `{"media": {"player": …, "title": …, "artist": …, "playing": …}}`, or `{"media": null}` once
+/// nothing is.
+pub fn media_line(playing: Option<(&str, &str, &str, bool)>) -> String {
+    let media = match playing {
+        Some((player, title, artist, playing)) => serde_json::json!({
+            "player": clip(player, TITLE_CHARS),
+            "title": clip(title, TITLE_CHARS),
+            "artist": clip(artist, TITLE_CHARS),
+            "playing": playing,
+        }),
+        None => serde_json::Value::Null,
+    };
+    format!("{}\n", serde_json::json!({ "media": media }))
+}
+
+/// One open window, as a plugin that needs `open-windows` is told of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenWindow {
+    /// Its app's id, as the app gives it, or its X11 class.
+    pub app: String,
+    pub title: String,
+    /// It has the keyboard.
+    pub focused: bool,
+}
+
+/// The line a plugin that needs `open-windows` reads on its standard input when they change:
+/// `{"windows": [{"app": …, "title": …, "focused": …}, …]}`, every window open.
+pub fn windows_line(windows: &[OpenWindow]) -> String {
+    let windows: Vec<_> = windows
+        .iter()
+        .take(MOST_WINDOWS)
+        .map(|window| {
+            serde_json::json!({
+                "app": clip(&window.app, TITLE_CHARS),
+                "title": clip(&window.title, TITLE_CHARS),
+                "focused": window.focused,
+            })
+        })
+        .collect();
+    format!("{}\n", serde_json::json!({ "windows": windows }))
+}
+
+/// The line a plugin that needs `clipboard` reads on its standard input when text is copied:
+/// `{"clipboard": {"text": …}}`, the text as it was copied, line breaks and all, up to its first
+/// thousand characters.
+pub fn clipboard_line(text: &str) -> String {
+    let text: String = text.chars().take(COPIED_CHARS).collect();
+    format!("{}\n", serde_json::json!({ "clipboard": { "text": text } }))
 }
 
 /// What a plugin shows, as its program last printed it.
@@ -866,6 +1155,9 @@ pub struct Card {
     pub flagged: bool,
     /// A notification to send as this card arrives, for a plugin that needs `notify`.
     pub notify: Option<Notify>,
+    /// A sound from the sound theme to play as this card arrives, with its notification if it
+    /// has one, for a plugin that needs `sound`.
+    pub sound: Option<String>,
 }
 
 /// A notification a plugin sends from its card.
@@ -916,12 +1208,18 @@ struct Printed {
     attention: bool,
     #[serde(default)]
     notify: Option<Notify>,
+    #[serde(default)]
+    sound: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PrintedButton {
     id: String,
     label: String,
+    #[serde(default)]
+    open: Option<String>,
+    #[serde(default)]
+    copy: Option<String>,
 }
 
 /// `text` cut to `chars` characters, on one line.
@@ -959,11 +1257,26 @@ impl Card {
         let buttons = printed
             .buttons
             .into_iter()
-            .filter(|button| valid_id(&button.id) && !button.label.trim().is_empty())
+            .filter(|button| {
+                (valid_id(&button.id) || MEDIA_BUTTONS.contains(&button.id.as_str()))
+                    && !button.label.trim().is_empty()
+                    // One that opens what isn't a web address is dropped, not run instead.
+                    && button.open.as_deref().is_none_or(|open| web_address(open).is_some())
+            })
             .take(MAX_BUTTONS)
             .map(|button| Button {
                 id: button.id,
                 label: clip(&button.label, LABEL_CHARS),
+                open: button.open.as_deref().and_then(web_address),
+                copy: button
+                    .copy
+                    .map(|text| {
+                        text.chars()
+                            .filter(|c| *c != '\0')
+                            .take(COPY_CHARS)
+                            .collect()
+                    })
+                    .filter(|text: &String| !text.is_empty()),
             })
             .collect();
         Ok(Card {
@@ -988,6 +1301,7 @@ impl Card {
                     title: clip(&notify.title, TITLE_CHARS),
                     body: clip(&notify.body, BODY_CHARS),
                 }),
+            sound: printed.sound.as_deref().and_then(sound_name),
         })
     }
 
@@ -1173,6 +1487,227 @@ mod tests {
         assert!(unknown.unwrap_err().contains("camera"));
     }
 
+    /// The promise in the guide: each need beyond the sandbox's own is a line of its own, Safe
+    /// unless it sees something private or changes your files, and going online with any of
+    /// those stays worth a thought.
+    #[test]
+    fn each_brokered_need_says_what_it_does_and_how_safe_that_is() {
+        let can = |needs: &str, more: &str| -> Vec<(What, String, Care)> {
+            let text = format!("name = \"x\"\nexec = [\"./x\"]\nneeds = [{needs}]\n{more}");
+            parse_manifest(text.as_bytes())
+                .unwrap()
+                .abilities()
+                .into_iter()
+                .map(|a| (a.what, a.says, a.care))
+                .collect()
+        };
+        let one = |need: &str| can(&format!("\"{need}\""), "").remove(0);
+        assert_eq!(
+            one("system"),
+            (
+                What::Hardware,
+                "Reads your computer's battery, temperatures and hardware".into(),
+                Care::Safe
+            )
+        );
+        assert_eq!(
+            one("media"),
+            (
+                What::Media,
+                "Sees what's playing and controls it".into(),
+                Care::Safe
+            )
+        );
+        assert_eq!(
+            one("sound"),
+            (What::Sound, "Plays sounds".into(), Care::Safe)
+        );
+        assert_eq!(
+            one("open"),
+            (
+                What::Links,
+                "Opens links in your browser".into(),
+                Care::Safe
+            )
+        );
+        assert_eq!(
+            one("open-windows"),
+            (
+                What::OpenWindows,
+                "Sees which windows you have open and their titles, which can hold email \
+                 subjects and document names"
+                    .into(),
+                Care::Thought
+            )
+        );
+        assert_eq!(
+            one("clipboard"),
+            (
+                What::Clipboard,
+                "Sees what you copy, which can hold passwords".into(),
+                Care::Thought
+            )
+        );
+        assert_eq!(
+            can("\"write\"", "write = [\"$HOME/Notes\", \"/srv/notes\"]\n"),
+            [(
+                What::Changes,
+                "Changes the files in ~/Notes and /srv/notes".into(),
+                Care::Thought
+            )]
+        );
+        // Online, with anything of yours to see, it could send that away.
+        for sees in ["clipboard", "open-windows", "media"] {
+            let online = can(&format!("\"{sees}\", \"network\""), "");
+            assert!(
+                online.contains(&(
+                    What::Online,
+                    "Goes online, so what it sees could leave this computer".into(),
+                    Care::Thought
+                )),
+                "{sees}: {online:?}"
+            );
+        }
+        let online = can("\"write\", \"network\"", "write = [\"$HOME/Notes\"]\n");
+        assert_eq!(
+            online[1].1,
+            "Goes online, so what it sees could leave this computer"
+        );
+        // Sounds and links alone see nothing to send.
+        let online = can("\"sound\", \"open\", \"system\", \"network\"", "");
+        assert!(
+            online[0].1.starts_with("Goes online, and can reach"),
+            "{online:?}"
+        );
+        // Every need reads in the settings file by its own name, and says something.
+        for need in Need::ALL {
+            let name = toml::Value::try_from(need).unwrap();
+            let text = format!("name = \"x\"\nexec = [\"./x\"]\nneeds = [{name}]\n");
+            assert_eq!(parse_manifest(text.as_bytes()).unwrap().needs, [need]);
+            assert!(!need.says().is_empty());
+        }
+    }
+
+    /// A plugin is only let change files in folders it names and says it needs `write` for, and
+    /// never where programs keep their settings or what they start.
+    #[test]
+    fn a_plugin_changes_only_ordinary_folders_it_names() {
+        let manifest = |text: &str| {
+            parse_manifest(format!("name = \"x\"\nexec = [\"./x\"]\n{text}").as_bytes())
+        };
+        let unasked = manifest("write = [\"$HOME/Notes\"]\n").unwrap_err();
+        assert!(unasked.contains("needs write"), "{unasked}");
+        for refused in [
+            "$HOME",
+            "$HOME/.config/autostart",
+            "$XDG_CONFIG_HOME/slipstream",
+            "$XDG_DATA_HOME/applications",
+            "$XDG_STATE_HOME/slipstream",
+            "$HOME/.local/bin",
+            "$HOME/bin",
+            "$HOME/.mozilla/firefox",
+            "$XDG_RUNTIME_DIR/notes",
+            "/tmp/notes",
+            "$NOWHERE/notes",
+        ] {
+            let text = format!("needs = [\"write\"]\nwrite = [\"{refused}\"]\n");
+            assert!(manifest(&text).is_err(), "{refused}");
+        }
+        let fine = manifest("needs = [\"write\"]\nwrite = [\"$HOME/Notes\"]\n").unwrap();
+        assert_eq!(fine.write, ["$HOME/Notes"]);
+        // Asked for without `write`, a folder isn't given: there is nothing to give.
+        let mut quiet = fine.clone();
+        quiet.needs.clear();
+        assert_eq!(write_folders(&quiet), Ok(Vec::new()));
+    }
+
+    /// The promise in the guide: what a card's button can do beyond running the plugin's own
+    /// program is open a web address, put text on the clipboard or control what's playing, and
+    /// its sound is only ever a name from the sound theme.
+    #[test]
+    fn a_card_s_buttons_open_only_web_addresses_and_its_sound_is_only_a_name() {
+        let card = Card::parse(
+            r#"{"buttons": [{"id": "site", "label": "Site", "open": "https://example.org/a?b#c"},
+                            {"id": "bad", "label": "Bad", "open": "file:///etc/passwd"},
+                            {"id": "copy", "label": "Copy", "copy": "line one\nline two"}],
+                "sound": "message-new-instant"}"#,
+            false,
+            0,
+        )
+        .unwrap();
+        let ids: Vec<_> = card.buttons.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["site", "copy"]);
+        assert_eq!(
+            card.buttons[0].open.as_deref(),
+            Some("https://example.org/a?b#c")
+        );
+        assert_eq!(card.buttons[1].copy.as_deref(), Some("line one\nline two"));
+        assert_eq!(card.sound.as_deref(), Some("message-new-instant"));
+        let media = Card::parse(
+            r#"{"buttons": [{"id": "media:play-pause", "label": "Play"},
+                            {"id": "media:eject", "label": "Eject"}]}"#,
+            false,
+            0,
+        )
+        .unwrap();
+        let ids: Vec<_> = media.buttons.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(ids, ["media:play-pause"]);
+        for address in [
+            "http://example.org",
+            "https://",
+            "https://user:pass@example.org",
+            "https://example.org/a b",
+            "javascript:alert(1)",
+            "https://exa\u{202e}mple.org",
+        ] {
+            assert_eq!(web_address(address), None, "{address}");
+        }
+        for name in [
+            "../../alarm",
+            "/usr/share/sounds/x.oga",
+            "Bell",
+            "",
+            "bell.oga",
+        ] {
+            assert_eq!(sound_name(name), None, "{name}");
+        }
+        assert_eq!(sound_name("bell").as_deref(), Some("bell"));
+    }
+
+    /// What Slipstream tells a plugin about what's playing, the windows and what's copied, each
+    /// a line of JSON, cut to size.
+    #[test]
+    fn what_a_plugin_is_told_is_a_line_of_json_each() {
+        let read = |line: String| -> serde_json::Value {
+            assert!(
+                line.ends_with('\n') && line.matches('\n').count() == 1,
+                "{line}"
+            );
+            serde_json::from_str(&line).unwrap()
+        };
+        let media = read(media_line(Some((
+            "spotify",
+            "Teardrop",
+            "Massive Attack",
+            true,
+        ))));
+        assert_eq!(media["media"]["artist"], "Massive Attack");
+        assert_eq!(media["media"]["playing"], true);
+        assert!(read(media_line(None))["media"].is_null());
+        let windows = read(windows_line(&[OpenWindow {
+            app: "org.example.mail".into(),
+            title: "Re: ferry times".into(),
+            focused: true,
+        }]));
+        assert_eq!(windows["windows"][0]["title"], "Re: ferry times");
+        assert_eq!(windows["windows"][0]["focused"], true);
+        let long = "x\n".repeat(5000);
+        let copied = read(clipboard_line(&long));
+        let text = copied["clipboard"]["text"].as_str().unwrap();
+        assert_eq!(text.chars().count(), 1000);
+        assert!(text.starts_with("x\nx\n"));
+    }
+
     /// A card's notification is only taken with a title, and cut to size.
     #[test]
     fn a_card_can_carry_a_notification() {
@@ -1238,6 +1773,7 @@ mod tests {
             exec: vec!["x".into()],
             every_secs: None,
             read: read.iter().map(|folder| folder.to_string()).collect(),
+            write: Vec::new(),
             needs: Vec::new(),
         };
         let (notes_s, sneaky_s) = (notes.display().to_string(), sneaky.display().to_string());
@@ -1245,7 +1781,8 @@ mod tests {
             read_folders(&manifest(&[&notes_s, "/no/such/folder"])).unwrap(),
             [ReadFolder {
                 named: notes.clone(),
-                real: std::fs::canonicalize(&notes).unwrap()
+                real: std::fs::canonicalize(&notes).unwrap(),
+                fd: None,
             }]
         );
         // Named through a link, it's found where the plugin looks, and checked where it is.

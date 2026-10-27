@@ -976,7 +976,7 @@ impl Slipstream {
         match request {
             Request::Nothing => {}
             Request::Close => self.plugin_panel.close(),
-            Request::Press { plugin, button } => self.plugins.press(&plugin, &button),
+            Request::Press { plugin, button } => self.plugin_press(&plugin, &button),
             Request::Toggle { plugin, section } => self.change_settings(|settings| {
                 settings.plugins.toggle_hidden(&plugin, &section);
             }),
@@ -1007,6 +1007,7 @@ mod tests {
                     .map(|b| Button {
                         id: b.to_string(),
                         label: b.to_string(),
+                        ..Button::default()
                     })
                     .collect(),
                 ..Card::default()

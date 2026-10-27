@@ -385,6 +385,13 @@ fn plugin_card(
             plugins::What::Online => "network-transmit-receive-symbolic",
             plugins::What::Windows => "window-new-symbolic",
             plugins::What::Notify => "preferences-system-notifications-symbolic",
+            plugins::What::Changes => "document-edit-symbolic",
+            plugins::What::Hardware => "computer-symbolic",
+            plugins::What::Media => "multimedia-player-symbolic",
+            plugins::What::Sound => "audio-volume-high-symbolic",
+            plugins::What::Links => "web-browser-symbolic",
+            plugins::What::OpenWindows => "focus-windows-symbolic",
+            plugins::What::Clipboard => "edit-paste-symbolic",
             plugins::What::Everything => "dialog-warning-symbolic",
         });
         icon.add_css_class(care_class(ability.care));

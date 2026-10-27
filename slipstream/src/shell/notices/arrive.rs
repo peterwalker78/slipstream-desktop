@@ -54,8 +54,15 @@ impl Slipstream {
 
     /// A notification a plugin sent from its card, signed as the plugin it is, so that one called
     /// after an app, or after Slipstream, can't pass as it: the name starts by saying plugin,
-    /// where a long name can't push it out of sight, and no app's icon is looked up by it.
+    /// where a long name can't push it out of sight, and no app's icon is looked up by it. Its
+    /// sound, if it has one, is its own as an app's would be; one with no title is only a sound.
     pub fn notify_from_plugin(&mut self, sent: crate::plugins::Sent) {
+        if sent.title.is_empty() {
+            if let Some(sound) = sent.sound {
+                self.sound_from_plugin(sound);
+            }
+            return;
+        }
         self.notification_arrived(Incoming {
             id: notify::next_id(),
             app_name: format!("Plugin · {}", sent.name),
@@ -65,6 +72,7 @@ impl Slipstream {
             urgency: 1,
             expire_timeout: -1,
             plugin: Some(sent.id),
+            sound: sent.sound.map(crate::alert::Sound::Name),
             ..Incoming::default()
         });
     }

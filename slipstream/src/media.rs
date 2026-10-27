@@ -2,8 +2,18 @@
 //! playing, or the one last paused. Every call goes on a thread of its own, since a player that
 //! doesn't answer would otherwise hold up the event loop, and what's playing afterwards comes back
 //! through a channel for the on-screen display.
+//!
+//! What's playing is also watched for plugins that need `media` (`Watch`): looked at every couple
+//! of seconds, on a thread of its own, for only as long as one of them runs.
 
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::Thread,
+    time::Duration,
+};
 
 use smithay::reexports::calloop::channel::Sender;
 
@@ -92,10 +102,14 @@ pub fn send(transport: Transport, reply: Sender<Playing>) {
     }
 }
 
-fn run(transport: Transport) -> zbus::Result<Playing> {
-    let connection = zbus::blocking::connection::Builder::session()?
+fn connect() -> zbus::Result<zbus::blocking::Connection> {
+    zbus::blocking::connection::Builder::session()?
         .method_timeout(TIMEOUT)
-        .build()?;
+        .build()
+}
+
+/// The players running, by bus name, each with its playback status.
+fn players(connection: &zbus::blocking::Connection) -> zbus::Result<Vec<(String, String)>> {
     let names: Vec<String> = connection
         .call_method(
             Some("org.freedesktop.DBus"),
@@ -106,16 +120,21 @@ fn run(transport: Transport) -> zbus::Result<Playing> {
         )?
         .body()
         .deserialize()?;
-    let players: Vec<(String, String)> = names
+    Ok(names
         .into_iter()
         .filter(|name| name.starts_with(PREFIX))
         .map(|name| {
-            let status = property(&connection, &name, "PlaybackStatus")
+            let status = property(connection, &name, "PlaybackStatus")
                 .and_then(|value| String::try_from(value).ok())
                 .unwrap_or_default();
             (name, status)
         })
-        .collect();
+        .collect())
+}
+
+fn run(transport: Transport) -> zbus::Result<Playing> {
+    let connection = connect()?;
+    let players = players(&connection)?;
     let Some(player) = choose(&players).map(String::from) else {
         return Ok(Playing::Nobody);
     };
@@ -131,7 +150,19 @@ fn run(transport: Transport) -> zbus::Result<Playing> {
     let playing = property(&connection, &player, "PlaybackStatus")
         .and_then(|value| String::try_from(value).ok())
         .is_some_and(|status| status == "Playing");
-    let metadata = property(&connection, &player, "Metadata");
+    let (title, artist) = track(&connection, &player);
+    Ok(Playing::Track {
+        playing,
+        title: track_line(title.as_deref(), artist.as_deref()),
+    })
+}
+
+/// The title and the first artist of what `player` is playing, as far as it says.
+fn track(
+    connection: &zbus::blocking::Connection,
+    player: &str,
+) -> (Option<String>, Option<String>) {
+    let metadata = property(connection, player, "Metadata");
     let (title, artist) = metadata
         .map(|value| {
             let map: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
@@ -146,10 +177,108 @@ fn run(transport: Transport) -> zbus::Result<Playing> {
             (title, artist)
         })
         .unwrap_or_default();
-    Ok(Playing::Track {
-        playing,
-        title: track_line(title.as_deref(), artist.as_deref()),
-    })
+    (title, artist)
+}
+
+/// What's playing, as a plugin that needs `media` is told of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NowPlaying {
+    /// The player's own name on the bus, as `spotify`.
+    pub player: String,
+    pub title: String,
+    pub artist: String,
+    pub playing: bool,
+}
+
+/// What the player the media keys would go to is playing, or none when no player runs.
+fn now_playing(connection: &zbus::blocking::Connection) -> zbus::Result<Option<NowPlaying>> {
+    let players = players(connection)?;
+    let Some((name, status)) =
+        choose(&players).and_then(|chosen| players.iter().find(|(name, _)| name == chosen))
+    else {
+        return Ok(None);
+    };
+    let (title, artist) = track(connection, name);
+    Ok(Some(NowPlaying {
+        player: player_name(name).to_string(),
+        title: title.unwrap_or_default(),
+        artist: artist.unwrap_or_default(),
+        playing: status == "Playing",
+    }))
+}
+
+/// A player's name from its bus name: `spotify` from `org.mpris.MediaPlayer2.spotify`, with the
+/// `.instance1234` some add to tell their windows apart left off.
+fn player_name(bus: &str) -> &str {
+    let name = bus.strip_prefix(PREFIX).unwrap_or(bus);
+    name.split(".instance").next().unwrap_or(name)
+}
+
+/// How often what's playing is looked at while it is watched.
+const LOOK: Duration = Duration::from_secs(2);
+
+/// What's playing, watched on a thread of its own for as long as this is kept.
+pub struct Watch {
+    stop: Arc<AtomicBool>,
+    again: Arc<AtomicBool>,
+    thread: Thread,
+}
+
+impl Watch {
+    /// Starts watching, calling `changed` from the watching thread with what's playing at the
+    /// first look, and again whenever that changes.
+    pub fn start(changed: impl Fn(Option<NowPlaying>) + Send + 'static) -> Option<Watch> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let again = Arc::new(AtomicBool::new(true));
+        let (stopped, told) = (stop.clone(), again.clone());
+        let spawned = std::thread::Builder::new()
+            .name("media-watch".into())
+            .spawn(move || {
+                let mut connection = None;
+                let mut last = None;
+                while !stopped.load(Ordering::SeqCst) {
+                    if connection.is_none() {
+                        connection = connect().ok();
+                    }
+                    match connection.as_ref().map(now_playing) {
+                        Some(Ok(now)) => {
+                            if told.swap(false, Ordering::SeqCst) || last.as_ref() != Some(&now) {
+                                changed(now.clone());
+                                last = Some(now);
+                            }
+                        }
+                        // Connected again at the next look.
+                        Some(Err(_)) => connection = None,
+                        None => {}
+                    }
+                    std::thread::park_timeout(LOOK);
+                }
+            });
+        match spawned {
+            Ok(thread) => Some(Watch {
+                stop,
+                again,
+                thread: thread.thread().clone(),
+            }),
+            Err(err) => {
+                tracing::warn!("couldn't watch what's playing: {err}");
+                None
+            }
+        }
+    }
+
+    /// Says what's playing at the next look whether it changed or not, for a newcomer.
+    pub fn again(&self) {
+        self.again.store(true, Ordering::SeqCst);
+        self.thread.unpark();
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thread.unpark();
+    }
 }
 
 fn property(
@@ -186,6 +315,19 @@ mod tests {
         assert_eq!(choose(&list[..2]), Some("org.mpris.MediaPlayer2.spotify"));
         assert_eq!(choose(&list[..1]), Some("org.mpris.MediaPlayer2.firefox"));
         assert_eq!(choose(&[]), None);
+    }
+
+    #[test]
+    fn a_player_is_named_from_its_bus_name() {
+        assert_eq!(player_name("org.mpris.MediaPlayer2.spotify"), "spotify");
+        assert_eq!(
+            player_name("org.mpris.MediaPlayer2.firefox.instance_1_42"),
+            "firefox"
+        );
+        assert_eq!(
+            player_name("org.mpris.MediaPlayer2.vlc.instance1234"),
+            "vlc"
+        );
     }
 
     #[test]

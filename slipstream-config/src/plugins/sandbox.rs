@@ -3,7 +3,8 @@
 //!
 //! Inside, the program has the system's programs, libraries and settings, read-only, with a
 //! private `/tmp` and an empty home folder. Of the person's own files it sees only its read-only
-//! copy, its own folder for what it keeps, and the folders its manifest says it reads, read-only.
+//! copy, its own folder for what it keeps, and the folders its manifest says it reads, read-only,
+//! or changes, for one that needs `write`. `/sys` is there, read-only, only if it needs `system`.
 //! It has its own process, IPC and host-name namespaces, so it can't see or signal anything
 //! outside, and no network unless it needs `network`. It has no session bus and no display;
 //! one that needs `windows` is given the Wayland socket alone, and `MARKER` in its root tells the
@@ -105,14 +106,15 @@ const SYSTEM: &[&str] = &["/usr", "/etc", "/opt"];
 /// rest.
 const MERGED: &[&str] = &["/bin", "/sbin", "/lib", "/lib64", "/lib32"];
 
-/// `bwrap`'s words for running `manifest`'s program from `dir`, keeping what it keeps in `state`
-/// and reading `reads`, each where the plugin looks for it. The program and its own words follow
-/// them, after `--`.
+/// `bwrap`'s words for running `manifest`'s program from `dir`, keeping what it keeps in `state`,
+/// reading `reads` and changing `writes`, each where the plugin looks for it. The program and its
+/// own words follow them, after `--`.
 pub fn args(
     manifest: &Manifest,
     dir: &Path,
     state: &Path,
     reads: &[ReadFolder],
+    writes: &[ReadFolder],
     session: &Session,
     seccomp: Option<i32>,
 ) -> Vec<OsString> {
@@ -168,6 +170,10 @@ pub fn args(
         "--tmpfs".as_ref(),
         "/run".as_ref(),
     ]);
+    // The hardware's own state, read-only: batteries, temperatures, fans and devices.
+    if manifest.needs(Need::System) {
+        add(&["--ro-bind-try".as_ref(), "/sys".as_ref(), "/sys".as_ref()]);
+    }
     if manifest.needs(Need::Network) {
         // Where `/etc/resolv.conf` leads on systems whose resolver keeps it in `/run`.
         for folder in ["/run/systemd/resolve", "/run/NetworkManager"] {
@@ -192,12 +198,17 @@ pub fn args(
             "/dev/dri".as_ref(),
         ]);
     }
-    for folder in reads {
-        add(&[
-            "--ro-bind-try".as_ref(),
-            folder.real.as_os_str(),
-            folder.named.as_os_str(),
-        ]);
+    // What it changes after what it reads, so that a folder named in both can be changed. One
+    // opened where it really is is bound from that, and can't have been swapped for a link since.
+    let folders = reads.iter().map(|folder| (folder, false));
+    for (folder, change) in folders.chain(writes.iter().map(|folder| (folder, true))) {
+        let (from, bind): (OsString, &str) = match (folder.fd, change) {
+            (Some(fd), false) => (fd.to_string().into(), "--ro-bind-fd"),
+            (Some(fd), true) => (fd.to_string().into(), "--bind-fd"),
+            (None, false) => (folder.real.clone().into_os_string(), "--ro-bind-try"),
+            (None, true) => (folder.real.clone().into_os_string(), "--bind-try"),
+        };
+        add(&[bind.as_ref(), from.as_os_str(), folder.named.as_os_str()]);
     }
     // Last, so that nothing it reads covers them.
     add(&["--ro-bind".as_ref(), dir.as_os_str(), dir.as_os_str()]);
@@ -209,6 +220,46 @@ pub fn args(
     }
     add(&["--chdir".as_ref(), dir.as_os_str(), "--".as_ref()]);
     args
+}
+
+/// Opens each of `folders` where it really is, for its sandbox to be made from what was opened
+/// rather than from its path again: a folder swapped for a link after it was checked, by
+/// something that can change what holds it, as another plugin that needs `write` might, isn't
+/// where it was checked, and the plugin doesn't run this time. One gone since is left out. The
+/// files returned keep them open; they close on exec until the sandbox's start clears that.
+pub fn open(folders: &mut Vec<ReadFolder>) -> Result<Vec<std::fs::File>, String> {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+    let mut open = Vec::new();
+    let mut kept = Vec::new();
+    for mut folder in std::mem::take(folders) {
+        let file = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&folder.real)
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(format!(
+                    "{} couldn't be opened: {err}",
+                    folder.named.display()
+                ));
+            }
+        };
+        let fd = file.as_raw_fd();
+        let opened = Path::new("/proc/self/fd").join(fd.to_string());
+        if std::fs::read_link(opened).ok().as_ref() != Some(&folder.real) {
+            return Err(format!(
+                "{} changed as its sandbox was made, so it doesn't run this time",
+                folder.named.display()
+            ));
+        }
+        folder.fd = Some(fd);
+        kept.push(folder);
+        open.push(file);
+    }
+    *folders = kept;
+    Ok(open)
 }
 
 /// The environment a sandboxed program is given beyond `ENVIRONMENT`: the display, for one that
@@ -235,6 +286,7 @@ mod tests {
             exec: vec!["./ferry".into()],
             every_secs: None,
             read: Vec::new(),
+            write: Vec::new(),
             needs: needs.to_vec(),
         }
     }
@@ -271,12 +323,14 @@ mod tests {
         let reads = [ReadFolder {
             named: "/home/ada/.cache/ferry".into(),
             real: "/var/home/ada/.cache/ferry".into(),
+            fd: None,
         }];
         let bare = words(&args(
             &manifest(&[]),
             dir,
             state,
             &reads,
+            &[],
             &session(),
             Some(9),
         ));
@@ -291,6 +345,11 @@ mod tests {
             "{bare}"
         );
         assert!(!bare.contains("/run/user/1000"), "{bare}");
+        assert!(!bare.contains("/sys"), "{bare}");
+        assert!(
+            !bare.contains("--bind-try") && !bare.contains("-fd"),
+            "{bare}"
+        );
         assert!(bare.contains("--tmpfs /home/ada"), "{bare}");
         assert!(bare.contains("--ro-bind-try /var/home/ada/.cache/ferry /home/ada/.cache/ferry"));
         let own = format!(
@@ -303,10 +362,93 @@ mod tests {
         assert!(environment(&manifest(&[]), &session()).is_empty());
 
         let all = manifest(&[Need::Network, Need::Windows]);
-        let given = words(&args(&all, dir, state, &[], &session(), None));
+        let given = words(&args(&all, dir, state, &[], &[], &session(), None));
         assert!(given.contains("--share-net"), "{given}");
         assert!(given.contains("--ro-bind-try /run/user/1000/wayland-1 /run/user/1000/wayland-1"));
         assert_eq!(environment(&all, &session()).len(), 2);
+    }
+
+    /// `system` is `/sys`, read-only, and `write` binds only the folders it names, writable,
+    /// from the folders opened where they really are when they were, after what it reads.
+    #[test]
+    fn system_and_write_give_only_what_they_name() {
+        let dir = Path::new("/home/ada/plugin");
+        let state = Path::new("/home/ada/state");
+        let notes = ReadFolder {
+            named: "/home/ada/Notes".into(),
+            real: "/var/home/ada/Notes".into(),
+            fd: Some(11),
+        };
+        let music = ReadFolder {
+            named: "/home/ada/Music".into(),
+            real: "/var/home/ada/Music".into(),
+            fd: Some(12),
+        };
+        let manifest = manifest(&[Need::System, Need::Write]);
+        let given = words(&args(
+            &manifest,
+            dir,
+            state,
+            &[music],
+            std::slice::from_ref(&notes),
+            &session(),
+            None,
+        ));
+        assert!(given.contains("--ro-bind-try /sys /sys"), "{given}");
+        let read = given.find("--ro-bind-fd 12 /home/ada/Music").unwrap();
+        let changed = given.find("--bind-fd 11 /home/ada/Notes").unwrap();
+        let own = given.find("--bind /home/ada/state").unwrap();
+        assert!(read < changed && changed < own, "{given}");
+        assert_eq!(given.matches("--bind-fd").count(), 1, "{given}");
+        let unopened = ReadFolder { fd: None, ..notes };
+        let given = words(&args(
+            &manifest,
+            dir,
+            state,
+            &[],
+            &[unopened],
+            &session(),
+            None,
+        ));
+        assert!(given.contains("--bind-try /var/home/ada/Notes /home/ada/Notes"));
+    }
+
+    /// A folder swapped for a link after it was checked isn't where it was checked, and its
+    /// plugin doesn't run.
+    #[test]
+    fn a_folder_swapped_for_a_link_once_checked_is_refused() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../target/test-scratch")
+            .join(format!("sandbox-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::fs::create_dir_all(root.join("elsewhere")).unwrap();
+        let real = std::fs::canonicalize(root.join("notes")).unwrap();
+        let checked = ReadFolder {
+            named: "/home/ada/Notes".into(),
+            real: real.clone(),
+            fd: None,
+        };
+        let mut folders = vec![checked.clone()];
+        let files = open(&mut folders).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(folders[0].fd.is_some());
+        std::fs::remove_dir(&real).unwrap();
+        std::os::unix::fs::symlink(root.join("elsewhere"), &real).unwrap();
+        assert!(open(&mut vec![checked]).is_err());
+        // A folder further up swapped too.
+        std::fs::create_dir_all(root.join("up/notes")).unwrap();
+        std::fs::create_dir_all(root.join("down/notes")).unwrap();
+        let real = std::fs::canonicalize(root.join("up/notes")).unwrap();
+        let checked = ReadFolder {
+            named: "/home/ada/Notes".into(),
+            real,
+            fd: None,
+        };
+        std::fs::rename(root.join("up"), root.join("was-up")).unwrap();
+        std::os::unix::fs::symlink(root.join("down"), root.join("up")).unwrap();
+        assert!(open(&mut vec![checked]).unwrap_err().contains("changed"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A folder it reads can't cover its own: `read = ["/"]` still leaves it its copy and state.
@@ -317,12 +459,14 @@ mod tests {
         let everything = ReadFolder {
             named: "/".into(),
             real: "/".into(),
+            fd: None,
         };
         let given = words(&args(
             &manifest(&[]),
             dir,
             state,
             &[everything],
+            &[],
             &session(),
             None,
         ));

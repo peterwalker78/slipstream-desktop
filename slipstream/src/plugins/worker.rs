@@ -8,7 +8,9 @@
 //!
 //! A plugin that needs `notifications` is handed each one as it arrives (`Worker::hear`): written
 //! to a program that keeps running as it comes, and to one that runs every so often as what it
-//! reads at its next run. A notification on a card goes to the `Sink`, a few a minute at most.
+//! reads at its next run, and so, for a plugin that needs them, is what's playing, which windows
+//! are open and what's copied. A notification or a sound on a card goes to the `Sink`, a few a
+//! minute at most.
 
 use std::{
     collections::VecDeque,
@@ -29,14 +31,17 @@ use slipstream_config::{
     plugins::{self, Card, Need, Plugin, sandbox, store},
 };
 
-/// A notification a plugin sent from its card.
+/// A notification a plugin sent from its card, or a sound it played.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sent {
     /// The plugin's id, and its name, which its notification is signed with.
     pub id: String,
     pub name: String,
+    /// Empty for a sound on its own.
     pub title: String,
     pub body: String,
+    /// A name from the sound theme, for a plugin that needs `sound`.
+    pub sound: Option<String>,
 }
 
 /// Where the notifications plugins send go, from their threads.
@@ -171,18 +176,60 @@ impl Worker {
 
     /// A notification arrived, as the line its program reads: handed on in its turn.
     pub fn hear(&self, line: &str) {
+        self.ear().tell(line, None);
+    }
+
+    /// How things are now, as a line its program reads, such as which windows are open: handed
+    /// on in its turn, in place of any line about the same thing not yet handed on, since only
+    /// the latest matters. `about` is the line's one key, as `windows`.
+    pub fn hear_latest(&self, line: &str, about: &str) {
+        self.ear().tell(line, Some(about));
+    }
+
+    /// A way to tell it things from another thread.
+    pub fn ear(&self) -> Ear {
+        Ear {
+            control: self.control.clone(),
+            thread: self.thread.clone(),
+        }
+    }
+
+    fn stop(&self) {
+        self.control.stop.store(true, Ordering::SeqCst);
+        self.nudge();
+    }
+
+    fn nudge(&self) {
+        self.ear().nudge();
+    }
+}
+
+/// What tells a worker the lines its program reads, from any thread. Telling one that has
+/// stopped does nothing.
+#[derive(Clone)]
+pub struct Ear {
+    control: Arc<Control>,
+    thread: Thread,
+}
+
+impl Ear {
+    /// As `Worker::hear_latest`.
+    pub fn hear_latest(&self, line: &str, about: &str) {
+        self.tell(line, Some(about));
+    }
+
+    fn tell(&self, line: &str, about: Option<&str>) {
         {
             let mut heard = self.control.heard.lock().unwrap();
+            if let Some(about) = about {
+                let starts = format!("{{\"{about}\":");
+                heard.retain(|told| !told.starts_with(&starts));
+            }
             if heard.len() >= MOST_HEARD {
                 heard.pop_front();
             }
             heard.push_back(line.to_string());
         }
-        self.nudge();
-    }
-
-    fn stop(&self) {
-        self.control.stop.store(true, Ordering::SeqCst);
         self.nudge();
     }
 
@@ -234,10 +281,10 @@ impl Job {
         program(&self.plugin, &self.state, args)
     }
 
-    /// What a run reads on its standard input: the notifications heard since the last, for a
-    /// plugin that needs them, and nothing to read for any other.
+    /// What a run reads on its standard input: what it was told since the last, for a plugin
+    /// that needs to be told anything, and nothing to read for any other.
     fn input(&self) -> Option<Vec<u8>> {
-        self.plugin.manifest.needs(Need::Notifications).then(|| {
+        self.plugin.manifest.hears().then(|| {
             let mut heard = self.control.heard.lock().unwrap();
             heard.drain(..).collect::<String>().into_bytes()
         })
@@ -275,7 +322,9 @@ impl Job {
         let fresh = self.fresh.take().filter(|_| !stale);
         let card = fresh.or_else(|| {
             let line = self.last.as_ref()?;
-            Card::parse(line, stale, unix_now()).ok()
+            let mut card = Card::parse(line, stale, unix_now()).ok()?;
+            unasked(&self.plugin.manifest, &mut card);
+            Some(card)
         });
         *self.published.lock().unwrap() = Published { card, problem };
     }
@@ -286,22 +335,32 @@ impl Job {
         let mut card = Card::parse(line, false, unix_now())
             .map_err(|err| format!("Its card can't be read: {err}"))?;
         self.last = Some(line.to_string());
-        if let Some(notify) = card.notify.take() {
-            self.send(notify.title, notify.body);
+        if let Some(why) = unasked(&self.plugin.manifest, &mut card) {
+            self.failed(why);
+        }
+        let sound = card.sound.take();
+        let notify = card.notify.take();
+        if notify.is_some() && !self.plugin.manifest.needs(Need::Notify) {
+            self.failed("Its card sends a notification, but it doesn't say it needs notify");
+        }
+        match notify.filter(|_| self.plugin.manifest.needs(Need::Notify)) {
+            Some(notify) => self.send(notify.title, notify.body, sound),
+            None if sound.is_some() => self.send(String::new(), String::new(), sound),
+            None => {}
         }
         self.fresh = Some(card);
         Ok(())
     }
 
-    fn send(&mut self, title: String, body: String) {
-        if !self.plugin.manifest.needs(Need::Notify) {
-            self.failed("Its card sends a notification, but it doesn't say it needs notify");
-        } else if self.sent.admit(Instant::now()).is_some() {
+    /// Sends a notification titled `title`, or with no title only `sound`, a few a minute.
+    fn send(&mut self, title: String, body: String, sound: Option<String>) {
+        if self.sent.admit(Instant::now()).is_some() {
             (self.sink)(Sent {
                 id: self.plugin.id.clone(),
                 name: self.plugin.manifest.name.clone(),
                 title,
                 body,
+                sound,
             });
         } else {
             let id = &self.plugin.id;
@@ -420,7 +479,7 @@ impl Job {
                 return !self.stopped();
             }
         };
-        let listens = self.plugin.manifest.needs(Need::Notifications);
+        let listens = self.plugin.manifest.hears();
         let lines = match Lines::start(program, listens, move |line| {
             if let Some(dropped) = errors.lock().unwrap().admit(Instant::now()) {
                 let more = if dropped > 0 {
@@ -523,6 +582,31 @@ impl Drop for Job {
     }
 }
 
+/// Takes out what `card` asks Slipstream for that its plugin doesn't say it needs: a sound, or a
+/// button that opens a web address, copies or controls what's playing. Says why, if it took any.
+fn unasked(manifest: &plugins::Manifest, card: &mut Card) -> Option<&'static str> {
+    let needs = |need| manifest.needs(need);
+    let mut why = None;
+    if card.sound.is_some() && !needs(Need::Sound) {
+        card.sound = None;
+        why = Some("Its card plays a sound, but it doesn't say it needs sound");
+    }
+    card.buttons.retain(|button| {
+        let unasked = if button.open.is_some() && !needs(Need::Open) {
+            Some("A button opens a web address, but it doesn't say it needs open")
+        } else if button.copy.is_some() && !needs(Need::Clipboard) {
+            Some("A button copies, but it doesn't say it needs clipboard")
+        } else if plugins::MEDIA_BUTTONS.contains(&button.id.as_str()) && !needs(Need::Media) {
+            Some("A button controls what's playing, but it doesn't say it needs media")
+        } else {
+            None
+        };
+        why = why.or(unasked);
+        unasked.is_none()
+    });
+    why
+}
+
 /// The plugin's program, with `args` after its own words: run as its manifest writes it, in its
 /// folder, with `state` as its own folder. It runs in its sandbox, from a cleared environment
 /// (`plugins::ENVIRONMENT`), unless it needs `everything`, when it runs with the session's own.
@@ -537,7 +621,8 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
     if let Err(err) = std::fs::create_dir_all(state) {
         tracing::warn!("plugin {}: no folder for its state: {err}", plugin.id);
     }
-    let reads = plugins::read_folders(manifest)?;
+    let mut reads = plugins::read_folders(manifest)?;
+    let mut writes = plugins::write_folders(manifest)?;
     let mut command = if manifest.unconfined() {
         Command::new(program)
     } else {
@@ -548,8 +633,13 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         // neither has no use for them.
         let seccomp = seccomp_file(manifest.needs(Need::Windows) || manifest.needs(Need::Network))?;
         let seccomp_fd = seccomp.as_ref().map(|file| file.as_raw_fd());
-        // SAFETY: two system calls between fork and exec, which allocate nothing. The filter's
-        // file is moved in, so it stays open for as long as the command can be started.
+        // The folders it reads and changes, open where they were checked to be, for bubblewrap
+        // to bind from.
+        let mut folders = sandbox::open(&mut reads)?;
+        folders.extend(sandbox::open(&mut writes)?);
+        // SAFETY: system calls between fork and exec, which allocate nothing. The filter's file
+        // and the folders' are moved in, so they stay open for as long as the command can be
+        // started.
         unsafe {
             command.pre_exec(move || {
                 // A session keyring of its own, empty: the one it would share can hold the keys
@@ -564,11 +654,11 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
                 if joined < 0 && error.raw_os_error() != Some(libc::ENOSYS) {
                     return Err(error);
                 }
-                // The filter's file, left open across the exec for bubblewrap to read.
-                if let Some(file) = &seccomp
-                    && libc::fcntl(file.as_raw_fd(), libc::F_SETFD, 0) < 0
-                {
-                    return Err(std::io::Error::last_os_error());
+                // The filter's file and the folders', left open across the exec for bubblewrap.
+                for fd in seccomp.iter().chain(&folders).map(|file| file.as_raw_fd()) {
+                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
                 }
                 Ok(())
             });
@@ -579,6 +669,7 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
                 &plugin.dir,
                 state,
                 &reads,
+                &writes,
                 &session,
                 seccomp_fd,
             ))
@@ -604,6 +695,9 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
         .env("SLIPSTREAM_PLUGIN_STATE", state);
     for (n, folder) in reads.iter().enumerate() {
         command.env(format!("SLIPSTREAM_PLUGIN_READ_{n}"), &folder.named);
+    }
+    for (n, folder) in writes.iter().enumerate() {
+        command.env(format!("SLIPSTREAM_PLUGIN_WRITE_{n}"), &folder.named);
     }
     Ok(command)
 }

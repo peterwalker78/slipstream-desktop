@@ -9,7 +9,13 @@
 //! plugins folder changes and when the panel opens. A plugin that's on runs from the read-only
 //! copy kept when it was approved (`slipstream_config::plugins::store`), never from its folder,
 //! and in its sandbox unless it needs `everything`.
+//!
+//! What a plugin sees of the desktop beyond its sandbox, Slipstream hands it, as lines on its
+//! standard input: the notifications that arrive, what's playing, the windows open and what's
+//! copied, each only to a plugin that needs it. What it can have done beyond its own program, a
+//! button's press does by Slipstream's hand (`Brokered`, `brokered.rs`).
 
+mod brokered;
 pub mod card;
 mod scan;
 mod worker;
@@ -18,14 +24,40 @@ pub use scan::Scan;
 pub use slipstream_config::plugins::Glance;
 pub use worker::Sent;
 
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use slipstream_config::{
     Settings,
-    plugins::{self, Card, Need},
+    plugins::{self, Card, Need, OpenWindow},
 };
 
-use worker::{Approved, Sink, Worker};
+use worker::{Approved, Ear, Sink, Worker};
+
+/// What a button pressed on a card asks Slipstream to do, for a plugin that needs it, in place of
+/// running its program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Brokered {
+    Media(crate::media::Transport),
+    /// Open this web address in the browser.
+    Open(String),
+    /// Put this text on the clipboard.
+    Copy(String),
+}
+
+/// The least time between two looks at the open windows for the plugins that need them.
+const WINDOWS_GAP: Duration = Duration::from_secs(1);
+
+/// What's playing, watched while a plugin that needs `media` runs, and the plugins told of it.
+struct MediaWatch {
+    ears: Arc<Mutex<Vec<Ear>>>,
+    /// Which plugins those are.
+    ids: Vec<String>,
+    /// Dropped last, which stops it.
+    _watch: crate::media::Watch,
+}
 
 /// One plugin that's on, as it runs.
 struct Running {
@@ -80,6 +112,11 @@ pub struct Plugins {
     reported: Vec<String>,
     scanner: scan::Scanner,
     sink: Sink,
+    media: Option<MediaWatch>,
+    /// When the open windows were last looked at for the plugins that need them, and the line
+    /// they were last told.
+    windows_looked: Option<Instant>,
+    windows_told: Option<String>,
 }
 
 impl Plugins {
@@ -105,6 +142,9 @@ impl Plugins {
             reported: Vec::new(),
             scanner: scan::Scanner::start(places, Box::new(found)),
             sink: Arc::new(sent),
+            media: None,
+            windows_looked: None,
+            windows_told: None,
         }
     }
 
@@ -120,6 +160,7 @@ impl Plugins {
             // Which sections show is only the panel's business: the program carries on.
             running.hidden = wanted.hidden(&running.approved.plugin.id).to_vec();
         }
+        self.watch_media();
         self.rescan();
     }
 
@@ -155,6 +196,10 @@ impl Plugins {
                 .iter()
                 .position(|running| running.approved == approved)
                 .map(|at| old.remove(at));
+            if kept.is_none() && approved.plugin.manifest.needs(Need::OpenWindows) {
+                // A newcomer is told of the windows at the next look, changed or not.
+                self.windows_told = None;
+            }
             let running = kept.unwrap_or_else(|| {
                 tracing::debug!("starting plugin {}", approved.plugin.id);
                 Running {
@@ -166,6 +211,102 @@ impl Plugins {
             self.running.push(Running { hidden, ..running });
         }
         // Whatever is left in `old` is dropped here, which stops it.
+        drop(old);
+        self.watch_media();
+    }
+
+    /// Whether a plugin that runs needs `need`.
+    pub fn wants(&self, need: Need) -> bool {
+        self.running
+            .iter()
+            .any(|running| running.approved.plugin.manifest.needs(need))
+    }
+
+    /// Watches what's playing while a plugin that needs `media` runs, and stops when none does.
+    fn watch_media(&mut self) {
+        let listening: Vec<&Running> = self
+            .running
+            .iter()
+            .filter(|running| running.approved.plugin.manifest.needs(Need::Media))
+            .collect();
+        if listening.is_empty() {
+            self.media = None;
+            return;
+        }
+        let ids: Vec<String> = listening
+            .iter()
+            .map(|running| running.approved.plugin.id.clone())
+            .collect();
+        let ears: Vec<Ear> = listening
+            .iter()
+            .map(|running| running.worker.ear())
+            .collect();
+        if let Some(media) = &mut self.media {
+            *media.ears.lock().unwrap() = ears;
+            if media.ids != ids {
+                media.ids = ids;
+                media._watch.again();
+            }
+            return;
+        }
+        let shared = Arc::new(Mutex::new(ears));
+        let told = shared.clone();
+        let watch = crate::media::Watch::start(move |now| {
+            let line = plugins::media_line(
+                now.as_ref()
+                    .map(|now| (&*now.player, &*now.title, &*now.artist, now.playing)),
+            );
+            for ear in told.lock().unwrap().iter() {
+                ear.hear_latest(&line, "media");
+            }
+        });
+        self.media = watch.map(|watch| MediaWatch {
+            ears: shared,
+            ids,
+            _watch: watch,
+        });
+    }
+
+    /// Whether to look at the open windows now, for the plugins that need them: there is one,
+    /// and the last look was a while ago.
+    pub fn windows_due(&mut self, now: Instant) -> bool {
+        if !self.wants(Need::OpenWindows) {
+            self.windows_told = None;
+            return false;
+        }
+        if self
+            .windows_looked
+            .is_some_and(|looked| now.saturating_duration_since(looked) < WINDOWS_GAP)
+        {
+            return false;
+        }
+        self.windows_looked = Some(now);
+        true
+    }
+
+    /// The windows open now: the plugins that need them are told, if they changed.
+    pub fn windows(&mut self, windows: &[OpenWindow]) {
+        let line = plugins::windows_line(windows);
+        if self.windows_told.as_ref() == Some(&line) {
+            return;
+        }
+        for running in &self.running {
+            if running.approved.plugin.manifest.needs(Need::OpenWindows) {
+                running.worker.hear_latest(&line, "windows");
+            }
+        }
+        self.windows_told = Some(line);
+    }
+
+    /// Text was copied: the plugins that need to see it are told.
+    pub fn copied(&self, text: &str) {
+        let mut line = None;
+        for running in &self.running {
+            if running.approved.plugin.manifest.needs(Need::Clipboard) {
+                let line = line.get_or_insert_with(|| plugins::clipboard_line(text));
+                running.worker.hear(line);
+            }
+        }
     }
 
     /// The cards of the plugins that are on, in order.
@@ -215,18 +356,34 @@ impl Plugins {
 
     /// Button `button` on plugin `id`'s card was pressed: its program runs with `press <button>`
     /// after it, on the plugin's own thread and in its turn, and then runs as usual again to
-    /// show what changed.
-    pub fn press(&self, id: &str, button: &str) {
-        if !plugins::valid_id(button) {
-            return;
-        }
-        if let Some(running) = self
+    /// show what changed. A button that opens a web address, copies or controls what's playing
+    /// is what's returned instead, for Slipstream to do, if the plugin needs it.
+    pub fn press(&self, id: &str, button: &str) -> Option<Brokered> {
+        let running = self
             .running
             .iter()
-            .find(|running| running.approved.plugin.id == id)
-        {
+            .find(|running| running.approved.plugin.id == id)?;
+        let needs = |need| running.approved.plugin.manifest.needs(need);
+        let pressed = running
+            .worker
+            .published()
+            .card
+            .and_then(|card| card.buttons.into_iter().find(|shown| shown.id == button));
+        if let Some(pressed) = pressed {
+            if let Some(address) = pressed.open {
+                return needs(Need::Open).then_some(Brokered::Open(address));
+            }
+            if let Some(text) = pressed.copy {
+                return needs(Need::Clipboard).then_some(Brokered::Copy(text));
+            }
+        }
+        if let Some(transport) = media_control(button) {
+            return needs(Need::Media).then_some(Brokered::Media(transport));
+        }
+        if plugins::valid_id(button) {
             running.worker.press(button);
         }
+        None
     }
 
     /// A notification arrived: the plugins that need to see them are told, except the one that
@@ -251,8 +408,20 @@ impl Plugins {
 
     /// Stops every plugin, now: the compositor is on its way out.
     pub fn stop_all(&mut self) {
+        self.media = None;
         self.running.clear();
         slipstream_config::command::end_all();
+    }
+}
+
+/// The control a media button's id names.
+fn media_control(id: &str) -> Option<crate::media::Transport> {
+    use crate::media::Transport;
+    match id {
+        "media:play-pause" => Some(Transport::PlayPause),
+        "media:next" => Some(Transport::Next),
+        "media:previous" => Some(Transport::Previous),
+        _ => None,
     }
 }
 
@@ -935,6 +1104,183 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             "one that doesn't need it hears nothing"
         );
         assert!(sent.try_recv().is_err());
+    }
+
+    /// `install_needing`, with `more` added to its manifest.
+    fn install_with(root: &Path, id: &str, script: &str, needs: &[&str], more: &str) -> Plugin {
+        let plugin = install_needing(root, id, script, None, needs);
+        let dir = root.join("plugins").join(id);
+        let mut manifest = std::fs::read_to_string(dir.join(plugins::MANIFEST)).unwrap();
+        manifest.push_str(more);
+        std::fs::write(dir.join(plugins::MANIFEST), manifest).unwrap();
+        plugins::Plugin {
+            manifest: plugins::read(&dir).unwrap().manifest,
+            ..plugin
+        }
+    }
+
+    /// The promise in the guide: in its sandbox a plugin that needs `write` changes the folders
+    /// it names and nothing else of yours, those it reads staying read-only, and only one that
+    /// needs `system` sees `/sys`, and only read-only.
+    #[test]
+    fn write_and_system_give_exactly_what_they_say() {
+        let root = scratch("write");
+        let notes = root.join("notes");
+        let music = root.join("music");
+        let other = root.join("other");
+        for folder in [&notes, &music, &other] {
+            std::fs::create_dir_all(folder).unwrap();
+        }
+        std::fs::write(notes.join("old"), "x").unwrap();
+        let script = format!(
+            "echo new > \"$SLIPSTREAM_PLUGIN_WRITE_0/new\" && echo wrote-notes; \
+             rm \"$SLIPSTREAM_PLUGIN_WRITE_0/old\" && echo removed; \
+             touch \"$SLIPSTREAM_PLUGIN_READ_0/x\" 2>/dev/null && echo wrote-music; \
+             touch '{other}/x' 2>/dev/null && echo wrote-other; \
+             test -d /sys/class && echo saw-sys; \
+             awk '$5 == \"/sys\" {{ print substr($6, 1, 2) }}' /proc/self/mountinfo",
+            other = other.display(),
+        );
+        let more = format!(
+            "write = [\"{}\"]\nread = [\"{}\"]\n",
+            notes.display(),
+            music.display()
+        );
+        let plugin = install_with(&root, "notes", &script, &["write", "system"], &more);
+        let state = root.join("state");
+        let out = worker::program(&plugin, &state, &[])
+            .unwrap()
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "wrote-notes\nremoved\nsaw-sys\nro\n",
+            "{err}"
+        );
+        assert_eq!(std::fs::read_to_string(notes.join("new")).unwrap(), "new\n");
+        assert!(!notes.join("old").exists());
+        assert!(!music.join("x").exists() && !other.join("x").exists());
+
+        // Without them, neither the folder nor `/sys` is there.
+        let script = format!(
+            "touch '{notes}/y' 2>/dev/null && echo wrote-notes; \
+             test -e /sys/class && echo saw-sys; \
+             awk '$5 == \"/sys\" {{ print $5 }}' /proc/self/mountinfo",
+            notes = notes.display(),
+        );
+        let bare = install_with(&root, "bare", &script, &[], "");
+        let out = worker::program(&bare, &state, &[])
+            .unwrap()
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "");
+        assert!(!notes.join("y").exists());
+    }
+
+    /// The promise in the guide: a plugin that needs `open-windows` or `clipboard` is told which
+    /// windows are open, or what's copied, as lines on its input, and one that doesn't is told
+    /// nothing.
+    #[test]
+    fn a_plugin_sees_windows_and_copies_only_if_it_needs_to() {
+        let root = scratch("seeing");
+        let (mut plugins, scans) = looking(&root);
+        let echo = r#"while read -r line; do
+            said=$(printf '%s' "$line" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p; s/.*"text":"\([^"]*\)".*/\1/p')
+            printf '{"lines":["%s"]}\n' "$said"
+        done"#;
+        let seeing = install_needing(&root, "seeing", echo, None, &["open-windows", "clipboard"]);
+        let blind = install_needing(&root, "blind", echo, None, &[]);
+        let mut settings = turned_on(&seeing);
+        settings
+            .plugins
+            .set_on(&blind.id, Some(blind.fingerprint.clone()));
+        follow(&mut plugins, &scans, &settings);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while plugins.running.len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(plugins.wants(Need::OpenWindows) && plugins.wants(Need::Clipboard));
+        assert!(plugins.windows_due(Instant::now()));
+        plugins.windows(&[OpenWindow {
+            app: "org.example.mail".into(),
+            title: "Re: ferry times".into(),
+            focused: true,
+        }]);
+        let line = |shown: &[Shown]| {
+            let seeing = shown.iter().find(|shown| shown.id == "seeing")?;
+            seeing.card.as_ref()?.lines.first().cloned()
+        };
+        let shown = settle(&plugins, |shown| {
+            line(shown).as_deref() == Some("Re: ferry times")
+        });
+        assert_eq!(
+            line(&shown).as_deref(),
+            Some("Re: ferry times"),
+            "{shown:?}"
+        );
+        // A second look so soon waits.
+        assert!(!plugins.windows_due(Instant::now()));
+        plugins.copied("the 9:40 ferry");
+        let shown = settle(&plugins, |shown| {
+            line(shown).as_deref() == Some("the 9:40 ferry")
+        });
+        assert_eq!(line(&shown).as_deref(), Some("the 9:40 ferry"), "{shown:?}");
+        let blind = plugins
+            .shown()
+            .into_iter()
+            .find(|shown| shown.id == "blind");
+        assert!(
+            blind.unwrap().card.is_none(),
+            "one that doesn't need it hears nothing"
+        );
+    }
+
+    /// The promise in the guide: a button that opens a web address, copies or controls what's
+    /// playing is done by Slipstream, and only for a plugin that needs it; for any other it
+    /// isn't even on the card.
+    #[test]
+    fn a_button_opens_copies_or_controls_media_only_for_a_plugin_that_needs_it() {
+        let root = scratch("brokered");
+        let card = r#"printf '{"buttons":[{"id":"site","label":"Site","open":"https://example.org"},{"id":"copy","label":"Copy","copy":"ferry times"},{"id":"media:next","label":"Next"}]}'"#;
+        let able = install_needing(
+            &root,
+            "able",
+            card,
+            Some(60),
+            &["open", "clipboard", "media"],
+        );
+        let unable = install_needing(&root, "unable", card, Some(60), &[]);
+        let mut settings = turned_on(&able);
+        settings
+            .plugins
+            .set_on(&unable.id, Some(unable.fingerprint.clone()));
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &settings);
+        let shown = settle(&plugins, |shown| {
+            shown.len() == 2 && shown.iter().all(|shown| shown.card.is_some())
+        });
+        let buttons = |id: &str| {
+            let shown = shown.iter().find(|shown| shown.id == id).unwrap();
+            shown.card.as_ref().unwrap().buttons.len()
+        };
+        assert_eq!((buttons("able"), buttons("unable")), (3, 0), "{shown:?}");
+        assert_eq!(
+            plugins.press("able", "site"),
+            Some(Brokered::Open("https://example.org".into()))
+        );
+        assert_eq!(
+            plugins.press("able", "copy"),
+            Some(Brokered::Copy("ferry times".into()))
+        );
+        assert_eq!(
+            plugins.press("able", "media:next"),
+            Some(Brokered::Media(crate::media::Transport::Next))
+        );
+        for button in ["site", "copy", "media:next"] {
+            assert_eq!(plugins.press("unable", button), None, "{button}");
+        }
     }
 
     #[test]

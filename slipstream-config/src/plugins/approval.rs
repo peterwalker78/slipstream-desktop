@@ -26,6 +26,8 @@ pub struct Approval {
     pub exec: Vec<String>,
     pub every_secs: Option<u64>,
     pub read: Vec<String>,
+    /// The folders it changes. A record from before plugins could has none.
+    pub write: Vec<String>,
     /// What it needed beyond its folders. A record from before plugins said has none, which is
     /// right: they couldn't.
     pub needs: Vec<Need>,
@@ -41,6 +43,7 @@ impl Approval {
             exec: plugin.manifest.exec.clone(),
             every_secs: plugin.manifest.every_secs,
             read: plugin.manifest.read.clone(),
+            write: plugin.manifest.write.clone(),
             needs: plugin.manifest.needs.clone(),
             files: plugin.files.clone(),
         }
@@ -101,6 +104,7 @@ pub struct Change {
     /// It runs another program, or the same with other words.
     pub program: bool,
     pub reads_added: Vec<String>,
+    pub writes_added: Vec<String>,
     pub needs_added: Vec<Need>,
 }
 
@@ -108,7 +112,10 @@ impl Change {
     /// Whether it asks for more than was agreed to: another program, folders it didn't read, or
     /// something it didn't need. Asking for less, or running more or less often, isn't more.
     pub fn asks_for_more(&self) -> bool {
-        self.program || !self.reads_added.is_empty() || !self.needs_added.is_empty()
+        self.program
+            || !self.reads_added.is_empty()
+            || !self.writes_added.is_empty()
+            || !self.needs_added.is_empty()
     }
 }
 
@@ -120,6 +127,12 @@ pub fn compare(before: &Approval, now: &Approval) -> Change {
             .read
             .iter()
             .filter(|folder| !before.read.contains(folder))
+            .cloned()
+            .collect(),
+        writes_added: now
+            .write
+            .iter()
+            .filter(|folder| !before.write.contains(folder))
             .cloned()
             .collect(),
         needs_added: now
@@ -219,9 +232,11 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
             lines.push("It now wants full access to your computer.".to_string());
         }
         Some(change) => {
+            // The folders it now changes say more than that it needs `write`.
             let mut wants: Vec<String> = change
                 .needs_added
                 .iter()
+                .filter(|need| **need != Need::Write || change.writes_added.is_empty())
                 .map(|need| need.says().to_string())
                 .collect();
             if !change.reads_added.is_empty() {
@@ -231,6 +246,14 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
                     .map(|f| super::shown_folder(f))
                     .collect();
                 wants.push(format!("look in {}", super::listed(&folders)));
+            }
+            if !change.writes_added.is_empty() {
+                let folders: Vec<String> = change
+                    .writes_added
+                    .iter()
+                    .map(|f| super::shown_folder(f))
+                    .collect();
+                wants.push(format!("change the files in {}", super::listed(&folders)));
             }
             lines.push(match (wants.is_empty(), change.program) {
                 (true, false) => "It doesn't ask for anything new.".to_string(),
@@ -333,6 +356,32 @@ mod tests {
             ..now.clone()
         };
         assert!(!compare(&now, &quieter).asks_for_more());
+    }
+
+    /// Each of the newer needs is asking for more, and a folder to change is said as the folder.
+    #[test]
+    fn an_update_that_changes_files_or_sees_more_says_what() {
+        let root = scratch("write");
+        let before = Approval::of(&timer(&root, MANIFEST, "echo one"));
+        let more = format!(
+            "{MANIFEST}needs = [\"write\", \"clipboard\", \"open-windows\"]\n\
+             write = [\"$HOME/Notes\"]\n"
+        );
+        let change = compare(&before, &Approval::of(&timer(&root, &more, "echo one")));
+        assert!(change.asks_for_more());
+        assert_eq!(change.writes_added, ["$HOME/Notes"]);
+        let said = explain(Some(&change), &Source::Unknown);
+        assert_eq!(
+            said[0],
+            "It now also wants to see what you copy, see which windows you have open and their \
+             titles and change the files in ~/Notes."
+        );
+        for need in Need::ALL {
+            let name = toml::Value::try_from(need).unwrap();
+            let asks = format!("{MANIFEST}needs = [{name}]\n");
+            let now = Approval::of(&timer(&root, &asks, "echo one"));
+            assert!(compare(&before, &now).asks_for_more(), "{need:?}");
+        }
     }
 
     #[test]
