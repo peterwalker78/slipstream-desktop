@@ -103,6 +103,8 @@ Slipstream puts your concentration first.
 
 **Nothing runs until you've looked.** A new plugin starts off, so you can read its files first. Turning it on runs a read-only copy of what you saw, in a sandbox that reaches only what it lists, and if it changes after that, it waits for you to turn it on again.
 
+**One comes with it.** Focus times spells of work and keeps an honest log of where they went. It starts off like any other, and updates with Slipstream.
+
 ## New to tiling? Take the tour
 
 <img src="assets/readme/tour.webp" alt="The tour's card over the desktop. On the left, a miniature of the desktop plays each lesson: windows opening and sharing the screen, gravity arranging them round the one in use, and bullet time tipping the workspaces back with a letter on each window. On the right, each lesson's title, why it works that way, and the keys to try." width="960">
