@@ -250,7 +250,7 @@ fn keep_running() -> Result<(), String> {
             finished.extend(state.away(seen, &mut keyboard));
         }
         seen = now;
-        state.new_day(&words::local(now).date);
+        state.new_day(&words::local(now).date, words::midnight(now));
         finished.extend(
             take_asked(&asked)
                 .into_iter()

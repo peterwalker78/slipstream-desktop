@@ -45,6 +45,9 @@ pub struct State {
     pub day: String,
     /// The seconds of focus finished that day.
     pub today: i64,
+    /// When that day began, in seconds since the Unix epoch: a session that ran across midnight
+    /// counts only its time since then.
+    pub day_starts: i64,
     /// What the last focus session came to, as the idle card says it.
     pub last: Option<String>,
     /// Something playing was paused during a break, so the card offers to play it again.
@@ -171,12 +174,18 @@ impl State {
         std::fs::rename(new, path)
     }
 
-    /// Starts the count afresh on a new `day`.
-    pub fn new_day(&mut self, day: &str) {
+    /// Starts the count afresh on a new `day`, which began at `starts`.
+    pub fn new_day(&mut self, day: &str, starts: i64) {
         if self.day != day {
             self.day = day.to_string();
             self.today = 0;
         }
+        self.day_starts = starts;
+    }
+
+    /// The seconds of `session` up to `until` that count towards today.
+    fn counted(&self, session: &Session, until: i64) -> i64 {
+        (until.min(session.ends()) - session.started.max(self.day_starts)).max(0)
     }
 
     /// Whether a focus session is running.
@@ -189,9 +198,7 @@ impl State {
     /// The seconds of focus today, the session running included.
     pub fn today_so_far(&self, now: i64) -> i64 {
         let running = match &self.session {
-            Some(session) if session.kind == Kind::Focus => {
-                (now.min(session.ends()) - session.started).max(0)
-            }
+            Some(session) if session.kind == Kind::Focus => self.counted(session, now),
             _ => 0,
         };
         self.today + running
@@ -256,11 +263,11 @@ impl State {
         let session = self.session.take()?;
         let ends = session.ends();
         let spent = (now.min(ends) - session.started).max(0);
+        if session.kind == Kind::Focus {
+            self.today += self.counted(&session, now);
+        }
         let mut apps: Vec<(String, i64)> = session.apps.into_iter().collect();
         apps.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        if session.kind == Kind::Focus {
-            self.today += spent;
-        }
         Some(Finished {
             kind: session.kind,
             started: session.started,
@@ -369,15 +376,28 @@ mod tests {
     }
 
     #[test]
+    fn a_session_across_midnight_counts_only_its_time_since_towards_the_new_day() {
+        let mut keyboard = Keyboard::default();
+        let mut state = State::default();
+        state.new_day("2026-10-26", 0);
+        state.ask(Ask::Start(Kind::Focus, 25), 86_000, &mut keyboard);
+        state.new_day("2026-10-27", 86_400);
+        assert_eq!(state.today_so_far(86_600), 200);
+        let finished = state.tick(87_500, &mut keyboard).unwrap();
+        assert_eq!(state.today, 1100);
+        assert_eq!(finished.spent, 1500, "the log has the whole session");
+    }
+
+    #[test]
     fn a_new_day_starts_the_count_afresh_and_the_state_survives_a_restart() {
         let mut state = State {
             day: "2026-10-26".into(),
             today: 900,
             ..State::default()
         };
-        state.new_day("2026-10-26");
+        state.new_day("2026-10-26", 0);
         assert_eq!(state.today, 900);
-        state.new_day("2026-10-27");
+        state.new_day("2026-10-27", 86_400);
         assert_eq!(state.today, 0);
 
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))

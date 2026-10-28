@@ -95,17 +95,25 @@ pub struct Local {
     pub time: String,
 }
 
-/// `unix`, in seconds since the Unix epoch, in the local time zone.
-pub fn local(unix: i64) -> Local {
+/// `unix`, in seconds since the Unix epoch, taken apart in the local time zone.
+fn local_tm(unix: i64) -> Option<libc::tm> {
     // SAFETY: `localtime_r` only reads the time it's given and writes the `tm` it's given.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     let time = unix as libc::time_t;
     if unsafe { libc::localtime_r(&time, &mut tm) }.is_null() {
+        return None;
+    }
+    Some(tm)
+}
+
+/// `unix`, in seconds since the Unix epoch, in the local time zone.
+pub fn local(unix: i64) -> Local {
+    let Some(tm) = local_tm(unix) else {
         return Local {
             date: "?".into(),
             time: "?".into(),
         };
-    }
+    };
     Local {
         date: format!(
             "{:04}-{:02}-{:02}",
@@ -114,6 +122,23 @@ pub fn local(unix: i64) -> Local {
             tm.tm_mday
         ),
         time: format!("{:02}:{:02}", tm.tm_hour, tm.tm_min),
+    }
+}
+
+/// When the local day `unix` falls in began, in seconds since the Unix epoch.
+pub fn midnight(unix: i64) -> i64 {
+    let Some(mut tm) = local_tm(unix) else {
+        return unix;
+    };
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    // Whether summer time is on at midnight is for `mktime` to work out.
+    tm.tm_isdst = -1;
+    // SAFETY: `mktime` only reads and normalises the `tm` it's given.
+    match unsafe { libc::mktime(&mut tm) } {
+        -1 => unix,
+        starts => starts.min(unix),
     }
 }
 
@@ -248,5 +273,8 @@ mod tests {
         let now = local(1_793_121_600);
         assert_eq!(now.date.len(), 10);
         assert_eq!(now.time.len(), 5);
+        let starts = midnight(1_793_121_600);
+        assert_eq!(local(starts).date, now.date);
+        assert_ne!(local(starts - 1).date, now.date);
     }
 }
