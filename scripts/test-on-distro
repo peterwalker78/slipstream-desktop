@@ -177,13 +177,18 @@ if [ -d "$folder/share/slipstream/bundled/focus" ]; then
 fi
 
 # agent-notify, an extra plugin installed from its own release: a download from before it came
-# along has no file describing it.
+# along has no file describing it. Its command in ~/.local/bin leads to the copy approved in
+# Settings, so until it's turned on there the link is all there is; the program itself is run
+# from where it was installed.
 if [ -f "$folder/extras/agent-notify.conf" ]; then
     plugin=$home/.local/share/slipstream/plugins/agent-notify
+    approved=$home/.local/state/slipstream/plugins/agent-notify/current/bin/agent-notify
     if ! [ -f "$plugin/plugin.toml" ]; then
         fail "the agent-notify plugin isn't installed"
-    elif ! as_user "\$HOME/.local/bin/agent-notify --help" >/dev/null 2>&1; then
+    elif ! as_user "'$plugin/bin/agent-notify' --help" >/dev/null 2>&1; then
         fail "agent-notify, installed as a plugin, doesn't run here"
+    elif [ "$(readlink "$home/.local/bin/agent-notify")" != "$approved" ]; then
+        fail "agent-notify's command doesn't lead to the copy approved in Settings"
     fi
 fi
 
