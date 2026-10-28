@@ -8,6 +8,7 @@ mod notifications;
 mod plugins;
 mod power;
 mod privacy;
+mod row_box;
 mod screens;
 mod session;
 mod shortcuts;
@@ -211,7 +212,8 @@ fn group(page: &gtk::Box, title: &str) -> gtk::Box {
     card
 }
 
-/// A row in `card`: its title and a line of explanation on the left, `control` on the right.
+/// A row in `card`: its title and a line of explanation on the left, `control` on the right, or
+/// below them when the window is too narrow for both.
 /// Screen readers get the title as the control's name and the explanation as its description.
 /// Returns the explanation's label, to change later.
 fn row(
@@ -229,7 +231,7 @@ fn row_box(
     title: &str,
     sub: Option<&str>,
     control: &impl IsA<gtk::Widget>,
-) -> (gtk::Box, Option<gtk::Label>) {
+) -> (gtk::Widget, Option<gtk::Label>) {
     let control: &gtk::Widget = control.upcast_ref();
     let text = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -251,10 +253,7 @@ fn row_box(
         sub
     });
     control.set_valign(gtk::Align::Center);
-    let row = gtk::Box::builder().spacing(14).css_classes(["row"]).build();
-    row.append(&text);
-    row.append(control);
-    (row, sub)
+    (row_box::RowBox::new(&text, control).upcast(), sub)
 }
 
 fn label(text: &str, class: &str) -> gtk::Label {
