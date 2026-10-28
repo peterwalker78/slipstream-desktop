@@ -2,7 +2,10 @@
 //! them, turns them on and off, chooses the one whose headline shows on the chip, and adds them
 //! from a folder or a git address. Adding one never runs anything of it, and it starts off.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use slipstream_config::plugins::{self, Plugin, approval, store};
 
@@ -111,8 +114,17 @@ fn fill(list: &gtk::Box, store: &Store) {
                 &gtk::Box::new(gtk::Orientation::Horizontal, 0),
             );
         }
-        for (plugin, explained) in &looked.plugins {
-            plugin_card(&yours, &store, plugin, explained, &settings, refill.clone());
+        for (plugin, taken, explained) in &looked.plugins {
+            let taken = taken.as_deref();
+            plugin_card(
+                &yours,
+                &store,
+                plugin,
+                taken,
+                explained,
+                &settings,
+                refill.clone(),
+            );
         }
         if !looked.problems.is_empty() {
             let group = group(&skipped, "Folders that aren't plugins");
@@ -129,16 +141,34 @@ fn fill(list: &gtk::Box, store: &Store) {
     });
 }
 
-/// Every plugin, each held one with what its update means, and the folders that aren't plugins.
+/// Every plugin, with why it's held over its keyword, or for a held one, what its update means;
+/// and the folders that aren't plugins.
 #[derive(Default)]
 struct Looked {
-    plugins: Vec<(Plugin, Vec<String>)>,
+    plugins: Vec<(Plugin, Option<String>, Vec<String>)>,
     problems: Vec<String>,
 }
 
 /// Looks at every plugin folder, as `approved` says each was turned on.
 fn look(approved: &plugins::Plugins) -> Looked {
     let (found, problems) = plugins::find();
+    // A keyword answers for one plugin, the first turned on that runs, as Slipstream decides it.
+    let mut running = Vec::new();
+    let mut taken = BTreeMap::new();
+    for id in &approved.on {
+        let Some(plugin) = found.iter().find(|plugin| plugin.id == *id) else {
+            continue;
+        };
+        if !approved.runs(plugin, approval::load(id).as_ref()) {
+            continue;
+        }
+        match plugin.manifest.keyword_taken(running.iter().copied()) {
+            Some(why) => {
+                taken.insert(id.clone(), why);
+            }
+            None => running.push(&plugin.manifest),
+        }
+    }
     let plugins = found
         .into_iter()
         .map(|plugin| {
@@ -154,7 +184,8 @@ fn look(approved: &plugins::Plugins) -> Looked {
             } else {
                 Vec::new()
             };
-            (plugin, explained)
+            let taken = taken.remove(&plugin.id);
+            (plugin, taken, explained)
         })
         .collect();
     Looked { plugins, problems }
@@ -266,11 +297,12 @@ fn card(cards: &gtk::Box) -> gtk::Box {
 
 /// A plugin's card. On top, its name, how safe it is and its switch; under that, anything that
 /// stops the switch, then what it can do, then where its headline goes and removing it.
-/// `explained` says what a held plugin's update means.
+/// `taken` says why it's held over its keyword, and `explained` what a held plugin's update means.
 fn plugin_card(
     cards: &gtk::Box,
     store: &Store,
     plugin: &Plugin,
+    taken: Option<&str>,
     explained: &[String],
     settings: &Settings,
     refill: impl Fn() + Clone + 'static,
@@ -278,9 +310,10 @@ fn plugin_card(
     let card = card(cards);
     let on = settings.plugins.is_on(&plugin.id);
     let held = on
-        && !settings
-            .plugins
-            .runs(plugin, approval::load(&plugin.id).as_ref());
+        && (taken.is_some()
+            || !settings
+                .plugins
+                .runs(plugin, approval::load(&plugin.id).as_ref()));
     // What it can do, each with a picture and how much thought it deserves: the commands it
     // adds run as you whenever they're run, so they count too.
     let mut abilities = plugin.manifest.abilities();
@@ -364,7 +397,9 @@ fn plugin_card(
     }
 
     // Why the switch is off, or can't stay on, straight under it.
-    if held {
+    if let Some(why) = taken {
+        notice(&card, &format!("{why}."), &[]);
+    } else if held {
         notice(
             &card,
             "Updated, so it's off until you switch it on again.",

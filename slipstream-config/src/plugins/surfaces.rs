@@ -165,6 +165,23 @@ impl Manifest {
         query.trim_start().strip_prefix(keyword).map(str::trim)
     }
 
+    /// Why this plugin is held over its keyword: one keyword answers for one plugin, the first
+    /// turned on of those that run (`running`, in the order they were turned on). None when it
+    /// has no keyword, or none of them has it.
+    pub fn keyword_taken<'a>(
+        &self,
+        running: impl IntoIterator<Item = &'a Manifest>,
+    ) -> Option<String> {
+        let keyword = self.keyword.as_deref()?;
+        let first = running
+            .into_iter()
+            .find(|first| first.keyword.as_deref() == Some(keyword))?;
+        Some(format!(
+            "Searches that start with {keyword} already go to {}",
+            first.name
+        ))
+    }
+
     /// The action with this id, if it lists one.
     pub fn action(&self, id: &str) -> Option<&Action> {
         self.actions.iter().find(|action| action.id == id)
@@ -276,6 +293,29 @@ mod tests {
         assert_eq!(claimed("  !5", keywords), Some("!"));
         assert_eq!(claimed("=!", keywords), Some("="));
         assert_eq!(claimed("firefox", keywords), None);
+    }
+
+    #[test]
+    fn a_keyword_stays_with_the_plugin_turned_on_first() {
+        let with = |name: &str, keyword: &str| {
+            parse_manifest(
+                format!("name = \"{name}\"\nexec = [\"./p\"]\nkeyword = \"{keyword}\"\n")
+                    .as_bytes(),
+            )
+            .unwrap()
+        };
+        let (first, double, second) = (
+            with("First", "!"),
+            with("Double", "!!"),
+            with("Second", "!"),
+        );
+        assert_eq!(first.keyword_taken([&double]), None);
+        assert_eq!(
+            second.keyword_taken([&double, &first]).as_deref(),
+            Some("Searches that start with ! already go to First")
+        );
+        let none = parse_manifest(b"name = \"Disk\"\nexec = [\"./d\"]\n").unwrap();
+        assert_eq!(none.keyword_taken([&first]), None);
     }
 
     #[test]

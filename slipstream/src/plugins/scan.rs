@@ -119,16 +119,11 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
             held.push(hold(None));
             continue;
         }
-        // A keyword answers for one plugin: the first turned on that runs.
-        if let Some(keyword) = &plugin.manifest.keyword
-            && let Some(first) = run
-                .iter()
-                .find(|first| first.plugin.manifest.keyword.as_ref() == Some(keyword))
+        if let Some(why) = plugin
+            .manifest
+            .keyword_taken(run.iter().map(|first| &first.plugin.manifest))
         {
-            let name = &first.plugin.manifest.name;
-            held.push(hold(Some(format!(
-                "Searches that start with {keyword} already go to {name}"
-            ))));
+            held.push(hold(Some(why)));
             continue;
         }
         let kept = places.stores.join(id);
