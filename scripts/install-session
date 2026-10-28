@@ -1336,3 +1336,6 @@ else
     echo "Slipstream is on the login screen's session list. Now run scripts/update-session to"
     echo "put the compositor in ~/.local/bin, which is what that entry starts."
 fi
+echo
+echo "Questions, ideas, or a setup to show? Come and say hello:"
+echo "  https://github.com/peterwalker78/slipstream-desktop/discussions"
