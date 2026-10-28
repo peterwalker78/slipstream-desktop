@@ -174,14 +174,13 @@ fn hear(
     }
 }
 
-/// Adds `line` to the log at `log`, starting it with a heading if it's new.
+/// Adds `line` to the log at `log`, starting it with a heading if it's new. Both go in one
+/// write, so a crash between them can't leave the log with a heading and half a line.
 fn add_to_log(log: &Path, line: &str) -> io::Result<()> {
     let new = !log.exists();
     let mut file = fs::OpenOptions::new().create(true).append(true).open(log)?;
-    if new {
-        file.write_all(b"# Focus\n\n")?;
-    }
-    writeln!(file, "{line}")
+    let heading = if new { "# Focus\n\n" } else { "" };
+    file.write_all(format!("{heading}{line}\n").as_bytes())
 }
 
 /// What a session coming to an end means: a line in the log, and for one whose time ran out
@@ -329,7 +328,8 @@ mod tests {
         assert_eq!(Care::Thought.verdict(), "Worth a thought");
     }
 
-    /// A log that can't be written says so on the card until a line is added to it again.
+    /// A log that can't be written says so on the card until a line is added to it again, and a
+    /// new log starts with its heading, once.
     #[test]
     fn a_log_that_couldn_t_be_written_says_so_until_it_can() {
         use super::{ended, timer};
@@ -365,6 +365,15 @@ mod tests {
         assert!(problem.is_some(), "a break adds nothing to the log");
         ended(&focus, &mut state, Some(&log), 1500, &mut problem);
         assert_eq!(problem, None);
+        ended(&focus, &mut state, Some(&log), 1500, &mut problem);
+        let text = std::fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4, "one heading and a line a session: {text:?}");
+        assert_eq!(&lines[..2], ["# Focus", ""]);
+        assert!(
+            lines[2..].iter().all(|line| line.starts_with("- ")),
+            "{text:?}"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
