@@ -95,8 +95,16 @@ pub struct Local {
     pub time: String,
 }
 
-/// `unix`, in seconds since the Unix epoch, taken apart in the local time zone.
+unsafe extern "C" {
+    /// Reads the time zone again, from `TZ` or the system's own. `localtime_r` uses the one read
+    /// last, so without it a change of time zone would only show after a restart.
+    fn tzset();
+}
+
+/// `unix`, in seconds since the Unix epoch, taken apart in the local time zone as it is now.
 fn local_tm(unix: i64) -> Option<libc::tm> {
+    // SAFETY: `tzset` takes nothing and only reads the time zone.
+    unsafe { tzset() };
     // SAFETY: `localtime_r` only reads the time it's given and writes the `tm` it's given.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     let time = unix as libc::time_t;
@@ -266,6 +274,31 @@ mod tests {
         assert_eq!(left(1000, 1000 - 17 * 60 - 1), "18 min");
         assert_eq!(left(1000, 2000), "0 min");
         assert_eq!(left(7200, 0), "2 h");
+    }
+
+    /// A change of time zone shows at the next look, not after a restart. It runs in a process
+    /// of its own, since it changes `TZ` for everything in it.
+    #[test]
+    fn a_new_time_zone_shows_straight_away() {
+        const ALONE: &str = "FOCUS_TEST_TIME_ZONE";
+        if std::env::var_os(ALONE).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "words::tests::a_new_time_zone_shows_straight_away",
+                ])
+                .args(["--test-threads=1", "--quiet"])
+                .env(ALONE, "1")
+                .env("TZ", "UTC0")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+        assert_eq!(local(0).time, "00:00");
+        // SAFETY: nothing else runs in this process to read the environment meanwhile.
+        unsafe { std::env::set_var("TZ", "XST-5:30") };
+        assert_eq!(local(0).time, "05:30");
     }
 
     #[test]
