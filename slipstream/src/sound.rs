@@ -262,6 +262,21 @@ pub fn blip(choice: &str) {
     let Some(path) = sounds::file(choice, sounds::CLICKS) else {
         return;
     };
-    // Without waiting, since the keypress has already done its work, and reaped when it ends.
-    let _ = crate::launch::spawn(&["pw-play".to_string(), path.to_string_lossy().into_owned()]);
+    // Without waiting, since the keypress has already done its work. A click still going when the
+    // next key comes, which is a stuck one when PipeWire has lost its sink, means no new click.
+    let mut command = crate::launch::command("pw-play");
+    command
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    match CLICK.play(command) {
+        Ok(true) => {}
+        Ok(false) => tracing::debug!("the last volume click hasn't finished"),
+        Err(err) => tracing::warn!("couldn't play the volume click: {err}"),
+    }
 }
+
+/// The volume click. Every click is a moment long, so one still going after this is stuck.
+static CLICK: slipstream_config::sounds::Player =
+    slipstream_config::sounds::Player::new(Duration::from_secs(2));

@@ -1,6 +1,10 @@
 //! The volume, and the sounds Slipstream makes itself.
 
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+    time::Duration,
+};
 
 use slipstream_config::sounds::{self, Preset};
 
@@ -257,16 +261,29 @@ fn set_volume(percent: u8, click: Option<String>) {
     });
 }
 
-/// Plays `choice`, one of `presets`, a sound from `theme` or a file, and waits for it to finish.
+/// Plays `choice`, one of `presets`, a sound from `theme` or a file, without waiting for it. Not
+/// while the last one is still going, so clicking away at a slider or a list only ever has one
+/// sound playing, and a stuck one is stopped soon after.
 fn play(choice: &str, presets: &[Preset], theme: &str) {
     let path = match sounds::themed(choice) {
         Some(name) => sounds::find(name, theme, &sounds::theme_bases(), &read_index),
         None => sounds::file(choice, presets),
     };
     if let Some(path) = path {
-        let _ = Command::new("pw-play").arg(path).status();
+        let mut command = Command::new("pw-play");
+        command
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Err(err) = PLAYER.play(command) {
+            eprintln!("slipstream-settings: couldn't play a sound: {err}");
+        }
     }
 }
+
+/// Every sound Settings plays. As long as the desktop lets a notification sound go on.
+static PLAYER: sounds::Player = sounds::Player::new(Duration::from_secs(8));
 
 /// A sound theme's index, if it's a small regular file.
 fn read_index(path: &Path) -> Option<String> {
