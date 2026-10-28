@@ -147,6 +147,16 @@ pub fn hits(text: &str) -> Result<Vec<Hit>, String> {
         .collect())
 }
 
+/// Which of `keywords` a search typed in the explorer goes to: the longest it starts with, so a
+/// plugin with `!` never sees the searches meant for one with `!!`.
+pub fn claimed<'a>(query: &str, keywords: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let query = query.trim_start();
+    keywords
+        .into_iter()
+        .filter(|keyword| query.starts_with(keyword))
+        .max_by_key(|keyword| keyword.len())
+}
+
 impl Manifest {
     /// What a search typed in the explorer passes on to this plugin: the words after its
     /// keyword, when it starts with it. None for any other search, and for a plugin without one.
@@ -257,6 +267,15 @@ mod tests {
         assert_eq!(sums.searched("= 2+2 "), Some("2+2"));
         assert_eq!(sums.searched("  =pi"), Some("pi"));
         assert_eq!(sums.searched("="), Some(""));
+    }
+
+    #[test]
+    fn a_search_goes_to_the_longest_keyword_it_starts_with() {
+        let keywords = ["!", "!!", "="];
+        assert_eq!(claimed("!! 5", keywords), Some("!!"));
+        assert_eq!(claimed("  !5", keywords), Some("!"));
+        assert_eq!(claimed("=!", keywords), Some("="));
+        assert_eq!(claimed("firefox", keywords), None);
     }
 
     #[test]

@@ -86,6 +86,7 @@ example = "=2+2"
 ```
 
 - A keyword is one to three symbols, such as `=`, `?` or `!!`, so that no ordinary search starts with one. It can't start with `:`, `/`, `~` or `.`, which Slipstream's own emoji and file searches use.
+- A keyword answers for one plugin. A search goes to the plugin with the longest keyword it starts with, so a plugin with `!` never sees the searches for one with `!!`, and a second plugin switched on with a keyword already taken doesn't run until the first is switched off.
 - `example` is a search Settings shows beside the keyword, so people know what to type. It starts with the keyword.
 - Each search runs the plugin's program with `search` and the words typed after the keyword, as one word: `./sums.sh search "2+2"`. That is the same for a program that runs every so often and one that keeps running: the search is a run of its own, beside the program's usual runs, so a program that keeps running needn't read anything for it. A search with nothing after the keyword isn't run.
 - The program prints its answers as one line of JSON, and exits:

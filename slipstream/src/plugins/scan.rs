@@ -89,7 +89,7 @@ impl Scanner {
 /// One look, as `ask` says.
 fn scan(places: &Places, ask: &Ask) -> Scan {
     let (found, problems) = plugins::find_in(&places.dirs, places.bundled.as_deref());
-    let mut run = Vec::new();
+    let mut run: Vec<Approved> = Vec::new();
     let mut held = Vec::new();
     // The copy each plugin that's on is approved as: the one it runs from, or for one that's
     // held, the one it was switched on with.
@@ -117,6 +117,18 @@ fn scan(places: &Places, ask: &Ask) -> Scan {
         let asked = approval::load_from(&places.approvals, id);
         if !ask.runs(plugin, asked.as_ref()) {
             held.push(hold(None));
+            continue;
+        }
+        // A keyword answers for one plugin: the first turned on that runs.
+        if let Some(keyword) = &plugin.manifest.keyword
+            && let Some(first) = run
+                .iter()
+                .find(|first| first.plugin.manifest.keyword.as_ref() == Some(keyword))
+        {
+            let name = &first.plugin.manifest.name;
+            held.push(hold(Some(format!(
+                "Searches that start with {keyword} already go to {name}"
+            ))));
             continue;
         }
         let kept = places.stores.join(id);

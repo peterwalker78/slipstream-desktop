@@ -34,7 +34,7 @@ use slipstream_config::{
     Settings,
     plugins::{
         self, Card, Need, OpenWindow,
-        surfaces::{Action, Hit, SEARCH_CHARS, Tile},
+        surfaces::{Action, Hit, SEARCH_CHARS, Tile, claimed},
     },
 };
 
@@ -445,15 +445,25 @@ impl Plugins {
             .collect()
     }
 
-    /// `query` was typed in the explorer: each plugin whose keyword it starts with is asked the
-    /// words after it, off the event loop, and says what it has so far. Any other plugin is
-    /// neither asked nor told.
+    /// `query` was typed in the explorer: the plugin with the longest keyword it starts with is
+    /// asked the words after it, off the event loop, and says what it has so far. Any other
+    /// plugin is neither asked nor told.
     pub fn search(&self, query: &str) -> Vec<Answers> {
+        let keyword = claimed(
+            query,
+            self.running
+                .iter()
+                .filter(|running| running.searcher.is_some())
+                .filter_map(|running| running.approved.plugin.manifest.keyword.as_deref()),
+        );
         self.running
             .iter()
             .filter_map(|running| {
                 let searcher = running.searcher.as_ref()?;
                 let manifest = &running.approved.plugin.manifest;
+                if manifest.keyword.as_deref() != keyword {
+                    return None;
+                }
                 let words: String = manifest
                     .searched(query)?
                     .chars()
@@ -966,6 +976,47 @@ esac"#,
             std::fs::read_to_string(&asked).unwrap(),
             "search 2+2\npress go\n"
         );
+    }
+
+    /// A keyword answers for one plugin: a second turned on with it is held, saying which has
+    /// it, and a search goes only to the plugin with the longest keyword it starts with.
+    #[test]
+    fn a_keyword_goes_to_one_plugin_and_a_search_to_the_longest() {
+        let root = scratch("keywords");
+        let with_keyword = |id: &str, keyword: &str| {
+            let plugin = install(&root, id, "printf '{}'", Some(60));
+            let manifest = plugin.dir.join(plugins::MANIFEST);
+            let text = std::fs::read_to_string(&manifest).unwrap();
+            std::fs::write(&manifest, format!("keyword = \"{keyword}\"\n{text}")).unwrap();
+            plugins::read(&plugin.dir).unwrap()
+        };
+        let first = with_keyword("first", "!");
+        let second = with_keyword("second", "!");
+        let double = with_keyword("double", "!!");
+        let mut settings = turned_on(&first);
+        for plugin in [&second, &double] {
+            settings
+                .plugins
+                .set_on(&plugin.id, Some(plugin.fingerprint.clone()));
+        }
+        let (mut plugins, scans) = looking(&root);
+        follow(&mut plugins, &scans, &settings);
+        let shown = plugins.shown();
+        let second = shown.iter().find(|shown| shown.id == "second").unwrap();
+        assert!(second.held, "{shown:?}");
+        assert_eq!(
+            second.problem.as_deref(),
+            Some("Searches that start with ! already go to first")
+        );
+        let asked = |query: &str| -> Vec<String> {
+            plugins
+                .search(query)
+                .into_iter()
+                .map(|answers| answers.plugin)
+                .collect()
+        };
+        assert_eq!(asked("!! 10"), ["double"]);
+        assert_eq!(asked("! 10"), ["first"]);
     }
 
     /// The promise in the guide: a button only runs its plugin's own program again, with the
