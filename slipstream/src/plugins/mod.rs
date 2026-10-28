@@ -494,16 +494,13 @@ impl Plugins {
             .collect()
     }
 
-    /// The keys for plugin `id`'s action `action` were pressed: it runs as a press of a button
-    /// with that id does, if the plugin is on and lists the action.
-    pub fn act(&self, id: &str, action: &str) {
-        let listed = self.running.iter().any(|running| {
+    /// Whether plugin `id` is on and lists the action `action`, whose keys then press it as a
+    /// button with that id would be.
+    pub fn lists(&self, id: &str, action: &str) -> bool {
+        self.running.iter().any(|running| {
             running.approved.plugin.id == id
                 && running.approved.plugin.manifest.action(action).is_some()
-        });
-        if listed {
-            self.press(id, action);
-        }
+        })
     }
 
     /// A notification arrived: the plugins that need to see them are told, except the one that
@@ -955,9 +952,10 @@ esac"#,
         assert_eq!(answers[0].words, "2+2");
         assert_eq!(answers[0].hits[0].label, "2+2!");
 
-        plugins.act("sums", "format-disk");
-        plugins.act("plain", "go");
-        plugins.act("sums", "go");
+        assert!(!plugins.lists("sums", "format-disk"));
+        assert!(!plugins.lists("plain", "go"));
+        assert!(plugins.lists("sums", "go"));
+        plugins.press("sums", "go");
         let deadline = Instant::now() + Duration::from_secs(5);
         while !std::fs::read_to_string(&asked).is_ok_and(|said| said.contains("press"))
             && Instant::now() < deadline
@@ -1500,6 +1498,15 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             Some(60),
             &["open", "clipboard", "media"],
         );
+        // Its action has the id of the button that opens a web address: its keys do the same.
+        let manifest = able.dir.join(plugins::MANIFEST);
+        let text = std::fs::read_to_string(&manifest).unwrap();
+        std::fs::write(
+            &manifest,
+            format!("{text}[[actions]]\nid = \"site\"\nlabel = \"Site\"\n"),
+        )
+        .unwrap();
+        let able = plugins::read(&able.dir).unwrap();
         let unable = install_needing(&root, "unable", card, Some(60), &[]);
         let mut settings = turned_on(&able);
         settings
@@ -1515,6 +1522,7 @@ command = '''if true; then printf '{"lines":["%s"]}' "${1:-ran}"; fi # last word
             shown.card.as_ref().unwrap().buttons.len()
         };
         assert_eq!((buttons("able"), buttons("unable")), (3, 0), "{shown:?}");
+        assert!(plugins.lists("able", "site") && !plugins.lists("unable", "site"));
         assert_eq!(
             plugins.press("able", "site"),
             Some(Brokered::Open("https://example.org".into()))

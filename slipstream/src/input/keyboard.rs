@@ -722,7 +722,11 @@ impl Slipstream {
         match used {
             KeyUse::Action(action) => self.run_bound(action),
             KeyUse::OpenApp(app) => self.open_own_key(&app),
-            KeyUse::PluginAction(plugin, action) => self.plugins.act(&plugin, &action),
+            KeyUse::PluginAction(plugin, action) => {
+                if self.plugins.lists(&plugin, &action) {
+                    self.plugin_press(&plugin, &action);
+                }
+            }
             KeyUse::Explorer(sym, ch, mods) => self.explorer_key(sym, ch, mods),
             KeyUse::Bullet(key, mods) => self.bullet_key(key, mods),
             KeyUse::Quick(key, shift) => self.quick_key(key, shift),
