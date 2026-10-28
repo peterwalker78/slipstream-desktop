@@ -205,7 +205,7 @@ Both are projects of their own that run on any Linux desktop. The installer adds
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
 | [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |
 
-AI coding tools are used in writing Slipstream's code. Every change is built and tested in CI.
+AI coding tools are used in writing Slipstream's code and its words. Every change is built and tested in CI.
 
 ## Licence
 
