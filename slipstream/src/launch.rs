@@ -596,18 +596,6 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
-/// Starts a helper of Slipstream's own with its output kept out of Slipstream's log, and reaps it
-/// when it exits. An error means it never started: most often, no program by that name.
-pub fn spawn(command: &[String]) -> io::Result<()> {
-    let mut child = prepare(command, None, None)?.spawn().inspect_err(|err| {
-        tracing::warn!(?command, "couldn't launch: {err}");
-    })?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
 /// Starts an app that has no desktop entry to hand, such as a command typed into Run: it gets a
 /// scope of its own, named for its program.
 pub fn run(command: &[String], done: Done) {

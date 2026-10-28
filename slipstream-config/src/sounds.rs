@@ -13,8 +13,14 @@
 
 use std::{
     ffi::OsStr,
+    io,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    process::Command,
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -357,6 +363,62 @@ pub fn due() -> bool {
     true
 }
 
+/// One sound at a time, each cut off once it has gone on for `longest`. `pw-play` can hang for
+/// good when PipeWire has no sink to give it, and a key pressed every second would then leave a
+/// hung player behind every second: with this there's never more than one, and never for long.
+pub struct Player {
+    busy: AtomicBool,
+    longest: Duration,
+}
+
+/// How often a sound that's still going is looked in on.
+const LOOK_EVERY: Duration = Duration::from_millis(50);
+
+impl Player {
+    pub const fn new(longest: Duration) -> Self {
+        Self {
+            busy: AtomicBool::new(false),
+            longest,
+        }
+    }
+
+    /// Starts `command`, unless the last sound is still going. Returns at once, with whether it
+    /// started; a thread of its own waits for it to end, and stops it at `longest`.
+    pub fn play(&'static self, mut command: Command) -> io::Result<bool> {
+        if self.busy.swap(true, Ordering::AcqRel) {
+            return Ok(false);
+        }
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                self.busy.store(false, Ordering::Release);
+                return Err(err);
+            }
+        };
+        let started = Instant::now();
+        thread::spawn(move || {
+            loop {
+                match child.try_wait() {
+                    Ok(None) if started.elapsed() < self.longest => thread::sleep(LOOK_EVERY),
+                    Ok(Some(_)) => break,
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                }
+            }
+            self.busy.store(false, Ordering::Release);
+        });
+        Ok(true)
+    }
+
+    /// Whether a sound is still going.
+    pub fn busy(&self) -> bool {
+        self.busy.load(Ordering::Acquire)
+    }
+}
+
 /// Whether `choice` is a file of the user's own rather than one of the presets.
 pub fn is_own_file(choice: &str) -> bool {
     Path::new(choice).is_absolute()
@@ -666,5 +728,46 @@ mod tests {
         assert!(is_own_file("/home/someone/sounds/ding.ogg"));
         assert_eq!(file("no-such-preset", DINGS), None);
         assert_eq!(file("/no/such/file.ogg", DINGS), None);
+    }
+
+    fn idle_within(player: &Player, within: Duration) -> bool {
+        let started = Instant::now();
+        while player.busy() {
+            if started.elapsed() > within {
+                return false;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        true
+    }
+
+    fn sleep_for(secs: &str) -> Command {
+        let mut command = Command::new("sleep");
+        command.arg(secs);
+        command
+    }
+
+    #[test]
+    fn a_player_plays_one_sound_at_a_time_and_cuts_off_one_that_hangs() {
+        static HANGS: Player = Player::new(Duration::from_millis(300));
+        assert!(HANGS.play(sleep_for("30")).unwrap());
+        // Asked again while the first is still going: nothing more starts.
+        assert!(!HANGS.play(sleep_for("30")).unwrap());
+        assert!(
+            idle_within(&HANGS, Duration::from_secs(5)),
+            "the hung player was never stopped"
+        );
+        // Once it's stopped, the next one plays.
+        assert!(HANGS.play(Command::new("true")).unwrap());
+        assert!(idle_within(&HANGS, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_player_that_cant_start_leaves_room_for_the_next() {
+        static MISSING: Player = Player::new(Duration::from_secs(1));
+        assert!(MISSING.play(Command::new("/no/such/player")).is_err());
+        assert!(!MISSING.busy());
+        assert!(MISSING.play(Command::new("true")).unwrap());
+        assert!(idle_within(&MISSING, Duration::from_secs(5)));
     }
 }
