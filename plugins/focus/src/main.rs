@@ -185,13 +185,15 @@ fn add_to_log(log: &Path, line: &str) -> io::Result<()> {
 }
 
 /// What a session coming to an end means: a line in the log, and for one whose time ran out
-/// while you were here, a notification.
+/// while you were here, a notification. `problem` is why the log couldn't be written, kept until
+/// a line is added to it.
 fn ended(
     finished: &Finished,
     state: &mut State,
     log: Option<&Path>,
     now: i64,
-) -> (Option<Notice>, Option<String>) {
+    problem: &mut Option<String>,
+) -> Option<Notice> {
     let told = !finished.early && !finished.unseen;
     if finished.kind == Kind::Break {
         let notice = told.then(|| Notice {
@@ -202,28 +204,22 @@ fn ended(
             ),
             sound: "bell",
         });
-        return (notice, None);
+        return notice;
     }
-    let mut problem = None;
     if let Some(line) = words::log_line(finished, &words::local(finished.started)) {
         state.last = Some(words::summary(finished));
-        match log {
-            Some(log) => {
-                if let Err(err) = add_to_log(log, &line) {
-                    problem = Some(format!("Couldn't add to the log: {err}"));
-                }
-            }
-            None => {
-                problem = Some("No folder for the log: switch Focus off and on to make it".into())
-            }
-        }
+        *problem = match log {
+            Some(log) => add_to_log(log, &line)
+                .err()
+                .map(|err| format!("Couldn't add to the log: {err}")),
+            None => Some("No folder for the log: switch Focus off and on to make it".into()),
+        };
     }
-    let notice = told.then(|| Notice {
+    told.then(|| Notice {
         title: "Time for a break".into(),
         body: words::summary(finished),
         sound: "complete",
-    });
-    (notice, problem)
+    })
 }
 
 /// The program that keeps running: it acts on presses and the time, takes in what Slipstream
@@ -259,9 +255,7 @@ fn keep_running() -> Result<(), String> {
         finished.extend(state.tick(now, &mut keyboard));
         let mut notice = None;
         for finished in &finished {
-            let (said, wrong) = ended(finished, &mut state, log.as_deref(), now);
-            notice = said.or(notice);
-            problem = wrong.or(problem);
+            notice = ended(finished, &mut state, log.as_deref(), now, &mut problem).or(notice);
         }
 
         let card = card::card(
@@ -333,6 +327,45 @@ mod tests {
             .max();
         assert_eq!(care, Some(Care::Thought));
         assert_eq!(Care::Thought.verdict(), "Worth a thought");
+    }
+
+    /// A log that can't be written says so on the card until a line is added to it again.
+    #[test]
+    fn a_log_that_couldn_t_be_written_says_so_until_it_can() {
+        use super::{ended, timer};
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/test-scratch")
+            .join(format!("focus-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let focus = timer::Finished {
+            kind: timer::Kind::Focus,
+            started: 0,
+            planned: 1500,
+            spent: 1500,
+            early: false,
+            unseen: false,
+            apps: Vec::new(),
+        };
+        let rest = timer::Finished {
+            kind: timer::Kind::Break,
+            ..focus.clone()
+        };
+        let mut state = timer::State::default();
+        let mut problem = None;
+        let log = dir.join("log.md");
+        let gone = dir.join("gone").join("log.md");
+        ended(&focus, &mut state, Some(&gone), 1500, &mut problem);
+        assert!(
+            problem
+                .as_deref()
+                .is_some_and(|why| why.starts_with("Couldn't add"))
+        );
+        ended(&rest, &mut state, Some(&log), 1500, &mut problem);
+        assert!(problem.is_some(), "a break adds nothing to the log");
+        ended(&focus, &mut state, Some(&log), 1500, &mut problem);
+        assert_eq!(problem, None);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Whatever it presses is something it acts on: its card's buttons, its tile, its answers
