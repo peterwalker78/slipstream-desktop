@@ -33,7 +33,7 @@ const SPEED_OVER: f64 = 0.08;
 const GIVE: f64 = 0.12;
 
 /// The way a swipe goes. Fingers move the desktop as they'd move a page: swiping left brings in
-/// the workspace to the right.
+/// the workspace to the right, or the one to the left with the touchpad's natural scrolling off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
@@ -52,6 +52,9 @@ pub enum Axis {
 /// A three-finger swipe under way.
 #[derive(Debug, Default)]
 pub struct Swipe {
+    /// Sideways, the fingers move the view rather than the desktop, as the touchpad's scrolling
+    /// goes with natural scrolling off.
+    reversed: bool,
     travelled: (f64, f64),
     axis: Option<Axis>,
     /// What it carries, once it carries anything.
@@ -122,6 +125,14 @@ fn zoom_settles_open(from: f64, progress: f64, speed: f64) -> bool {
 }
 
 impl Swipe {
+    /// A swipe on a touchpad scrolling `naturally` or not.
+    pub fn new(naturally: bool) -> Self {
+        Self {
+            reversed: !naturally,
+            ..Self::default()
+        }
+    }
+
     /// The fingers moved by (`dx`, `dy`) at `time` seconds: which way the swipe goes, once it
     /// has gone far enough to tell, and how far along that way it is, in workspaces sideways or
     /// in bullet time's zoom upright.
@@ -140,6 +151,7 @@ impl Swipe {
         }
         let axis = self.axis?;
         let progress = match axis {
+            Axis::Sideways if self.reversed => x / WORKSPACE_TRAVEL,
             Axis::Sideways => -x / WORKSPACE_TRAVEL,
             Axis::Upright => -y / ZOOM_TRAVEL,
         };
@@ -176,7 +188,7 @@ impl Slipstream {
     }
 
     pub fn swipe_began(&mut self) {
-        self.swipe = Some(Swipe::default());
+        self.swipe = Some(Swipe::new(self.settings.touchpad.natural_scrolling));
     }
 
     /// A three-finger swipe moved by (`dx`, `dy`) at `time` seconds.
@@ -390,6 +402,14 @@ mod tests {
             Some((Axis::Sideways, -0.5)),
             "and goes back past where it started"
         );
+    }
+
+    #[test]
+    fn without_natural_scrolling_sideways_goes_the_other_way_and_up_stays_out() {
+        let mut swipe = Swipe::new(false);
+        assert_eq!(swipe.moved(-200.0, 0.0, 0.0), Some((Axis::Sideways, -0.5)));
+        let mut up = Swipe::new(false);
+        assert_eq!(up.moved(0.0, -60.0, 0.0), Some((Axis::Upright, 0.2)));
     }
 
     #[test]
