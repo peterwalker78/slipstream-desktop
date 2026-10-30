@@ -43,7 +43,7 @@ use crate::{
     launch,
     layout::Rect,
     screenshot::Selection,
-    state::{PlacesItself, places_itself, x11_client_pid},
+    state::{PlacesItself, places_itself, unseen_opacity, x11_client_pid},
 };
 
 impl Slipstream {
@@ -229,10 +229,19 @@ impl XwmHandler for Slipstream {
         }
     }
 
-    fn property_notify(&mut self, _xwm: XwmId, _surface: X11Surface, property: WmWindowProperty) {
+    fn property_notify(&mut self, _xwm: XwmId, surface: X11Surface, property: WmWindowProperty) {
         // A new opacity changes nothing the window draws, so nothing else would show it.
-        if matches!(property, WmWindowProperty::Opacity) {
-            self.something_changed();
+        if !matches!(property, WmWindowProperty::Opacity) {
+            return;
+        }
+        self.something_changed();
+        // One that opened invisible and has faded in is an app's own window after all.
+        if !surface.is_override_redirect()
+            && own_kind(&surface).is_none()
+            && let Some(window) = self.x11_window(&surface).filter(places_itself)
+        {
+            self.space.unmap_elem(&window);
+            self.add_window(Window::new_x11_window(surface));
         }
     }
 
@@ -282,7 +291,8 @@ impl XwmHandler for Slipstream {
     }
 
     fn fullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
-        if let Some(window) = self.x11_window(&surface) {
+        // Only a window in the layout can fill a screen.
+        if let Some(window) = self.x11_window(&surface).filter(|w| !places_itself(w)) {
             self.set_fullscreen(&window, true);
         }
     }
@@ -549,7 +559,7 @@ fn fullscreen_over<W>(
 /// What an X11 window that places itself is, for where it stacks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Own {
-    /// A desktop widget, or a helper window kept below the others and out of every list.
+    /// A desktop widget, or a helper window that isn't meant to be seen (`kept_out`).
     Desktop,
     Dock,
     Notification,
@@ -570,13 +580,25 @@ enum Covered {
 fn own_kind(surface: &X11Surface) -> Option<Own> {
     kind_for(
         surface.window_type(),
-        surface.is_below() && surface.is_skip_taskbar() && surface.is_skip_pager(),
+        kept_out(
+            surface.opacity(),
+            surface.is_below(),
+            surface.is_skip_taskbar(),
+            surface.is_skip_pager(),
+        ),
         surface.is_override_redirect(),
     )
 }
 
-/// `own_kind`'s rule. `kept_out` is a window kept below the others and left out of the taskbar
-/// and the pager: a desktop widget, or a helper window that isn't meant to be seen.
+/// Whether a window stays out of the layout, as its hints stand when it opens. One that can't be
+/// seen would leave an empty tile, whatever else it says about itself: helper windows differ in
+/// which of the other hints they set, and in whether they set them before they open. One kept
+/// below the others and left out of the taskbar and the pager is a desktop widget.
+fn kept_out(opacity: Option<u32>, below: bool, skip_taskbar: bool, skip_pager: bool) -> bool {
+    unseen_opacity(opacity) || (below && skip_taskbar && skip_pager)
+}
+
+/// `own_kind`'s rule, with `kept_out`'s answer.
 fn kind_for(window_type: Option<WmWindowType>, kept_out: bool, unmanaged: bool) -> Option<Own> {
     use WmWindowType::*;
     if unmanaged {
@@ -697,6 +719,22 @@ mod tests {
                 assert_eq!(layer_for(Own::Desktop, covered), RenderZindex::Bottom);
             }
         }
+    }
+
+    #[test]
+    fn a_window_that_cannot_be_seen_takes_no_tile_whatever_else_it_says() {
+        // KDE's XWayland video bridge: only "out of every list" as it opens before 0.5.2, and
+        // "below" too from then on.
+        assert!(kept_out(Some(0), false, true, true));
+        assert!(kept_out(Some(0), true, true, true));
+        assert!(kept_out(Some(0), false, false, false));
+    }
+
+    #[test]
+    fn a_window_that_can_be_seen_stays_in_the_layout_unless_it_is_a_desktop_widget() {
+        assert!(kept_out(None, true, true, true), "a conky desktop widget");
+        assert!(!kept_out(None, false, true, true), "an app's helper window");
+        assert!(!kept_out(Some(u32::MAX), false, false, false), "faded in");
     }
 
     #[test]

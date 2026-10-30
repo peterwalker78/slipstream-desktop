@@ -123,7 +123,7 @@ mod workspaces;
 pub use screens::is_internal_panel;
 pub(crate) use window_props::{
     PlacesItself, deactivate, is_child_of, logged_app, min_size, own_opacity, places_itself,
-    takes_no_input, unseen, window_app_id, window_title, x11_client_pid,
+    takes_no_input, unseen, unseen_opacity, window_app_id, window_title, x11_client_pid,
 };
 use window_props::{configure, pretty_name, toplevel_data};
 

@@ -140,8 +140,12 @@ pub(crate) fn x11_client_pid(surface: &smithay::xwayland::X11Surface) -> Option<
 pub(crate) fn own_opacity(window: &Window) -> f32 {
     window
         .x11_surface()
-        .and_then(|surface| surface.opacity())
-        .map_or(1.0, |opacity| (opacity as f64 / u32::MAX as f64) as f32)
+        .map_or(1.0, |surface| opacity_of(surface.opacity()))
+}
+
+/// `_NET_WM_WINDOW_OPACITY` as a share of fully opaque, 1 where a window doesn't set it.
+fn opacity_of(opacity: Option<u32>) -> f32 {
+    opacity.map_or(1.0, |opacity| (opacity as f64 / u32::MAX as f64) as f32)
 }
 
 /// Below this opacity a window can't honestly be seen.
@@ -151,6 +155,11 @@ const SEEN_FROM: f32 = 0.1;
 /// window that took clicks or typing could catch what was meant for the window under it.
 pub(crate) fn unseen(window: &Window) -> bool {
     own_opacity(window) < SEEN_FROM
+}
+
+/// `unseen`, from the opacity an X11 window has set, for one that has no `Window` yet.
+pub(crate) fn unseen_opacity(opacity: Option<u32>) -> bool {
+    opacity_of(opacity) < SEEN_FROM
 }
 
 /// An X11 window that takes no keyboard input at all: ICCCM's "no input" model, which neither
@@ -256,6 +265,14 @@ mod tests {
         );
         let tall = size_for_tile(tile, (100, 1200));
         assert!(tall.h >= 1200 && (tall.w as f64 / tall.h as f64 - shape).abs() < 0.01);
+    }
+
+    #[test]
+    fn only_a_window_all_but_transparent_is_unseen() {
+        assert!(unseen_opacity(Some(0)));
+        assert!(unseen_opacity(Some(u32::MAX / 20)));
+        assert!(!unseen_opacity(Some(u32::MAX / 5)));
+        assert!(!unseen_opacity(None), "a window that doesn't say is opaque");
     }
 
     #[test]
