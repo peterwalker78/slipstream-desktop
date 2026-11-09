@@ -109,6 +109,12 @@ impl Light {
     }
 }
 
+/// Whether the light moves: not with reduced motion, which keeps the lit edge itself standing
+/// still, and not once the desktop has begun to fade (`ui` below 1).
+pub fn moves(reduced_motion: bool, ui: f32) -> bool {
+    !reduced_motion && ui >= 1.0
+}
+
 /// How far along its way `band` is at `now` seconds, 0 (just in at the left) to 1 (just out at
 /// the right), and round again with no rest.
 fn along(band: &Band, now: f64) -> f64 {
@@ -198,6 +204,16 @@ mod tests {
             })
             .count();
         assert!(lit * 10 >= moments * 9, "lit {lit} of {moments}");
+    }
+
+    #[test]
+    fn with_reduced_motion_the_lit_edge_stands_still() {
+        assert!(moves(false, 1.0));
+        assert!(
+            !moves(true, 1.0),
+            "reduced motion keeps only the still edge"
+        );
+        assert!(!moves(false, 0.6), "resting while the desktop fades");
     }
 
     #[test]

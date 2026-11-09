@@ -819,7 +819,7 @@ fn bar_touch(
         // The light rests once the desktop fades, and with reduced motion, which keeps the lit
         // edge itself. Locked, with the screens off, or with a window filling the screen, the bar
         // isn't drawn at all.
-        BarStyle::LitEdge if !reduced && v.ui >= 1.0 => {
+        BarStyle::LitEdge if bar::light::moves(reduced, v.ui) => {
             let light = chrome.bar.light(renderer, v.scale.x, v.now, v.ui_alpha);
             elements.splice(0..0, light.into_iter().flatten().map(OutputElement::Memory));
         }
