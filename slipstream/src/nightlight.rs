@@ -46,32 +46,12 @@ pub struct Night {
     /// The time zone's place, looked up once.
     location: Option<Option<(f64, f64)>>,
     last_tick: Option<f64>,
-    /// Where the light is coming from, for the lit bar's passing light, and the local minute it
-    /// was worked out for.
-    daylight: Option<(f64, slipstream_config::sun::Daylight)>,
-    /// A local minute to light the bar by instead of the clock's, for checking it at any hour.
-    sun_at: Option<f64>,
 }
 
 impl Night {
     /// The schedule changed: it is looked at afresh on the next pass.
     pub fn schedule_changed(&mut self) {
         self.last_night = None;
-        self.daylight = None;
-    }
-
-    /// Where the light is coming from now: midday's until the clock has first been read.
-    pub fn daylight(&self) -> slipstream_config::sun::Daylight {
-        self.daylight.map_or(
-            slipstream_config::sun::daylight(12.0 * 60.0, 6.0 * 60.0, 18.0 * 60.0),
-            |(_, light)| light,
-        )
-    }
-
-    /// Lights the bar as if it were local minute `minute`, or by the clock again with `None`.
-    pub fn light_at(&mut self, minute: Option<f64>) {
-        self.sun_at = minute;
-        self.daylight = None;
     }
 }
 
@@ -136,17 +116,6 @@ impl crate::Slipstream {
             .location
             .get_or_insert_with(slipstream_config::sun::location);
         let display = &self.settings.display;
-        // The bar's light follows the sun, looked at again each minute.
-        let sun_minute = self.night.sun_at.unwrap_or(minute);
-        if self
-            .night
-            .daylight
-            .is_none_or(|(then, _)| (sun_minute - then).abs() >= 1.0)
-        {
-            let (sunrise, sunset) = display.daylight_hours(date, offset, location);
-            let light = slipstream_config::sun::daylight(sun_minute, sunrise, sunset);
-            self.night.daylight = Some((sun_minute, light));
-        }
         let manual = display.night_light;
         let scheduled = display
             .night_window(date, offset, location)

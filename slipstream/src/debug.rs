@@ -193,9 +193,6 @@ pub enum Step {
     /// so a renderer that manages a dozen frames a second still lays them a fortieth of a second
     /// apart through an animation. The script's own times step with it; 0 is real time again.
     Slow(f64),
-    /// Lights the bar as if it were this local time (`sun:07:30`), or by the clock again
-    /// (`sun:clock`).
-    Sun(Option<f64>),
     /// The volume or brightness display, as a keypress would put it up. It only draws the card:
     /// nothing is muted and no level is changed, so a nested run can't touch the real machine.
     Osd(String),
@@ -497,8 +494,6 @@ impl Script {
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
                     ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),
                     ("slow", Some(ms)) => Step::Slow(ms.trim().parse::<f64>().ok()? / 1000.0),
-                    ("sun", Some("clock")) => Step::Sun(None),
-                    ("sun", Some(at)) => Step::Sun(Some(slipstream_config::sun::parse_time(at)?)),
                     ("osd", Some(what)) => Step::Osd(what.trim().to_string()),
                     ("screen", Some(size)) => {
                         let (w, h) = size.trim().split_once('x')?;

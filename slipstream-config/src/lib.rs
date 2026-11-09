@@ -310,10 +310,9 @@ pub enum BarStyle {
     #[default]
     Plain,
     /// The band with a lit top edge and a line under it that glows below the current workspace,
-    /// and a slow light passing along it from where the sun is.
+    /// and soft light drifting slowly along it.
     LitEdge,
-    /// A strip floating clear of the screen's edges, lined up with the windows below. It leans
-    /// a touch as workspaces slide.
+    /// A strip floating clear of the screen's edges, lined up with the windows below.
     FloatingStrip,
 }
 
@@ -323,7 +322,7 @@ impl BarStyle {
     /// What it's called in the Settings app.
     pub fn label(self) -> &'static str {
         match self {
-            BarStyle::Plain => "As it is",
+            BarStyle::Plain => "Focus bar",
             BarStyle::LitEdge => "Lit edge",
             BarStyle::FloatingStrip => "Floating strip",
         }
@@ -644,7 +643,7 @@ mod tests {
     use crate::file::{HEADER, parse};
 
     #[test]
-    fn an_old_file_without_a_bar_style_keeps_the_bar_as_it_is() {
+    fn an_old_file_without_a_bar_style_keeps_the_focus_bar() {
         let settings = parse("[appearance]\ncolour-scheme = \"light\"\n").unwrap();
         assert_eq!(settings.appearance.bar_style, BarStyle::Plain);
         assert_eq!(

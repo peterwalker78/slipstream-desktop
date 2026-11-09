@@ -129,7 +129,6 @@ impl Slipstream {
                 debug::Step::Key(_) if !self.explorer.is_open() => {
                     tracing::info!("debug step ignored: panel closed");
                 }
-                debug::Step::Sun(minute) => self.night.light_at(minute),
                 debug::Step::Type(text) => {
                     for ch in text.chars() {
                         self.explorer_key(Keysym::NoSymbol, Some(ch), Mods::default());

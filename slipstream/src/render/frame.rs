@@ -792,26 +792,22 @@ fn bar_elements(
         }
     }
     elements.extend(bar.map(OutputElement::Memory));
-    bar_touch(state, renderer, v, chrome, style, docked, elements)
+    bar_touch(state, renderer, v, chrome, style, elements)
 }
 
-/// Each bar style's own touch, drawn over the bar's picture rather than into it: the bar as it is
-/// dims what's on it while you type, the lit edge's light passes along it, and the floating strip
-/// leans as the workspaces slide. Takes the bar's `elements` and hands them back with the touch.
+/// The bar styles' own touches, drawn over the bar's picture rather than into it: the focus bar
+/// dims what's on it while you type, and the lit edge's light moves along it. Takes the bar's
+/// `elements` and hands them back with the touch.
 fn bar_touch(
     state: &mut Slipstream,
     renderer: &mut GlesRenderer,
     v: &View,
     chrome: &mut Chrome,
     style: slipstream_config::BarStyle,
-    docked: bool,
     mut elements: Vec<OutputElement>,
 ) -> Vec<OutputElement> {
     use slipstream_config::BarStyle;
     let reduced = state.clock.reduced_motion;
-    if style != BarStyle::FloatingStrip {
-        chrome.bar.lean.rest();
-    }
     match style {
         BarStyle::Plain => {
             let typing = state.concentration.typing(std::time::Instant::now());
@@ -821,47 +817,13 @@ fn bar_touch(
             elements.splice(0..0, dim.into_iter().map(OutputElement::Solid));
         }
         // The light rests once the desktop fades, and with reduced motion, which keeps the lit
-        // edge itself. Locked, or with the screens off, nothing here is drawn at all.
+        // edge itself. Locked, with the screens off, or with a window filling the screen, the bar
+        // isn't drawn at all.
         BarStyle::LitEdge if !reduced && v.ui >= 1.0 => {
-            let light = state.night.daylight();
-            let element = chrome
-                .bar
-                .light(renderer, v.scale.x, v.now, light, v.ui_alpha);
-            elements.splice(0..0, element.map(OutputElement::Memory));
+            let light = chrome.bar.light(renderer, v.scale.x, v.now, v.ui_alpha);
+            elements.splice(0..0, light.into_iter().flatten().map(OutputElement::Memory));
         }
-        BarStyle::LitEdge => {}
-        BarStyle::FloatingStrip => {
-            // Upright in bullet time, still with reduced motion, and held level by a pane
-            // hanging from it, whose frame it is one piece with.
-            if reduced || v.zoomed_out > 0.0 || docked {
-                chrome.bar.lean.rest();
-                return elements;
-            }
-            let yaw = chrome.bar.lean.follow(v.camera, v.wall);
-            if yaw == 0.0 {
-                return elements;
-            }
-            let place = v.bar;
-            let middle = (place.top() + bar::HEIGHT / 2) as f64;
-            let screen = tilt::Sizes {
-                logical: v.geo.size,
-                physical: v.physical,
-                scale: v.scale.x,
-            };
-            let leaning = chrome.bar.lean.element(
-                renderer,
-                &mut chrome.panes,
-                &elements,
-                (v.geo.size.w, place.foot()),
-                middle,
-                v.scale.x,
-                yaw,
-                screen,
-            );
-            if let Some(leaning) = leaning {
-                return vec![OutputElement::Shaded(leaning)];
-            }
-        }
+        BarStyle::LitEdge | BarStyle::FloatingStrip => {}
     }
     elements
 }

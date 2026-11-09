@@ -91,7 +91,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     page.upcast()
 }
 
-/// The bar's style: as it is, a lit edge, or a floating strip.
+/// The bar's style: the focus bar, a lit edge, or a floating strip.
 fn bar_style(page: &gtk::Box, store: &Store) {
     let bar = group(page, "Bar");
     let styles = slipstream_config::BarStyle::ALL;
@@ -109,8 +109,8 @@ fn bar_style(page: &gtk::Box, store: &Store) {
         &bar,
         "Style",
         Some(
-            "As it is quietens while you type, the lit edge catches the light from where the sun \
-             is, and the floating strip leans as workspaces slide",
+            "The focus bar quietens while you type, the lit edge has soft light drifting along \
+             it, and the floating strip sits clear of the screen's edges",
         ),
         &choice,
     );

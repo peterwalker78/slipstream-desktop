@@ -154,71 +154,9 @@ pub fn scheduled(now: f64, start: f64, end: f64, fade: f64) -> (bool, f64) {
     (night, strength)
 }
 
-/// Where the light is coming from at a moment of the day, for the bar's passing light.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Daylight {
-    /// The light comes from the left: the sun, or the moon, in its first half of the sky.
-    pub from_left: bool,
-    /// How warm it is, 0 (neutral, or the moon's cool) to 1 (a low sun at sunrise or sunset).
-    pub warmth: f64,
-    /// How strong, 0 to 1: gentlest at midday, fainter still by moonlight.
-    pub strength: f64,
-    /// The sun is down.
-    pub night: bool,
-}
-
-/// How faint moonlight is beside the sun.
-const MOONLIGHT: f64 = 0.55;
-
-/// The light at local minute `now` with the sun up from `sunrise` to `sunset` (wrapping past
-/// midnight). The sun crosses from left to right through the day, as it does seen facing the
-/// equator from the north, and the moon does the same through the night.
-pub fn daylight(now: f64, sunrise: f64, sunset: f64) -> Daylight {
-    let day_length = (sunset - sunrise).rem_euclid(1440.0);
-    let into_day = (now - sunrise).rem_euclid(1440.0);
-    let night = day_length <= 0.0 || into_day >= day_length;
-    let progress = if night {
-        let night_length = (1440.0 - day_length).max(1.0);
-        ((now - sunset).rem_euclid(1440.0) / night_length).clamp(0.0, 1.0)
-    } else {
-        into_day / day_length
-    };
-    // 1 at either end of the day, 0 in its middle.
-    let low = (2.0 * progress - 1.0).abs();
-    Daylight {
-        from_left: progress < 0.5,
-        warmth: if night { 0.0 } else { low * low },
-        strength: if night { MOONLIGHT } else { 0.7 + 0.3 * low },
-        night,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_light_follows_the_sun_across_the_day() {
-        let (sunrise, sunset) = (7.0 * 60.0, 19.0 * 60.0);
-        let dawn = daylight(7.0 * 60.0 + 20.0, sunrise, sunset);
-        assert!(dawn.from_left && !dawn.night);
-        assert!(dawn.warmth > 0.8, "warm just after sunrise: {dawn:?}");
-        let noon = daylight(13.0 * 60.0, sunrise, sunset);
-        assert!(noon.warmth < 0.01, "near neutral at midday: {noon:?}");
-        assert!(noon.strength < dawn.strength, "gentlest at midday");
-        let afternoon = daylight(15.0 * 60.0, sunrise, sunset);
-        let evening = daylight(18.0 * 60.0 + 40.0, sunrise, sunset);
-        assert!(!afternoon.from_left && !evening.from_left && !evening.night);
-        assert!(evening.warmth > 0.8, "warm near sunset: {evening:?}");
-        assert!(afternoon.warmth < evening.warmth);
-        for late in [22.0 * 60.0, 2.0 * 60.0, 6.0 * 60.0] {
-            let moon = daylight(late, sunrise, sunset);
-            assert!(moon.night && moon.warmth == 0.0, "{late}: {moon:?}");
-            assert!(moon.strength < noon.strength, "moonlight is fainter");
-        }
-        assert!(daylight(22.0 * 60.0, sunrise, sunset).from_left);
-        assert!(!daylight(5.0 * 60.0, sunrise, sunset).from_left);
-    }
 
     const TABLE: &str =
         "# comment\nGB,GG,IM,JE\t+513030-0000731\tEurope/London\nNO,SJ\t+5955+01045\tEurope/Oslo\n";

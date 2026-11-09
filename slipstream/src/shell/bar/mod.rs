@@ -5,18 +5,17 @@
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
 //! stays sharp at fractional scales, and repainted only when what it shows changes. Each of its
-//! styles has a touch of its own that moves (`breath`, `light`, `lean`), drawn over that picture
-//! rather than into it.
+//! The focus bar and the lit edge each have a touch of their own that moves (`breath`, `light`),
+//! drawn over that picture rather than into it.
 
 pub mod breath;
-pub mod lean;
 pub mod light;
 pub mod place;
 
 pub use place::Place;
 
 use resvg::tiny_skia::Pixmap;
-use slipstream_config::{BarStyle, sun::Daylight};
+use slipstream_config::BarStyle;
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
@@ -215,8 +214,6 @@ pub struct Bar {
     attention: Vec<(f64, f64)>,
     breath: breath::Breath,
     light: light::Light,
-    /// The floating strip's lean.
-    pub lean: lean::Lean,
 }
 
 impl Bar {
@@ -310,22 +307,19 @@ impl Bar {
             .elements(self.at, &self.attention, scale, strength)
     }
 
-    /// The lit edge's passing light at `now` seconds, from where `light` says the sun is, at
-    /// `alpha`. Nothing between passes.
+    /// The lit edge's moving light at `now` seconds, at `alpha`.
     pub fn light<R>(
         &mut self,
         renderer: &mut R,
         scale: f64,
         now: f64,
-        light: Daylight,
         alpha: f32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> [Option<MemoryRenderBufferRenderElement<R>>; 2]
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        self.light
-            .element(renderer, self.at, scale, now, light, alpha)
+        self.light.elements(renderer, self.at, scale, now, alpha)
     }
 
     /// Sends the marker towards the current workspace when that changes.

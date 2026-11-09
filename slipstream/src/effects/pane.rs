@@ -320,7 +320,7 @@ impl Panes {
         screen: crate::tilt::Sizes,
         look: &Look,
     ) -> Option<TextureShaderElement> {
-        let scale = screen.scale;
+        let (scale, screen) = (screen.scale, screen.logical);
         if !self.ready(renderer) || look.alpha <= 0.0 {
             return None;
         }
@@ -328,9 +328,10 @@ impl Panes {
         if own.size.w <= 0 || own.size.h <= 0 {
             return None;
         }
-        // Nothing to draw off screen for a pane that is out of sight.
-        let visible = Rectangle::<f64, Logical>::from_size(screen.logical.to_f64());
-        bounds(pose, camera, 8.0)?.intersection(visible)?;
+        // Room for the ring and the edge's glow.
+        let shown = bounds(pose, camera, 8.0)?;
+        let visible = Rectangle::<f64, Logical>::from_size(screen.to_f64());
+        let shown = shown.intersection(visible)?;
         let physical = Size::<i32, Physical>::from((
             (own.size.w as f64 * scale).round().max(1.0) as i32,
             (own.size.h as f64 * scale).round().max(1.0) as i32,
@@ -378,78 +379,7 @@ impl Panes {
             },
             "a glass pane",
         )?;
-        let texture = texture.as_ref()?.texture.clone();
-        self.shaded(
-            renderer,
-            texture,
-            (own.size, physical, scale),
-            pose,
-            camera,
-            screen,
-            look,
-        )
-    }
-
-    /// `elements` as one pane at `pose`: drawn into `canvas` (and `broken` set if that can't be
-    /// had) as a picture `own` logical pixels big, `physical` at `scale`, from the screen's
-    /// corner, then shown through the shader.
-    #[allow(clippy::too_many_arguments)]
-    pub fn picture(
-        &mut self,
-        renderer: &mut GlesRenderer,
-        (canvas, broken): (&mut Option<crate::tilt::Canvas>, &mut bool),
-        elements: &[OutputElement],
-        (own, physical, scale): (Size<i32, Logical>, Size<i32, Physical>, f64),
-        pose: &Pose,
-        camera: &Camera,
-        screen: crate::tilt::Sizes,
-        look: &Look,
-    ) -> Option<TextureShaderElement> {
-        if !self.ready(renderer) || look.alpha <= 0.0 {
-            return None;
-        }
-        draw_offscreen(
-            renderer,
-            canvas,
-            broken,
-            elements,
-            crate::tilt::Sizes {
-                logical: own,
-                physical,
-                scale,
-            },
-            "a glass pane",
-        )?;
-        let texture = canvas.as_ref()?.texture.clone();
-        self.shaded(
-            renderer,
-            texture,
-            (own, physical, scale),
-            pose,
-            camera,
-            screen,
-            look,
-        )
-    }
-
-    /// A picture `own` logical pixels big, drawn into `texture` at `physical` pixels, shown as a
-    /// pane at `pose`.
-    #[allow(clippy::too_many_arguments)]
-    fn shaded(
-        &self,
-        renderer: &GlesRenderer,
-        texture: smithay::backend::renderer::gles::GlesTexture,
-        (own_size, physical, scale): (Size<i32, Logical>, Size<i32, Physical>, f64),
-        pose: &Pose,
-        camera: &Camera,
-        screen: crate::tilt::Sizes,
-        look: &Look,
-    ) -> Option<TextureShaderElement> {
-        let screen = screen.logical;
-        let shown = bounds(pose, camera, 8.0)?;
-        let visible = Rectangle::<f64, Logical>::from_size(screen.to_f64());
-        let shown = shown.intersection(visible)?;
-        let own = Rectangle::<i32, Logical>::from_size(own_size);
+        let texture = &texture.as_ref()?.texture;
         // The picture is laid out in the window's own logical pixels, which the pose may show
         // bigger or smaller: from those to the pose's, then on to the screen.
         let stretch = [
