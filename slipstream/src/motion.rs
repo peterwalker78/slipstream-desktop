@@ -14,9 +14,11 @@ use crate::{
 pub const HYPR: Easing = Easing::Bezier(0.05, 0.9, 0.1, 1.05);
 /// Retiles and workspace slides, in animation seconds.
 pub const MOVE: f64 = 0.34;
-/// A window opening: it grows from `OPEN_SCALE` and fades in.
-pub const OPEN: f64 = 0.24;
-pub const OPEN_SCALE: f64 = 0.82;
+/// A window opening: a rigid pane coming forward from behind the screen and settling flat
+/// (`pane::Pose::arriving`).
+pub const OPEN: f64 = 0.38;
+/// The share of its way an opening window takes to become solid.
+const OPEN_FADE: f64 = 0.35;
 /// With reduced motion, moves jump and effects become short fades, this long, everywhere.
 pub const REDUCED_FADE: f64 = 0.08;
 /// Fades for a window that is travelling while it fades. Flatter than CSS's `ease-in` and
@@ -41,8 +43,9 @@ pub struct Frame {
     /// The rect is still travelling, so the window is stretched to it rather than drawn at its
     /// own size.
     pub moving: bool,
-    /// Scale about the window's centre.
-    pub scale: f64,
+    /// How far an opening window has come forward, 0 behind the screen to 1 flat on it, a little
+    /// over 1 while it overshoots. 1 for every window that isn't opening.
+    pub arrival: f64,
     pub alpha: f64,
     /// Hasn't drawn anything yet; its open animation starts when it does.
     pub waiting: bool,
@@ -54,10 +57,16 @@ impl Frame {
         Self {
             rect,
             moving: false,
-            scale: 1.0,
+            arrival: 1.0,
             alpha: 1.0,
             waiting: false,
         }
+    }
+
+    /// How big an opening window looks for its depth, about its centre: for drawing it flat where
+    /// it can't be drawn as a pane.
+    pub fn scale(&self) -> f64 {
+        crate::pane::EYE / (crate::pane::EYE + crate::pane::ARRIVE_DEPTH * (1.0 - self.arrival))
     }
 }
 
@@ -65,7 +74,7 @@ impl Frame {
 struct Entry<T> {
     id: T,
     rect: Tween<4>,
-    scale: Tween<1>,
+    arrival: Tween<1>,
     alpha: Tween<1>,
     waiting: bool,
 }
@@ -110,13 +119,13 @@ impl<T: Clone + PartialEq> Motion<T> {
     pub fn place_over(&mut self, id: &T, rect: Rect, now: f64, duration: f64) {
         let to = [rect.x as f64, rect.y as f64, rect.w as f64, rect.h as f64];
         let duration = if self.reduced_motion { 0.0 } else { duration };
-        let first_scale = if self.reduced_motion { 1.0 } else { OPEN_SCALE };
+        let arrival = if self.reduced_motion { 1.0 } else { 0.0 };
         match self.entry_mut(id) {
             Some(entry) => entry.rect.retarget(to, now, duration, HYPR),
             None => self.entries.push(Entry {
                 id: id.clone(),
                 rect: Tween::at_rest(to),
-                scale: Tween::at_rest([first_scale]),
+                arrival: Tween::at_rest([arrival]),
                 alpha: Tween::at_rest([0.0]),
                 waiting: true,
             }),
@@ -135,8 +144,9 @@ impl<T: Clone + PartialEq> Motion<T> {
                 .alpha
                 .retarget([1.0], now, REDUCED_FADE, Easing::Linear);
         } else {
-            entry.scale.retarget([1.0], now, OPEN, HYPR);
-            entry.alpha.retarget([1.0], now, OPEN, HYPR);
+            // Its opacity follows how far it has come (`frame`).
+            entry.alpha = Tween::at_rest([1.0]);
+            entry.arrival.retarget([1.0], now, OPEN, Easing::Glide);
         }
     }
 
@@ -177,13 +187,13 @@ impl<T: Clone + PartialEq> Motion<T> {
             duration
         };
         if let Some(entry) = self.entry_mut(id) {
-            // A fade takes the opening's place, so `shown` will never open this window. Its scale
-            // has to be settled here as well, or it keeps `OPEN_SCALE` for good: a window poured
-            // into the code rain before it ever drew — a layout coming back with a minimised app
-            // in it — would come back small, centred in its tile.
+            // A fade takes the opening's place, so `shown` will never open this window. It has to
+            // be brought forward here as well, or it stays behind the screen for good: a window
+            // poured into the code rain before it ever drew — a layout coming back with a
+            // minimised app in it — would come back small, centred in its tile.
             if entry.waiting {
                 entry.waiting = false;
-                entry.scale = Tween::at_rest([1.0]);
+                entry.arrival = Tween::at_rest([1.0]);
             }
             entry.alpha.retarget([alpha], now, duration, easing);
         }
@@ -203,12 +213,14 @@ impl<T: Clone + PartialEq> Motion<T> {
 
     pub fn frame(&self, id: &T, now: f64) -> Option<Frame> {
         let entry = self.entries.iter().find(|entry| &entry.id == id)?;
+        let arrival = entry.arrival.value(now)[0];
+        let solid = (arrival / OPEN_FADE).clamp(0.0, 1.0);
         Some(Frame {
             rect: entry.rect.value(now),
             moving: !entry.rect.done(now),
-            scale: entry.scale.value(now)[0],
+            arrival,
             // The curve overshoots; opacity can't.
-            alpha: entry.alpha.value(now)[0].clamp(0.0, 1.0),
+            alpha: entry.alpha.value(now)[0].clamp(0.0, 1.0) * solid,
             waiting: entry.waiting,
         })
     }
@@ -372,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn a_window_stays_invisible_until_it_draws_then_grows_and_fades_in() {
+    fn a_window_stays_invisible_until_it_draws_then_comes_forward_and_fades_in() {
         let mut motion = Motion::new(false);
         motion.place(&"a", LEFT, 0.0);
         let waiting = motion.frame(&"a", 5.0).unwrap();
@@ -381,11 +393,19 @@ mod tests {
 
         motion.shown(&"a", 5.0);
         let start = motion.frame(&"a", 5.0).unwrap();
-        assert_eq!((start.scale, start.alpha), (OPEN_SCALE, 0.0));
+        assert_eq!((start.arrival, start.alpha), (0.0, 0.0));
+        assert!(
+            start.scale() < 0.9,
+            "far behind the screen, it looks smaller"
+        );
         let mid = motion.frame(&"a", 5.0 + OPEN / 2.0).unwrap();
-        assert!(mid.scale > OPEN_SCALE && mid.alpha > 0.0);
+        assert!(
+            mid.arrival > 0.5 && mid.alpha == 1.0,
+            "solid well before it lands"
+        );
         let end = motion.frame(&"a", 5.0 + OPEN).unwrap();
-        assert_eq!((end.scale, end.alpha, end.waiting), (1.0, 1.0, false));
+        assert_eq!((end.arrival, end.alpha, end.waiting), (1.0, 1.0, false));
+        assert_eq!(end.scale(), 1.0);
     }
 
     #[test]
@@ -395,12 +415,12 @@ mod tests {
         let mut motion = Motion::new(false);
         motion.place(&"a", LEFT, 0.0);
         motion.fade(&"a", 0.0, 0.0, 0.26);
-        assert_eq!(motion.frame(&"a", 0.26).unwrap().scale, 1.0);
+        assert_eq!(motion.frame(&"a", 0.26).unwrap().arrival, 1.0);
 
         // Back out of its stream: it condenses in at its own size, not at the opening's.
         motion.fade(&"a", 1.0, 1.0, 0.26);
         let back = motion.frame(&"a", 1.0 + 0.26).unwrap();
-        assert_eq!((back.scale, back.alpha), (1.0, 1.0));
+        assert_eq!((back.arrival, back.alpha), (1.0, 1.0));
     }
 
     #[test]
@@ -501,7 +521,7 @@ mod tests {
     fn reduced_motion_jumps_and_only_fades_briefly() {
         let mut motion = opened(true);
         let start = motion.frame(&"a", 0.0).unwrap();
-        assert_eq!(start.scale, 1.0, "no growing");
+        assert_eq!(start.arrival, 1.0, "no coming forward");
         assert_eq!(motion.frame(&"a", REDUCED_FADE).unwrap().alpha, 1.0);
 
         motion.place(&"a", RIGHT, 1.0);
@@ -526,5 +546,23 @@ mod tests {
         let mut motion = opened(false);
         motion.remove(&"a");
         assert_eq!(motion.frame(&"a", 0.0), None);
+    }
+}
+
+#[cfg(test)]
+mod glide_tests {
+    use crate::anim::Easing;
+
+    /// The open's curve lands exactly where it was going, after passing it by about 1%.
+    #[test]
+    fn glide_overshoots_a_little_and_lands() {
+        let at = |t: f64| Easing::Glide.at(t);
+        assert_eq!(at(0.0), 0.0);
+        assert!((at(1.0) - 1.0).abs() < 1e-9);
+        let peak = (0..=100)
+            .map(|i| at(f64::from(i) / 100.0))
+            .fold(0.0, f64::max);
+        assert!(peak > 1.005 && peak < 1.015, "{peak}");
+        assert!(at(0.1) < 0.15, "starts gently");
     }
 }
