@@ -131,6 +131,8 @@ pub struct PluginPanel {
     open: bool,
     /// When it opened, on the animation clock.
     opened_at: f64,
+    /// Its way in and out.
+    pub(crate) fade: panel::Fade,
     selected: Option<Item>,
     /// The middle of the chip it hangs from, in logical pixels from the screen's left.
     under: f64,
@@ -187,6 +189,7 @@ impl PluginPanel {
     pub fn open(&mut self, now: f64, under: f64) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.under = under;
         self.selected = None;
         self.turn = None;
@@ -197,7 +200,12 @@ impl PluginPanel {
         self.open = false;
         self.turn = None;
         self.shown = None;
-        self.painted = None;
+        let origin = self.origin;
+        self.fade.close(
+            self.painted
+                .take()
+                .map(|painted| vec![(painted, origin, 1.0)]),
+        );
         self.targets.clear();
     }
 
@@ -344,7 +352,10 @@ impl PluginPanel {
             self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let (alpha, rise) = panel::opening(now - self.opened_at, reduced_motion);
+        let (alpha, rise) = self.fade.opening(
+            panel::opening(now - self.opened_at, reduced_motion),
+            reduced_motion,
+        );
         let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
         self.painted.as_ref()?.element(renderer, at, alpha)
     }

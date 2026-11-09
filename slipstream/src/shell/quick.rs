@@ -193,6 +193,8 @@ pub struct QuickSettings {
     open: bool,
     /// When it opened, on the animation clock.
     opened_at: f64,
+    /// Its way in and out.
+    pub(crate) fade: panel::Fade,
     selected: Control,
     power_menu: bool,
     shown: Option<Look>,
@@ -214,6 +216,7 @@ impl Default for QuickSettings {
         Self {
             open: false,
             opened_at: 0.0,
+            fade: panel::Fade::default(),
             selected: Control::default(),
             power_menu: false,
             shown: None,
@@ -241,6 +244,7 @@ impl QuickSettings {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.selected = Control::default();
         self.power_menu = false;
         self.shown = None;
@@ -250,7 +254,12 @@ impl QuickSettings {
         self.open = false;
         self.power_menu = false;
         self.shown = None;
-        self.painted = None;
+        let origin = self.origin;
+        self.fade.close(
+            self.painted
+                .take()
+                .map(|painted| vec![(painted, origin, 1.0)]),
+        );
         self.targets.clear();
         self.tracks.clear();
         self.dragging = None;
@@ -455,7 +464,10 @@ impl QuickSettings {
             self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let (alpha, rise) = panel::opening(now - self.opened_at, reduced_motion);
+        let (alpha, rise) = self.fade.opening(
+            panel::opening(now - self.opened_at, reduced_motion),
+            reduced_motion,
+        );
         let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
         self.painted.as_ref()?.element(renderer, at, alpha)
     }

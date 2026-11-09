@@ -415,6 +415,8 @@ pub struct OnScreen<K = Card> {
     hits: Vec<Hit>,
     shown: Option<Shown<K>>,
     painted: Option<Painted>,
+    /// Its way in and out.
+    pub fade: crate::panel::Fade,
 }
 
 /// What a card was last painted as: what it showed, the screen, the scale, and its accent and
@@ -429,6 +431,7 @@ impl<K> Default for OnScreen<K> {
             hits: Vec::new(),
             shown: None,
             painted: None,
+            fade: Default::default(),
         }
     }
 }
@@ -444,6 +447,14 @@ impl<K: PartialEq> OnScreen<K> {
         self.shown = None;
         self.painted = None;
         self.hits.clear();
+    }
+
+    /// Lets the card go: nothing on it can be clicked any more, and its last paint fades out.
+    pub fn fade_out(mut self) -> crate::panel::Fade {
+        let at = self.at;
+        self.fade
+            .close(self.painted.take().map(|painted| vec![(painted, at, 1.0)]));
+        self.fade
     }
 
     /// What is under (`x`, `y`), in logical pixels from the screen's corner.

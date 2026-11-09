@@ -189,7 +189,8 @@ impl Slipstream {
             .iter()
             .find(|screen| screen.output.name() == connector)
             .map(|screen| (screen.output.clone(), screen.workspace));
-        self.connect = None;
+        self.fading
+            .extend(self.connect.take().map(|card| card.fade_out()));
         if let Some((output, workspace)) = screen {
             self.remember_screen(&output, workspace);
         }
@@ -331,7 +332,8 @@ impl Slipstream {
             .as_ref()
             .is_some_and(|card| card.connector == output.name())
         {
-            self.connect = None;
+            self.fading
+                .extend(self.connect.take().map(|card| card.fade_out()));
         }
         // Its own workspace goes with it, unless something is still open there: an empty one is
         // clutter in bullet time and on the bar, and a full one is work nobody asked to move.

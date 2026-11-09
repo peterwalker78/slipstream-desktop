@@ -635,13 +635,15 @@ impl Slipstream {
         match act {
             offer::Act::Nothing => {}
             offer::Act::Reopen => {
-                self.offer = None;
+                self.fading
+                    .extend(self.offer.take().map(|card| card.fade_out()));
                 if let Some(plan) = self.restoring.take() {
                     self.start_restore(plan);
                 }
             }
             offer::Act::Clean => {
-                self.offer = None;
+                self.fading
+                    .extend(self.offer.take().map(|card| card.fade_out()));
                 self.restoring = None;
                 tracing::info!("starting clean; the recorded layout is left alone");
             }

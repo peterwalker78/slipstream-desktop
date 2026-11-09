@@ -94,12 +94,20 @@ impl Explorer {
             }
             self.shown = Some(look);
         }
-        let (alpha, rise) = opening_look(self.open_from, since, self.reduced_motion);
+        let (alpha, rise) = self.fade.opening(
+            crate::exit::opening(since, self.reduced_motion),
+            self.reduced_motion,
+        );
         // The caret blinks, half a second on and half off, unless motion is reduced: then it
         // stays on.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
-        self.drawn = (alpha, rise, caret_on);
-        self.painted(renderer, scale, frame.accent, (alpha, rise, caret_on))
+        self.caret_on = caret_on;
+        self.painted(
+            renderer,
+            scale,
+            frame.accent,
+            (alpha.into(), rise, caret_on),
+        )
     }
 
     /// The explorer fading out after it closed, as it was last drawn: nothing is repainted, and
@@ -113,20 +121,17 @@ impl Explorer {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let Some((from, started)) = self.closing.as_mut() else {
-            return Vec::new();
-        };
-        let (from, started) = (*from, *started.get_or_insert(frame.time));
-        let Some((alpha, rise)) =
-            closing_look((from.0, from.1), frame.time - started, self.reduced_motion)
-        else {
-            self.closing = None;
+        let Some((alpha, rise)) = self.fade.closing(frame.time) else {
             self.buffer = None;
-            self.drawn = (0.0, 0.0, false);
             return Vec::new();
         };
-        self.drawn = (alpha, rise, from.2);
-        self.painted(renderer, frame.scale, frame.accent, self.drawn)
+        let caret_on = self.caret_on;
+        self.painted(
+            renderer,
+            frame.scale,
+            frame.accent,
+            (alpha.into(), rise, caret_on),
+        )
     }
 
     /// The painted explorer and its caret at `alpha`, `rise` design pixels down (up when
@@ -636,44 +641,6 @@ pub(super) fn run_label(command: &str, program: bool) -> (bool, String) {
         format!("Run “{command}”")
     };
     (opens, label)
-}
-
-/// The opening's alpha and rise in design pixels, `since` seconds in, from `from`: drops into
-/// place on `HYPR`, or with reduced motion fades in where it stands.
-pub(super) fn opening_look(from: (f64, f64), since: f64, reduced_motion: bool) -> (f64, f64) {
-    if reduced_motion {
-        let t = (since / REDUCED_FADE).clamp(0.0, 1.0);
-        return (from.0 + (1.0 - from.0) * t, 0.0);
-    }
-    let eased = HYPR.at(since / OPEN);
-    (
-        (from.0 + (1.0 - from.0) * eased).clamp(0.0, 1.0),
-        from.1 * (1.0 - eased),
-    )
-}
-
-/// The closing's alpha and rise, `since` seconds in, from what was drawn when it closed: rises
-/// and fades on an accelerating cubic, or with reduced motion only fades, no longer than
-/// `REDUCED_FADE`. `None` once it has gone.
-pub(super) fn closing_look(
-    from: (f64, f64),
-    since: f64,
-    reduced_motion: bool,
-) -> Option<(f64, f64)> {
-    let length = if reduced_motion { REDUCED_FADE } else { CLOSE };
-    let t = since / length;
-    if t >= 1.0 {
-        return None;
-    }
-    let t = t.max(0.0);
-    if reduced_motion {
-        return Some((from.0 * (1.0 - t), from.1));
-    }
-    let eased = t.powi(3);
-    Some((
-        from.0 * (1.0 - eased),
-        from.1 + (-CLOSE_RISE - from.1) * eased,
-    ))
 }
 
 /// The caret painted at `scale` in `colour`, with its size in logical pixels. Sized as the painted

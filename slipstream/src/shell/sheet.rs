@@ -4,7 +4,6 @@
 //! and each action's own description, bullet time's from the table its key handling reads, so a
 //! key added or changed shows up here without anyone remembering to list it.
 
-use crate::motion::REDUCED_FADE;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
     input::keyboard::Keysym,
@@ -18,7 +17,6 @@ use crate::{
     keynames::KeyNames,
     keys::{self, Action, Binding, Group, Mods},
     miniature,
-    motion::HYPR,
     paint::{self, Painted, Painter},
     panel::{self, DESIGN_PX},
     shortcuts::own::OwnKey,
@@ -39,7 +37,6 @@ const GROUP_GAP: f32 = 14.0;
 const ROW: f32 = 30.0;
 const ROW_MIN: f32 = 22.0;
 const KEY_GAP: f32 = 6.0;
-const OPEN: f64 = 0.18;
 /// The tour's card is wider than the key list, so the miniature desktop on its left is big enough
 /// to read: it takes this share of the card, at the screen's own shape, and what the lesson says
 /// sits on the right.
@@ -383,6 +380,10 @@ fn tour_layout(screen: Size<i32, Logical>) -> TourLayout {
 pub struct Sheet {
     open: bool,
     opened_at: f64,
+    /// Its way in and out.
+    pub(crate) fade: crate::panel::Fade,
+    /// Where the card's corner settles, and the miniature's while the tour shows it.
+    at: (Point<f64, Logical>, Option<Point<f64, Logical>>),
     /// The tour's lesson, or `None` for the key list.
     tour: Option<Touring>,
     query: String,
@@ -431,6 +432,7 @@ impl Sheet {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.tour = None;
         self.query.clear();
         self.shown = None;
@@ -440,6 +442,7 @@ impl Sheet {
     pub fn start_tour(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.tour = Some(Touring::at(0, now));
         self.query.clear();
         self.shown = None;
@@ -489,9 +492,18 @@ impl Sheet {
         self.open = false;
         self.tour = None;
         self.shown = None;
-        self.painted = None;
+        let (at, stage_at) = self.at;
+        let stage = self
+            .stage
+            .take()
+            .zip(stage_at)
+            .map(|(stage, at)| (stage, at, 1.0));
+        let picture = self
+            .painted
+            .take()
+            .map(|painted| stage.into_iter().chain([(painted, at, 1.0)]).collect());
+        self.fade.close(picture);
         self.stage_shown = None;
-        self.stage = None;
     }
 
     /// Paints its text again next frame: a face for characters it lacked has landed.
@@ -659,13 +671,11 @@ impl Sheet {
             )
                 .into(),
         );
-        let since = now - self.opened_at;
-        let (alpha, rise) = if self.reduced_motion {
-            ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
-        } else {
-            let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-            (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
-        };
+        let (alpha, rise) = self.fade.opening(
+            crate::exit::opening(now - self.opened_at, self.reduced_motion),
+            self.reduced_motion,
+        );
+        self.at = (at, None);
         let at = at + Point::from((0.0, rise * DESIGN_PX as f64));
         let mut elements = Vec::new();
         // The miniature goes in front of the card, in the place the card leaves for it.
@@ -678,6 +688,7 @@ impl Sheet {
                 (((MARGIN + sx) * DESIGN_PX) as f64).round(),
                 (((MARGIN + sy) * DESIGN_PX) as f64).round(),
             ));
+            self.at.1 = Some(self.at.0 + offset);
             elements.extend(stage.element(renderer, at + offset, alpha));
         }
         elements.extend(painted.element(renderer, at, alpha));

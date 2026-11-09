@@ -389,6 +389,16 @@ fn card_elements(
                 .map(OutputElement::Memory),
         );
     }
+    // Panels and cards fading out after they closed, behind whatever is open: only their last
+    // picture, which takes no input.
+    for fade in state.fades_mut() {
+        elements.extend(
+            fade.elements(renderer, now)
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
+    state.fading.retain(crate::panel::Fade::is_closing);
     elements
 }
 

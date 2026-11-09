@@ -203,6 +203,11 @@ impl Ask {
         }
     }
 
+    /// Lets the card go: input leaves it now, and what it last showed fades out.
+    pub fn fade_out(self) -> crate::panel::Fade {
+        self.on_screen.fade_out()
+    }
+
     /// The card on a screen `screen` logical pixels big.
     pub fn element<R>(
         &mut self,
@@ -216,8 +221,11 @@ impl Ask {
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card((ring, frame.accent));
-        let (alpha, rise) = exit::opening(now - self.since, self.reduced_motion);
-        self.on_screen.element(renderer, card, frame, (alpha, rise))
+        let look = self.on_screen.fade.opening(
+            exit::opening(now - self.since, self.reduced_motion),
+            self.reduced_motion,
+        );
+        self.on_screen.element(renderer, card, frame, look)
     }
 }
 

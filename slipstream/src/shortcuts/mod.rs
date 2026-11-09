@@ -82,6 +82,8 @@ pub struct Shortcuts {
     held: Vec<Held>,
     /// The card on screen, and the request it answers.
     asking: Option<(Pending, Ask)>,
+    /// The last card, fading out after it went.
+    pub fading: Option<crate::panel::Fade>,
     waiting: VecDeque<Pending>,
     /// The person's own shortcuts that work, which no app can be given.
     own: Vec<own::OwnKey>,
@@ -147,7 +149,7 @@ impl Shortcuts {
             .as_ref()
             .is_some_and(|(pending, _)| pending.session == session)
         {
-            self.asking = None;
+            self.let_go();
             return true;
         }
         false
@@ -324,7 +326,7 @@ impl Shortcuts {
                 Answer::Answered { written }
             }
             Act::Deny => {
-                if let Some((pending, _)) = self.asking.take() {
+                if let Some(pending) = self.let_go() {
                     tracing::info!("an app's shortcuts were turned down");
                     let _ = pending.reply.try_send(None);
                 }
@@ -334,14 +336,22 @@ impl Shortcuts {
         }
     }
 
+    /// Takes the card down: the request it answered comes back, and the card fades out.
+    fn let_go(&mut self) -> Option<Pending> {
+        let (pending, ask) = self.asking.take()?;
+        self.fading = Some(ask.fade_out());
+        Some(pending)
+    }
+
     /// Binds what the card shows, and writes it down. Returns whether there is something new to
     /// write to the file.
     fn allow(&mut self) -> bool {
-        let Some((pending, ask)) = self.asking.take() else {
+        let Some((pending, mut ask)) = self.asking.take() else {
             return false;
         };
-        let bound: Vec<Bound> = ask
-            .rows
+        let rows = std::mem::take(&mut ask.rows);
+        self.fading = Some(ask.fade_out());
+        let bound: Vec<Bound> = rows
             .iter()
             .filter_map(|row| {
                 Some(Bound {
@@ -367,8 +377,7 @@ impl Shortcuts {
             return false;
         }
         // Left out is an answer too: the app isn't asked about it again.
-        let shortcuts = ask
-            .rows
+        let shortcuts = rows
             .iter()
             .map(|row| Shortcut {
                 id: row.id.clone(),

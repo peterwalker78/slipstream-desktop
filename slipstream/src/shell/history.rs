@@ -269,6 +269,8 @@ pub struct History {
     clips: Vec<Clip>,
     open: bool,
     opened_at: f64,
+    /// Its way in and out.
+    pub(crate) fade: panel::Fade,
     selected: usize,
     /// The first row shown.
     scroll: usize,
@@ -283,7 +285,7 @@ pub struct History {
     card_rows: Rows,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 struct Look {
     screen: Size<i32, Logical>,
     scale: f64,
@@ -305,6 +307,7 @@ impl History {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.selected = 0;
         self.scroll = 0;
         self.chosen_at = now;
@@ -313,7 +316,14 @@ impl History {
 
     pub fn close(&mut self) {
         self.open = false;
-        self.painted = None;
+        // Where the painted card settles: its corner, outside the margin round the card.
+        let m = (MARGIN * DESIGN_PX) as f64;
+        let at = self.frame.loc - Point::from((m, m));
+        self.fade.close(
+            self.painted
+                .take()
+                .map(|(_, painted)| vec![(painted, at, 1.0)]),
+        );
     }
 
     /// Paints its text again next frame: a face for characters it lacked has landed.
@@ -465,7 +475,10 @@ impl History {
             .iter()
             .map(|(index, rect)| (*index, Rectangle::new(rect.loc + at, rect.size)))
             .collect();
-        let (alpha, rise) = panel::opening(now - self.opened_at, self.reduced_motion);
+        let (alpha, rise) = self.fade.opening(
+            panel::opening(now - self.opened_at, self.reduced_motion),
+            self.reduced_motion,
+        );
         painted.element(
             renderer,
             at + Point::from((0.0, rise * DESIGN_PX as f64)),
@@ -865,6 +878,23 @@ mod tests {
             })
             .collect();
         assert_eq!(order, ["one", "three", "two"]);
+    }
+
+    #[test]
+    fn closing_lets_go_at_once_and_only_its_picture_fades() {
+        let mut history = History::default();
+        history.open(0.0);
+        history.fade.opening((1.0, 0.0), false);
+        let painted = Painted::new((1, 1).into(), 1.0, |_| {}).unwrap();
+        history.painted = Some((Look::default(), painted));
+        history.close();
+        assert!(
+            !history.is_open(),
+            "keys and clicks go to what's underneath now"
+        );
+        assert!(history.fade.is_closing());
+        history.open(1.0);
+        assert!(!history.fade.is_closing());
     }
 
     #[test]

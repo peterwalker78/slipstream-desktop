@@ -122,6 +122,8 @@ pub struct Centre {
     open: bool,
     /// When it opened, on the animation clock.
     opened_at: f64,
+    /// Its way in and out.
+    pub(crate) fade: panel::Fade,
     /// Months from this one.
     month: i32,
     selected: Item,
@@ -135,6 +137,8 @@ pub struct Centre {
     painted: Option<Painted>,
     /// The rings round chips that need attention, which breathe over the panel.
     glow: Option<Painted>,
+    /// How strongly the glow was last drawn, against the panel's opacity.
+    breath: f32,
     /// The painted area's corner and the card, in logical pixels from the output's corner.
     origin: Point<f64, Logical>,
     frame: Rectangle<f64, Logical>,
@@ -160,6 +164,8 @@ impl Default for Centre {
         Self {
             open: false,
             opened_at: 0.0,
+            fade: panel::Fade::default(),
+            breath: 1.0,
             month: 0,
             selected: Item::DoNotDisturb,
             action: None,
@@ -207,6 +213,7 @@ impl Centre {
     pub fn open(&mut self, now: f64, ids: &[u32]) {
         self.open = true;
         self.opened_at = now;
+        self.fade.open();
         self.month = 0;
         self.scroll = 0;
         self.selected = ids
@@ -218,7 +225,12 @@ impl Centre {
     pub fn close(&mut self) {
         self.open = false;
         self.shown = None;
-        self.painted = None;
+        let (origin, breath) = (self.origin, self.breath);
+        let picture = self.painted.take().map(|painted| {
+            let glow = self.glow.take().map(|glow| (glow, origin, breath));
+            glow.into_iter().chain([(painted, origin, 1.0)]).collect()
+        });
+        self.fade.close(picture);
         self.glow = None;
         self.targets.clear();
         self.launch = None;
@@ -535,7 +547,10 @@ impl Centre {
                 ..look
             });
         }
-        let (alpha, rise) = panel::opening(now - self.opened_at, facts.reduced_motion);
+        let (alpha, rise) = self.fade.opening(
+            panel::opening(now - self.opened_at, facts.reduced_motion),
+            facts.reduced_motion,
+        );
         let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
         let mut elements = Vec::new();
         if let Some(menu) = self.menu.as_mut() {
@@ -549,6 +564,7 @@ impl Centre {
         );
         if let Some(glow) = &self.glow {
             let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
+            self.breath = breath;
             elements.extend(glow.element(renderer, at, alpha * breath));
         }
         elements.extend(

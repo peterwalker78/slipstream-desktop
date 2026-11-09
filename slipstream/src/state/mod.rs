@@ -298,6 +298,8 @@ pub struct Slipstream {
     pub offer: Option<Offer>,
     /// The card asking what a screen Slipstream has never seen should show.
     pub connect: Option<Connect>,
+    /// Cards fading out after they went, which take no input.
+    pub fading: Vec<crate::panel::Fade>,
     /// Shortcuts apps keep while another app has the keyboard, and the card that asks about
     /// them.
     pub shortcuts: crate::shortcuts::Shortcuts,
@@ -615,6 +617,7 @@ impl Slipstream {
             restoring: None,
             offer: None,
             connect: None,
+            fading: Vec::new(),
             shortcuts: crate::shortcuts::Shortcuts::new(slipstream_config::shortcuts::read(
                 &slipstream_config::shortcuts::path(),
             )),

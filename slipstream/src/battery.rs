@@ -164,6 +164,11 @@ impl LowCard {
         }
     }
 
+    /// Lets the card go: input leaves it now, and what it last showed fades out.
+    pub fn fade_out(self) -> crate::panel::Fade {
+        self.on_screen.fade_out()
+    }
+
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
@@ -175,8 +180,11 @@ impl LowCard {
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card(now);
-        let (alpha, rise) = panel::opening(now - self.since, self.reduced_motion);
-        self.on_screen.element(renderer, card, frame, (alpha, rise))
+        let look = self.on_screen.fade.opening(
+            panel::opening(now - self.since, self.reduced_motion),
+            self.reduced_motion,
+        );
+        self.on_screen.element(renderer, card, frame, look)
     }
 }
 
@@ -242,7 +250,8 @@ impl Slipstream {
         }
 
         if stage < Stage::Critical {
-            self.battery.card = None;
+            self.fading
+                .extend(self.battery.card.take().map(LowCard::fade_out));
             self.battery.slept_at = None;
             if stage == Stage::Fine {
                 self.battery.held_off_until = None;
@@ -255,7 +264,8 @@ impl Slipstream {
             .is_some_and(|until| percent > until);
         if self.lock.is_some() {
             // Nobody to ask: sleep, once for this charge.
-            self.battery.card = None;
+            self.fading
+                .extend(self.battery.card.take().map(LowCard::fade_out));
             if !held_off && self.battery.slept_at != Some(percent) {
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "battery critical while locked: sleeping");
@@ -274,7 +284,8 @@ impl Slipstream {
                     Some(LowCard::new(percent, left, now, self.clock.reduced_motion));
             }
             Some(card) if card.due(now) => {
-                self.battery.card = None;
+                self.fading
+                    .extend(self.battery.card.take().map(LowCard::fade_out));
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "battery critical: sleeping");
                 self.request_power(crate::power::Power::Sleep);
@@ -320,13 +331,15 @@ impl Slipstream {
         match act {
             Act::Nothing => {}
             Act::SleepNow => {
-                self.battery.card = None;
+                self.fading
+                    .extend(self.battery.card.take().map(LowCard::fade_out));
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "sleeping now, from the battery card");
                 self.request_power(crate::power::Power::Sleep);
             }
             Act::NotYet => {
-                self.battery.card = None;
+                self.fading
+                    .extend(self.battery.card.take().map(LowCard::fade_out));
                 self.battery.held_off_until = Some(percent.saturating_sub(HOLD_OFF));
                 tracing::info!(percent, "the battery card was held off");
             }
