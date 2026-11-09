@@ -36,7 +36,7 @@ pub struct Look<'a> {
 // The miniature's measurements, in its design pixels.
 const BAR_H: f32 = 15.0;
 /// Around the tiling area, as the real one keeps an outer gap.
-const EDGE: f32 = 7.0;
+const EDGE: f32 = 5.0;
 const STREAM_W: f32 = 17.0;
 const STREAM_GAP: f32 = 3.0;
 /// Between one workspace and the next as they slide past.

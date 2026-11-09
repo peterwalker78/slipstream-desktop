@@ -621,9 +621,9 @@ mod tests {
         let divider = Divider {
             strip: Rect {
                 x: 495,
-                y: 16,
+                y: layout::OUTER_GAP,
                 w: 10,
-                h: 568,
+                h: 600 - 2 * layout::OUTER_GAP,
             },
             vertical: true,
             split: Rect {

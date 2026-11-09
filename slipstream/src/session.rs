@@ -357,7 +357,8 @@ mod tests {
         assert!(decode(&chain).is_some(), "{chain}");
         // A ratio out of range still reads, and the layout keeps it within bounds.
         let wide = decode("v2(0,1)").expect("a finite ratio reads");
-        let mut layout = crate::layout::Dwindle::new(16, 10);
+        let mut layout =
+            crate::layout::Dwindle::new(crate::layout::OUTER_GAP, crate::layout::INNER_GAP);
         layout.rebuild(&wide);
         let Some(Shape::Split { ratio, .. }) = layout.shape() else {
             panic!("the split is rebuilt");

@@ -502,6 +502,7 @@ fn strip<T: Clone>(placed: &mut Vec<(T, [f64; 4])>, shares: &[(T, f64)]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::{INNER_GAP, OUTER_GAP};
 
     const AREA: Rect = Rect {
         x: 0,
@@ -596,7 +597,7 @@ mod tests {
         gravity: &mut Gravity<&'static str>,
         all: &[&'static str],
     ) -> Vec<(&'static str, Rect)> {
-        let mut rects = gravity.rects(all, AREA, 16, 10);
+        let mut rects = gravity.rects(all, AREA, OUTER_GAP, INNER_GAP);
         rects.sort_by_key(|(w, _)| *w);
         rects
     }
@@ -698,8 +699,8 @@ mod tests {
         let all = ["a", "b", "c", "d", "e"];
         let mut gravity = Gravity::default();
         step(&mut gravity, &all, "c", true);
-        let first = gravity.rects(&all, AREA, 16, 10);
-        assert_eq!(first, gravity.rects(&all, AREA, 16, 10));
+        let first = gravity.rects(&all, AREA, OUTER_GAP, INNER_GAP);
+        assert_eq!(first, gravity.rects(&all, AREA, OUTER_GAP, INNER_GAP));
         // Orbit slots follow the tree: "a" is slot 0 (right column), "b" slot 1 (left column).
         let (a, b, c) = (
             rect_of(&first, "a"),
@@ -767,7 +768,7 @@ mod tests {
             Step::Moved(Rung::Distant)
         );
         assert_eq!(gravity.rung(&"a"), Rung::Wide);
-        let rects = gravity.rects(&all, AREA, 16, 10);
+        let rects = gravity.rects(&all, AREA, OUTER_GAP, INNER_GAP);
         assert!(
             rect_of(&rects, "b").y > 550,
             "the strip runs along the bottom"
@@ -847,7 +848,7 @@ mod tests {
         let all = ["a", "b"];
         let mut gravity = Gravity::default();
         step(&mut gravity, &all, "a", true);
-        let rects = gravity.rects(&all, AREA, 16, 10);
+        let rects = gravity.rects(&all, AREA, OUTER_GAP, INNER_GAP);
         let (a, b) = (rect_of(&rects, "a"), rect_of(&rects, "b"));
         assert_eq!(b.x - (a.x + a.w), 10, "tiling's inner gap");
     }
@@ -876,7 +877,7 @@ mod tests {
         assert_eq!(gravity.rung(&"a"), Rung::Spotlight);
         assert_eq!(gravity.rung(&"b"), Rung::Orbit);
         assert_eq!(gravity.rung(&"c"), Rung::Distant);
-        let rects = gravity.rects(&["a", "b", "c"], AREA, 16, 10);
+        let rects = gravity.rects(&["a", "b", "c"], AREA, OUTER_GAP, INNER_GAP);
         assert!(
             rect_of(&rects, "c").w < rect_of(&rects, "b").w,
             "distant takes less of the strip"
