@@ -799,7 +799,7 @@ fn bar_elements(
 }
 
 /// The bar styles' own touches, drawn over the bar's picture rather than into it: the focus bar
-/// dims what's on it while you type, and the lit edge's light moves along it. Takes the bar's
+/// dims what's on it while you type, and the lit edge's line carries its charge. Takes the bar's
 /// `elements` and hands them back with the touch.
 fn bar_touch(
     state: &mut Slipstream,
@@ -819,14 +819,16 @@ fn bar_touch(
                 .breath(typing, v.now, reduced, v.scale.x, v.ui_alpha);
             elements.splice(0..0, dim.into_iter().map(OutputElement::Solid));
         }
-        // The light rests once the desktop fades, and with reduced motion, which keeps the lit
-        // edge itself. Locked, with the screens off, or with a window filling the screen, the bar
-        // isn't drawn at all.
-        BarStyle::LitEdge if bar::light::moves(reduced, v.ui) => {
-            let light = chrome.bar.light(renderer, v.scale.x, v.now, v.ui_alpha);
-            elements.splice(0..0, light.into_iter().flatten().map(OutputElement::Memory));
+        // The edge stands still once the desktop fades, and with reduced motion. Locked, with
+        // the screens off, or with a window filling the screen, the bar isn't drawn at all.
+        BarStyle::LitEdge => {
+            let moving = !reduced && v.ui >= 1.0;
+            let edge = chrome
+                .bar
+                .lit_edge(renderer, v.scale.x, v.now, v.wall, v.ui_alpha, moving);
+            elements.splice(0..0, edge.map(OutputElement::Pixel));
         }
-        BarStyle::LitEdge | BarStyle::FloatingStrip => {}
+        BarStyle::FloatingStrip => {}
     }
     elements
 }

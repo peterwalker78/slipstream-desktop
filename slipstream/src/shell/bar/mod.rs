@@ -24,6 +24,7 @@ use smithay::{
             memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
             solid::SolidColorRenderElement,
         },
+        gles::{GlesRenderer, element::PixelShaderElement},
     },
     utils::{Buffer, Logical, Point, Rectangle, Size},
 };
@@ -307,19 +308,42 @@ impl Bar {
             .elements(self.at, &self.attention, scale, strength)
     }
 
-    /// The lit edge's moving light at `now` seconds, at `alpha`.
-    pub fn light<R>(
+    /// The lit edge along the bar's foot at `now` seconds, its marker where it's drawn at `wall`,
+    /// at `alpha`: moving unless `moving` is false, when it stands still.
+    pub fn lit_edge(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         scale: f64,
         now: f64,
+        wall: f64,
         alpha: f32,
-    ) -> [Option<MemoryRenderBufferRenderElement<R>>; 2]
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        self.light.elements(renderer, self.at, scale, now, alpha)
+        moving: bool,
+    ) -> Option<PixelShaderElement> {
+        let (content, ..) = self.shown.as_ref()?;
+        let f = (HEIGHT as f64 * scale).round() / TALL as f64;
+        // Logical pixels to the bar's units.
+        let units = |logical: i32| (logical as f64 * scale / f) as f32;
+        let edge = light::Edge {
+            bar: self.at,
+            scale,
+            marker: self.marker.map(|marker| {
+                let (left, right) = (marker.left.value(wall)[0], marker.right.value(wall)[0]);
+                ((left + right) / 2.0) as f32
+            }),
+            strength: if content.keyboard_here { 1.0 } else { 0.5 },
+            ring: content.ring,
+            line: Place::of(BarStyle::LitEdge).material().1,
+            gap: content
+                .dock
+                .map(|(left, right)| (units(left), units(right))),
+            alpha,
+        };
+        self.light.element(renderer, &edge, now, moving)
+    }
+
+    /// Strikes the lit edge's arc now, so it can be looked at without waiting for one.
+    pub fn strike_now(&mut self) {
+        self.light.strike_now();
     }
 
     /// Sends the marker towards the current workspace when that changes.
@@ -475,12 +499,12 @@ fn paint(
     if place.floating {
         paint_strip(&mut bar, place, span);
     } else {
-        paint_band(&mut bar, place, span);
+        paint_band(&mut bar, place, span, style != BarStyle::LitEdge);
+    }
+    if style == BarStyle::LitEdge {
+        paint_top_light(&mut bar);
     }
     let (x, at_rest) = paint_left(&mut bar, content, marker);
-    if style == BarStyle::LitEdge {
-        paint_lit_edge(&mut bar, content, marker.or(at_rest), span);
-    }
     let right = paint_right(&mut bar, content);
     let (centre_x, block_w) = paint_centre(&mut bar, content);
     paint_title(&mut bar, content, x, centre_x);
@@ -503,11 +527,14 @@ fn paint(
     })
 }
 
-/// The bar along the screen's top edge: its fill, and the line along its foot, broken over
-/// `span` where a docked pane's frame carries it on downwards.
-fn paint_band(bar: &mut Strip, place: Place, span: Option<(f32, f32)>) {
+/// The bar along the screen's top edge: its fill, and with `foot` the line along its foot, broken
+/// over `span` where a docked pane's frame carries it on downwards.
+fn paint_band(bar: &mut Strip, place: Place, span: Option<(f32, f32)>, foot: bool) {
     let (wide, (fill, edge)) = (bar.wide, place.material());
     bar.p.fill(0.0, 0.0, wide, TALL, 0.0, fill);
+    if !foot {
+        return;
+    }
     match span {
         Some((left, right)) => {
             bar.p.fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, edge);
@@ -546,65 +573,17 @@ fn paint_strip(bar: &mut Strip, place: Place, span: Option<(f32, f32)>) {
     }
 }
 
-/// The lit edge: a faint light along the bar's top, and the line under it glowing in the focus
-/// ring's colour beneath the current workspace's marker at `marker`, fading out across the bar.
-/// Over `span` the foot stays open into a docked pane's frame.
-fn paint_lit_edge(
-    bar: &mut Strip,
-    content: &Content,
-    marker: Option<(f32, f32)>,
-    span: Option<(f32, f32)>,
-) {
+/// The lit edge's picture: a faint light along the bar's top. The line along its foot is the
+/// lit edge's own strip (`light.rs`), drawn over the bar each frame, so the picture leaves it out.
+fn paint_top_light(bar: &mut Strip) {
     let wide = bar.wide;
     bar.p.fill(0.0, 0.0, wide, 1.0, 0.0, TOP_LIGHT);
     bar.p
         .fill(0.0, 1.0, wide, 1.0, 0.0, (TOP_LIGHT & 0xffffff00) | 0x06);
-    let Some((left, right)) = marker else {
-        return;
-    };
-    let middle = ((left + right) / 2.0).clamp(0.0, wide);
-    let ring = content.ring & 0xffffff00;
-    let peak = if content.keyboard_here {
-        GLOW
-    } else {
-        GLOW / 2.0
-    };
-    // Falling away softly with distance from the marker, gone a third of the way across.
-    let reach = wide * 0.2;
-    let strength = |x: f32| peak * (-((x - middle) / reach).powi(2)).exp();
-    let mut xs: Vec<f32> = (0..=24)
-        .map(|n| n as f32 * wide / 24.0)
-        .chain(
-            [0.0, 4.0, 12.0, 32.0, 80.0]
-                .iter()
-                .flat_map(|d| [middle - d, middle + d]),
-        )
-        .filter(|x| (0.0..=wide).contains(x))
-        .collect();
-    xs.sort_by(f32::total_cmp);
-    xs.dedup_by(|a, b| (*a - *b).abs() < 0.5);
-    let stops: Vec<(f32, u32)> = xs
-        .iter()
-        .map(|&x| {
-            (
-                x / wide,
-                ring | strength(x).round().clamp(0.0, 255.0) as u32,
-            )
-        })
-        .collect();
-    bar.p.fill_across(0.0, TALL - 1.0, wide, 1.0, &stops);
-    if let Some((left, right)) = span {
-        let (left, right) = (left.max(0.0), right.min(wide));
-        let fill = Place::default().material().0;
-        bar.p.clear(left, TALL - 1.0, right - left, 1.0);
-        bar.p.fill(left, TALL - 1.0, right - left, 1.0, 0.0, fill);
-    }
 }
 
 /// The lit edge's light along the bar's top.
 const TOP_LIGHT: u32 = 0xffffff0c;
-/// How strongly the line under the bar glows beneath the marker, out of 255.
-const GLOW: f32 = 175.0;
 
 /// The bar as it is painted, in design pixels `wide`, where its buttons are, and what on it
 /// wants attention.
@@ -1351,16 +1330,21 @@ mod tests {
     }
 
     #[test]
-    fn the_lit_edge_glows_under_the_marker_and_fades_across() {
+    fn the_lit_edges_picture_leaves_its_foot_line_to_the_strip() {
         let content = content();
         let lit = paint(&content, 1536, 1.0, None, BarStyle::LitEdge).unwrap();
-        let foot = |x: u32| lit.pixmap.pixel(x, lit.pixmap.height() - 1).unwrap();
-        let (left, right) = lit.marker.unwrap();
-        let under = foot(((left + right) / 2.0 / 1.25) as u32);
-        let far = foot(1500);
-        assert!(under.alpha() > far.alpha() && under.blue() > far.blue() + 60);
-        // The picture is the plain bar's apart from its edges.
         let plain = paint(&content, 1536, 1.0, None, BarStyle::Plain).unwrap();
+        let last = lit.pixmap.height() - 1;
+        // The foot row is the bar's fill, as just above it, all the way along.
+        for x in [10, 60, 400, 1500] {
+            assert_eq!(lit.pixmap.pixel(x, last), lit.pixmap.pixel(x, last - 1));
+        }
+        assert_ne!(
+            plain.pixmap.pixel(1500, last),
+            plain.pixmap.pixel(1500, last - 1)
+        );
+        // It keeps the faint light along its top, and is the plain bar's in between.
+        assert_ne!(lit.pixmap.pixel(1500, 0), plain.pixmap.pixel(1500, 0));
         assert_eq!(lit.pixmap.pixel(900, 20), plain.pixmap.pixel(900, 20));
     }
 

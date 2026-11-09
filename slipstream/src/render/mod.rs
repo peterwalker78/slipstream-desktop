@@ -15,7 +15,10 @@ use smithay::{
                 texture::TextureRenderElement,
                 utils::RescaleRenderElement,
             },
-            gles::{GlesRenderer, GlesTexture, element::TextureShaderElement},
+            gles::{
+                GlesRenderer, GlesTexture,
+                element::{PixelShaderElement, TextureShaderElement},
+            },
         },
     },
     desktop::{
@@ -98,6 +101,8 @@ smithay::backend::renderer::element::render_elements! {
     /// A texture shown through one of Slipstream's shaders: bullet time's tilted overview, or the
     /// UI's glass fade.
     Shaded=TextureShaderElement,
+    /// Drawn by a shader alone: the lit edge along the bar's foot.
+    Pixel=PixelShaderElement,
     /// The desktop drawn into a texture, coming forward as the lock goes.
     Texture=TextureRenderElement<GlesTexture>,
 }
@@ -110,6 +115,7 @@ impl std::fmt::Debug for OutputElement {
             Self::Memory(e) => f.debug_tuple("Memory").field(e).finish(),
             Self::Solid(e) => f.debug_tuple("Solid").field(e).finish(),
             Self::Shaded(e) => f.debug_tuple("Shaded").field(e).finish(),
+            Self::Pixel(e) => f.debug_tuple("Pixel").field(e).finish(),
             Self::Texture(e) => f.debug_tuple("Texture").field(e).finish(),
             Self::_GenericCatcher(e) => f.debug_tuple("_GenericCatcher").field(e).finish(),
         }

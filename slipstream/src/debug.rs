@@ -55,7 +55,7 @@
 //! program needing an administrator would open it, checking nothing), `press:NAME`,
 //! `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same routing as the keyboard, and meaning
 //! what they mean in the login session: Super is Super even nested), `motion` (every animating
-//! part's reduced-motion flag, into the log), `lock` (the lock screen; nested runs only), `unlock`
+//! part's reduced-motion flag, into the log), `arc` (the lit edge's arc, struck now), `lock` (the lock screen; nested runs only), `unlock`
 //! (the lock taken down as a right password would), `battery:N` (pretend the battery is at N
 //! percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While
 //! locked, only the steps that go through the keyboard's, the pointer's and apps' own paths act.
@@ -230,6 +230,8 @@ pub enum Step {
     Screens,
     /// Writes each animating part's reduced-motion flag into the log.
     Motion,
+    /// Strikes the lit edge's arc on every screen now, rather than waiting for one.
+    Arc,
     /// Super+P and Super+Shift+P.
     NextScreen,
     MoveToNextScreen,
@@ -504,6 +506,7 @@ impl Script {
                     ("screens", None) => Step::Screens,
                     ("windows", None) => Step::Windows,
                     ("motion", None) => Step::Motion,
+                    ("arc", None) => Step::Arc,
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
                     ("swapscreens", None) => Step::SwapScreens,
