@@ -68,16 +68,25 @@ const MOST_STEP: f64 = 0.034;
 
 /// Each piece grows from `GROW_FROM` of its size to all of it.
 const GROW_FROM: f64 = 0.82;
-/// While a piece is in the first half of its way, it flickers between `FLICKER` and full.
-const FLICKER: f32 = 0.6;
+/// A piece is a picture on a tube while it powers up or down: fully so for the first `TUBE_HOLD`
+/// of its way, settling to clean by `TUBE_CLEAN`, so a piece at rest is pristine.
+const TUBE_HOLD: f64 = 0.55;
+const TUBE_CLEAN: f64 = 0.95;
+/// On about `DIM_CHANCE` of the tube's frames a piece dims to `DIM` of its brightness.
+const DIM_CHANCE: f32 = 0.4;
+const DIM: f32 = 0.62;
+/// About one of the tube's frames in `PIECE_TEAR_CHANCE` jerks a piece sideways by one to
+/// `PIECE_TEAR` logical pixels.
+const PIECE_TEAR_CHANCE: f32 = 0.3;
+const PIECE_TEAR: f64 = 3.0;
 /// A piece's colours split by up to this many logical pixels while it powers up or down.
-const SPLIT_PX: f64 = 2.5;
+const SPLIT_PX: f64 = 4.5;
 /// How strong each split colour is at its widest.
-const SPLIT_ALPHA: f32 = 0.5;
+const SPLIT_ALPHA: f32 = 0.6;
 /// The split colours are made at this fraction of the picture's size each way.
 const SPLIT_SCALE: usize = 2;
-/// The scanlines over the moving drawer: half as dark as the edge's.
-const SCAN_DARK: f32 = (1.0 - fx::SCANLINE) / 2.0;
+/// The scanlines over the moving drawer: as dark as the edge's.
+const SCAN_DARK: f32 = 1.0 - fx::SCANLINE;
 /// The card's corner radius in logical pixels: the scanlines keep this far from its top and foot,
 /// so they never show past its rounded corners.
 const CORNER: f64 = 18.0 * crate::panel::DESIGN_PX as f64;
@@ -356,6 +365,16 @@ fn way_out(order: usize, count: usize, since: f64) -> f64 {
     let pieces = 1.0 - (since / LEAVE).clamp(0.0, 1.0);
     let order = count.saturating_sub(1).saturating_sub(order);
     ((pieces - piece_start(order, count)) / SPAN).clamp(0.0, 1.0)
+}
+
+/// How much of a picture on a tube a piece `way` through its way in or out still is: all of it
+/// at first, nothing once it has landed.
+fn tube(way: f64) -> f32 {
+    if way <= 0.0 {
+        return 0.0;
+    }
+    let t = ((way - TUBE_HOLD) / (TUBE_CLEAN - TUBE_HOLD)).clamp(0.0, 1.0);
+    (1.0 - t * t * (3.0 - 2.0 * t)) as f32
 }
 
 /// How far a piece has grown, from `from` when the opening started, `way` through its way in.
@@ -856,7 +875,7 @@ impl Fade {
                 let piece = Piece {
                     rect: *rect,
                     grown,
-                    flickers: way > 0.0 && way < 0.5,
+                    tube: tube(way),
                     at,
                     lift,
                     salt: n,
@@ -1016,16 +1035,29 @@ impl Fade {
         let Some(crop) = piece.crop(main, self.drawer.slot) else {
             return;
         };
-        let power = 1.0 - piece.grown;
-        let flicker = if piece.flickers {
-            let frame = (now * 60.0).floor() as i64 as u64;
-            FLICKER + (1.0 - FLICKER) * fx::tube_hash(frame, piece.salt as u64 + 7)
+        // How much of a tube it still is: the dimming, the tear and the split all go with it.
+        let tube = piece.tube;
+        let (dim, tear) = if tube > 0.0 {
+            let (beat, torn) = fx::tube(now + piece.salt as f64 * 0.37, PIECE_TEAR_CHANCE);
+            let low = fx::tube_hash((now / fx::TUBE_FRAME) as i64 as u64, piece.salt as u64 + 7);
+            let dim = if low < DIM_CHANCE { DIM } else { beat };
+            // A tear jerks it at least a pixel either way.
+            let jerk = if torn == 0.0 {
+                0.0
+            } else {
+                torn.signum() as f64 * (1.0 + (PIECE_TEAR - 1.0) * torn.abs() as f64)
+            };
+            (1.0 - tube * (1.0 - dim), jerk * tube as f64)
         } else {
-            1.0
+            (1.0, 0.0)
         };
-        let alpha = alpha * (piece.grown * 1.4).min(1.0) * flicker;
+        let crop = Crop {
+            at: crop.at + Point::from((tear, 0.0)),
+            ..crop
+        };
+        let alpha = alpha * (piece.grown * 1.4).min(1.0) * dim;
         let ids = PIECE_IDS + 3 * piece.salt;
-        let split = SPLIT_PX * power as f64;
+        let split = SPLIT_PX * tube as f64;
         if split > 0.3
             && let Some(colours) = self.split.as_ref()
         {
@@ -1041,7 +1073,7 @@ impl Fade {
                             colour,
                             main.scale,
                             main.scale / SPLIT_SCALE as f64,
-                            alpha * SPLIT_ALPHA * power,
+                            alpha * SPLIT_ALPHA * tube,
                         )
                         .map(|element| FlowElement::with_id(element, &self.ids[ids + 1 + n])),
                 );
@@ -1073,7 +1105,7 @@ fn pieces<'a>(
 struct Piece {
     rect: Rectangle<f64, Logical>,
     grown: f32,
-    flickers: bool,
+    tube: f32,
     at: Point<f64, Logical>,
     lift: f64,
     salt: usize,
@@ -1489,6 +1521,16 @@ mod tests {
     }
 
     #[test]
+    fn a_piece_is_a_tube_while_it_powers_up_or_down_and_clean_once_landed() {
+        assert_eq!(tube(0.0), 0.0, "not there yet");
+        assert_eq!(tube(0.01), 1.0);
+        assert_eq!(tube(TUBE_HOLD), 1.0, "held over most of its way");
+        assert!(tube((TUBE_HOLD + TUBE_CLEAN) / 2.0) < 1.0);
+        assert_eq!(tube(TUBE_CLEAN), 0.0);
+        assert_eq!(tube(1.0), 0.0, "pristine at rest");
+    }
+
+    #[test]
     fn closing_the_pieces_go_in_a_fifth_of_a_second_then_the_card_follows() {
         let count = 12;
         for order in 0..count {
@@ -1713,12 +1755,12 @@ mod tests {
     }
 
     #[test]
-    fn the_scanlines_are_faint_and_on_every_other_row() {
+    fn the_scanlines_are_as_dark_as_the_edges_and_on_every_other_row() {
         let pixels = scan_pixels();
         let row = |n: usize| &pixels[n * STRIP_W * 4..n * STRIP_W * 4 + 4];
         assert_eq!(row(1), [0; 4]);
         assert_eq!(&row(0)[..3], [0, 0, 0]);
         let dark = row(0)[3] as f32 / 255.0;
-        assert!(dark > 0.0 && dark <= (1.0 - fx::SCANLINE) / 2.0 + 0.01);
+        assert!((dark - (1.0 - fx::SCANLINE)).abs() < 0.01, "{dark}");
     }
 }
