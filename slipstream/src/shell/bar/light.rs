@@ -1,9 +1,11 @@
 //! The lit edge: the line along the bar's foot, carrying a charge in the focus ring's colour. It
 //! glows faintly all along, brighter around the workspace marker, and the glow follows the
-//! marker as it slides. Every few seconds a soft pulse leaves the marker and runs out both ways,
-//! the line shimmers faintly as a live wire does, and now and then a short electric arc jumps
-//! along a stretch of it, restriking two to four times in a tenth of a second or so, and leaves
-//! a brief afterglow.
+//! marker as it slides. Every few seconds a soft pulse leaves the marker and runs out both ways
+//! to the bar's ends, fading gently on the way, so several are always out; the line shimmers
+//! faintly as a live wire does, and now and then a short electric arc jumps along a stretch of
+//! it, restriking two to four times in a tenth of a second or so, and leaves a brief afterglow.
+//! Every part of an arc fades in and out along its stretch, so it has no ends to see. While a
+//! panel comes out of the bar, the line brightens over the slot it comes out of.
 //!
 //! One shader strip draws the line, its glow and the arcs, worked out per pixel from continuous
 //! time and sub-pixel positions, so nothing in it steps or comes in blocks. The bar's own picture
@@ -28,11 +30,15 @@ pub const STEPS: f64 = 30.0;
 /// Seconds between one pulse leaving the marker and the next, picked afresh each time.
 const PULSE_EVERY: (f64, f64) = (2.5, 3.5);
 /// How fast a pulse runs out along the edge, in the bar's units a second, picked per pulse.
-const PULSE_SPEED: (f64, f64) = (100.0, 140.0);
-/// How far a pulse runs before it has faded out, in the bar's units.
-const PULSE_REACH: f64 = 600.0;
-/// The most pulses out at once: the slowest lasts six seconds and they leave at least 2.5 apart.
-const PULSES: usize = 3;
+const PULSE_SPEED: (f64, f64) = (150.0, 190.0);
+/// How far past the bar's far end a pulse runs before it is let go, so it leaves the bar whole.
+const PULSE_TAIL: f64 = 200.0;
+/// The furthest a pulse runs, however wide the bar: it fades out over the last stretch of it.
+/// The slowest takes under twenty seconds to get there, so `PULSES` is enough to have every one
+/// out at once.
+const PULSE_LONGEST: f64 = 2950.0;
+/// The most pulses out at once: they leave at least 2.5 s apart and none lasts 20 s.
+const PULSES: usize = 8;
 
 /// Seconds between one arc and the next.
 const ARC_EVERY: (f64, f64) = (3.0, 7.0);
@@ -53,8 +59,8 @@ const MARKER_REACH: f64 = 360.0;
 
 /// How far the strip reaches above and below the line, in logical pixels: room for the glow
 /// either side and for an arc's bulge.
-const ABOVE: i32 = 7;
-const BELOW: i32 = 11;
+const ABOVE: i32 = 11;
+const BELOW: i32 = 12;
 
 /// The strip's shader, its numbers in the bar's units unless they say otherwise. The colours are
 /// light added to what's under the strip, apart from the line's own colour, which is laid over.
@@ -78,24 +84,35 @@ uniform vec4 edge;
 // on (below zero, a still edge).
 uniform vec4 look;
 // How far each pulse has run from the marker; below zero, none.
-uniform vec3 pulses;
+uniform vec4 pulses;
+uniform vec4 pulses_more;
 // The arc's left end and stretch, the seed of its current path, and how bright it is now.
 uniform vec4 arc;
-// The arc's afterglow, and the gap where a docked pane's frame carries the bar on down.
-uniform vec3 after;
+// The arc's afterglow, the gap where a docked pane's frame carries the bar on down, and how far
+// it is from the marker to the bar's further end.
+uniform vec4 after;
+// The slot a panel is coming out of: its left and right ends, and how strongly it is lit.
+uniform vec3 slot;
 
 // The charge all along the edge, and what the marker adds at its middle.
-const float BASE = 0.10;
-const float MARKER = 0.32;
-const float SPREAD = 240.0;
-// What a pulse adds at its middle when it leaves the marker, and how far it runs.
-const float PULSE = 0.38;
-const float REACH = 600.0;
+const float BASE = 0.14;
+const float MARKER = 0.34;
+const float SPREAD = 420.0;
+// What a pulse adds at its middle when it leaves the marker, its share of that at the bar's far
+// end, and the furthest it runs, fading out over the last of it.
+const float PULSE = 0.7;
+const float FAR = 0.33;
+const float LONGEST = 2950.0;
 // The shimmer, as a share of the line's brightness either way.
 const float BUZZ = 0.06;
 // Above KNEE the line brightens ever more slowly towards CEILING, so it never glares.
-const float KNEE = 0.5;
-const float CEILING = 0.7;
+const float KNEE = 0.62;
+const float CEILING = 0.88;
+// An arc fades in and out over this share of its stretch at either end.
+const float ARC_TAPER = 0.28;
+// What a lit slot adds to the line, and how far its ends taper, at most.
+const float SLOT = 0.8;
+const float SLOT_TAPER = 48.0;
 // How far an arc's path strays from the line, and its segments' length.
 const float BULGE = 4.5;
 const float SEGMENT = 12.0;
@@ -141,6 +158,16 @@ vec2 point(float j, float count, float step) {
     return vec2(arc.x + j * step, y);
 }
 
+// What a pulse `run` units out adds at `d` units from the marker: its charge and its white core.
+vec2 pulse(float run, float d) {
+    if (run < 0.0) return vec2(0.0);
+    float wide = 26.0 + 0.06 * min(run, 1400.0);
+    float fade = mix(1.0, FAR, pow(clamp(run / max(after.w, 1.0), 0.0, 1.0), 0.85))
+        * smoothstep(0.0, 30.0, run) * (1.0 - smoothstep(LONGEST - 250.0, LONGEST, run));
+    float g = exp(-sq((d - run) / wide));
+    return vec2(PULSE * look.y * g * fade, pow(g, 8.0) * fade);
+}
+
 float to_segment(vec2 p, vec2 a, vec2 b) {
     vec2 ab = b - a;
     float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0);
@@ -162,30 +189,30 @@ void main() {
 
     float d = abs(x - look.x);
     float charge = BASE + MARKER * look.y * exp(-sq(d / SPREAD));
-    float core = 0.0;
-    for (int n = 0; n < 3; n++) {
-        float run = n == 0 ? pulses.x : (n == 1 ? pulses.y : pulses.z);
-        if (run >= 0.0) {
-            float wide = 26.0 + run * 0.08;
-            float fade = pow(clamp(1.0 - run / REACH, 0.0, 1.0), 1.5) * smoothstep(0.0, 30.0, run);
-            float g = exp(-sq((d - run) / wide));
-            charge += PULSE * look.y * g * fade;
-            core += pow(g, 8.0) * fade;
-        }
-    }
+    vec2 runs = pulse(pulses.x, d) + pulse(pulses.y, d) + pulse(pulses.z, d)
+        + pulse(pulses.w, d) + pulse(pulses_more.x, d) + pulse(pulses_more.y, d)
+        + pulse(pulses_more.z, d) + pulse(pulses_more.w, d);
+    charge += runs.x;
+    float core = runs.y;
     if (look.w >= 0.0) {
         float shimmer = 0.7 * (noise(vec2(x / 14.0, look.w * 2.3)) * 2.0 - 1.0)
             + 0.3 * (noise(vec2(x / 5.0 + 31.0, look.w * 6.1)) * 2.0 - 1.0);
         charge *= 1.0 + BUZZ * shimmer;
     }
-    if (after.x > 0.0) {
-        float stretch = smoothstep(arc.x - 8.0, arc.x + 8.0, x)
-            * (1.0 - smoothstep(arc.x + arc.y - 8.0, arc.x + arc.y + 8.0, x));
-        charge += 0.45 * after.x * stretch;
-    }
+    // Everything an arc adds fades to nothing over the ends of its stretch.
+    float along = (x - arc.x) / max(arc.y, 1.0);
+    float stretch = smoothstep(0.0, ARC_TAPER, along) * smoothstep(0.0, ARC_TAPER, 1.0 - along);
+    charge += (0.45 * after.x + 0.3 * arc.w) * stretch;
     if (charge > KNEE) {
         float room = CEILING - KNEE;
         charge = KNEE + room * (1.0 - exp(-(charge - KNEE) / room));
+    }
+    // A lit slot, over the knee so its glint can flare, its ends tapering into the line.
+    float lit = 0.0;
+    if (slot.z > 0.0) {
+        float taper = min(0.15 * max(slot.y - slot.x, 1.0), SLOT_TAPER);
+        lit = smoothstep(slot.x, slot.x + taper, x) * (1.0 - smoothstep(slot.y - taper, slot.y, x));
+        charge += SLOT * slot.z * lit;
     }
 
     // The glow beside the line: a little above, into the bar, and further below.
@@ -194,7 +221,7 @@ void main() {
         : 0.30 * pow(clamp(1.0 + below / 4.0, 0.0, 1.0), 2.0);
     vec3 light = ring * charge * (cover + (1.0 - cover) * glow);
     // A white-hot touch at a pulse's very core, on the line alone.
-    light += vec3(0.25 * min(core, 1.0) * cover);
+    light += vec3((0.25 * min(core, 1.0) + 0.4 * max(slot.z - 1.0, 0.0) * lit) * cover);
 
     if (arc.w > 0.0) {
         float count = max(4.0, floor(arc.y / SEGMENT + 0.5));
@@ -213,7 +240,7 @@ void main() {
         // Nothing reaches the strip's top or bottom, so it has no edge to show.
         float rim = smoothstep(0.0, 2.0 * f, at.y - frame.w)
             * smoothstep(0.0, 2.0 * f, extent.y - (at.y - frame.w));
-        light += (vec3(0.62 * hot) + ring * (0.5 * halo + 0.2 * haze)) * arc.w * rim;
+        light += (vec3(0.62 * hot) + ring * (0.5 * halo + 0.2 * haze)) * arc.w * stretch * rim;
     }
 
     vec4 color = vec4(edge.rgb * cover + light, edge.a * cover) * open * look.z * alpha;
@@ -225,16 +252,18 @@ void main() {
 }
 "#;
 
-fn uniform_names() -> [UniformName<'static>; 8] {
+fn uniform_names() -> [UniformName<'static>; 10] {
     [
         UniformName::new("frame", UniformType::_4f),
         UniformName::new("extent", UniformType::_2f),
         UniformName::new("ring", UniformType::_3f),
         UniformName::new("edge", UniformType::_4f),
         UniformName::new("look", UniformType::_4f),
-        UniformName::new("pulses", UniformType::_3f),
+        UniformName::new("pulses", UniformType::_4f),
+        UniformName::new("pulses_more", UniformType::_4f),
         UniformName::new("arc", UniformType::_4f),
-        UniformName::new("after", UniformType::_3f),
+        UniformName::new("after", UniformType::_4f),
+        UniformName::new("slot", UniformType::_3f),
     ]
 }
 
@@ -253,6 +282,9 @@ pub struct Edge {
     pub line: u32,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
+    /// The slot a panel is coming out of: its ends in logical pixels across the screen, and how
+    /// strongly it is lit.
+    pub slot: Option<(f64, f64, f32)>,
     pub alpha: f32,
 }
 
@@ -264,9 +296,11 @@ struct Uniforms {
     ring: [f32; 3],
     edge: [f32; 4],
     look: [f32; 4],
-    pulses: [f32; 3],
+    pulses: [f32; 4],
+    pulses_more: [f32; 4],
     arc: [f32; 4],
-    after: [f32; 3],
+    after: [f32; 4],
+    slot: [f32; 3],
 }
 
 impl Uniforms {
@@ -278,8 +312,10 @@ impl Uniforms {
             Uniform::new("edge", self.edge),
             Uniform::new("look", self.look),
             Uniform::new("pulses", self.pulses),
+            Uniform::new("pulses_more", self.pulses_more),
             Uniform::new("arc", self.arc),
             Uniform::new("after", self.after),
+            Uniform::new("slot", self.slot),
         ]
     }
 }
@@ -415,6 +451,7 @@ impl Charge {
     /// time the slow parts are drawn at: `now` itself while an arc is live, so it runs at the
     /// display's rate, and otherwise `now` held to the last thirtieth of a second.
     fn advance(&mut self, now: f64, marker: f64, wide: f64) -> f64 {
+        let done = done_at(marker, wide);
         if self.strike_now {
             self.strike_now = false;
             self.next_bolt = Some(now);
@@ -450,9 +487,7 @@ impl Charge {
             let slot = self
                 .pulses
                 .iter()
-                .position(|pulse| {
-                    pulse.is_none_or(|(left, speed)| (at - left) * speed > PULSE_REACH)
-                })
+                .position(|pulse| pulse.is_none_or(|(left, speed)| (at - left) * speed > done))
                 .unwrap_or_else(|| {
                     (0..PULSES)
                         .min_by(|&a, &b| {
@@ -473,15 +508,27 @@ impl Charge {
         at
     }
 
-    /// How far each pulse has run at `at`, in the bar's units; -1 for none.
-    fn runs(&self, at: f64) -> [f32; PULSES] {
+    /// How far each pulse has run at `at`, with the marker at `marker` on a bar `wide` units
+    /// long, in the bar's units; -1 for none.
+    fn runs(&self, at: f64, marker: f64, wide: f64) -> [f32; PULSES] {
+        let done = done_at(marker, wide);
         std::array::from_fn(|n| match self.pulses[n] {
-            Some((left, speed)) if at >= left && (at - left) * speed <= PULSE_REACH => {
+            Some((left, speed)) if at >= left && (at - left) * speed <= done => {
                 ((at - left) * speed) as f32
             }
             _ => -1.0,
         })
     }
+}
+
+/// How far it is from the marker at `marker` to the further end of a bar `wide` units long.
+fn reach(marker: f64, wide: f64) -> f64 {
+    marker.max(wide - marker).max(1.0)
+}
+
+/// How far a pulse runs before it is let go: past the bar's further end, or as far as any runs.
+fn done_at(marker: f64, wide: f64) -> f64 {
+    (reach(marker, wide) + PULSE_TAIL).min(PULSE_LONGEST)
 }
 
 #[derive(Default)]
@@ -578,16 +625,24 @@ impl Light {
             ring,
             edge: [line[0], line[1], line[2], line_alpha],
             look: [marker, strength, edge.alpha, -1.0],
-            pulses: [-1.0; PULSES],
+            pulses: [-1.0; 4],
+            pulses_more: [-1.0; 4],
             arc: [0.0; 4],
-            after: [0.0, gap_left, gap_right],
+            after: [0.0, gap_left, gap_right, reach(marker as f64, wide) as f32],
+            slot: [0.0; 3],
         };
+        if let Some((slot_left, slot_right, lit)) = edge.slot {
+            let units = |x: f64| (((x - bar.loc.x) * scale) / f) as f32;
+            uniforms.slot = [units(slot_left), units(slot_right), lit];
+        }
         if !moving {
             return (area, uniforms);
         }
         let at = self.charge.advance(now, marker as f64, wide);
         uniforms.look[3] = at.rem_euclid(512.0) as f32;
-        uniforms.pulses = self.charge.runs(at);
+        let runs = self.charge.runs(at, marker as f64, wide);
+        uniforms.pulses = [runs[0], runs[1], runs[2], runs[3]];
+        uniforms.pulses_more = [runs[4], runs[5], runs[6], runs[7]];
         if let Some(bolt) = self.charge.bolt {
             let age = now - bolt.start;
             let (strike, flash) = bolt.flash(age).unwrap_or((0, 0.0));
@@ -616,6 +671,7 @@ mod tests {
             ring: 0x00ceffff,
             line: 0xffffff12,
             gap: None,
+            slot: None,
             alpha: 1.0,
         }
     }
@@ -695,10 +751,50 @@ mod tests {
             assert!((2.49..=3.51).contains(&apart), "{apart} s between pulses");
         }
         for (_, speed) in &leaving {
-            assert!((100.0..=140.0).contains(speed));
-            // A step of the slow rate moves a pulse under a fifth of its narrowest width.
-            assert!(speed / STEPS < 26.0 / 5.0);
+            assert!((150.0..=190.0).contains(speed));
+            // A step of the slow rate moves a pulse under a quarter of its narrowest width.
+            assert!(speed / STEPS < 26.0 / 4.0);
         }
+    }
+
+    #[test]
+    fn pulses_run_to_the_far_end_of_a_wide_bar_with_several_out_at_once() {
+        // A 2560-pixel screen at 1.25 with the marker on the first workspace.
+        let (marker, wide) = (60.0, 2560.0);
+        let mut charge = Charge::default();
+        let (mut furthest, mut most_out) = (0.0_f32, 0);
+        let mut now = 0.0;
+        while now < 120.0 {
+            let at = charge.advance(now, marker, wide);
+            let runs = charge.runs(at, marker, wide);
+            furthest = runs.iter().fold(furthest, |far, &run| far.max(run));
+            most_out = most_out.max(runs.iter().filter(|&&run| run >= 0.0).count());
+            now += 1.0 / 60.0;
+        }
+        assert!(
+            furthest as f64 >= wide - marker,
+            "they reach the far end: {furthest}"
+        );
+        assert!(most_out >= 4, "{most_out} out at once");
+        // However wide the bar, no pulse is let go while it still shows.
+        assert!(PULSE_LONGEST / PULSE_SPEED.0 <= PULSES as f64 * PULSE_EVERY.0);
+    }
+
+    #[test]
+    fn a_panels_slot_is_passed_in_the_bars_units() {
+        let mut light = Light::default();
+        let mut edge = edge();
+        edge.scale = 1.25;
+        edge.slot = Some((100.0, 420.0, 1.0));
+        let (_, u) = light.uniforms(&edge, 1.0, true);
+        // At 1.25 a unit of the bar is one screen pixel.
+        assert_eq!(u.slot, [125.0, 525.0, 1.0]);
+        edge.slot = None;
+        assert_eq!(
+            light.uniforms(&edge, 1.0, true).1.slot[2],
+            0.0,
+            "and nothing at rest"
+        );
     }
 
     #[test]
@@ -710,7 +806,8 @@ mod tests {
             let (_, now) = light.uniforms(&edge(), 5.0 + frame as f64 / 60.0, false);
             assert_eq!(now, first, "the still edge never changes");
         }
-        assert_eq!(first.pulses, [-1.0; PULSES]);
+        assert_eq!(first.pulses, [-1.0; 4]);
+        assert_eq!(first.pulses_more, [-1.0; 4]);
         assert_eq!(first.arc[3], 0.0);
         assert!(first.look[3] < 0.0, "no shimmer");
         assert!(first.look[1] > 0.0, "the marker still glows");

@@ -1,23 +1,25 @@
-//! How every panel and card comes and goes: as a drawer out of the bar.
+//! How every panel and card comes and goes: as a drawer out of a lit slot.
 //!
-//! Opening, a slot opens in the bar's foot line under the button that opened the panel, its seam
-//! lit in the focus ring's colour. The panel's bare card slides down out of it, clipped at the
-//! bar's foot, with a lit edge riding its leading edge. The contents arrive while it extends: each
-//! piece (a tile, a row, a group of buttons) grows into its place as it comes out of the slot,
-//! powering up like a picture on a tube, with a flicker and a red and blue split that settle as
-//! it lands. Closing, the drawer goes back up into the slot, each piece powering down and
-//! shrinking away just before the slot reaches it, and the slot seals with a glint. Faint
-//! scanlines lie over the drawer while it moves.
+//! A panel that hangs from the bar comes out of the bar's own foot line: the line brightens in the
+//! focus ring's colour from the button that opened it out to the panel's width, and the bar draws
+//! that light itself (`BarSlot`). A card that stands on its own comes out of a slot of its own: a
+//! thin lit line along its top edge, spreading from its middle to its width. Either way the bare
+//! card slides down out of the line, clipped at it, with a lit edge riding its leading edge, and
+//! the line goes out as the card lands. Then its pieces (a tile, a row, a group of buttons) grow
+//! into their places in reading order, powering up like a picture on a tube, with a flicker and a
+//! red and blue split that settle as each lands. Closing, the pieces go first, the card follows
+//! them back into the line, and the line seals with a glint. Faint scanlines lie over the drawer
+//! while it moves.
 //!
 //! Everything is drawn from pictures the panel already has: the card is painted bare once per
-//! picture, each piece is a crop of the panel's picture, and the edge, the seam and the scanlines
+//! picture, each piece is a crop of the panel's picture, and the edge, the line and the scanlines
 //! are small strips baked once and shared by every panel. Nothing is repainted per frame, and once
 //! a panel has settled it is its own picture again.
 //!
 //! With reduced motion there is no slot, drawer, piece or edge: a panel only fades, no longer
 //! than `REDUCED_FADE`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::{
@@ -35,33 +37,45 @@ use smithay::utils::{
 
 use crate::{anim::Easing, effects::fx, motion::REDUCED_FADE, paint::Painted};
 
-/// The drawer's way out: 340 ms on a glide.
-const OPEN: f64 = 0.34;
-/// Its way back in: 240 ms, easing in and out. Only the paint lingers: input goes to what's
-/// underneath the moment it closes.
-const CLOSE: f64 = 0.24;
-/// The slot spreads from the button to the card's width over its first 100 ms.
+/// The bare card comes out over 0.3 s on a glide.
+const CARD: f64 = 0.3;
+/// The pieces start coming in this long after the panel opens, one after another in reading
+/// order, their starts spread across `CONTENT` so that each takes `SPAN` of it.
+const START: f64 = 0.17;
+const CONTENT: f64 = 0.36;
+const SPAN: f64 = 0.45;
+/// Everything has landed this long after opening.
+const LANDED: f64 = START + CONTENT;
+/// Closing, the pieces go over `LEAVE`, and the card follows them back in from `BACK_AT` over
+/// `BACK`, easing in and out. Only the paint lingers: input goes to what's underneath the moment
+/// it closes.
+const LEAVE: f64 = 0.2;
+const BACK_AT: f64 = 0.16;
+const BACK: f64 = 0.22;
+const CLOSE: f64 = BACK_AT + BACK;
+/// The slot's line spreads from where it opens to the card's width over its first 100 ms, and goes
+/// out over `SLOT_OUT` once the card has landed. Closing, it lights again while the pieces go,
+/// narrows back over the last `SEAL` of the card's way in, and glints over the last `GLINT`.
 const SLOT_OPEN: f64 = 0.1;
-/// Closing, the slot narrows back over the last 45% of the way, and glints over the last 30%.
+const SLOT_OUT: f64 = 0.15;
 const SEAL: f64 = 0.45;
 const GLINT: f64 = 0.3;
-/// The seam's strength at rest, and while the drawer goes back in before its glint.
-const SEAM_REST: f32 = 0.35;
-const SEAM_CLOSING: f32 = 0.7;
+/// How much brighter than while the drawer moves the line is at its glint's peak.
+const GLINT_LIGHT: f32 = 0.5;
+/// The most a frame moves the animation on, in seconds: a slow frame, such as the first, which
+/// paints the panel, holds the motion up rather than skipping part of it.
+const MOST_STEP: f64 = 0.034;
 
-/// Each piece grows from `GROW_FROM` of its size to all of it over `GROW`, pieces side by side
-/// starting `STAGGER` apart from the left, and every piece has landed within `LAND_BY` of the
-/// drawer.
-const GROW: f64 = 0.14;
+/// Each piece grows from `GROW_FROM` of its size to all of it.
 const GROW_FROM: f64 = 0.82;
-const STAGGER: f64 = 0.02;
-const LAND_BY: f64 = 0.1;
-/// Closing, each piece shrinks away over this long, ending as the slot reaches its top.
-const LEAVE: f64 = 0.09;
+/// While a piece is in the first half of its way, it flickers between `FLICKER` and full.
+const FLICKER: f32 = 0.6;
 /// A piece's colours split by up to this many logical pixels while it powers up or down.
 const SPLIT_PX: f64 = 2.5;
 /// How strong each split colour is at its widest.
 const SPLIT_ALPHA: f32 = 0.5;
+/// The split colours are made at this fraction of the picture's size each way.
+const SPLIT_SCALE: usize = 2;
 /// The scanlines over the moving drawer: half as dark as the edge's.
 const SCAN_DARK: f32 = (1.0 - fx::SCANLINE) / 2.0;
 /// The card's corner radius in logical pixels: the scanlines keep this far from its top and foot,
@@ -71,13 +85,20 @@ const CORNER: f64 = 18.0 * crate::panel::DESIGN_PX as f64;
 const MOST_PIECES: usize = 32;
 
 /// The lit edge: a line `LINE` logical pixels thick, `INSET` in from the card's sides, with a
-/// glow reaching `GLOW` above and below it. The seam is the same strip.
+/// glow reaching `GLOW` above and below it.
 const LINE: f64 = 2.0;
 const INSET: f64 = 6.0;
 const GLOW: f64 = 14.0;
 const STRIP_H: f64 = 2.0 * GLOW + LINE;
 /// The strips' width in pixels: every column is the same, so they are stretched along the card.
 const STRIP_W: usize = 4;
+/// The slot's line: `SLOT_W` pixels baked once and stretched along the slot, fading in and out
+/// over `SLOT_TAPER` of its length at either end, how far its colour is taken towards white, and
+/// how opaque it is while the drawer moves, so its glint can brighten it further.
+const SLOT_W: usize = 128;
+const SLOT_TAPER: f64 = 0.15;
+const SLOT_LIGHT: f32 = 0.15;
+const SLOT_ALPHA: f32 = 0.75;
 /// The scanline strip's height in device pixels: taller than any screen a drawer crosses.
 const SCAN_ROWS: usize = 4096;
 /// The glow's strength where it leaves the line, and how far towards white the line's own
@@ -190,8 +211,8 @@ where
 }
 
 /// Up to `N` elements, front first, with nothing on the heap: what a panel with one picture
-/// draws in a frame.
-pub struct Drawn<R: Renderer, const N: usize = 56> {
+/// draws in a frame. By default there is room for all of it, every piece split in two colours.
+pub struct Drawn<R: Renderer, const N: usize = { PIECE_IDS + 3 * MOST_PIECES + 2 }> {
     items: [Option<FlowElement<R>>; N],
     len: usize,
 }
@@ -278,12 +299,13 @@ fn opening_look(since: f64, from: Look, reduced_motion: bool) -> Look {
 
 /// How far out the drawer is `since` seconds into an opening that started at `from`.
 fn travel_opening(from: f32, since: f64) -> f32 {
-    from + (1.0 - from) * glide(since / OPEN) as f32
+    from + (1.0 - from) * glide(since / CARD) as f32
 }
 
-/// How far out the drawer is `since` seconds into a closing that started at `from`.
+/// How far out the drawer is `since` seconds into a closing that started at `from`: still, while
+/// the pieces go, then back in.
 fn travel_closing(from: f32, since: f64) -> f32 {
-    from * (1.0 - in_out(since / CLOSE)) as f32
+    from * (1.0 - in_out((since - BACK_AT) / BACK)) as f32
 }
 
 /// A closing, `since` seconds in, from what was drawn when it closed: back into the slot, or
@@ -310,97 +332,94 @@ fn closing_look(from: Look, since: f64, reduced_motion: bool) -> Option<Look> {
     })
 }
 
-/// When, into an opening from `from`, the drawer is first out as far as `travel`.
-fn opening_reaches(travel: f32, from: f32) -> f64 {
-    if travel <= from {
-        return 0.0;
-    }
-    let (mut early, mut late) = (0.0, OPEN);
-    for _ in 0..24 {
-        let mid = (early + late) / 2.0;
-        if travel_opening(from, mid) >= travel {
-            late = mid;
-        } else {
-            early = mid;
-        }
-    }
-    late
-}
-
-/// When, into a closing from `from`, the drawer is first back in as far as `travel`.
-fn closing_reaches(travel: f32, from: f32) -> f64 {
-    if travel >= from {
-        return 0.0;
-    }
-    let (mut early, mut late) = (0.0, CLOSE);
-    for _ in 0..24 {
-        let mid = (early + late) / 2.0;
-        if travel_closing(from, mid) <= travel {
-            late = mid;
-        } else {
-            early = mid;
-        }
-    }
-    late
-}
-
-/// When a piece starts growing in an opening from `from`: once the drawer is out as far as
-/// `out_at`, which brings the piece out of the slot, later by `column` staggers, and never so
-/// late that it lands more than `LAND_BY` after the drawer.
-fn piece_starts(out_at: f32, from: f32, column: usize) -> f64 {
-    (opening_reaches(out_at, from) + column as f64 * STAGGER).min(OPEN + LAND_BY - GROW)
-}
-
-/// How far a piece has grown `since` seconds into an opening, from `from` at the start, growing
-/// from `start`.
-fn grown_opening(from: f32, start: f64, since: f64) -> f32 {
-    let way = Easing::OutCubic.at(((since - start) / GROW).clamp(0.0, 1.0)) as f32;
-    from + (1.0 - from) * way
-}
-
-/// How far a piece has grown `since` seconds into a closing, from `from` when it closed: it
-/// shrinks away over the `LEAVE` before `gone`, when the slot reaches it.
-fn grown_closing(from: f32, gone: f64, since: f64) -> f32 {
-    let start = (gone - LEAVE).max(0.0);
-    if since >= gone {
+/// Where the piece `order`th in line of `count` starts, as a share of the pieces' time: the first
+/// at once, the last with just `SPAN` of it left.
+fn piece_start(order: usize, count: usize) -> f64 {
+    if count <= 1 {
         0.0
-    } else if since <= start {
-        from
     } else {
-        from * (1.0 - in_out((since - start) / (gone - start)) as f32)
+        order as f64 / (count - 1) as f64 * (1.0 - SPAN)
     }
 }
 
-/// Where the drawer runs: the card where it rests and the line it comes out of, the bar's foot,
-/// or the card's top if that is higher.
+/// How far the piece `order`th in reading order of `count` is through its way in, 0 to 1, `since`
+/// seconds into an opening.
+fn way_in(order: usize, count: usize, since: f64) -> f64 {
+    let pieces = ((since - START) / CONTENT).clamp(0.0, 1.0);
+    ((pieces - piece_start(order, count)) / SPAN).clamp(0.0, 1.0)
+}
+
+/// How far the piece `order`th in reading order of `count` still is from gone, 1 to 0, `since`
+/// seconds into a closing. The pieces' time runs backwards and their order is turned round, so
+/// the first in reading order goes first.
+fn way_out(order: usize, count: usize, since: f64) -> f64 {
+    let pieces = 1.0 - (since / LEAVE).clamp(0.0, 1.0);
+    let order = count.saturating_sub(1).saturating_sub(order);
+    ((pieces - piece_start(order, count)) / SPAN).clamp(0.0, 1.0)
+}
+
+/// How far a piece has grown, from `from` when the opening started, `way` through its way in.
+fn grown_opening(from: f32, way: f64) -> f32 {
+    from + (1.0 - from) * Easing::OutCubic.at(way) as f32
+}
+
+/// How far a piece has grown, from `from` when the closing started, with `way` of it left.
+fn grown_closing(from: f32, way: f64) -> f32 {
+    from * in_out(way) as f32
+}
+
+/// The order pieces come in, reading the way text does: rows from the top, each from the left.
+/// A piece whose top is within `ROW` of the first in a row is in that row. Each piece's place in
+/// that order goes in `order`.
+fn reading_order(rects: &[Rectangle<f64, Logical>], order: &mut Vec<usize>) {
+    const ROW: f64 = 16.0;
+    let mut line: Vec<usize> = (0..rects.len()).collect();
+    line.sort_by(|&a, &b| rects[a].loc.y.total_cmp(&rects[b].loc.y));
+    let mut start = 0;
+    while start < line.len() {
+        let top = rects[line[start]].loc.y;
+        let end = start
+            + line[start..]
+                .iter()
+                .take_while(|&&n| rects[n].loc.y - top < ROW)
+                .count();
+        line[start..end].sort_by(|&a, &b| rects[a].loc.x.total_cmp(&rects[b].loc.x));
+        start = end;
+    }
+    order.clear();
+    order.resize(rects.len(), 0);
+    for (place, &n) in line.iter().enumerate() {
+        order[n] = place;
+    }
+}
+
+/// Where the drawer runs: the card where it rests, the line it comes out of, and the foot of the
+/// card's picture, shadow and all. A panel hanging from the bar comes out of the bar's foot (or
+/// the card's top, if that is higher); a card of its own comes out of its own top edge.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Drawer {
     card: Rectangle<f64, Logical>,
     slot: f64,
+    bottom: f64,
 }
 
 impl Drawer {
-    fn new(card: Rectangle<f64, Logical>, foot: f64) -> Self {
+    fn new(card: Rectangle<f64, Logical>, foot: Option<f64>, bottom: f64) -> Self {
         Self {
             card,
-            slot: foot.min(card.loc.y),
+            slot: foot.map_or(card.loc.y, |foot| foot.min(card.loc.y)),
+            bottom: bottom.max(card.loc.y + card.size.h),
         }
     }
 
-    /// How far the drawer runs, from all in the slot to its place.
+    /// How far the drawer runs, from all in the slot, its shadow too, to its place.
     fn span(&self) -> f64 {
-        (self.card.loc.y - self.slot + self.card.size.h).max(1.0)
+        (self.bottom - self.slot).max(1.0)
     }
 
     /// How far above its place the drawer is, at `travel`.
     fn lift(&self, travel: f32) -> f64 {
         (1.0 - travel as f64) * self.span()
-    }
-
-    /// How far out the drawer has to be for a line `y` on the screen, where it rests, to be out of
-    /// the slot.
-    fn out_at(&self, y: f64) -> f32 {
-        (1.0 - (y - self.slot) / self.span()).clamp(0.0, 1.0) as f32
     }
 
     /// Its leading edge on the screen, at `travel`.
@@ -433,42 +452,77 @@ impl Reveal {
 
     pub fn settled(&self) -> bool {
         match self.way {
-            Way::Opening { since } => {
-                self.look.alpha >= 1.0 && (!self.look.lit || since >= OPEN + LAND_BY)
-            }
+            Way::Opening { since } => self.look.alpha >= 1.0 && (!self.look.lit || since >= LANDED),
             Way::Closing { .. } => false,
         }
     }
 
-    /// The seam's ends' share of the way from the button to the card's sides, and its strength.
-    fn seam(&self) -> (f64, f32) {
+    /// The slot's line: its ends' share of the way from where it opens out to the card's sides,
+    /// and its strength, 0 for none, 1 while the drawer moves, more in its glint. It lights as the
+    /// drawer starts and goes out once the card has landed; closing, it lights again while the
+    /// pieces go and narrows shut with a glint as the card goes back in.
+    fn slot(&self) -> (f64, f32) {
+        if !self.look.lit {
+            return (0.0, 0.0);
+        }
         match self.way {
-            Way::Opening { since } => {
-                let settling = ((since / (OPEN + LAND_BY)).clamp(0.0, 1.0) as f32).powi(4);
-                (
-                    in_out(since / SLOT_OPEN),
-                    SEAM_REST + (1.0 - SEAM_REST) * (1.0 - settling),
-                )
-            }
+            Way::Opening { since } => (
+                in_out(since / SLOT_OPEN),
+                1.0 - in_out((since - CARD) / SLOT_OUT) as f32,
+            ),
             Way::Closing { since } => {
-                let q = since / CLOSE;
-                let glint = ((q - (1.0 - GLINT)) / GLINT).clamp(0.0, 1.0);
+                let back = ((since - BACK_AT) / BACK).clamp(0.0, 1.0);
+                let glint = ((back - (1.0 - GLINT)) / GLINT).clamp(0.0, 1.0);
                 (
-                    in_out((1.0 - q) / SEAL),
-                    SEAM_CLOSING
-                        + (1.0 - SEAM_CLOSING) * (std::f64::consts::PI * glint).sin() as f32,
+                    in_out((1.0 - back) / SEAL),
+                    in_out(since / BACK_AT) as f32
+                        + GLINT_LIGHT * (std::f64::consts::PI * glint).sin() as f32,
                 )
             }
         }
     }
 }
 
+/// A panel's slot in the bar's foot line this frame: from `left` to `right` in logical pixels
+/// across the screen, and how strongly lit, 1 while the drawer moves and more in its glint. The
+/// bar draws it, so the line has one owner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarSlot {
+    pub left: f64,
+    pub right: f64,
+    pub strength: f32,
+}
+
+thread_local! {
+    /// The bar slot the panels drawn so far this frame asked for. The compositor draws on one
+    /// thread, the panels before the bar.
+    static BAR_SLOT: Cell<Option<BarSlot>> = const { Cell::new(None) };
+}
+
+/// Asks for `slot` in the bar's foot line this frame; the strongest asked for wins.
+fn light_bar_slot(slot: BarSlot) {
+    BAR_SLOT.with(|kept| {
+        if kept
+            .get()
+            .is_none_or(|other| other.strength < slot.strength)
+        {
+            kept.set(Some(slot));
+        }
+    });
+}
+
+/// The bar slot asked for since this was last called, to draw on the screen the panels were
+/// drawn on.
+pub fn take_bar_slot() -> Option<BarSlot> {
+    BAR_SLOT.with(Cell::take)
+}
+
 /// The ids a panel's elements are drawn under, which last as long as the picture they were made
-/// for: the bare card, the edge, the seam, the scanlines, two layers riding along, then three
+/// for: the bare card, the edge, the slot, the scanlines, two layers riding along, then three
 /// for each piece, its crop and its red and blue.
 const CARD_ID: usize = 0;
 const EDGE_ID: usize = 1;
-const SEAM_ID: usize = 2;
+const SLOT_ID: usize = 2;
 const SCAN_ID: usize = 3;
 const RIDER_IDS: usize = 4;
 const RIDERS: usize = 2;
@@ -479,7 +533,9 @@ const PIECE_IDS: usize = RIDER_IDS + RIDERS;
 /// anything up: the panel stops taking keys and clicks the moment it closes, and this only paints.
 #[derive(Default)]
 pub struct Fade {
-    /// The middle of the button that opened it, across the screen; the card's middle if none.
+    /// Whether it hangs from the bar, and the middle of the button it opened from, across the
+    /// screen; the card's middle if none.
+    hangs: bool,
     button: Option<f64>,
     /// What the opening starts from, and what was last drawn.
     from: Look,
@@ -487,8 +543,12 @@ pub struct Fade {
     /// Each piece's growth as the opening started, and as last drawn, 0 to 1.
     from_grown: Vec<f32>,
     grown: Vec<f32>,
+    /// Each piece's place in reading order, worked out once per picture.
+    order: Vec<usize>,
     drawer: Drawer,
     closing: Option<Closing>,
+    /// The animation's own time, last drawn, and the clock's time it was drawn at.
+    paced: Option<(f64, f64)>,
     /// The ids its elements are drawn under, the picture they were made for, and that picture's
     /// bare card and its red and blue, made once each when first needed.
     ids: Vec<Id>,
@@ -507,6 +567,7 @@ struct Closing {
 impl Fade {
     /// Opens again: from where it is drawn if it was still going, otherwise from nothing.
     pub fn open(&mut self) {
+        self.paced = None;
         if self.closing.take().is_some() {
             self.from = self.drawn;
             self.from_grown.clone_from(&self.grown);
@@ -523,15 +584,29 @@ impl Fade {
         self.drawn = opening_look(since, self.from, reduced_motion);
     }
 
-    /// Where the button that opened it is: its middle, in logical pixels from the screen's left.
-    /// The slot opens from there. Without one it opens from the card's middle.
+    /// Hangs it from the bar, under the button whose middle is at `button`, in logical pixels
+    /// from the screen's left: it comes out of the bar's foot line, spreading from there. Without
+    /// a button it spreads from the card's middle. A panel that doesn't hang from the bar comes
+    /// out of its own top edge.
     pub fn hang_from(&mut self, button: Option<f64>) {
+        self.hangs = true;
         self.button = button;
+    }
+
+    /// `since`, `raw` seconds in by the clock, moved on from the last frame by no more than
+    /// `MOST_STEP`.
+    fn pace(&mut self, raw: f64) -> f64 {
+        let since = match self.paced {
+            Some((shown, at)) if raw >= at => shown + (raw - at).min(MOST_STEP),
+            _ => raw.clamp(0.0, MOST_STEP),
+        };
+        self.paced = Some((since, raw));
+        since
     }
 
     /// Draws the panel `since` seconds after it opened into `out`, front first: `layers`, front
     /// first, with its own picture last, over its card at `card` on the screen, coming out of the
-    /// bar in `frame`.
+    /// bar in `frame` or out of its own top edge.
     #[allow(clippy::too_many_arguments)]
     pub fn show<R>(
         &mut self,
@@ -547,9 +622,14 @@ impl Fade {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        let since = self.pace(since);
         let look = opening_look(since, self.from, reduced_motion);
         self.drawn = look;
-        self.drawer = Drawer::new(card, frame.bar.foot() as f64);
+        let foot = self.hangs.then_some(frame.bar.foot() as f64);
+        let bottom = layers
+            .last()
+            .map_or(0.0, |(main, at, _)| at.y + main.logical.h as f64);
+        self.drawer = Drawer::new(card, foot, bottom);
         let reveal = Reveal {
             alpha: look.alpha,
             look,
@@ -565,6 +645,7 @@ impl Fade {
         if self.closing.is_some() {
             return true;
         }
+        self.paced = None;
         self.from = self.drawn;
         self.from_grown.clone_from(&self.grown);
         match picture {
@@ -587,11 +668,16 @@ impl Fade {
         self.closing.is_some()
     }
 
-    /// How it shows at `now` while it goes. `None` once it has gone, and the picture is let go.
-    fn closing(&mut self, now: f64, reduced_motion: bool) -> Option<Reveal> {
+    /// How it shows at `now` while it goes, `paced` or by the clock alone. `None` once it has
+    /// gone, and the picture is let go.
+    fn closing(&mut self, now: f64, reduced_motion: bool, paced: bool) -> Option<Reveal> {
         let closing = self.closing.as_mut()?;
         let started = *closing.started.get_or_insert(now);
-        let since = now - started;
+        let since = if paced {
+            self.pace(now - started)
+        } else {
+            now - started
+        };
         match closing_look(self.from, since, reduced_motion) {
             Some(look) => {
                 self.drawn = look;
@@ -612,7 +698,7 @@ impl Fade {
         }
     }
 
-    /// Its picture at `now` while it goes, front first, with the edge and seam in `ring`.
+    /// Its picture at `now` while it goes, front first, with the edge and slot in `ring`.
     pub fn draw_closing<R>(
         &mut self,
         renderer: &mut R,
@@ -625,7 +711,7 @@ impl Fade {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let reveal = self.closing(now, reduced_motion)?;
+        let reveal = self.closing(now, reduced_motion, true)?;
         let picture = std::mem::take(&mut self.closing.as_mut()?.picture);
         let count = picture.len().min(RIDERS + 1);
         let start = picture.len() - count;
@@ -640,7 +726,7 @@ impl Fade {
         Some(reveal)
     }
 
-    /// The panel as `reveal` says, its edge and seam in `ring` on the tube's clock at `now`.
+    /// The panel as `reveal` says, its edge and slot in `ring` on the tube's clock at `now`.
     fn draw<R>(
         &mut self,
         renderer: &mut R,
@@ -672,19 +758,42 @@ impl Fade {
         let scale = main.scale;
         let ring = ring & 0xffffff00;
         let drawer = self.drawer;
-        // The seam in the bar's foot, from the button out to the card's sides.
-        let (spread, strength) = reveal.seam();
-        let button = self
-            .button
-            .unwrap_or(drawer.card.loc.x + drawer.card.size.w / 2.0);
-        let left = button - (button - drawer.card.loc.x) * spread;
-        let right = button + (drawer.card.loc.x + drawer.card.size.w - button) * spread;
-        let seam = (strength, left, right);
+        // The slot's line, from the button, or the card's middle, out to the card's sides.
+        let (spread, strength) = reveal.slot();
+        if strength > 0.0 {
+            let card = drawer.card;
+            let middle = card.loc.x + card.size.w / 2.0;
+            let from = if self.hangs {
+                self.button.unwrap_or(middle)
+            } else {
+                middle
+            };
+            let left = from - (from - card.loc.x) * spread;
+            let right = from + (card.loc.x + card.size.w - from) * spread;
+            if right - left >= 1.0 {
+                if self.hangs {
+                    light_bar_slot(BarSlot {
+                        left,
+                        right,
+                        strength,
+                    });
+                } else {
+                    let id = &self.ids[SLOT_ID];
+                    out.extend(slot_line(
+                        renderer,
+                        ring,
+                        scale,
+                        (strength, left, right),
+                        drawer.slot,
+                        id,
+                    ));
+                }
+            }
+        }
         if reveal.settled() {
             self.card = None;
             self.split = None;
             self.grown.iter_mut().for_each(|grown| *grown = 1.0);
-            out.extend(self.strip(renderer, SEAM_ID, ring, scale, seam, drawer.slot));
             for (painted, at, share) in layers {
                 out.extend(
                     painted
@@ -705,35 +814,40 @@ impl Fade {
                 drawer.card.loc.x + INSET + torn as f64 * TEAR_REACH,
                 drawer.card.loc.x + drawer.card.size.w - INSET + torn as f64 * TEAR_REACH,
             );
-            out.extend(self.strip(renderer, EDGE_ID, ring, scale, edge, lead));
+            out.extend(self.edge(renderer, ring, scale, edge, lead, drawer.slot));
         }
-        let seam = (seam.0 * if moving { flicker } else { 1.0 }, seam.1, seam.2);
-        out.extend(self.strip(renderer, SEAM_ID, ring, scale, seam, drawer.slot));
         // Faint scanlines over the drawer while it moves.
         if moving {
             out.extend(self.scanlines(renderer, scale, drawer, lift));
         }
-        // The pieces, each growing in or shrinking away.
+        // The pieces, each growing in or shrinking away in reading order. Their red and blue are
+        // made on the first frame, while the drawer is still in the slot, not as they start.
         let whole = [Rectangle::new(drawer.card.loc - at, drawer.card.size)];
         let rects = pieces(main, &whole);
-        if self.grown.len() != rects.len() {
-            self.grown.resize(rects.len(), 0.0);
+        if self.split.is_none() && rects.len() > 1 {
+            self.split = split_of(&main.buffer, main.device);
         }
-        if self.from_grown.len() != rects.len() {
-            self.from_grown.resize(rects.len(), 0.0);
+        let count = rects.len();
+        if self.grown.len() != count {
+            self.grown.resize(count, 0.0);
+        }
+        if self.from_grown.len() != count {
+            self.from_grown.resize(count, 0.0);
+        }
+        if self.order.len() != count {
+            reading_order(rects, &mut self.order);
         }
         let mut total = 0.0;
         for (n, rect) in rects.iter().enumerate() {
-            let grown = match reveal.way {
+            let order = self.order[n];
+            let (grown, way) = match reveal.way {
                 Way::Opening { since } => {
-                    let out_at = drawer.out_at(at.y + rect.loc.y + rect.size.h);
-                    let start = piece_starts(out_at, self.from.travel, column(rects, n));
-                    grown_opening(self.from_grown[n], start, since)
+                    let way = way_in(order, count, since);
+                    (grown_opening(self.from_grown[n], way), way)
                 }
                 Way::Closing { since } => {
-                    let in_at = drawer.out_at(at.y + rect.loc.y);
-                    let gone = closing_reaches(in_at, self.from.travel);
-                    grown_closing(self.from_grown[n], gone, since)
+                    let way = way_out(order, count, since);
+                    (grown_closing(self.from_grown[n], way), way)
                 }
             };
             self.grown[n] = grown;
@@ -742,6 +856,7 @@ impl Fade {
                 let piece = Piece {
                     rect: *rect,
                     grown,
+                    flickers: way > 0.0 && way < 0.5,
                     at,
                     lift,
                     salt: n,
@@ -750,7 +865,7 @@ impl Fade {
             }
         }
         // Anything riding along comes in with the pieces as a whole.
-        let riders = (total / rects.len() as f32).clamp(0.0, 1.0);
+        let riders = (total / count as f32).clamp(0.0, 1.0);
         for (n, (painted, at, share)) in layers[..layers.len() - 1].iter().enumerate().take(RIDERS)
         {
             let id = &self.ids[RIDER_IDS + n];
@@ -796,20 +911,21 @@ impl Fade {
         self.made_for = serial;
         self.ids.clear();
         self.ids.resize_with(wanted, Id::new);
+        self.order.clear();
         self.card = None;
         self.split = None;
     }
 
-    /// One of the strips, `which`, in `ring` at `scale`: its strength and its left and right ends,
-    /// centred on `y`.
-    fn strip<R>(
+    /// The lit edge in `ring` at `scale`: its strength and its left and right ends, centred on
+    /// `y`, and cut off above `slot`, the line the drawer comes out of.
+    fn edge<R>(
         &self,
         renderer: &mut R,
-        which: usize,
         ring: u32,
         scale: f64,
         (strength, left, right): (f32, f64, f64),
         y: f64,
+        slot: f64,
     ) -> Option<FlowElement<R>>
     where
         R: Renderer + ImportMem,
@@ -818,18 +934,28 @@ impl Fade {
         if strength <= 0.0 {
             return None;
         }
-        let at = Point::<f64, Logical>::from((left, y - STRIP_H / 2.0));
+        let strip = strip(ring, scale);
+        let rows = (STRIP_H * scale).round().max(1.0);
+        let top = ((y - STRIP_H / 2.0) * scale).round();
+        let hidden = ((slot * scale).round() - top).clamp(0.0, rows);
+        if hidden >= rows {
+            return None;
+        }
+        let tall = ((rows - hidden) / scale).round().max(1.0) as i32;
         MemoryRenderBufferRenderElement::from_buffer(
             renderer,
-            at.to_physical(scale).to_i32_round::<i32>().to_f64(),
-            &strip(ring, scale),
+            Point::<f64, Physical>::from(((left * scale).round(), top + hidden)),
+            &strip,
             Some(strength.min(1.0)),
-            None,
-            Some(((right - left).round().max(2.0) as i32, STRIP_H as i32).into()),
+            Some(Rectangle::new(
+                (0.0, hidden).into(),
+                (STRIP_W as f64, rows - hidden).into(),
+            )),
+            Some(((right - left).round().max(2.0) as i32, tall).into()),
             Kind::Unspecified,
         )
         .ok()
-        .map(|element| FlowElement::with_id(element, &self.ids[which]))
+        .map(|element| FlowElement::with_id(element, &self.ids[EDGE_ID]))
     }
 
     /// The scanlines over the drawer `lift` above its place, on whole screen rows: only over its
@@ -891,34 +1017,38 @@ impl Fade {
             return;
         };
         let power = 1.0 - piece.grown;
-        let flicker = if power > 0.125 {
-            fx::tube(now + piece.salt as f64 * 0.37, 0.0).0
+        let flicker = if piece.flickers {
+            let frame = (now * 60.0).floor() as i64 as u64;
+            FLICKER + (1.0 - FLICKER) * fx::tube_hash(frame, piece.salt as u64 + 7)
         } else {
             1.0
         };
         let alpha = alpha * (piece.grown * 1.4).min(1.0) * flicker;
         let ids = PIECE_IDS + 3 * piece.salt;
         let split = SPLIT_PX * power as f64;
-        if split > 0.3 {
-            if self.split.is_none() {
-                self.split = split_of(&main.buffer, main.device);
-            }
-            if let Some(colours) = self.split.as_ref() {
-                for (n, (colour, side)) in colours.iter().zip([-1.0, 1.0]).enumerate() {
-                    let shifted = Crop {
-                        at: crop.at + Point::from((side * split, 0.0)),
-                        ..crop
-                    };
-                    out.extend(
-                        shifted
-                            .element(renderer, colour, main.scale, alpha * SPLIT_ALPHA * power)
-                            .map(|element| FlowElement::with_id(element, &self.ids[ids + 1 + n])),
-                    );
-                }
+        if split > 0.3
+            && let Some(colours) = self.split.as_ref()
+        {
+            for (n, (colour, side)) in colours.iter().zip([-1.0, 1.0]).enumerate() {
+                let shifted = Crop {
+                    at: crop.at + Point::from((side * split, 0.0)),
+                    ..crop
+                };
+                out.extend(
+                    shifted
+                        .element(
+                            renderer,
+                            colour,
+                            main.scale,
+                            main.scale / SPLIT_SCALE as f64,
+                            alpha * SPLIT_ALPHA * power,
+                        )
+                        .map(|element| FlowElement::with_id(element, &self.ids[ids + 1 + n])),
+                );
             }
         }
         out.extend(
-            crop.element(renderer, &main.buffer, main.scale, alpha)
+            crop.element(renderer, &main.buffer, main.scale, main.scale, alpha)
                 .map(|element| FlowElement::with_id(element, &self.ids[ids])),
         );
     }
@@ -936,20 +1066,6 @@ fn pieces<'a>(
     }
 }
 
-/// How many pieces sit to the left of piece `n` in its row.
-fn column(rects: &[Rectangle<f64, Logical>], n: usize) -> usize {
-    let rect = rects[n];
-    let middle = rect.loc.y + rect.size.h / 2.0;
-    rects
-        .iter()
-        .filter(|other| {
-            other.loc.x < rect.loc.x
-                && (other.loc.y + other.size.h / 2.0 - middle).abs()
-                    < rect.size.h.min(other.size.h) / 2.0
-        })
-        .count()
-}
-
 /// A piece this frame: its box in the picture, how far it has grown, the picture's corner where
 /// it rests, how far above that the drawer is, and its place in the list, which keeps its flicker
 /// its own.
@@ -957,6 +1073,7 @@ fn column(rects: &[Rectangle<f64, Logical>], n: usize) -> usize {
 struct Piece {
     rect: Rectangle<f64, Logical>,
     grown: f32,
+    flickers: bool,
     at: Point<f64, Logical>,
     lift: f64,
     salt: usize,
@@ -996,11 +1113,13 @@ impl Piece {
 }
 
 impl Crop {
+    /// The crop of `buffer`, which has `texels` pixels to a logical one, on a screen at `scale`.
     fn element<R>(
         &self,
         renderer: &mut R,
         buffer: &MemoryRenderBuffer,
         scale: f64,
+        texels: f64,
         alpha: f32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
@@ -1018,8 +1137,8 @@ impl Crop {
             buffer,
             Some(alpha.min(1.0)),
             Some(Rectangle::new(
-                (self.from.loc.x * scale, self.from.loc.y * scale).into(),
-                (self.from.size.w * scale, self.from.size.h * scale).into(),
+                (self.from.loc.x * texels, self.from.loc.y * texels).into(),
+                (self.from.size.w * texels, self.from.size.h * texels).into(),
             )),
             Some(size),
             Kind::Unspecified,
@@ -1057,21 +1176,30 @@ where
         at: (at.x, top + hidden).into(),
         size: (logical.w as f64, logical.h as f64 - hidden).into(),
     }
-    .element(renderer, buffer, painted.scale, alpha)
+    .element(renderer, buffer, painted.scale, painted.scale, alpha)
 }
 
 /// The red and the blue of a picture `size` buffer pixels big, each as light added to what's
-/// behind, for its split.
+/// behind, for its split. They are faint and only show for a moment, so they are made at
+/// 1/`SPLIT_SCALE` of the picture's size each way: quick to make on the first frame, and small.
 fn split_of(buffer: &MemoryRenderBuffer, size: (i32, i32)) -> Option<[MemoryRenderBuffer; 2]> {
+    let (wide, tall) = (size.0.max(0) as usize, size.1.max(0) as usize);
+    let small = (wide.div_ceil(SPLIT_SCALE), tall.div_ceil(SPLIT_SCALE));
     let mut reading = buffer.clone();
     let mut colours = None;
     let mut context = reading.render();
     let _ = context.draw(|pixels: &mut [u8]| {
-        let mut red = Vec::with_capacity(pixels.len());
-        let mut blue = Vec::with_capacity(pixels.len());
-        for pixel in pixels.chunks_exact(4) {
-            red.extend_from_slice(&[pixel[0], 0, 0, 0]);
-            blue.extend_from_slice(&[0, 0, pixel[2], 0]);
+        if pixels.len() < wide * tall * 4 {
+            return Ok::<_, ()>(Vec::new());
+        }
+        let mut red = Vec::with_capacity(small.0 * small.1 * 4);
+        let mut blue = Vec::with_capacity(small.0 * small.1 * 4);
+        for y in (0..tall).step_by(SPLIT_SCALE) {
+            for x in (0..wide).step_by(SPLIT_SCALE) {
+                let pixel = &pixels[(y * wide + x) * 4..][..4];
+                red.extend_from_slice(&[pixel[0], 0, 0, 0]);
+                blue.extend_from_slice(&[0, 0, pixel[2], 0]);
+            }
         }
         colours = Some((red, blue));
         Ok::<_, ()>(Vec::new())
@@ -1079,7 +1207,14 @@ fn split_of(buffer: &MemoryRenderBuffer, size: (i32, i32)) -> Option<[MemoryRend
     drop(context);
     let (red, blue) = colours?;
     let made = |pixels: &[u8]| {
-        MemoryRenderBuffer::from_slice(pixels, Fourcc::Abgr8888, size, 1, Transform::Normal, None)
+        MemoryRenderBuffer::from_slice(
+            pixels,
+            Fourcc::Abgr8888,
+            (small.0 as i32, small.1 as i32),
+            1,
+            Transform::Normal,
+            None,
+        )
     };
     Some([made(&red), made(&blue)])
 }
@@ -1089,6 +1224,79 @@ thread_local! {
     /// shares them; the compositor draws on one thread.
     static STRIP: RefCell<Option<(u32, f64, MemoryRenderBuffer)>> = const { RefCell::new(None) };
     static SCAN: RefCell<Option<MemoryRenderBuffer>> = const { RefCell::new(None) };
+    /// The slot's line and the colour it was baked for.
+    static SLOT: RefCell<Option<(u32, MemoryRenderBuffer)>> = const { RefCell::new(None) };
+}
+
+/// A slot's line in `ring` on a screen at `scale`: lit at `strength`, from `left` to `right`, one
+/// logical pixel thick on whole screen pixels just above `foot`, the line a drawer comes out of,
+/// with its ends tapering off. Drawn under `id`.
+pub fn slot_line<R>(
+    renderer: &mut R,
+    ring: u32,
+    scale: f64,
+    (strength, left, right): (f32, f64, f64),
+    foot: f64,
+    id: &Id,
+) -> Option<FlowElement<R>>
+where
+    R: Renderer + ImportMem,
+    R::TextureId: Send + Clone + 'static,
+{
+    let wide = (right - left).round() as i32;
+    if strength <= 0.0 || wide < 1 {
+        return None;
+    }
+    let line = SLOT.with_borrow_mut(|kept| {
+        if let Some((colour, line)) = kept.as_ref()
+            && *colour == ring
+        {
+            return line.clone();
+        }
+        let line = MemoryRenderBuffer::from_slice(
+            &bake_slot(ring),
+            Fourcc::Abgr8888,
+            (SLOT_W as i32, 1),
+            1,
+            Transform::Normal,
+            None,
+        );
+        *kept = Some((ring, line.clone()));
+        line
+    });
+    let thick = scale.round().max(1.0);
+    let at = Point::<f64, Physical>::from(((left * scale).round(), (foot * scale).round() - thick));
+    MemoryRenderBufferRenderElement::from_buffer(
+        renderer,
+        at,
+        &line,
+        Some((SLOT_ALPHA * strength).min(1.0)),
+        // The whole strip, stretched along the slot.
+        Some(Rectangle::new(
+            (0.0, 0.0).into(),
+            (SLOT_W as f64, 1.0).into(),
+        )),
+        Some((wide, 1).into()),
+        Kind::Unspecified,
+    )
+    .ok()
+    .map(|element| FlowElement::with_id(element, id))
+}
+
+/// The slot's line's pixels, premultiplied: `ring` taken towards white, solid along its middle and
+/// fading out smoothly over `SLOT_TAPER` of its length at either end.
+fn bake_slot(ring: u32) -> Vec<u8> {
+    let [r, g, b, _] = crate::panel::lighter(ring & 0xffffff00, SLOT_LIGHT)
+        .to_be_bytes()
+        .map(|c| c as f32 / 255.0);
+    (0..SLOT_W)
+        .flat_map(|x| {
+            let along = (x as f64 + 0.5) / SLOT_W as f64;
+            let end = (along.min(1.0 - along) / SLOT_TAPER).min(1.0);
+            let a = (end * end * (3.0 - 2.0 * end)) as f32;
+            [r * a, g * a, b * a, a].map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8)
+        })
+        .collect()
 }
 
 /// The lit strip in `ring` at `scale`, baked again only when either changes.
@@ -1222,85 +1430,84 @@ mod tests {
             .map(|painted| vec![(painted, Point::default(), 1.0)])
     }
 
-    fn drawer() -> Drawer {
-        Drawer::new(
-            Rectangle::new((100.0, 40.0).into(), (300.0, 400.0).into()),
-            32.0,
-        )
-    }
-
-    /// Lines across a card, from its top to its foot, where pieces' edges might be.
-    fn lines(drawer: Drawer) -> impl Iterator<Item = f64> {
-        (0..=40).map(move |n| drawer.card.loc.y + drawer.card.size.h * n as f64 / 40.0)
+    fn card() -> Rectangle<f64, Logical> {
+        Rectangle::new((100.0, 40.0).into(), (300.0, 400.0).into())
     }
 
     #[test]
-    fn a_piece_starts_only_once_the_drawer_has_brought_it_out_of_the_slot() {
-        let drawer = drawer();
-        for bottom in lines(drawer) {
-            let out_at = drawer.out_at(bottom);
-            let start = piece_starts(out_at, 0.0, 0);
-            // Its foot is level with the slot when the drawer is out that far.
-            let foot = bottom - drawer.lift(out_at);
-            assert!((foot - drawer.slot).abs() < 0.01, "{foot}");
-            assert!(travel_opening(0.0, start) >= out_at - 1e-4);
-            if start > 0.0 {
-                assert!(travel_opening(0.0, start - 0.005) < out_at);
-                assert_eq!(grown_opening(0.0, start, start - 0.005), 0.0);
-            }
-            assert!(grown_opening(0.0, start, start + 0.01) > 0.0);
-        }
-    }
-
-    #[test]
-    fn every_piece_has_landed_a_tenth_of_a_second_after_the_drawer() {
-        let drawer = drawer();
-        for bottom in lines(drawer) {
-            for column in 0..6 {
-                let start = piece_starts(drawer.out_at(bottom), 0.0, column);
-                assert_eq!(grown_opening(0.0, start, OPEN + LAND_BY), 1.0);
-            }
-        }
-        assert_eq!(travel_opening(0.0, OPEN), 1.0, "the drawer is in its place");
-    }
-
-    #[test]
-    fn pieces_in_a_row_start_left_to_right() {
-        let row = [
-            Rectangle::new((0.0, 10.0).into(), (50.0, 40.0).into()),
-            Rectangle::new((60.0, 10.0).into(), (50.0, 40.0).into()),
-            Rectangle::new((0.0, 60.0).into(), (110.0, 40.0).into()),
-        ];
+    fn the_card_comes_out_over_three_tenths_of_a_second_on_a_glide() {
+        assert_eq!(travel_opening(0.0, CARD), 1.0);
         assert_eq!(
-            (column(&row, 0), column(&row, 1), column(&row, 2)),
-            (0, 1, 0)
+            travel_opening(0.0, CARD / 2.0),
+            Easing::Glide.at(0.5) as f32
         );
-        let out_at = drawer().out_at(200.0);
-        let gap = piece_starts(out_at, 0.0, 1) - piece_starts(out_at, 0.0, 0);
-        assert!((gap - STAGGER).abs() < 1e-9);
+        let steps = 40;
+        let mut last = -1.0;
+        for n in 0..=steps {
+            let travel = travel_opening(0.0, CARD * n as f64 / steps as f64);
+            assert!(travel >= last, "{travel} after {last}");
+            last = travel;
+        }
     }
 
     #[test]
-    fn closing_each_piece_has_gone_before_the_slot_reaches_it() {
-        let drawer = drawer();
-        for top in lines(drawer) {
-            let in_at = drawer.out_at(top);
-            let gone = closing_reaches(in_at, 1.0);
-            assert!(gone <= CLOSE);
-            // Where its top is when it has gone: at the slot.
-            assert!(top - drawer.lift(travel_closing(1.0, gone)) <= drawer.slot + 0.01);
-            assert_eq!(grown_closing(1.0, gone, gone), 0.0);
-            if gone > 0.0 {
-                let before = gone * 0.98;
-                assert!(top - drawer.lift(travel_closing(1.0, before)) > drawer.slot);
-            }
-            if gone > LEAVE {
-                assert_eq!(
-                    grown_closing(1.0, gone, gone - LEAVE),
-                    1.0,
-                    "not before its time"
-                );
-            }
+    fn pieces_come_in_in_reading_order_top_left_first() {
+        // Two rows of three, recorded out of order, and a footer.
+        let rects = [
+            Rectangle::new((120.0, 70.0).into(), (50.0, 40.0).into()),
+            Rectangle::new((10.0, 10.0).into(), (50.0, 40.0).into()),
+            Rectangle::new((10.0, 140.0).into(), (170.0, 20.0).into()),
+            Rectangle::new((65.0, 12.0).into(), (50.0, 40.0).into()),
+            Rectangle::new((10.0, 70.0).into(), (50.0, 40.0).into()),
+            Rectangle::new((120.0, 8.0).into(), (50.0, 40.0).into()),
+        ];
+        let mut order = Vec::new();
+        reading_order(&rects, &mut order);
+        assert_eq!(order, [4, 0, 5, 1, 3, 2]);
+    }
+
+    #[test]
+    fn pieces_start_after_the_card_and_spread_across_the_artifacts_timings() {
+        let count = 12;
+        // The first starts 0.17 s in, the last with just its own span of the time left.
+        assert_eq!(way_in(0, count, START), 0.0);
+        assert!(way_in(0, count, START + 0.01) > 0.0);
+        let last = START + CONTENT * (1.0 - SPAN);
+        assert_eq!(way_in(count - 1, count, last), 0.0);
+        assert!(way_in(count - 1, count, last + 0.01) > 0.0);
+        // Each takes the same time, 45% of 0.36 s, and they start in order.
+        for order in 0..count {
+            let start = START + CONTENT * piece_start(order, count);
+            assert!(way_in(order, count, start + SPAN * CONTENT + 1e-9) > 1.0 - 1e-9);
+            assert!(way_in(order, count, start + SPAN * CONTENT * 0.9) < 1.0);
+            assert!(way_in(order, count, LANDED) > 1.0 - 1e-9);
+        }
+        // Each grows on an ease-out cubic.
+        assert_eq!(grown_opening(0.0, 0.5), Easing::OutCubic.at(0.5) as f32);
+        assert_eq!(grown_opening(0.4, 0.0), 0.4);
+        assert!(way_in(0, 1, LANDED) > 1.0 - 1e-9, "one piece alone");
+    }
+
+    #[test]
+    fn closing_the_pieces_go_in_a_fifth_of_a_second_then_the_card_follows() {
+        let count = 12;
+        for order in 0..count {
+            assert!(way_out(order, count, 0.0) > 1.0 - 1e-9);
+            assert_eq!(way_out(order, count, LEAVE), 0.0);
+            assert_eq!(grown_closing(1.0, way_out(order, count, LEAVE)), 0.0);
+        }
+        // The first in reading order goes first.
+        assert!(way_out(0, count, 0.05) < way_out(count - 1, count, 0.05));
+        // The card stays put while the pieces go, then goes back in.
+        assert_eq!(travel_closing(1.0, BACK_AT), 1.0);
+        assert!(travel_closing(1.0, BACK_AT + BACK / 2.0) < 1.0);
+        assert_eq!(travel_closing(1.0, CLOSE), 0.0, "close ends in the slot");
+        let steps = 40;
+        let mut last = 2.0;
+        for n in 0..=steps {
+            let travel = travel_closing(1.0, CLOSE * n as f64 / steps as f64);
+            assert!(travel <= last, "{travel} after {last}");
+            last = travel;
         }
     }
 
@@ -1308,15 +1515,17 @@ mod tests {
     fn a_closed_panel_lets_go_at_once_and_only_its_picture_goes_back_in() {
         let mut fade = Fade::default();
         fade.open();
-        fade.drawn_at(OPEN, false);
+        fade.drawn_at(LANDED, false);
         assert_eq!(fade.drawn.travel, 1.0);
         assert!(fade.close(picture()), "closing waits for nothing");
         assert!(fade.is_closing());
-        assert_eq!(fade.closing(5.0, false).unwrap().look.travel, 1.0);
-        let halfway = fade.closing(5.0 + CLOSE / 2.0, false).unwrap();
+        assert_eq!(fade.closing(5.0, false, false).unwrap().look.travel, 1.0);
+        let halfway = fade
+            .closing(5.0 + BACK_AT + BACK / 2.0, false, false)
+            .unwrap();
         assert_eq!(halfway.alpha, 1.0, "it goes back in, never fades");
         assert!(halfway.look.travel > 0.0 && halfway.look.travel < 1.0);
-        assert_eq!(fade.closing(5.0 + CLOSE + 0.001, false), None);
+        assert_eq!(fade.closing(5.0 + CLOSE + 0.001, false, false), None);
         assert!(!fade.is_closing(), "and then the picture is let go");
     }
 
@@ -1331,63 +1540,117 @@ mod tests {
     #[test]
     fn reopened_mid_close_it_carries_on_from_where_it_is_drawn() {
         let mut fade = Fade::default();
-        fade.drawn_at(OPEN + LAND_BY, false);
+        fade.drawn_at(LANDED, false);
         fade.grown = vec![1.0, 0.6];
         fade.close(picture());
-        fade.closing(0.0, false);
-        let drawn = fade.closing(CLOSE * 0.6, false).unwrap();
+        fade.closing(0.0, false, false);
+        let drawn = fade.closing(BACK_AT + BACK * 0.5, false, false).unwrap();
         fade.grown = vec![0.4, 0.0];
         fade.open();
         assert!(!fade.is_closing());
         assert_eq!(fade.from, drawn.look);
         assert_eq!(fade.from_grown, [0.4, 0.0], "each piece too");
         assert_eq!(opening_look(0.0, fade.from, false), drawn.look);
-        assert_eq!(grown_opening(0.4, 0.05, 0.0), 0.4);
-        assert_eq!(opening_look(OPEN, fade.from, false).travel, 1.0);
+        assert_eq!(opening_look(CARD, fade.from, false).travel, 1.0);
     }
 
     #[test]
-    fn the_drawer_only_comes_out_opening_and_only_goes_in_closing() {
-        let steps = 40;
-        let mut last = -1.0;
-        for n in 0..=steps {
-            let travel = travel_opening(0.0, OPEN * n as f64 / steps as f64);
-            assert!(travel >= last, "{travel} after {last}");
-            last = travel;
-        }
-        let mut last = 2.0;
-        for n in 0..=steps {
-            let travel = travel_closing(1.0, CLOSE * n as f64 / steps as f64);
-            assert!(travel <= last, "{travel} after {last}");
-            last = travel;
-        }
-        assert_eq!(last, 0.0, "close ends in the slot");
+    fn a_slow_frame_holds_the_motion_up_rather_than_skipping_it() {
+        let mut fade = Fade::default();
+        fade.open();
+        assert_eq!(fade.pace(0.004), 0.004);
+        // The first frame took a tenth of a second to paint.
+        let next = fade.pace(0.104);
+        assert!((next - (0.004 + MOST_STEP)).abs() < 1e-12);
+        // Ordinary frames after it move on by the clock.
+        assert!((fade.pace(0.121) - (next + 0.017)).abs() < 1e-12);
+        fade.open();
+        assert_eq!(
+            fade.pace(0.5),
+            MOST_STEP,
+            "a fresh opening starts from the start"
+        );
     }
 
     #[test]
-    fn the_seam_is_bright_while_the_drawer_moves_dim_at_rest_and_glints_shut() {
+    fn a_panel_hanging_from_the_bar_comes_out_of_its_foot_and_a_card_out_of_its_own_top() {
+        assert_eq!(Drawer::new(card(), Some(32.0), 0.0).slot, 32.0);
+        assert_eq!(Drawer::new(card(), None, 0.0).slot, 40.0);
+        // A card above the bar's foot comes out of its own top either way.
+        assert_eq!(Drawer::new(card(), Some(60.0), 0.0).slot, 40.0);
+        // All in the slot, nothing of it shows, not even the shadow under its foot.
+        let drawer = Drawer::new(card(), None, 470.0);
+        assert_eq!(drawer.lift(0.0), 470.0 - 40.0);
+        let mut fade = Fade::default();
+        assert!(!fade.hangs, "nothing hangs unless it says so");
+        fade.hang_from(None);
+        assert!(fade.hangs);
+    }
+
+    #[test]
+    fn the_slot_lights_only_while_the_drawer_moves_and_glints_shut() {
         let at = |way| Reveal {
             alpha: 1.0,
             look: opening_look(0.0, GONE, false),
             way,
         };
-        let (spread, moving) = at(Way::Opening { since: OPEN / 2.0 }).seam();
-        assert_eq!(spread, 1.0, "out to the card's sides after the slot opens");
-        assert!(moving > 0.9);
+        let opening = |since| at(Way::Opening { since }).slot();
         assert_eq!(
-            at(Way::Opening { since: 0.0 }).seam().0,
-            0.0,
-            "from the button"
+            opening(0.0),
+            (0.0, 1.0),
+            "lit from the start, from the button"
         );
-        let rest = at(Way::Opening {
-            since: OPEN + LAND_BY,
-        });
-        assert_eq!(rest.seam().1, SEAM_REST);
-        let glint = at(Way::Closing {
-            since: CLOSE * (1.0 - GLINT / 2.0),
-        });
-        assert!(glint.seam().1 > 0.99);
-        assert_eq!(at(Way::Closing { since: CLOSE }).seam().0, 0.0, "sealed");
+        assert_eq!(opening(CARD / 2.0), (1.0, 1.0), "out to the card's sides");
+        assert_eq!(opening(CARD).1, 1.0);
+        assert!(opening(CARD + SLOT_OUT / 2.0).1 < 1.0);
+        assert_eq!(opening(CARD + SLOT_OUT).1, 0.0, "out once landed");
+        assert_eq!(opening(LANDED).1, 0.0, "nothing at rest");
+        let closing = |since| at(Way::Closing { since }).slot();
+        assert_eq!(closing(0.0).1, 0.0);
+        assert_eq!(
+            closing(BACK_AT),
+            (1.0, 1.0),
+            "lit again as the card goes back in"
+        );
+        let glint = closing(BACK_AT + BACK * (1.0 - GLINT / 2.0));
+        assert!(glint.1 > 1.0 + GLINT_LIGHT * 0.9);
+        assert_eq!(closing(CLOSE).0, 0.0, "sealed");
+        // With reduced motion there is no slot.
+        let still = Reveal {
+            alpha: 0.5,
+            look: opening_look(0.01, GONE, true),
+            way: Way::Opening { since: 0.01 },
+        };
+        assert_eq!(still.slot().1, 0.0);
+    }
+
+    #[test]
+    fn the_strongest_slot_asked_for_is_the_bars_until_it_is_taken() {
+        take_bar_slot();
+        let slot = |strength| BarSlot {
+            left: 10.0,
+            right: 20.0,
+            strength,
+        };
+        light_bar_slot(slot(0.5));
+        light_bar_slot(slot(1.2));
+        light_bar_slot(slot(0.8));
+        assert_eq!(take_bar_slot(), Some(slot(1.2)));
+        assert_eq!(take_bar_slot(), None, "taken, and gone at rest");
+    }
+
+    #[test]
+    fn the_slots_line_tapers_off_at_both_ends() {
+        let pixels = bake_slot(0x42d3ffff);
+        let alpha = |x: usize| pixels[x * 4 + 3];
+        assert_eq!(alpha(SLOT_W / 2), 255);
+        assert!(alpha(0) < 8 && alpha(SLOT_W - 1) < 8);
+        for x in 1..SLOT_W / 2 {
+            assert!(
+                alpha(x) >= alpha(x - 1),
+                "rising smoothly towards the middle"
+            );
+        }
     }
 
     #[test]
@@ -1397,22 +1660,22 @@ mod tests {
         let mut fade = Fade::default();
         fade.drawn_at(REDUCED_FADE, true);
         fade.close(picture());
-        assert_eq!(fade.closing(0.0, true).unwrap().alpha, 1.0);
-        let half = fade.closing(REDUCED_FADE / 2.0, true).unwrap();
+        assert_eq!(fade.closing(0.0, true, false).unwrap().alpha, 1.0);
+        let half = fade.closing(REDUCED_FADE / 2.0, true, false).unwrap();
         assert_eq!((half.alpha, half.look.lit), (0.5, false));
         assert!(half.whole(), "drawn as its own picture, no pieces");
-        assert_eq!(fade.closing(REDUCED_FADE, true), None);
+        assert_eq!(fade.closing(REDUCED_FADE, true, false), None);
     }
 
     #[test]
     fn reduced_motion_switched_on_mid_close_turns_it_into_the_short_fade() {
         let mut fade = Fade::default();
-        fade.drawn_at(OPEN, false);
+        fade.drawn_at(CARD, false);
         fade.close(picture());
-        assert!(fade.closing(0.0, false).unwrap().look.lit);
-        let now = fade.closing(REDUCED_FADE / 2.0, true).unwrap();
+        assert!(fade.closing(0.0, false, false).unwrap().look.lit);
+        let now = fade.closing(REDUCED_FADE / 2.0, true, false).unwrap();
         assert!(!now.look.lit && now.whole());
-        assert_eq!(fade.closing(REDUCED_FADE, true), None);
+        assert_eq!(fade.closing(REDUCED_FADE, true, false), None);
     }
 
     #[test]

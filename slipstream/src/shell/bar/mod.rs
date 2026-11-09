@@ -215,6 +215,9 @@ pub struct Bar {
     attention: Vec<(f64, f64)>,
     breath: breath::Breath,
     light: light::Light,
+    /// The id the slot a panel comes out of is drawn under, in the styles whose foot line is part
+    /// of the bar's picture.
+    slot_id: Option<smithay::backend::renderer::element::Id>,
 }
 
 impl Bar {
@@ -309,7 +312,9 @@ impl Bar {
     }
 
     /// The lit edge along the bar's foot at `now` seconds, its marker where it's drawn at `wall`,
-    /// at `alpha`: moving unless `moving` is false, when it stands still.
+    /// at `alpha`, with the slot a panel is coming out of lit in it: moving unless `moving` is
+    /// false, when it stands still.
+    #[allow(clippy::too_many_arguments)]
     pub fn lit_edge(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -318,6 +323,7 @@ impl Bar {
         wall: f64,
         alpha: f32,
         moving: bool,
+        slot: Option<crate::flow::BarSlot>,
     ) -> Option<PixelShaderElement> {
         let (content, ..) = self.shown.as_ref()?;
         let f = (HEIGHT as f64 * scale).round() / TALL as f64;
@@ -336,9 +342,38 @@ impl Bar {
             gap: content
                 .dock
                 .map(|(left, right)| (units(left), units(right))),
+            slot: slot.map(|slot| (slot.left, slot.right, slot.strength)),
             alpha,
         };
         self.light.element(renderer, &edge, now, moving)
+    }
+
+    /// The slot a panel is coming out of, lit along the bar's foot line in the focus ring's
+    /// colour, for the styles whose line is part of the bar's picture: the line along a bar at
+    /// the screen's edge, the floating strip's bottom edge.
+    pub fn slot_line<R>(
+        &mut self,
+        renderer: &mut R,
+        scale: f64,
+        slot: crate::flow::BarSlot,
+    ) -> Option<crate::flow::FlowElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let (content, ..) = self.shown.as_ref()?;
+        let ring = content.ring;
+        let id = self
+            .slot_id
+            .get_or_insert_with(smithay::backend::renderer::element::Id::new);
+        crate::flow::slot_line(
+            renderer,
+            ring & 0xffffff00,
+            scale,
+            (slot.strength, slot.left, slot.right),
+            self.at.loc.y + HEIGHT as f64,
+            id,
+        )
     }
 
     /// Strikes the lit edge's arc now, so it can be looked at without waiting for one.

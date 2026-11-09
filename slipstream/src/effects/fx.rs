@@ -80,7 +80,7 @@ pub fn tube(t: f64, tear_chance: f32) -> (f32, f32) {
 }
 
 /// A number from 0 to 1 that changes unpredictably from one frame to the next.
-fn tube_hash(frame: u64, salt: u64) -> f32 {
+pub fn tube_hash(frame: u64, salt: u64) -> f32 {
     let mut x =
         frame.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ salt.wrapping_mul(0xbf58_476d_1ce4_e5b9);
     x ^= x >> 31;

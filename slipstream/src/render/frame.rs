@@ -366,6 +366,8 @@ pub fn output_elements(
     if v.first && !deck_shown {
         state.deck = None;
     }
+    // A slot a panel asked for on another screen's bar isn't this one's.
+    crate::flow::take_bar_slot();
     if v.first {
         elements.extend(card_elements(
             state, renderer, geo.size, v.scale.x, now, v.wall, deck_shown,
@@ -811,6 +813,8 @@ fn bar_touch(
 ) -> Vec<OutputElement> {
     use slipstream_config::BarStyle;
     let reduced = state.clock.reduced_motion;
+    // The slot of a panel coming out of the bar, which the panels, drawn first, asked for.
+    let slot = crate::flow::take_bar_slot();
     match style {
         BarStyle::Plain => {
             let typing = state.concentration.typing(std::time::Instant::now());
@@ -825,10 +829,17 @@ fn bar_touch(
             let moving = !reduced && v.ui >= 1.0;
             let edge = chrome
                 .bar
-                .lit_edge(renderer, v.scale.x, v.now, v.wall, v.ui_alpha, moving);
+                .lit_edge(renderer, v.scale.x, v.now, v.wall, v.ui_alpha, moving, slot);
             elements.splice(0..0, edge.map(OutputElement::Pixel));
         }
         BarStyle::FloatingStrip => {}
+    }
+    // In the other styles the foot line is part of the bar's picture, so the slot is drawn over it.
+    if style != BarStyle::LitEdge
+        && let Some(slot) = slot
+    {
+        let line = chrome.bar.slot_line(renderer, v.scale.x, slot);
+        elements.splice(0..0, line.map(OutputElement::Flow));
     }
     elements
 }
