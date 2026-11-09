@@ -62,8 +62,13 @@ const TILE_H: f32 = 128.0;
 const TILE_GAP: f32 = 6.0;
 const ICON: f32 = 66.0;
 const ROW_H: f32 = 42.0;
-/// Opening: 180 ms from 10 px higher and transparent. Closing is instant.
+/// Opening: 180 ms from 10 px higher and transparent.
 const OPEN: f64 = 0.18;
+const OPEN_DROP: f64 = 10.0;
+/// Closing: 140 ms, speeding up as it rises 6 px and fades, so it's gone before it reads as
+/// moving. Only the paint lingers: input goes back to the window the moment it closes.
+const CLOSE: f64 = 0.14;
+const CLOSE_RISE: f64 = 6.0;
 
 /// Something the explorer can open.
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +139,14 @@ pub struct Explorer {
     scroll: usize,
     /// When it opened, on the animation clock.
     opened_at: f64,
+    /// The alpha and rise in design pixels the opening starts from: hidden and above, or wherever
+    /// a close it interrupted had got to.
+    open_from: (f64, f64),
+    /// The alpha and rise last drawn, and whether the caret was showing.
+    drawn: (f64, f64, bool),
+    /// While it fades out after closing: what it closes from, and when the close started on the
+    /// animation clock, which the first frame after it fills in.
+    closing: Option<((f64, f64, bool), Option<f64>)>,
     catalog: Arc<Mutex<Catalog>>,
     scanned: Option<Instant>,
     read_recent_files: RecentReader,
@@ -189,6 +202,9 @@ impl Explorer {
             selected: 0,
             scroll: 0,
             opened_at: 0.0,
+            open_from: (0.0, -OPEN_DROP),
+            drawn: (0.0, 0.0, false),
+            closing: None,
             catalog: Arc::default(),
             scanned: None,
             read_recent_files: Arc::new(|| apps::recent_files(RECENT, |path| path.is_file())),
@@ -227,6 +243,12 @@ impl Explorer {
         self.selected = 0;
         self.scroll = 0;
         self.opened_at = now;
+        // Reopened while it fades, it comes back from where it's drawn.
+        self.open_from = match self.closing.take() {
+            Some(_) => (self.drawn.0, self.drawn.1),
+            None => (0.0, -OPEN_DROP),
+        };
+        self.shown = None;
         self.rescan();
         // What was last read shows now. A file deleted since goes from the list once this read
         // is back, and a hung mount keeps the last list up rather than the explorer shut.
@@ -234,11 +256,25 @@ impl Explorer {
         self.index_home();
     }
 
+    /// Closes at once: keys and clicks go back to the windows now, and only the painted
+    /// explorer stays to fade out.
     pub fn close(&mut self) {
+        if !self.open {
+            return;
+        }
+        if self.drawn.0 > 0.0 && self.buffer.is_some() {
+            self.closing = Some((self.drawn, None));
+        } else {
+            self.buffer = None;
+        }
         self.open = false;
         self.shown = None;
-        self.buffer = None;
         self.targets.clear();
+    }
+
+    /// Whether it's still fading out after closing.
+    pub fn is_closing(&self) -> bool {
+        self.closing.is_some()
     }
 
     /// What is typed.
@@ -956,5 +992,37 @@ mod tests {
             selected(&explorer).map(|item| matches!(item, Item::App(_))),
             Some(true)
         );
+    }
+
+    #[test]
+    fn closing_lets_go_at_once_and_only_the_paint_fades() {
+        let mut explorer = Explorer::idle(false);
+        explorer.open(0.0);
+        explorer.drawn = (1.0, 0.0, true);
+        explorer.buffer = Some((
+            paint::buffer(&Pixmap::new(1, 1).unwrap()),
+            (1, 1).into(),
+            (1, 1),
+        ));
+        explorer.close();
+        assert!(!explorer.is_open(), "keys go back to the window now");
+        assert!(explorer.is_closing());
+        // Halfway it has risen part of the way and is still mostly there, speeding up.
+        let (alpha, rise) = closing_look((1.0, 0.0), CLOSE / 2.0, false).unwrap();
+        assert!(alpha > 0.8 && rise < 0.0 && rise > -CLOSE_RISE);
+        assert_eq!(closing_look((1.0, 0.0), CLOSE, false), None);
+        // Reopened mid-fade, it comes back from where it's drawn.
+        explorer.drawn = (0.4, -3.0, true);
+        explorer.open(1.0);
+        assert!(!explorer.is_closing());
+        assert_eq!(opening_look(explorer.open_from, 0.0, false), (0.4, -3.0));
+        assert_eq!(opening_look(explorer.open_from, OPEN, false).0, 1.0);
+    }
+
+    #[test]
+    fn closing_with_reduced_motion_only_fades_and_no_longer_than_the_short_fade() {
+        let (alpha, rise) = closing_look((1.0, 0.0), REDUCED_FADE / 2.0, true).unwrap();
+        assert_eq!((alpha, rise), (0.5, 0.0));
+        assert_eq!(closing_look((1.0, 0.0), REDUCED_FADE, true), None);
     }
 }

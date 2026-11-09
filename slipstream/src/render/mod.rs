@@ -241,6 +241,14 @@ fn card_elements(
                 .into_iter()
                 .map(OutputElement::Memory),
         );
+    } else if state.explorer.is_closing() {
+        elements.extend(
+            state
+                .explorer
+                .closing_element(renderer, frame(now))
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
     }
     if state.plugin_panel.is_open() {
         let facts = state.plugin_facts();
