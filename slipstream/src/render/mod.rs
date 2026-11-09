@@ -220,9 +220,10 @@ fn card_elements(
     wall: f64,
     deck_shown: bool,
 ) -> Vec<OutputElement> {
-    let (accent, attention, bar) = (
+    let (accent, attention, ring, bar) = (
         state.panel_accent(),
         state.panel_attention(),
+        state.panel_ring(),
         state.bar_place(),
     );
     let frame = |time| crate::panel::Frame {
@@ -231,6 +232,7 @@ fn card_elements(
         time,
         accent,
         attention,
+        ring,
         bar,
     };
     let mut elements = Vec::new();
@@ -261,6 +263,8 @@ fn card_elements(
             state
                 .plugin_panel
                 .element(renderer, frame(now), facts)
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -270,6 +274,8 @@ fn card_elements(
             state
                 .quick
                 .element(renderer, frame(now), facts)
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -303,6 +309,8 @@ fn card_elements(
             state
                 .history
                 .element(renderer, frame(now), ring, key)
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -348,6 +356,8 @@ fn card_elements(
     if let Some(card) = state.battery.card.as_mut() {
         elements.extend(
             card.element(renderer, frame(wall))
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -357,6 +367,8 @@ fn card_elements(
         elements.extend(
             connect
                 .element(renderer, frame(wall))
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -365,6 +377,8 @@ fn card_elements(
         elements.extend(
             offer
                 .element(renderer, frame(wall))
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -382,6 +396,8 @@ fn card_elements(
     if let Some(ask) = state.shortcuts.ask_mut() {
         elements.extend(
             ask.element(renderer, frame(wall), ring)
+                .into_iter()
+                .flatten()
                 .map(OutputElement::Memory),
         );
     }
@@ -394,12 +410,13 @@ fn card_elements(
                 .map(OutputElement::Memory),
         );
     }
-    // Panels and cards fading out after they closed, behind whatever is open: only their last
-    // picture, which takes no input.
+    // Panels and cards draining away after they closed, behind whatever is open: only their
+    // last picture, which takes no input.
+    let ring = state.panel_ring();
+    let reduced_motion = state.motion.reduced_motion;
     for fade in state.fades_mut() {
         elements.extend(
-            fade.elements(renderer, now)
-                .into_iter()
+            fade.elements(renderer, now, ring, reduced_motion)
                 .map(OutputElement::Memory),
         );
     }

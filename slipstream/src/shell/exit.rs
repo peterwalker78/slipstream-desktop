@@ -876,6 +876,7 @@ mod tests {
             time: 0.0,
             accent: panel::ACCENT,
             attention: panel::AMBER,
+            ring: panel::FOCUS,
             bar: crate::bar::Place::default(),
         };
         let size = exit

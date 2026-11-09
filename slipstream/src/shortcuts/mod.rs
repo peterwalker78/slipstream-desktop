@@ -82,7 +82,7 @@ pub struct Shortcuts {
     held: Vec<Held>,
     /// The card on screen, and the request it answers.
     asking: Option<(Pending, Ask)>,
-    /// The last card, fading out after it went.
+    /// The last card, draining away after it went.
     pub fading: Option<crate::panel::Fade>,
     waiting: VecDeque<Pending>,
     /// The person's own shortcuts that work, which no app can be given.

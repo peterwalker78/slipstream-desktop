@@ -94,24 +94,20 @@ impl Explorer {
             }
             self.shown = Some(look);
         }
-        let (alpha, rise) = self.fade.opening(
-            crate::exit::opening(since, self.reduced_motion),
-            self.reduced_motion,
-        );
+        let Some((_, logical, _)) = self.buffer.as_ref() else {
+            return Vec::new();
+        };
+        let card = crate::flow::card_in(self.origin, *logical, MARGIN, BELOW);
+        let reveal = self.fade.opening(since, self.reduced_motion, card);
         // The caret blinks, half a second on and half off, unless motion is reduced: then it
         // stays on.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
         self.caret_on = caret_on;
-        self.painted(
-            renderer,
-            scale,
-            frame.accent,
-            (alpha.into(), rise, caret_on),
-        )
+        self.painted(renderer, frame, reveal, caret_on)
     }
 
-    /// The explorer fading out after it closed, as it was last drawn: nothing is repainted, and
-    /// once it has gone its buffer is let go.
+    /// The explorer draining away after it closed, as it was last drawn: nothing is repainted,
+    /// and once it has gone its buffer is let go.
     pub fn closing_element<R>(
         &mut self,
         renderer: &mut R,
@@ -121,27 +117,22 @@ impl Explorer {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let Some((alpha, rise)) = self.fade.closing(frame.time) else {
+        let Some(reveal) = self.fade.closing(frame.time, self.reduced_motion) else {
             self.buffer = None;
             return Vec::new();
         };
         let caret_on = self.caret_on;
-        self.painted(
-            renderer,
-            frame.scale,
-            frame.accent,
-            (alpha.into(), rise, caret_on),
-        )
+        self.painted(renderer, frame, reveal, caret_on)
     }
 
-    /// The painted explorer and its caret at `alpha`, `rise` design pixels down (up when
-    /// negative), the caret only when `caret_on`.
+    /// The painted explorer as `reveal` shows it, with the edge in front, and its caret when
+    /// `caret_on` and the reveal has passed it.
     fn painted<R>(
         &mut self,
         renderer: &mut R,
-        scale: f64,
-        accent: u32,
-        (alpha, rise, caret_on): (f64, f64, bool),
+        frame: crate::panel::Frame,
+        reveal: crate::flow::Reveal,
+        caret_on: bool,
     ) -> Vec<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
@@ -150,25 +141,26 @@ impl Explorer {
         let Some((buffer, logical, device)) = self.buffer.as_ref() else {
             return Vec::new();
         };
+        let (scale, accent) = (frame.scale, frame.accent);
         // Whole screen pixels, or the text blurs.
-        let location =
-            Point::<f64, Logical>::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64))
-                .to_physical(scale)
-                .to_i32_round::<i32>();
-        let mut elements = Vec::with_capacity(2);
+        let location = self.origin.to_physical(scale).to_i32_round::<i32>();
+        let mut elements = Vec::with_capacity(3);
+        elements.extend(reveal.edge(renderer, frame.ring, scale, frame.time));
         if caret_on {
             let key = (scale, accent);
             if self.caret.as_ref().is_none_or(|(at, _, _)| *at != key) {
                 self.caret = caret_buffer(key);
             }
-            if let Some((_, caret, size)) = &self.caret {
+            if let Some((_, caret, size)) = &self.caret
+                && reveal.shows_above(self.origin.y + self.caret_at.y + size.h as f64)
+            {
                 let at = location + self.caret_at.to_physical(scale).to_i32_round::<i32>();
                 elements.extend(
                     MemoryRenderBufferRenderElement::from_buffer(
                         renderer,
                         at.to_f64(),
                         caret,
-                        Some(alpha as f32),
+                        Some(reveal.alpha),
                         None,
                         Some(*size),
                         Kind::Unspecified,
@@ -177,20 +169,14 @@ impl Explorer {
                 );
             }
         }
-        elements.extend(
-            MemoryRenderBufferRenderElement::from_buffer(
-                renderer,
-                location.to_f64(),
-                buffer,
-                Some(alpha as f32),
-                Some(Rectangle::from_size(
-                    (device.0 as f64, device.1 as f64).into(),
-                )),
-                Some(*logical),
-                Kind::Unspecified,
-            )
-            .ok(),
-        );
+        elements.extend(reveal.buffer(
+            renderer,
+            buffer,
+            (*logical, *device),
+            scale,
+            self.origin,
+            1.0,
+        ));
         elements
     }
 
@@ -200,7 +186,7 @@ impl Explorer {
         let width = WIDTH.min(screen_w - 40.0).max(480.0);
         let logical = Size::<i32, Logical>::from((
             ((width + 2.0 * MARGIN) * DESIGN_PX).ceil() as i32,
-            ((HEIGHT + 2.0 * MARGIN + 40.0) * DESIGN_PX).ceil() as i32,
+            ((HEIGHT + 2.0 * MARGIN + BELOW) * DESIGN_PX).ceil() as i32,
         ));
         let device = (
             (logical.w as f64 * look.scale).round() as i32,

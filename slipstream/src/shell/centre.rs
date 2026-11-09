@@ -145,7 +145,7 @@ pub struct Centre {
     origin: Point<f64, Logical>,
     frame: Rectangle<f64, Logical>,
     targets: Vec<(Target, Rectangle<f64, Logical>)>,
-    /// Opens with a short fade instead of rising (`Slipstream::set_reduced_motion`).
+    /// Opens with a short fade instead of pouring in (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
     /// The background apps, as last drawn.
     chips: Vec<Chip>,
@@ -550,12 +550,17 @@ impl Centre {
                 ..look
             });
         }
-        let (alpha, rise) = self.fade.opening(
-            panel::opening(now - self.opened_at, facts.reduced_motion),
-            facts.reduced_motion,
-        );
-        let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
+        let Some(card) = self.painted.as_ref().map(|painted| {
+            crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW)
+        }) else {
+            return Vec::new();
+        };
+        let reveal = self
+            .fade
+            .opening(now - self.opened_at, facts.reduced_motion, card);
+        let at = self.origin;
         let mut elements = Vec::new();
+        elements.extend(reveal.edge(renderer, frame.ring, frame.scale, now));
         if let Some(menu) = self.menu.as_mut() {
             elements.extend(menu.elements(renderer, frame, facts.ring, facts.reduced_motion, icon));
         }
@@ -568,13 +573,11 @@ impl Centre {
         if let Some(glow) = &self.glow {
             let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
             self.breath = breath;
-            elements.extend(glow.element(renderer, at, alpha * breath));
+            elements.extend(reveal.picture(renderer, glow, at, breath));
         }
-        elements.extend(
-            self.painted
-                .as_ref()
-                .and_then(|painted| painted.element(renderer, at, alpha)),
-        );
+        if let Some(painted) = self.painted.as_ref() {
+            elements.extend(reveal.picture(renderer, painted, at, 1.0));
+        }
         elements
     }
 

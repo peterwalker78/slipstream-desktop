@@ -10,6 +10,7 @@ pub(crate) mod chips;
 pub(crate) mod connect;
 pub(crate) mod exit;
 pub(crate) mod explorer;
+pub(crate) mod flow;
 pub(crate) mod history;
 pub(crate) mod miniature;
 pub(crate) mod notices;

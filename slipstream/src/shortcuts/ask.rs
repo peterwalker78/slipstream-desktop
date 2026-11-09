@@ -7,13 +7,12 @@
 //! It appears by itself, often while someone is typing, so it ignores keys for its first moment.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
 };
 
 use crate::{
     card::{self, Btn, Button, Card},
-    exit,
     keys::Mods,
     panel::{self},
 };
@@ -203,7 +202,7 @@ impl Ask {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed fades out.
+    /// Lets the card go: input leaves it now, and what it last showed drains away.
     pub fn fade_out(self) -> crate::panel::Fade {
         self.on_screen.fade_out()
     }
@@ -214,18 +213,15 @@ impl Ask {
         renderer: &mut R,
         frame: crate::panel::Frame,
         ring: u32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> crate::panel::Pair<R>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card((ring, frame.accent));
-        let look = self.on_screen.fade.opening(
-            exit::opening(now - self.since, self.reduced_motion),
-            self.reduced_motion,
-        );
-        self.on_screen.element(renderer, card, frame, look)
+        self.on_screen
+            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
     }
 }
 

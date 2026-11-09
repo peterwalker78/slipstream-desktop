@@ -88,6 +88,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "icons",
             "anim",
             "shell/panel",
+            "shell/flow",
             "shell/card",
             "shell/tip",
             "render/chrome",

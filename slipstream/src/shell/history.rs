@@ -20,7 +20,7 @@ use std::{
 
 use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     reexports::calloop::channel::Sender,
     utils::{Logical, Point, Rectangle, Size},
@@ -416,7 +416,21 @@ impl History {
         frame: crate::panel::Frame,
         ring: u32,
         key: String,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> panel::Pair<R>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        self.drawn(renderer, frame, ring, key).unwrap_or_default()
+    }
+
+    fn drawn<R>(
+        &mut self,
+        renderer: &mut R,
+        frame: crate::panel::Frame,
+        ring: u32,
+        key: String,
+    ) -> Option<panel::Pair<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -475,14 +489,10 @@ impl History {
             .iter()
             .map(|(index, rect)| (*index, Rectangle::new(rect.loc + at, rect.size)))
             .collect();
-        let (alpha, rise) = self.fade.opening(
-            panel::opening(now - self.opened_at, self.reduced_motion),
-            self.reduced_motion,
-        );
-        painted.element(
-            renderer,
-            at + Point::from((0.0, rise * DESIGN_PX as f64)),
-            alpha,
+        Some(
+            self.fade
+                .opening(now - self.opened_at, self.reduced_motion, self.frame)
+                .pair(renderer, painted, at, frame),
         )
     }
 
@@ -881,10 +891,10 @@ mod tests {
     }
 
     #[test]
-    fn closing_lets_go_at_once_and_only_its_picture_fades() {
+    fn closing_lets_go_at_once_and_only_its_picture_drains() {
         let mut history = History::default();
         history.open(0.0);
-        history.fade.opening((1.0, 0.0), false);
+        history.fade.opening(1.0, false, Default::default());
         let painted = Painted::new((1, 1).into(), 1.0, |_| {}).unwrap();
         history.painted = Some((Look::default(), painted));
         history.close();

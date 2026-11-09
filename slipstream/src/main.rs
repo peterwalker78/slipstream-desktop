@@ -95,7 +95,7 @@ use effects::{
     bullet, deck, fx, ghost, glass, glmatrix, overview, pane, rain, saver, scope, streaks, tilt,
 };
 use shell::{
-    arrange, bar, calendar, card, centre, chips, connect, exit, explorer, history, miniature,
+    arrange, bar, calendar, card, centre, chips, connect, exit, explorer, flow, history, miniature,
     notices, offer, osd, panel, plugin_panel, quick, share, sheet, slot, stream_tip, switcher, tip,
     toast, tour, tray_menu,
 };

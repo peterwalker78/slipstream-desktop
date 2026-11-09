@@ -171,6 +171,7 @@ impl Slipstream {
                 time: now,
                 accent: self.panel_accent(),
                 attention: self.panel_attention(),
+                ring: self.panel_ring(),
                 bar: self.bar_place(),
             };
             arrange.element(renderer, frame, ring, pictures, key)

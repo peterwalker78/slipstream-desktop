@@ -449,7 +449,7 @@ impl<K: PartialEq> OnScreen<K> {
         self.hits.clear();
     }
 
-    /// Lets the card go: nothing on it can be clicked any more, and its last paint fades out.
+    /// Lets the card go: nothing on it can be clicked any more, and its last paint drains away.
     pub fn fade_out(mut self) -> crate::panel::Fade {
         let at = self.at;
         self.fade
@@ -536,6 +536,36 @@ impl OnScreen<Card> {
     {
         let size = self.paint(card, frame, paint)?;
         self.place(renderer, centred(frame.size, size), opening)
+    }
+}
+
+impl OnScreen<Card> {
+    /// `card` in the middle of the screen in `frame`, `since` seconds after it appeared, pouring
+    /// in as the panels do.
+    pub fn pour<R>(
+        &mut self,
+        renderer: &mut R,
+        card: Card,
+        frame: crate::panel::Frame,
+        since: f64,
+        reduced_motion: bool,
+    ) -> panel::Pair<R>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        let Some(size) = self.paint(card, frame, paint) else {
+            return Default::default();
+        };
+        self.at = centred(frame.size, size);
+        let Some(painted) = self.painted.as_ref() else {
+            return Default::default();
+        };
+        let at = self.at;
+        let card = crate::flow::card_in(at, painted.logical, MARGIN, BELOW);
+        self.fade
+            .opening(since, reduced_motion, card)
+            .pair(renderer, painted, at, frame)
     }
 }
 

@@ -12,7 +12,7 @@
 //! key already on its way when it appears can't answer it.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     utils::{Logical, Point},
 };
@@ -20,7 +20,6 @@ use smithay::{
 use crate::{
     Slipstream,
     card::{self, Btn, Button, Card},
-    panel::{self},
 };
 
 /// Where each step starts, in percent.
@@ -164,7 +163,7 @@ impl LowCard {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed fades out.
+    /// Lets the card go: input leaves it now, and what it last showed drains away.
     pub fn fade_out(self) -> crate::panel::Fade {
         self.on_screen.fade_out()
     }
@@ -173,18 +172,15 @@ impl LowCard {
         &mut self,
         renderer: &mut R,
         frame: crate::panel::Frame,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> crate::panel::Pair<R>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card(now);
-        let look = self.on_screen.fade.opening(
-            panel::opening(now - self.since, self.reduced_motion),
-            self.reduced_motion,
-        );
-        self.on_screen.element(renderer, card, frame, look)
+        self.on_screen
+            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
     }
 }
 

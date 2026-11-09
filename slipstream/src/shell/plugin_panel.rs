@@ -14,7 +14,7 @@
 
 use slipstream_config::plugins::Card;
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -318,7 +318,20 @@ impl PluginPanel {
         renderer: &mut R,
         frame: panel::Frame,
         facts: Facts,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> panel::Pair<R>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        self.drawn(renderer, frame, facts).unwrap_or_default()
+    }
+
+    fn drawn<R>(
+        &mut self,
+        renderer: &mut R,
+        frame: panel::Frame,
+        facts: Facts,
+    ) -> Option<panel::Pair<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -355,12 +368,13 @@ impl PluginPanel {
             self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let (alpha, rise) = self.fade.opening(
-            panel::opening(now - self.opened_at, reduced_motion),
-            reduced_motion,
-        );
-        let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
-        self.painted.as_ref()?.element(renderer, at, alpha)
+        let painted = self.painted.as_ref()?;
+        let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
+        Some(
+            self.fade
+                .opening(now - self.opened_at, reduced_motion, card)
+                .pair(renderer, painted, self.origin, frame),
+        )
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {

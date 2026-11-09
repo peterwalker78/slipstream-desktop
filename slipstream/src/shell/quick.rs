@@ -6,7 +6,7 @@
 //! carry a chevron that opens the system's own settings page for them.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -209,7 +209,7 @@ pub struct QuickSettings {
     /// A slider held under the pointer, and the level it was last set to, so moving along it
     /// only changes the machine when the level does.
     dragging: Option<(Control, u8)>,
-    /// Opens with a short fade instead of rising (`Slipstream::set_reduced_motion`).
+    /// Opens with a short fade instead of pouring in (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
 }
 
@@ -445,14 +445,14 @@ impl QuickSettings {
         renderer: &mut R,
         frame: crate::panel::Frame,
         facts: Facts,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> panel::Pair<R>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (width, scale, now) = (frame.size.w, frame.scale, frame.time);
         if !self.open {
-            return None;
+            return Default::default();
         }
         let reduced_motion = facts.reduced_motion;
         let look = Look {
@@ -464,15 +464,18 @@ impl QuickSettings {
             bar: frame.bar,
         };
         if self.shown.as_ref() != Some(&look) {
-            self.repaint(&look)?;
+            if self.repaint(&look).is_none() {
+                return Default::default();
+            }
             self.shown = Some(look);
         }
-        let (alpha, rise) = self.fade.opening(
-            panel::opening(now - self.opened_at, reduced_motion),
-            reduced_motion,
-        );
-        let at = Point::from((self.origin.x, self.origin.y + rise * DESIGN_PX as f64));
-        self.painted.as_ref()?.element(renderer, at, alpha)
+        let Some(painted) = self.painted.as_ref() else {
+            return Default::default();
+        };
+        let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
+        self.fade
+            .opening(now - self.opened_at, reduced_motion, card)
+            .pair(renderer, painted, self.origin, frame)
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {

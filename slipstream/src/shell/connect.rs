@@ -10,14 +10,11 @@
 //! a key already on its way when a screen lights up mustn't answer it.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
 };
 
-use crate::{
-    card::{self, Btn, Button, Card},
-    panel::{self},
-};
+use crate::card::{self, Btn, Button, Card};
 
 /// Keys are ignored this long after the card appears.
 const DEAF: f64 = 1.5;
@@ -158,7 +155,7 @@ impl Connect {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed fades out.
+    /// Lets the card go: input leaves it now, and what it last showed drains away.
     pub fn fade_out(self) -> crate::panel::Fade {
         self.on_screen.fade_out()
     }
@@ -168,18 +165,15 @@ impl Connect {
         &mut self,
         renderer: &mut R,
         frame: crate::panel::Frame,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    ) -> crate::panel::Pair<R>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
         let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
         let card = self.card();
-        let look = self.on_screen.fade.opening(
-            panel::opening(now - self.since, self.reduced_motion),
-            self.reduced_motion,
-        );
-        self.on_screen.element(renderer, card, frame, look)
+        self.on_screen
+            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
     }
 }
 

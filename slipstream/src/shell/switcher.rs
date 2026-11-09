@@ -408,6 +408,7 @@ impl Slipstream {
                 time: now,
                 accent,
                 attention,
+                ring,
                 bar,
             };
             switcher.element(renderer, frame, ring, tiles, &mut |id, px| {

@@ -674,13 +674,12 @@ impl Sheet {
             )
                 .into(),
         );
-        let (alpha, rise) = self.fade.opening(
-            crate::exit::opening(now - self.opened_at, self.reduced_motion),
-            self.reduced_motion,
-        );
+        let reveal = self
+            .fade
+            .opening(now - self.opened_at, self.reduced_motion, self.frame);
         self.at = (at, None);
-        let at = at + Point::from((0.0, rise * DESIGN_PX as f64));
         let mut elements = Vec::new();
+        elements.extend(reveal.edge(renderer, ring, painted.scale, now));
         // The miniature goes in front of the card, in the place the card leaves for it.
         if self.tour.is_some()
             && let Some(stage) = self.stage.as_ref()
@@ -692,9 +691,9 @@ impl Sheet {
                 (((MARGIN + sy) * DESIGN_PX) as f64).round(),
             ));
             self.at.1 = Some(self.at.0 + offset);
-            elements.extend(stage.element(renderer, at + offset, alpha));
+            elements.extend(reveal.picture(renderer, stage, at + offset, 1.0));
         }
-        elements.extend(painted.element(renderer, at, alpha));
+        elements.extend(reveal.picture(renderer, painted, at, 1.0));
         elements
     }
 }

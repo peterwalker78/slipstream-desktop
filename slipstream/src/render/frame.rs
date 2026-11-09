@@ -64,6 +64,7 @@ pub(super) struct View {
     pub labels: Vec<(Target<Window>, String)>,
     pub accent: u32,
     pub attention: u32,
+    pub ring: u32,
     /// Where the bar sits.
     pub bar: bar::Place,
 }
@@ -185,6 +186,7 @@ impl View {
             labels,
             accent: state.panel_accent(),
             attention: state.panel_attention(),
+            ring: state.panel_ring(),
             bar: state.bar_place(),
         }
     }
@@ -229,6 +231,7 @@ impl View {
             time,
             accent: self.accent,
             attention: self.attention,
+            ring: self.ring,
             bar: self.bar,
         }
     }

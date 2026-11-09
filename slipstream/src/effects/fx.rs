@@ -57,6 +57,38 @@ const WAKE_GO: f64 = 0.42;
 /// foot.
 const WAKE_DROP: f64 = 0.5;
 
+/// The failing tube, for something small drawn on the CPU's side in its look (the panels' lit
+/// edge): how long one of its frames of flicker and tearing lasts, in seconds, every other row's
+/// brightness, the flicker's floor and range, and how far its colours split, in pixels. `crt` in
+/// the shader has the same numbers.
+pub const TUBE_FRAME: f64 = 0.04;
+pub const SCANLINE: f32 = 0.62;
+pub const FLICKER: (f32, f32) = (0.88, 0.12);
+pub const SPLIT: f64 = 1.5;
+
+/// The tube at `t` seconds, for one small thing on it: its brightness this frame, and how far it
+/// is torn sideways, from -1 to 1, which is 0 in all but about one frame in `1 / tear_chance`.
+pub fn tube(t: f64, tear_chance: f32) -> (f32, f32) {
+    let frame = (t / TUBE_FRAME).floor() as i64 as u64;
+    let flicker = FLICKER.0 + FLICKER.1 * tube_hash(frame, 1);
+    let torn = if tube_hash(frame, 2) < tear_chance {
+        2.0 * tube_hash(frame, 3) - 1.0
+    } else {
+        0.0
+    };
+    (flicker, torn)
+}
+
+/// A number from 0 to 1 that changes unpredictably from one frame to the next.
+fn tube_hash(frame: u64, salt: u64) -> f32 {
+    let mut x =
+        frame.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ salt.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x ^= x >> 31;
+    x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^= x >> 29;
+    (x >> 40) as f32 / (1u64 << 24) as f32
+}
+
 /// How long a closed window takes to fall away in `effects`.
 pub fn length(effects: Effects) -> f64 {
     match effects {
@@ -659,5 +691,26 @@ mod tests {
             assert!(main.contains("finish(crt(px, "));
             assert_eq!(main.matches("finish(").count(), 1);
         }
+    }
+
+    #[test]
+    fn the_tube_drawn_on_the_cpu_matches_the_shaders() {
+        assert!(HEAD.contains(&format!("floor(t / {TUBE_FRAME})")));
+        assert!(HEAD.contains(&format!("? 1.0 : {SCANLINE}")));
+        assert!(HEAD.contains(&format!("{} + {} * hash", FLICKER.0, FLICKER.1)));
+        assert!(HEAD.contains(&format!("float split = {SPLIT} +")));
+        let frames: Vec<_> = (0..2000)
+            .map(|n| tube(n as f64 * TUBE_FRAME, 0.06))
+            .collect();
+        assert!(
+            frames
+                .iter()
+                .all(|(flicker, _)| (0.88..=1.0).contains(flicker))
+        );
+        let torn = frames.iter().filter(|(_, torn)| *torn != 0.0).count();
+        assert!(
+            (40..200).contains(&torn),
+            "torn now and then, not never or often: {torn}"
+        );
     }
 }

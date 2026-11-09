@@ -1,29 +1,17 @@
 //! What Slipstream's panels share: the glass card quick settings and the notification centre drop
-//! at the top right, just below the bar, sliding down into place as they open; and the `Panel`
+//! at the top right, just below the bar, pouring down out of it as they open; and the `Panel`
 //! trait every panel answers to, the explorer, the plugin panel, the shortcut sheet and clipboard
 //! history too, so that closing them, or asking whether one is open, goes through one list.
 
-use crate::motion::REDUCED_FADE;
 use crate::{
-    Slipstream,
-    centre::Centre,
-    explorer::Explorer,
-    history::History,
-    keys::Action,
-    motion::HYPR,
-    paint::{Painted, Painter},
-    plugin_panel::PluginPanel,
-    quick::QuickSettings,
-    sheet::Sheet,
+    Slipstream, centre::Centre, explorer::Explorer, history::History, keys::Action, paint::Painter,
+    plugin_panel::PluginPanel, quick::QuickSettings, sheet::Sheet,
 };
-use smithay::backend::renderer::{
-    ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement,
-};
-use smithay::utils::{Logical, Point};
 
 /// What a card is drawn for: the screen's logical size and scale, the time on whichever clock
-/// the card animates by, and two of the colours from the settings: the accent, for what's on, and
-/// the secondary colour, for what wants attention.
+/// the card animates by, and three of the colours from the settings: the accent, for what's on,
+/// the secondary colour, for what wants attention, and the focus ring's, which lights the edge a
+/// panel pours in behind.
 #[derive(Debug, Clone, Copy)]
 pub struct Frame {
     pub size: smithay::utils::Size<i32, smithay::utils::Logical>,
@@ -31,6 +19,7 @@ pub struct Frame {
     pub time: f64,
     pub accent: u32,
     pub attention: u32,
+    pub ring: u32,
     /// Where the bar sits, which the cards dropping from under it hang from.
     pub bar: crate::bar::Place,
 }
@@ -128,15 +117,6 @@ pub const FOCUS: u32 = 0x42d3ffcc;
 /// What's on or chosen inside a panel, until the settings are read. `Slipstream::panel_accent`
 /// hands the chosen one to each panel; `AMBER` stays for what needs noticing.
 pub const ACCENT: u32 = 0xffb547ff;
-
-/// Opening: 200 ms from 10 px higher and transparent.
-const OPEN: f64 = 0.2;
-/// Where every panel and card opens from: transparent, 10 design px above its place.
-const HIDDEN: (f32, f64) = (0.0, -10.0);
-/// Closing: 140 ms, speeding up as it rises 6 px and fades, so it's gone before it reads as
-/// moving. Only the paint lingers: input goes to what's underneath the moment it closes.
-const CLOSE: f64 = 0.14;
-const CLOSE_RISE: f64 = 6.0;
 
 /// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
 /// nearly solid, as the explorer's is.
@@ -322,165 +302,7 @@ pub fn focus_ring(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, radius: f32, 
     );
 }
 
-/// A panel `since` seconds after it opened: its opacity, and how far above its place it is, in
-/// design pixels.
-pub fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
-    if reduced_motion {
-        ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
-    } else {
-        let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-        (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
-    }
-}
-
-/// One layer of what a panel last drew: its paint, its corner where the panel settles, and its
-/// share of the panel's opacity.
-pub type Layer = (Painted, Point<f64, Logical>, f32);
-
-/// A panel's way in and out. It opens from hidden, or from wherever a close it interrupts has
-/// got to, and closes by fading out the picture it last drew, rising as it goes. Neither holds
-/// anything up: the panel stops taking keys and clicks the moment it closes, and this only paints.
-pub struct Fade {
-    /// The opacity and rise in design pixels (negative is up) the opening starts from.
-    from: (f32, f64),
-    /// The opacity and rise last drawn.
-    drawn: (f32, f64),
-    /// Whether motion was reduced when it was last drawn.
-    reduced_motion: bool,
-    closing: Option<Closing>,
-}
-
-/// A panel fading out: the picture it closed on, front first, the opacity and rise it closed
-/// from, and when the fade started on the animation clock, which the first frame after it fills
-/// in.
-struct Closing {
-    picture: Vec<Layer>,
-    from: (f32, f64),
-    started: Option<f64>,
-}
-
-impl Default for Fade {
-    fn default() -> Self {
-        Self {
-            from: HIDDEN,
-            drawn: (0.0, 0.0),
-            reduced_motion: false,
-            closing: None,
-        }
-    }
-}
-
-impl Fade {
-    /// Opens again: from where it is drawn if it was still fading out, otherwise from hidden.
-    pub fn open(&mut self) {
-        self.from = match self.closing.take() {
-            Some(_) => self.drawn,
-            None => HIDDEN,
-        };
-    }
-
-    /// Its opacity and rise while it opens, given `opening`, the panel's own way in from hidden
-    /// at this moment: the same way, carried on from where it starts.
-    pub fn opening(&mut self, (alpha, rise): (f32, f64), reduced_motion: bool) -> (f32, f64) {
-        let (from_alpha, from_rise) = self.from;
-        self.drawn = (
-            alpha + from_alpha * (1.0 - alpha),
-            rise / HIDDEN.1 * from_rise,
-        );
-        self.reduced_motion = reduced_motion;
-        self.drawn
-    }
-
-    /// Closes, keeping `picture`, what it last drew, to fade out; `None` when nothing is drawn.
-    /// A panel drawn some other way hands an empty picture and draws it from `closing`. Closing
-    /// again while it fades changes nothing. Returns whether it fades.
-    pub fn close(&mut self, picture: Option<Vec<Layer>>) -> bool {
-        if self.closing.is_some() {
-            return true;
-        }
-        match picture {
-            Some(picture) if self.drawn.0 > 0.0 => {
-                self.closing = Some(Closing {
-                    picture,
-                    from: self.drawn,
-                    started: None,
-                });
-                true
-            }
-            _ => {
-                self.drawn = (0.0, 0.0);
-                false
-            }
-        }
-    }
-
-    /// Whether it is still fading out after closing.
-    pub fn is_closing(&self) -> bool {
-        self.closing.is_some()
-    }
-
-    /// Its opacity and rise at `now` while it fades out. `None` once it has gone, and the picture
-    /// is let go.
-    pub fn closing(&mut self, now: f64) -> Option<(f32, f64)> {
-        let closing = self.closing.as_mut()?;
-        let started = *closing.started.get_or_insert(now);
-        match closing_look(closing.from, now - started, self.reduced_motion) {
-            Some(look) => {
-                self.drawn = look;
-                Some(look)
-            }
-            None => {
-                self.closing = None;
-                self.drawn = (0.0, 0.0);
-                None
-            }
-        }
-    }
-
-    /// Its picture at `now` while it fades out, front first.
-    pub fn elements<R>(
-        &mut self,
-        renderer: &mut R,
-        now: f64,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let Some((alpha, rise)) = self.closing(now) else {
-            return Vec::new();
-        };
-        let Some(closing) = self.closing.as_ref() else {
-            return Vec::new();
-        };
-        let lift = Point::from((0.0, rise * DESIGN_PX as f64));
-        closing
-            .picture
-            .iter()
-            .filter_map(|(painted, at, share)| painted.element(renderer, *at + lift, alpha * share))
-            .collect()
-    }
-}
-
-/// A closing's opacity and rise, `since` seconds in, from what was drawn when it closed: rises and
-/// fades on an accelerating cubic, or with reduced motion only fades, no longer than
-/// `REDUCED_FADE`. `None` once it has gone.
-fn closing_look(from: (f32, f64), since: f64, reduced_motion: bool) -> Option<(f32, f64)> {
-    let length = if reduced_motion { REDUCED_FADE } else { CLOSE };
-    let t = since / length;
-    if t >= 1.0 {
-        return None;
-    }
-    let t = t.max(0.0);
-    if reduced_motion {
-        return Some((from.0 * (1.0 - t) as f32, from.1));
-    }
-    let eased = t.powi(3);
-    Some((
-        from.0 * (1.0 - eased) as f32,
-        from.1 + (-CLOSE_RISE - from.1) * eased,
-    ))
-}
+pub use crate::flow::{Fade, Pair};
 
 /// A panel that drops over the desktop: the explorer, quick settings, the plugin panel, the
 /// notification centre, the shortcut sheet and clipboard history. One is open at a time.
@@ -553,7 +375,7 @@ impl Slipstream {
         self.panels().iter().any(|panel| panel.is_open())
     }
 
-    /// Every panel and card fading out after it closed, but the explorer, which draws its own.
+    /// Every panel and card draining away after it closed, but the explorer, which draws its own.
     pub fn fades_mut(&mut self) -> impl Iterator<Item = &mut Fade> {
         [
             &mut self.quick.fade,
@@ -605,57 +427,6 @@ mod tests {
         assert!(contrast(HINT, glass) >= 4.5, "{}", contrast(HINT, glass));
         assert!(contrast(HINT, quiet) >= 4.5, "{}", contrast(HINT, quiet));
         assert!(contrast(PLACEHOLDER, glass) >= 4.5);
-    }
-
-    fn picture() -> Option<Vec<Layer>> {
-        Painted::new((1, 1).into(), 1.0, |_| {})
-            .map(|painted| vec![(painted, Point::default(), 1.0)])
-    }
-
-    #[test]
-    fn a_closed_panel_lets_go_at_once_and_only_its_picture_fades() {
-        let mut fade = Fade::default();
-        fade.open();
-        assert_eq!(fade.opening((1.0, 0.0), false), (1.0, 0.0));
-        assert!(fade.close(picture()), "closing waits for nothing");
-        assert!(fade.is_closing());
-        // From where it was drawn, then partway up and still mostly there, speeding up.
-        assert_eq!(fade.closing(5.0), Some((1.0, 0.0)));
-        let (alpha, rise) = fade.closing(5.0 + CLOSE / 2.0).unwrap();
-        assert!(alpha > 0.8 && rise < 0.0 && rise > -CLOSE_RISE);
-        assert_eq!(fade.closing(5.0 + CLOSE + 0.001), None);
-        assert!(!fade.is_closing(), "and then the picture is let go");
-    }
-
-    #[test]
-    fn a_panel_closed_before_it_was_drawn_has_nothing_to_fade() {
-        let mut fade = Fade::default();
-        fade.open();
-        assert!(!fade.close(picture()));
-        assert!(!fade.close(None));
-    }
-
-    #[test]
-    fn reopened_mid_fade_it_comes_back_from_where_it_is_drawn() {
-        let mut fade = Fade::default();
-        fade.opening(opening(OPEN, false), false);
-        fade.close(picture());
-        fade.closing(0.0);
-        let drawn = fade.closing(CLOSE * 0.8).unwrap();
-        fade.open();
-        assert!(!fade.is_closing());
-        assert_eq!(fade.opening(opening(0.0, false), false), drawn);
-        assert!((fade.opening(opening(OPEN, false), false).0 - 1.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn with_reduced_motion_closing_only_fades_and_no_longer_than_the_short_fade() {
-        let mut fade = Fade::default();
-        fade.opening(opening(REDUCED_FADE, true), true);
-        fade.close(picture());
-        assert_eq!(fade.closing(0.0), Some((1.0, 0.0)));
-        assert_eq!(fade.closing(REDUCED_FADE / 2.0), Some((0.5, 0.0)));
-        assert_eq!(fade.closing(REDUCED_FADE), None);
     }
 
     #[test]

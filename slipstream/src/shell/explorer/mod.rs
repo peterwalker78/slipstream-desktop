@@ -53,6 +53,8 @@ const FOOT_H: f32 = 44.0;
 const HEIGHT: f32 = SEARCH_H + 1.0 + BODY_H + FOOT_H;
 /// Room around the frame for its shadow.
 const MARGIN: f32 = 64.0;
+/// Room under the card for its shadow, past the margin.
+const BELOW: f32 = 40.0;
 const COLUMNS: usize = 4;
 const ROWS: usize = 3;
 /// How many rows PgUp and PgDn move.
@@ -133,7 +135,7 @@ pub struct Explorer {
     opened_at: f64,
     /// Its way in and out: the cards' opening, and the panels' close.
     fade: crate::panel::Fade,
-    /// Whether the caret was last drawn showing, which is how it stays while it fades out.
+    /// Whether the caret was last drawn showing, which is how it stays while it drains away.
     caret_on: bool,
     catalog: Arc<Mutex<Catalog>>,
     scanned: Option<Instant>,
@@ -241,7 +243,7 @@ impl Explorer {
     }
 
     /// Closes at once: keys and clicks go back to the windows now, and only the painted
-    /// explorer stays to fade out.
+    /// explorer stays to drain away.
     pub fn close(&mut self) {
         if !self.open {
             return;
@@ -255,7 +257,7 @@ impl Explorer {
         self.targets.clear();
     }
 
-    /// Whether it's still fading out after closing.
+    /// Whether it's still draining away after closing.
     pub fn is_closing(&self) -> bool {
         self.fade.is_closing()
     }
@@ -978,10 +980,10 @@ mod tests {
     }
 
     #[test]
-    fn closing_lets_go_at_once_and_only_the_paint_fades() {
+    fn closing_lets_go_at_once_and_only_the_paint_drains() {
         let mut explorer = Explorer::idle(false);
         explorer.open(0.0);
-        explorer.fade.opening((1.0, 0.0), false);
+        explorer.fade.opening(1.0, false, Default::default());
         explorer.buffer = Some((
             paint::buffer(&Pixmap::new(1, 1).unwrap()),
             (1, 1).into(),
@@ -990,7 +992,7 @@ mod tests {
         explorer.close();
         assert!(!explorer.is_open(), "keys go back to the window now");
         assert!(explorer.is_closing());
-        assert!(explorer.buffer.is_some(), "its paint stays to fade out");
+        assert!(explorer.buffer.is_some(), "its paint stays to drain away");
         explorer.open(1.0);
         assert!(!explorer.is_closing());
     }
