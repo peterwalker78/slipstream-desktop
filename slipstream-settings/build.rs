@@ -22,6 +22,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "floating",
             "focus",
             "grabs",
+            "lift",
             "shell/arrange",
             "gravity",
             "motion",
