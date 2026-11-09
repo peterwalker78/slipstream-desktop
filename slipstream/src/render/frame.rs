@@ -1014,6 +1014,10 @@ fn window_world(
         dock_bay_elements(state, renderer, v, chrome, world, &in_deck);
     }
     world.pane_front = world.elements.len();
+    let landing_dx = state.lift.as_ref().and_then(|lift| {
+        let (_, dx) = windows.iter().find(|(window, _)| *window == lift.window)?;
+        Some(*dx)
+    });
     for (window, dx) in windows {
         let passes = passing
             .as_ref()
@@ -1022,6 +1026,9 @@ fn window_world(
             draw_window(state, renderer, v, chrome, world, window, dx);
         }
     }
+    if let Some(dx) = landing_dx {
+        landing_elements(state, v, chrome, world, dx);
+    }
     if let Some(passing) = passing.as_ref() {
         passing_elements(state, renderer, v, chrome, world, passing);
     }
@@ -1029,6 +1036,44 @@ fn window_world(
         state.pass = None;
     }
     dock_flight_elements(state, renderer, v, chrome, world);
+}
+
+/// Where a dragged tile would land, behind every window: an edge and a faint tint in the focus
+/// ring's colour, `dx` along its workspace.
+fn landing_elements(state: &Slipstream, v: &View, chrome: &mut Chrome, world: &mut World, dx: f64) {
+    let Some([x, y, w, h]) = state.lift.as_ref().and_then(|lift| lift.landing(v.now)) else {
+        return;
+    };
+    if v.zoomed_out > 0.0 {
+        return;
+    }
+    let rect = Rectangle::<f64, Logical>::new(
+        (x + dx - v.geo.loc.x as f64, y - v.geo.loc.y as f64).into(),
+        (w, h).into(),
+    );
+    let colour = overview::ring(state.ring_rgb);
+    let alpha = v.ui_alpha;
+    world.elements.extend(
+        chrome
+            .overview
+            .outline(
+                rect,
+                0.0,
+                2,
+                colour,
+                v.world_scale,
+                alpha * crate::lift::LANDING_EDGE,
+            )
+            .into_iter()
+            .map(OutputElement::Solid),
+    );
+    let fill = chrome.overview.solid(
+        rect.to_i32_round(),
+        colour,
+        v.world_scale,
+        alpha * crate::lift::LANDING_FILL,
+    );
+    world.elements.push(OutputElement::Solid(fill));
 }
 
 /// One window, `dx` along its workspace, with everything drawn on and around it.
@@ -1073,7 +1118,13 @@ fn draw_window(
             None => return,
         },
     };
+    // A tile held in a drag follows the pointer, and the others show where a drop would put them.
+    let lift = state.lift.as_ref().filter(|_| v.zoomed_out <= 0.0);
+    let frame = lift.map_or(frame, |lift| lift.frame(&window, frame, v.now));
+    let lifted = lift.map_or(0.0, |lift| lift.shadow(&window, frame.scale, v.now));
     let ([x, y, w, h], fitted) = drawn_rect(state, v, &window, &frame, own, area);
+    let (cx, cy) = lift.map_or((0.0, 0.0), |lift| lift.carried(&window));
+    let (x, y) = (x + cx, y + cy);
     let s = frame.scale;
     let shown = Rectangle::<f64, Logical>::new(
         (
@@ -1181,6 +1232,20 @@ fn draw_window(
         world.elements.extend(
             chrome
                 .window_shadow(renderer, shown, (world_scale.x, zoom), drawn.alpha)
+                .into_iter()
+                .map(OutputElement::Memory),
+        );
+    }
+    // So does a tile lifted by a drag, coming in as it lifts and going as it settles.
+    if lifted > 0.0 {
+        world.elements.extend(
+            chrome
+                .window_shadow(
+                    renderer,
+                    shown,
+                    (world_scale.x, 1.0),
+                    drawn.alpha * lifted as f32,
+                )
                 .into_iter()
                 .map(OutputElement::Memory),
         );
@@ -1379,16 +1444,6 @@ fn window_marks(
         let shade = chrome.dim(world.dimmed, shown.to_i32_round(), drawn.scale, alpha);
         world.elements.push(OutputElement::Solid(shade));
         world.dimmed += 1;
-    }
-    if state.swap_target() == Some(window) {
-        let colour = overview::ring(state.ring_rgb);
-        world.elements.extend(
-            chrome
-                .overview
-                .outline(shown, 0.0, 2, colour, drawn.scale, alpha * 0.6)
-                .into_iter()
-                .map(OutputElement::Solid),
-        );
     }
 }
 

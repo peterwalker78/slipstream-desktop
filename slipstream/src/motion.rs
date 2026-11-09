@@ -197,6 +197,30 @@ impl<T: Clone + PartialEq> Motion<T> {
         }
     }
 
+    /// Glides `id` on to where it is headed from `from`, where something else had it drawn, so
+    /// taking over from that drawing doesn't jump. With `scale`, it comes back to its own size
+    /// from that scale on the way.
+    pub fn glide_from(
+        &mut self,
+        id: &T,
+        from: [f64; 4],
+        scale: Option<f64>,
+        now: f64,
+        duration: f64,
+    ) {
+        let duration = if self.reduced_motion { 0.0 } else { duration };
+        let Some(entry) = self.entry_mut(id) else {
+            return;
+        };
+        let to = entry.rect.to;
+        entry.rect = Tween::at_rest(from);
+        entry.rect.retarget(to, now, duration, Easing::Glide);
+        if let Some(scale) = scale {
+            entry.scale = Tween::at_rest([scale]);
+            entry.scale.retarget([1.0], now, duration, Easing::Glide);
+        }
+    }
+
     pub fn remove(&mut self, id: &T) {
         self.entries.retain(|entry| &entry.id != id);
     }

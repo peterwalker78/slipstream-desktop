@@ -46,6 +46,7 @@ mod launch;
 mod layers;
 mod layout;
 mod layouts;
+mod lift;
 mod live;
 mod lock;
 mod logind;

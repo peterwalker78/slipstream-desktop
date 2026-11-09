@@ -28,6 +28,7 @@ use crate::{
     focus::KeyboardFocus,
     input::BTN_LEFT,
     layout::{Divider, Rect},
+    lift::Lift,
     state::min_size,
 };
 
@@ -170,6 +171,17 @@ impl Slipstream {
         }
         tracing::info!("dragging a window to swap it");
         self.focus_window(&window);
+        let now = self.clock.tick();
+        if let Some(home) = self.motion.target(&window) {
+            let reduced = self.motion.reduced_motion;
+            self.lift = Some(Lift::new(
+                window.clone(),
+                (pos.x, pos.y),
+                home,
+                now,
+                reduced,
+            ));
+        }
         self.drag = Some(Drag::Swap {
             window: window.clone(),
             over: None,
@@ -321,17 +333,88 @@ impl Slipstream {
         }
     }
 
-    /// The window being dragged is over `pos`: the tile there on its workspace is the one it
-    /// would swap with.
+    /// The window being dragged is over `pos`: it follows the pointer, and the tile there on its
+    /// workspace is the one it would swap with.
     fn drag_over(&mut self, pos: Point<f64, Logical>) {
         let under = self.window_under(pos).map(|(window, _)| window);
-        let Some(Drag::Swap { window, .. }) = &self.drag else {
+        let Some(Drag::Swap { window, over, .. }) = &self.drag else {
             return;
         };
         let home = self.workspaces.find(window);
         let target = under.filter(|other| other != window && self.workspaces.find(other) == home);
+        let changed = *over != target;
         if let Some(Drag::Swap { over, .. }) = &mut self.drag {
             *over = target;
+        }
+        if let Some(lift) = &mut self.lift {
+            lift.follow((pos.x, pos.y));
+        }
+        if changed {
+            self.aim_lift();
+        }
+    }
+
+    /// Shows where letting the dragged tile go would put every tile: the landing frame at its
+    /// place, and the others drawn in theirs. Only the drawing changes; the layout waits for the
+    /// drop. Called again after any retile during the drag, so it follows a layout that changes
+    /// under it.
+    pub fn aim_lift(&mut self) {
+        let now = self.clock.tick();
+        let Some(Drag::Swap {
+            window,
+            over,
+            cancelled,
+        }) = &self.drag
+        else {
+            return;
+        };
+        let Some(index) = self.workspaces.find(window) else {
+            return;
+        };
+        let Some(area) = self.area_for_workspace(index) else {
+            return;
+        };
+        let ws = self.workspaces.get(index);
+        let moved = match over {
+            Some(over) if !cancelled => {
+                crate::lift::moved_by_swap(ws, window, over, area, &min_size)
+            }
+            _ => Vec::new(),
+        };
+        let motion = &self.motion;
+        let places: Vec<(Window, [f64; 4])> = ws
+            .layout
+            .windows()
+            .into_iter()
+            .filter_map(|tile| {
+                let to = match moved.iter().find(|(id, _)| *id == tile) {
+                    Some((_, r)) => [r.x as f64, r.y as f64, r.w as f64, r.h as f64],
+                    None => motion.target(&tile)?,
+                };
+                Some((tile, to))
+            })
+            .collect();
+        if let Some(lift) = &mut self.lift {
+            let shown = |id: &Window| Some((motion.frame(id, now)?.rect, motion.target(id)?));
+            lift.aim(&places, shown, now);
+        }
+    }
+
+    /// The dragged tile is let go, swapped or not: each tile the lift had moved settles from
+    /// where it is drawn into the place the layout now has for it, and the dragged one comes back
+    /// down to its own size on the way.
+    fn settle_lift(&mut self) {
+        let now = self.clock.tick();
+        let motion = &self.motion;
+        let Some(lift) = self.lift.as_mut().filter(|lift| !lift.released()) else {
+            return;
+        };
+        let (from, scale) = lift.release(|id| Some(motion.frame(id, now)?.rect), now);
+        let dragged = lift.window.clone();
+        for (id, rect) in from {
+            let scale = (id == dragged).then_some(scale);
+            self.motion
+                .glide_from(&id, rect, scale, now, crate::lift::SETTLE);
         }
     }
 
@@ -375,6 +458,7 @@ impl Slipstream {
             }
             None => {}
         }
+        self.settle_lift();
         self.set_cursor_override(None);
     }
 
@@ -412,18 +496,6 @@ impl Slipstream {
         // Another grab had replaced it and already ended it, or nothing was holding it.
         if self.drag.is_some() {
             self.drag_ended();
-        }
-    }
-
-    /// The tile a dragged window would swap with, for its outline.
-    pub fn swap_target(&self) -> Option<&Window> {
-        match &self.drag {
-            Some(Drag::Swap {
-                over: Some(over),
-                cancelled: false,
-                ..
-            }) => Some(over),
-            _ => None,
         }
     }
 }

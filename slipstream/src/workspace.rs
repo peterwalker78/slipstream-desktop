@@ -14,7 +14,7 @@ use crate::{
     layout::{Dwindle, Rect},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Workspace<T> {
     /// The settings file's id for it, which survives renaming and reordering.
     pub id: u32,
