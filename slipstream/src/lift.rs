@@ -9,6 +9,9 @@ use crate::layout::Rect;
 use crate::motion::Frame;
 use crate::workspace::Workspace;
 
+/// How far, in logical pixels, the pointer moves from the press before the tile lifts, so a
+/// click that doesn't move leaves it where it is.
+pub const LIFT_AFTER: f64 = 6.0;
 /// How far a lifted tile grows about its centre.
 pub const LIFT_SCALE: f64 = 1.025;
 /// How long it takes to lift.

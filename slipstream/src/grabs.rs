@@ -171,17 +171,6 @@ impl Slipstream {
         }
         tracing::info!("dragging a window to swap it");
         self.focus_window(&window);
-        let now = self.clock.tick();
-        if let Some(home) = self.motion.target(&window) {
-            let reduced = self.motion.reduced_motion;
-            self.lift = Some(Lift::new(
-                window.clone(),
-                (pos.x, pos.y),
-                home,
-                now,
-                reduced,
-            ));
-        }
         self.drag = Some(Drag::Swap {
             window: window.clone(),
             over: None,
@@ -333,18 +322,36 @@ impl Slipstream {
         }
     }
 
-    /// The window being dragged is over `pos`: it follows the pointer, and the tile there on its
-    /// workspace is the one it would swap with.
-    fn drag_over(&mut self, pos: Point<f64, Logical>) {
+    /// The window taken hold of at `from` is dragged over `pos`: the tile there on its workspace
+    /// is the one it would swap with. Once the pointer has moved far enough to mean a drag, it
+    /// lifts and follows the pointer; a press let go without moving leaves it as it was.
+    fn drag_over(&mut self, from: Point<f64, Logical>, pos: Point<f64, Logical>) {
         let under = self.window_under(pos).map(|(window, _)| window);
         let Some(Drag::Swap { window, over, .. }) = &self.drag else {
             return;
         };
-        let home = self.workspaces.find(window);
-        let target = under.filter(|other| other != window && self.workspaces.find(other) == home);
-        let changed = *over != target;
+        let window = window.clone();
+        let home = self.workspaces.find(&window);
+        let target = under.filter(|other| *other != window && self.workspaces.find(other) == home);
+        let mut changed = *over != target;
         if let Some(Drag::Swap { over, .. }) = &mut self.drag {
             *over = target;
+        }
+        let lifted = self
+            .lift
+            .as_ref()
+            .is_some_and(|lift| !lift.released() && lift.window == window);
+        if !lifted {
+            if (pos.x - from.x).hypot(pos.y - from.y) < crate::lift::LIFT_AFTER {
+                return;
+            }
+            let Some(home) = self.motion.target(&window) else {
+                return;
+            };
+            let now = self.clock.tick();
+            let reduced = self.motion.reduced_motion;
+            self.lift = Some(Lift::new(window, (from.x, from.y), home, now, reduced));
+            changed = true;
         }
         if let Some(lift) = &mut self.lift {
             lift.follow((pos.x, pos.y));
@@ -673,7 +680,7 @@ pointer_grab!(
 
 pointer_grab!(
     SwapGrab,
-    motion: |_, data, at| data.drag_over(at),
+    motion: |grab, data, at| data.drag_over(grab.start.location, at),
     released: |data| data.drop_window()
 );
 
