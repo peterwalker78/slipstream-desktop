@@ -31,6 +31,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &scheme,
     );
     self::colours(&colours, store);
+    bar_style(&page, store);
     let motion = group(&page, "Motion");
     // The same name quick settings gives this switch.
     let reduced = gtk::Switch::new();
@@ -88,6 +89,31 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
 
     night_light(&page, store);
     page.upcast()
+}
+
+/// The bar's style: as it is, a lit edge, or a floating strip.
+fn bar_style(page: &gtk::Box, store: &Store) {
+    let bar = group(page, "Bar");
+    let styles = slipstream_config::BarStyle::ALL;
+    let names: Vec<&str> = styles.iter().map(|style| style.label()).collect();
+    let choice = gtk::DropDown::from_strings(&names);
+    let chosen = store.get().appearance.bar_style;
+    choice.set_selected(styles.iter().position(|held| *held == chosen).unwrap_or(0) as u32);
+    let style_store = store.clone();
+    choice.connect_selected_notify(move |choice| {
+        if let Some(chosen) = styles.get(choice.selected() as usize).copied() {
+            style_store.change(move |settings| settings.appearance.bar_style = chosen);
+        }
+    });
+    row(
+        &bar,
+        "Style",
+        Some(
+            "As it is quietens while you type, the lit edge catches the light from where the sun \
+             is, and the floating strip leans as workspaces slide",
+        ),
+        &choice,
+    );
 }
 
 /// Times offered for a night light schedule: every half hour.

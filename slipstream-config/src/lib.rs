@@ -5,6 +5,7 @@
 //! ```toml
 //! [appearance]
 //! colour-scheme = "dark"
+//! bar-style = "plain"
 //!
 //! [wallpaper]
 //! fade-after-secs = 120
@@ -297,6 +298,36 @@ pub struct Appearance {
     /// Dark or light, for every app that asks the desktop which to be. Slipstream's own chrome is
     /// dark either way.
     pub colour_scheme: ColourScheme,
+    /// How the system bar looks.
+    pub bar_style: BarStyle,
+}
+
+/// How the system bar along the top looks, each with a small touch of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BarStyle {
+    /// A dark band across the top edge. What's on it dims a little while you type.
+    #[default]
+    Plain,
+    /// The band with a lit top edge and a line under it that glows below the current workspace,
+    /// and a slow light passing along it from where the sun is.
+    LitEdge,
+    /// A strip floating clear of the screen's edges, lined up with the windows below. It leans
+    /// a touch as workspaces slide.
+    FloatingStrip,
+}
+
+impl BarStyle {
+    pub const ALL: [BarStyle; 3] = [BarStyle::Plain, BarStyle::LitEdge, BarStyle::FloatingStrip];
+
+    /// What it's called in the Settings app.
+    pub fn label(self) -> &'static str {
+        match self {
+            BarStyle::Plain => "As it is",
+            BarStyle::LitEdge => "Lit edge",
+            BarStyle::FloatingStrip => "Floating strip",
+        }
+    }
 }
 
 /// Dark or light.
@@ -613,6 +644,25 @@ mod tests {
     use crate::file::{HEADER, parse};
 
     #[test]
+    fn an_old_file_without_a_bar_style_keeps_the_bar_as_it_is() {
+        let settings = parse("[appearance]\ncolour-scheme = \"light\"\n").unwrap();
+        assert_eq!(settings.appearance.bar_style, BarStyle::Plain);
+        assert_eq!(
+            BarStyle::ALL[0],
+            BarStyle::default(),
+            "the first choice is the default"
+        );
+        for (text, style) in [
+            ("plain", BarStyle::Plain),
+            ("lit-edge", BarStyle::LitEdge),
+            ("floating-strip", BarStyle::FloatingStrip),
+        ] {
+            let file = format!("[appearance]\nbar-style = \"{text}\"\n");
+            assert_eq!(parse(&file).unwrap().appearance.bar_style, style);
+        }
+    }
+
+    #[test]
     fn an_empty_file_means_every_default() {
         let settings = parse("").unwrap();
         assert_eq!(settings, Settings::default());
@@ -705,6 +755,7 @@ mod tests {
         let settings = Settings {
             appearance: Appearance {
                 colour_scheme: ColourScheme::Light,
+                bar_style: BarStyle::LitEdge,
             },
             session: Session {
                 remember: true,

@@ -258,6 +258,25 @@ impl Display {
                 .or_else(custom),
         }
     }
+
+    /// Today's sunrise and sunset, in local minutes after midnight: from the time zone's place,
+    /// or, where that is unknown or the sun doesn't rise and set, the custom night's hours, as
+    /// night light falls back to them.
+    pub fn daylight_hours(
+        &self,
+        date: (i64, u32, u32),
+        offset_mins: f64,
+        location: Option<(f64, f64)>,
+    ) -> (f64, f64) {
+        location
+            .and_then(|(lat, lon)| sun::sun_times(lat, lon, date, offset_mins))
+            .unwrap_or_else(|| {
+                (
+                    sun::parse_time(&self.night_light_to).unwrap_or(7.0 * 60.0),
+                    sun::parse_time(&self.night_light_from).unwrap_or(21.0 * 60.0),
+                )
+            })
+    }
 }
 
 #[cfg(test)]
