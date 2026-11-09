@@ -524,6 +524,48 @@ impl Painter {
         self.text_on(s, x, baseline, style)
     }
 
+    /// `text` as `text` draws it, but only between `from` and `to` across: a word can be one
+    /// colour on one side of a line and another on the other, with no fringe of either.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_between(
+        &mut self,
+        s: &str,
+        x: f32,
+        centre: f32,
+        style: &Style,
+        from: f32,
+        to: f32,
+    ) {
+        // Room for glyphs that reach past their advance.
+        const PAD: f32 = 4.0;
+        let width = text::width(s, style);
+        let left = ((x - PAD).max(from) * self.f).round().max(0.0) as i32;
+        let right =
+            (((x + width + PAD).min(to) * self.f).round() as i32).min(self.pixmap.width() as i32);
+        if right <= left {
+            return;
+        }
+        let Some(mut part) = Pixmap::new((right - left) as u32, self.pixmap.height()) else {
+            return;
+        };
+        // Whole pixels over, so each glyph lands on the same pixels as it would drawn whole.
+        text::draw(
+            &mut part,
+            s,
+            x * self.f - left as f32,
+            text::baseline(style, centre) * self.f,
+            &style.scaled(self.f),
+        );
+        self.pixmap.draw_pixmap(
+            left,
+            0,
+            part.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
+    }
+
     /// A key as a keycap, its left edge at `x` and centred on `centre`: Mono 12 in capitals on a
     /// faint rounded fill with a 1 px edge. Every surface that names a key draws it this way.
     /// Returns its width.

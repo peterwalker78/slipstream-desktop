@@ -234,6 +234,8 @@ pub enum Easing {
     /// Speeding up all the way into place, after a quick start over the first tenth: for the UI
     /// coming back from the wallpaper, whose first stretch can't be seen anyway.
     Arrive,
+    /// Starts gently, is fastest about a third of the way, and lands with a 1% overshoot.
+    Glide,
     /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve, the form the UI's transitions are given in.
     Bezier(f64, f64, f64, f64),
 }
@@ -254,6 +256,7 @@ impl Easing {
             Easing::OutCubic => 1.0 - (1.0 - t).powi(3),
             Easing::InOutCubic => ease_in_out_cubic(t),
             Easing::Arrive => arrive(t),
+            Easing::Glide => glide(t),
             Easing::Bezier(x1, y1, x2, y2) => bezier(x1, y1, x2, y2, t),
         }
     }
@@ -274,6 +277,13 @@ fn arrive(t: f64) -> f64 {
         let s = t - QUICK_TIME;
         QUICK_WAY + SLOWEST * s + 0.5 * (last - SLOWEST) / (1.0 - QUICK_TIME) * s * s
     }
+}
+
+/// `Easing::Glide`: the integral of t(1-t)²(0.75-t), scaled to end at 1. Its speed turns back past
+/// 0.75 of the time, so it overshoots by about 1% and comes to rest at the end.
+fn glide(t: f64) -> f64 {
+    let p = 0.375 * t * t - 5.0 / 6.0 * t.powi(3) + 0.6875 * t.powi(4) - 0.2 * t.powi(5);
+    p * 240.0 / 7.0
 }
 
 /// Evaluates a CSS cubic-bezier timing function at progress `x`.

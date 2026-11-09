@@ -19,6 +19,7 @@ use smithay::{
 };
 
 use crate::{
+    anim::{Easing, Tween},
     icons,
     paint::{self, Painter},
     panel::{self, ink_on},
@@ -148,12 +149,55 @@ fn names_fit(label_widths: &[f32], wide: f32) -> bool {
     chips + OVERVIEW_GAP + OVERVIEW_W <= wide / 3.0
 }
 
+/// Where the workspaces start, in the bar's units: after the apps button, 8 in and 34 wide, and
+/// a gap of 8.
+const WORKSPACES_AT: f32 = 50.0;
+
+/// The marker's slide to another workspace, in wall seconds: its leading edge gets there first,
+/// so it stretches on the way and gathers up on arrival.
+const MARKER_LEAD: f64 = 0.32;
+const MARKER_TRAIL: f64 = 0.46;
+
+/// The current workspace's marker: the workspace it's on or heading for, and its left and right
+/// edges in the bar's units, on wall time as the workspaces' own slide is.
+#[derive(Debug, Clone, Copy)]
+struct Marker {
+    to: usize,
+    left: Tween<1>,
+    right: Tween<1>,
+}
+
+impl Marker {
+    fn at(to: usize, (left, right): (f32, f32)) -> Self {
+        Self {
+            to,
+            left: Tween::at_rest([left as f64]),
+            right: Tween::at_rest([right as f64]),
+        }
+    }
+
+    /// Its edges at `wall` while it slides; `None` at rest, where it sits on its workspace.
+    fn sliding(&self, wall: f64) -> Option<(f32, f32)> {
+        (!self.left.done(wall) || !self.right.done(wall)).then(|| {
+            (
+                self.left.value(wall)[0] as f32,
+                self.right.value(wall)[0] as f32,
+            )
+        })
+    }
+}
+
+/// The marker's left and right edges, in the bar's units.
+type Edges = (f32, f32);
+
 #[derive(Default)]
 pub struct Bar {
-    /// What the buffer shows, and for what screen width and scale.
-    shown: Option<(Content, i32, f64)>,
+    /// What the buffer shows, for what screen width and scale, and the marker's edges while it
+    /// slides.
+    shown: Option<(Content, i32, f64, Option<Edges>)>,
     buffer: Option<(MemoryRenderBuffer, Size<i32, Buffer>)>,
     targets: Targets,
+    marker: Option<Marker>,
 }
 
 impl Bar {
@@ -162,7 +206,10 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar for a screen `width` logical pixels wide at `scale`.
+    /// The bar for a screen `width` logical pixels wide at `scale`, `wall` seconds in. A new
+    /// current workspace sends the marker sliding over to it from where it's drawn, unless motion
+    /// is reduced.
+    #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
@@ -170,14 +217,23 @@ impl Bar {
         width: i32,
         scale: f64,
         alpha: f32,
+        wall: f64,
+        reduced_motion: bool,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let key = (content, width, scale);
+        self.follow(&content, width, scale, wall, reduced_motion);
+        let sliding = self.marker.and_then(|marker| marker.sliding(wall));
+        let key = (content, width, scale, sliding);
         if self.shown.as_ref() != Some(&key) {
-            let painted = paint(&key.0, width, scale)?;
+            let painted = paint(&key.0, width, scale, sliding)?;
+            // At rest the marker sits on its workspace however the bar is laid out, so a slide
+            // starts from where it's really drawn.
+            if sliding.is_none() {
+                self.marker = painted.marker.map(|edges| Marker::at(key.0.active, edges));
+            }
             let size = Size::from((
                 painted.pixmap.width() as i32,
                 painted.pixmap.height() as i32,
@@ -198,6 +254,40 @@ impl Bar {
             Kind::Unspecified,
         )
         .ok()
+    }
+
+    /// Sends the marker towards the current workspace when that changes.
+    fn follow(&mut self, content: &Content, width: i32, scale: f64, wall: f64, reduced: bool) {
+        if self
+            .marker
+            .is_some_and(|marker| marker.to == content.active)
+        {
+            return;
+        }
+        let chips = workspace_chips(content, design_width(width, scale));
+        let Some(&(_, x, w)) = chips.get(content.active) else {
+            self.marker = None;
+            return;
+        };
+        let (left, right) = (x as f64, (x + w) as f64);
+        match self.marker.as_mut() {
+            Some(marker) if !reduced => {
+                let rightwards = left > marker.left.value(wall)[0];
+                let (left_takes, right_takes) = if rightwards {
+                    (MARKER_TRAIL, MARKER_LEAD)
+                } else {
+                    (MARKER_LEAD, MARKER_TRAIL)
+                };
+                marker
+                    .left
+                    .retarget([left], wall, left_takes, Easing::Glide);
+                marker
+                    .right
+                    .retarget([right], wall, right_takes, Easing::Glide);
+                marker.to = content.active;
+            }
+            _ => self.marker = Some(Marker::at(content.active, (x, x + w))),
+        }
     }
 
     /// Where the docked window's slot goes, in logical pixels from the screen's left: its left
@@ -232,16 +322,32 @@ const LIVE: u32 = 0xff5a5aff;
 /// The alpha of the faint pills that say a state is on: Caps Lock, Awake, sharing.
 const PILL: u32 = 0x24;
 
-/// The bar as painted: the picture, and where its buttons are.
+/// The bar as painted: the picture, where its buttons are, and the current workspace's chip,
+/// its left and right edges in the bar's units.
 struct Painted {
     pixmap: Pixmap,
     targets: Targets,
+    marker: Option<(f32, f32)>,
 }
 
-/// Paints the bar for a screen `width` logical pixels wide, and says where its buttons are.
-fn paint(content: &Content, width: i32, scale: f64) -> Option<Painted> {
-    let device_w = (width as f64 * scale).round() as u32;
-    let device_h = (HEIGHT as f64 * scale).round() as u32;
+/// The bar's size in device pixels for a screen `width` logical pixels wide at `scale`.
+fn device_size(width: i32, scale: f64) -> (u32, u32) {
+    (
+        (width as f64 * scale).round() as u32,
+        (HEIGHT as f64 * scale).round() as u32,
+    )
+}
+
+/// How wide the bar is in its own units.
+fn design_width(width: i32, scale: f64) -> f32 {
+    let (device_w, device_h) = device_size(width, scale);
+    device_w as f32 / (device_h as f32 / TALL)
+}
+
+/// Paints the bar for a screen `width` logical pixels wide, with the marker at `marker`'s edges
+/// while it slides, and says where its buttons are.
+fn paint(content: &Content, width: i32, scale: f64, marker: Option<(f32, f32)>) -> Option<Painted> {
+    let (device_w, device_h) = device_size(width, scale);
     let f = device_h as f32 / TALL;
     let mut bar = Strip {
         p: Painter::new(device_w, device_h, f)?,
@@ -269,7 +375,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<Painted> {
         }
         None => bar.p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER),
     }
-    let x = paint_left(&mut bar, content);
+    let (x, at_rest) = paint_left(&mut bar, content, marker);
     let right = paint_right(&mut bar, content);
     let (centre_x, block_w) = paint_centre(&mut bar, content);
     paint_title(&mut bar, content, x, centre_x);
@@ -286,6 +392,7 @@ fn paint(content: &Content, width: i32, scale: f64) -> Option<Painted> {
     Some(Painted {
         pixmap: bar.p.pixmap,
         targets: bar.targets,
+        marker: at_rest,
     })
 }
 
@@ -312,47 +419,65 @@ impl Strip {
     }
 }
 
-/// Left: the apps button, the workspaces, the overview's and the mode's chip. Returns where the
-/// window's title can start.
-fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
-    let wide = bar.wide;
-    let mut x = 8.0;
-    bar.p.icon(icons::LOGO, x + 6.5, 9.5, 21.0, None);
-    // The buttons in the corners reach out to the screen's side edges as well.
-    bar.target(Target::Apps, 0.0, x + 34.0);
-    x += 34.0 + 8.0;
-    // Names take room the clock needs. When they would run past a third of the bar, only the
-    // workspace in front shows its name and the rest go by their numbers.
+/// Each workspace's chip: its label, and its left edge and width in the bar's units. Names take
+/// room the clock needs: when they would run past a third of the bar, only the workspace in front
+/// shows its name and the rest go by their numbers.
+fn workspace_chips(content: &Content, wide: f32) -> Vec<(String, f32, f32)> {
+    let style = Style::new(Face::Mono, 15.0, 0);
     let widths: Vec<f32> = content
         .labels
         .iter()
-        .map(|label| text::width(label, &Style::new(Face::Mono, 15.0, 0)))
+        .map(|label| text::width(label, &style))
         .collect();
     let names_fit = names_fit(&widths, wide);
-    for index in 0..content.labels.len() {
-        let on = index == content.active;
-        let label = if names_fit || on {
-            content.labels[index].clone()
+    let mut x = WORKSPACES_AT;
+    let mut chips = Vec::with_capacity(content.labels.len());
+    for (index, name) in content.labels.iter().enumerate() {
+        let label = if names_fit || index == content.active {
+            name.clone()
         } else {
             (index + 1).to_string()
         };
-        let color = if on {
-            panel::lighter(content.ring, 1.0 / 3.0)
-        } else if content.occupied.get(index).copied().unwrap_or(false) {
+        let w = (text::width(&label, &style) + 16.0).max(30.0);
+        chips.push((label, x, w));
+        x += w + 6.0;
+    }
+    chips
+}
+
+/// Left: the apps button, the workspaces, the overview's and the mode's chip. The marker is
+/// drawn at `marker`'s edges while it slides, and otherwise on the current workspace. Returns
+/// where the window's title can start, and the current workspace's chip's edges.
+fn paint_left(
+    bar: &mut Strip,
+    content: &Content,
+    marker: Option<(f32, f32)>,
+) -> (f32, Option<(f32, f32)>) {
+    bar.p.icon(icons::LOGO, 8.0 + 6.5, 9.5, 21.0, None);
+    // The buttons in the corners reach out to the screen's side edges as well.
+    bar.target(Target::Apps, 0.0, 8.0 + 34.0);
+    let chips = workspace_chips(content, bar.wide);
+    let at_rest = chips.get(content.active).map(|&(_, x, w)| (x, x + w));
+    let pill = marker.or(at_rest);
+    if let Some((left, right)) = pill {
+        let ring = content.ring & 0xffffff00;
+        if content.keyboard_here {
+            bar.p.fill(left, 7.0, right - left, 26.0, 6.0, ring | 0x26);
+            bar.p
+                .inset_bottom(left, 7.0, right - left, 26.0, 6.0, ring | 0xff);
+        } else {
+            bar.p.fill(left, 7.0, right - left, 26.0, 6.0, ring | 0x14);
+        }
+    }
+    let lit = Style::new(Face::Mono, 15.0, panel::lighter(content.ring, 1.0 / 3.0));
+    for (index, (label, x, w)) in chips.iter().enumerate() {
+        let (x, w) = (*x, *w);
+        let color = if content.occupied.get(index).copied().unwrap_or(false) {
             panel::PROSE
         } else {
             panel::PLACEHOLDER
         };
-        let style = Style::new(Face::Mono, 15.0, color);
-        let label_w = text::width(&label, &style);
-        let w = (label_w + 16.0).max(30.0);
-        let ring = content.ring & 0xffffff00;
-        if on && content.keyboard_here {
-            bar.p.fill(x, 7.0, w, 26.0, 6.0, ring | 0x26);
-            bar.p.inset_bottom(x, 7.0, w, 26.0, 6.0, ring | 0xff);
-        } else if on {
-            bar.p.fill(x, 7.0, w, 26.0, 6.0, ring | 0x14);
-        } else if content.elsewhere.get(index).copied().unwrap_or(false) {
+        if index != content.active && content.elsewhere.get(index).copied().unwrap_or(false) {
             bar.p
                 .inset_bottom(x, 7.0, w, 26.0, 6.0, (panel::HINT & 0xffffff00) | 0xb0);
         }
@@ -360,10 +485,26 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
             let home = (content.bullet & 0xffffff00) | 0x99;
             bar.p.border(x, 7.0, w, 26.0, 6.0, 1.0, home);
         }
-        bar.p.text(&label, x + (w - label_w) / 2.0, 20.0, &style);
+        // A number is in the highlight colour where the marker covers it, and only there.
+        let style = Style::new(Face::Mono, 15.0, color);
+        let label_w = text::width(label, &style);
+        let tx = x + (w - label_w) / 2.0;
+        match pill {
+            Some((left, right)) if left <= tx && tx + label_w <= right => {
+                bar.p.text(label, tx, 20.0, &lit);
+            }
+            Some((left, right)) if left < tx + label_w && tx < right => {
+                bar.p.text_between(label, tx, 20.0, &style, f32::MIN, left);
+                bar.p.text_between(label, tx, 20.0, &lit, left, right);
+                bar.p.text_between(label, tx, 20.0, &style, right, f32::MAX);
+            }
+            _ => {
+                bar.p.text(label, tx, 20.0, &style);
+            }
+        }
         bar.target(Target::Workspace(index), x, w);
-        x += w + 6.0;
     }
+    let mut x = chips.last().map_or(WORKSPACES_AT, |&(_, x, w)| x + w + 6.0);
     x += OVERVIEW_GAP;
     bar.p
         .icon(icons::OVERVIEW, x + 4.0, 9.0, 22.0, Some(panel::TERTIARY));
@@ -381,7 +522,7 @@ fn paint_left(bar: &mut Strip, content: &Content) -> f32 {
         x += w + 8.0;
     }
 
-    x
+    (x, at_rest)
 }
 
 fn clock_styles() -> (Style, Style) {
@@ -730,7 +871,90 @@ mod tests {
     use super::*;
 
     fn paint_plain(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
-        paint(content, width, scale).map(|painted| (painted.pixmap, painted.targets))
+        paint(content, width, scale, None).map(|painted| (painted.pixmap, painted.targets))
+    }
+
+    #[test]
+    fn the_marker_slides_leading_edge_first_and_gathers_up_on_arrival() {
+        let mut bar = Bar::default();
+        let at = |active: usize, labels: &[&str]| Content {
+            active,
+            labels: labels.iter().map(|label| label.to_string()).collect(),
+            ..content()
+        };
+        let numbers = ["1", "2", "3", "4", "5"];
+        bar.follow(&at(0, &numbers), 1536, 1.25, 10.0, false);
+        assert_eq!(
+            bar.marker.unwrap().sliding(10.0),
+            None,
+            "a new bar starts at rest"
+        );
+        let chips = workspace_chips(&at(2, &numbers), design_width(1536, 1.25));
+        let (from, to) = (
+            (chips[0].1, chips[0].1 + chips[0].2),
+            (chips[2].1, chips[2].1 + chips[2].2),
+        );
+        bar.follow(&at(2, &numbers), 1536, 1.25, 10.0, false);
+        let marker = bar.marker.unwrap();
+        let (left, right) = marker.sliding(10.15).unwrap();
+        assert!(right - left > from.1 - from.0, "stretched on the way");
+        assert!((right - from.1) / (to.1 - from.1) > (left - from.0) / (to.0 - from.0));
+        assert_eq!(marker.sliding(10.0 + MARKER_TRAIL), None);
+        assert_eq!(marker.left.value(10.0 + MARKER_TRAIL)[0] as f32, to.0);
+        assert_eq!(marker.right.value(10.0 + MARKER_TRAIL)[0] as f32, to.1);
+        // Sent back mid-slide, it sets off from where it's drawn.
+        bar.follow(&at(0, &numbers), 1536, 1.25, 10.15, false);
+        let (l, r) = bar.marker.unwrap().sliding(10.15).unwrap();
+        assert!((l - left).abs() < 1e-3 && (r - right).abs() < 1e-3);
+        // With reduced motion it jumps.
+        bar.follow(&at(4, &numbers), 1536, 1.25, 10.2, true);
+        assert_eq!(bar.marker.unwrap().sliding(10.2), None);
+        // On a narrow bar, where only the one in front shows its name, it heads for that name.
+        let long = ["Messages", "Browsing", "Documents", "Music", "Terminal"];
+        bar.follow(&at(1, &long), 400, 1.0, 11.0, false);
+        let chips = workspace_chips(&at(1, &long), design_width(400, 1.0));
+        assert_eq!(chips[0].0, "1");
+        assert_eq!(
+            bar.marker.unwrap().right.to[0] as f32,
+            chips[1].1 + chips[1].2
+        );
+        // A workspace the bar has no chip for has no marker.
+        bar.follow(&at(7, &numbers), 1536, 1.25, 12.0, false);
+        assert!(bar.marker.is_none());
+    }
+
+    #[test]
+    fn a_number_is_lit_only_where_the_sliding_marker_covers_it() {
+        let quiet = Content {
+            active: 0,
+            ..content()
+        };
+        let chips = workspace_chips(&quiet, design_width(1536, 1.0));
+        let (x, w) = (chips[1].1, chips[1].2);
+        // Over the left half of workspace 2's chip.
+        let half = paint(&quiet, 1536, 1.0, Some((x - 20.0, x + w / 2.0))).unwrap();
+        // Design pixels to device ones.
+        let f = device_size(1536, 1.0).1 as f32 / TALL;
+        let (left, right) = ((x * f) as u32, ((x + w) * f) as u32);
+        let lit = panel::lighter(quiet.ring, 1.0 / 3.0);
+        let near = |pixel: resvg::tiny_skia::PremultipliedColorU8, colour: u32| {
+            let rgb = [
+                (colour >> 24) as u8,
+                (colour >> 16) as u8,
+                (colour >> 8) as u8,
+            ];
+            pixel.alpha() > 200
+                && [pixel.red(), pixel.green(), pixel.blue()]
+                    .iter()
+                    .zip(rgb)
+                    .all(|(a, b)| a.abs_diff(b) < 30)
+        };
+        let lit_in = |from: u32, to: u32| {
+            (from..to).any(|px| (8..32).any(|py| near(half.pixmap.pixel(px, py).unwrap(), lit)))
+        };
+        let middle = ((x + w / 2.0) * f).ceil() as u32;
+        assert!(lit_in(left, middle), "lit under the marker");
+        assert!(!lit_in(middle + 1, right), "not lit past it");
     }
 
     fn content() -> Content {
