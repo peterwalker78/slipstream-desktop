@@ -201,6 +201,7 @@ fn bar_content(
             .get_keyboard()
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         awake: state.awake,
+        kept_awake: crate::kept_awake::pill_word(&state.keeping_awake()),
         layout: state.layout_label(),
         plugins: state.plugins.chip(&state.plugins.shown()),
         plugins_open: state.plugin_panel.is_open(),
@@ -280,7 +281,18 @@ fn card_elements(
     }
     if state.centre.is_open() {
         let chips = state.background_chips(scale);
-        let facts = state.centre_facts();
+        let mut facts = state.centre_facts();
+        let px = (crate::kept_awake::ICON * crate::panel::DESIGN_PX * scale as f32)
+            .round()
+            .max(1.0) as u32;
+        facts.awake_icons = facts
+            .awake
+            .iter()
+            .map(|holder| {
+                let id = holder.id.as_deref()?;
+                state.explorer.app_icon(id, px)
+            })
+            .collect();
         let explorer = &mut state.explorer;
         let mut icon = |name: &str, px: u32| explorer.named_icon(name, px);
         elements.extend(

@@ -83,6 +83,9 @@ pub struct Content {
     pub caps_lock: bool,
     /// Awake is on: a chip beside the tray says so, and a click on it turns it off.
     pub awake: bool,
+    /// What an app keeping the screen awake is called on its pill, empty when none is; a click
+    /// on it opens the notification centre, which says more.
+    pub kept_awake: String,
     /// The keyboard layout in use, such as `GB`, when there are others to switch to. A click on
     /// it switches to the next.
     pub layout: Option<String>,
@@ -136,6 +139,8 @@ pub enum Target {
     /// The red dot while something is shared.
     Sharing,
     Awake,
+    /// The pill naming an app that keeps the screen awake.
+    KeptAwake,
     /// The keyboard layout's code beside the tray.
     Layout,
     /// Beside the workspaces: bullet time, as Windows' Task View button.
@@ -1048,6 +1053,20 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
         bar.target(Target::Awake, x, w);
         right = x;
     }
+    // While an app keeps the screen awake: Awake's eye again, with the app's name instead of the
+    // word, so the bar says who is holding the wallpaper and the lock off.
+    if !content.kept_awake.is_empty() {
+        let colour = content.ring | 0xff;
+        let (x, w) = pill(
+            bar,
+            right,
+            &content.kept_awake,
+            colour,
+            Mark::Icon(icons::EYE),
+        );
+        bar.target(Target::KeptAwake, x, w);
+        right = x;
+    }
     // While anything is shared: a red dot and the word, on a faint red pill, which stops every
     // share when clicked.
     if content.sharing {
@@ -1218,6 +1237,7 @@ mod tests {
             sharing: false,
             caps_lock: false,
             awake: false,
+            kept_awake: String::new(),
             layout: None,
             plugins: None,
             plugins_open: false,

@@ -12,6 +12,7 @@ pub(crate) mod exit;
 pub(crate) mod explorer;
 pub(crate) mod flow;
 pub(crate) mod history;
+pub(crate) mod kept_awake;
 pub(crate) mod miniature;
 pub(crate) mod notices;
 pub(crate) mod offer;

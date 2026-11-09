@@ -93,6 +93,9 @@ pub struct Facts {
     pub accent: u32,
     /// The ring round a background app that wants attention: the secondary colour.
     pub attention: u32,
+    /// The apps keeping the screen awake, and each one's icon at the centre's scale.
+    pub awake: Vec<crate::kept_awake::Holder>,
+    pub awake_icons: Vec<Option<Pixmap>>,
 }
 
 /// Everything the painted panel depends on.
@@ -104,6 +107,8 @@ struct Look {
     ring: u32,
     accent: u32,
     attention: u32,
+    awake: Vec<crate::kept_awake::Holder>,
+    awake_icons: Vec<Option<Pixmap>>,
     revision: u64,
     selected: Item,
     action: Option<usize>,
@@ -530,6 +535,8 @@ impl Centre {
             ring: facts.ring,
             accent: facts.accent,
             attention: facts.attention,
+            awake: facts.awake.clone(),
+            awake_icons: facts.awake_icons.clone(),
             revision: notices.revision(),
             selected: self.selected,
             action: self.action,
@@ -621,7 +628,12 @@ impl Centre {
         let x0 = place.x + PADDING;
         let inner = WIDTH - 2.0 * PADDING;
         let calendar_h = calendar_height(look);
-        let chips_top = place.y + PADDING + calendar_h + HEAD_H + GAP;
+        let awake_h = if look.awake.is_empty() {
+            0.0
+        } else {
+            crate::kept_awake::HEIGHT + GAP * 2.0
+        };
+        let chips_top = place.y + PADDING + calendar_h + awake_h + HEAD_H + GAP;
         let (boxes, chips_h) = chips::lay_out(&look.chips, x0, chips_top, inner);
         let chip_hint = match look.selected {
             Item::BackgroundApp(i) => look.chips.get(i).is_some_and(|chip| chip.item.is_some()),
@@ -633,6 +645,20 @@ impl Centre {
             panel::glass(p, place.x, place.y, WIDTH, height);
             let mut y = place.y + PADDING;
             y += paint_calendar(p, look, x0, y);
+            // What's keeping the screen awake, under the clock it's keeping awake past.
+            if !look.awake.is_empty() {
+                crate::kept_awake::paint(
+                    p,
+                    x0,
+                    y,
+                    inner,
+                    &look.awake,
+                    &look.awake_icons,
+                    look.ring,
+                );
+                panel::piece(p, x0, y, inner, crate::kept_awake::HEIGHT);
+                y += awake_h;
+            }
             // Apps running with no visible window.
             if !boxes.is_empty() {
                 let heading = Style::new(Face::BodyBold, 16.0, INK);
@@ -1007,6 +1033,9 @@ impl Slipstream {
             ring: self.panel_ring(),
             accent: self.panel_accent(),
             attention: self.panel_attention(),
+            awake: self.keeping_awake(),
+            // Filled in where the icons can be read.
+            awake_icons: Vec::new(),
         }
     }
 
@@ -1153,6 +1182,8 @@ mod tests {
             ring: panel::FOCUS,
             accent: panel::ACCENT,
             attention: panel::AMBER,
+            awake: Vec::new(),
+            awake_icons: Vec::new(),
             bar: crate::bar::Place::default(),
             revision: notices.revision(),
             selected: centre.selected,

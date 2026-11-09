@@ -1105,7 +1105,9 @@ impl Slipstream {
             bar::Target::Apps => self.toggle_explorer(),
             bar::Target::Tray => self.toggle_quick_settings(),
             bar::Target::Plugins => self.toggle_plugin_panel(),
-            bar::Target::Clock | bar::Target::Bell => self.toggle_notification_centre(),
+            bar::Target::Clock | bar::Target::Bell | bar::Target::KeptAwake => {
+                self.toggle_notification_centre()
+            }
             bar::Target::Overview => self.toggle_bullet_time(),
             bar::Target::Dock => self.dock_clicked(),
             bar::Target::Awake => self.set_awake(false),

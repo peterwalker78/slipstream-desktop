@@ -40,10 +40,10 @@ pub fn set_active(active: bool) {
 }
 
 /// What reaches the event loop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    /// How many holds there are now.
-    Holds(usize),
+    /// The name each hold's app gave, one per hold.
+    Holds(Vec<String>),
     /// An app said someone is there, as input would.
     Activity,
 }
@@ -114,6 +114,11 @@ impl Holds {
     fn count(&self) -> usize {
         self.held.len()
     }
+
+    /// The name each hold's app gave, one per hold.
+    fn apps(&self) -> Vec<String> {
+        self.held.values().map(|hold| hold.app.clone()).collect()
+    }
 }
 
 /// The shared table and where changes go: one per session, served at both paths.
@@ -144,9 +149,9 @@ impl Server {
                 count = holds.count(),
                 "an app holding the screen awake has quit"
             );
-            let count = holds.count();
+            let apps = holds.apps();
             drop(holds);
-            self.send(Event::Holds(count));
+            self.send(Event::Holds(apps));
         }
     }
 }
@@ -164,15 +169,15 @@ impl Server {
             .sender()
             .ok_or_else(|| zbus::fdo::Error::Failed("no sender".into()))?
             .to_string();
-        let (cookie, count) = {
+        let (cookie, apps) = {
             let mut holds = self.holds();
             let cookie = holds
                 .add(&owner, &application_name)
                 .ok_or_else(|| zbus::fdo::Error::LimitsExceeded("too many holds".into()))?;
-            (cookie, holds.count())
+            (cookie, holds.apps())
         };
-        tracing::info!(app = %application_name, count, "an app is holding the screen awake");
-        self.send(Event::Holds(count));
+        tracing::info!(app = %application_name, count = apps.len(), "an app is holding the screen awake");
+        self.send(Event::Holds(apps));
         // The app may have gone between asking and now, and its leaving been seen first; its
         // hold would then outlive it.
         let still_there = match zbus::fdo::DBusProxy::new(connection).await {
@@ -192,15 +197,15 @@ impl Server {
         let Some(owner) = header.sender().map(|name| name.to_string()) else {
             return;
         };
-        let count = {
+        let apps = {
             let mut holds = self.holds();
             if !holds.remove(cookie, &owner) {
                 return;
             }
-            holds.count()
+            holds.apps()
         };
-        tracing::info!(count, "an app let the screen sleep again");
-        self.send(Event::Holds(count));
+        tracing::info!(count = apps.len(), "an app let the screen sleep again");
+        self.send(Event::Holds(apps));
     }
 
     async fn get_active(&self) -> bool {
@@ -277,8 +282,8 @@ pub fn follow_departures(connection: &zbus::blocking::Connection, gone: impl Fn(
 impl crate::Slipstream {
     pub fn screensaver_event(&mut self, event: Event) {
         match event {
-            Event::Holds(count) => {
-                self.idle.bus_holds = count;
+            Event::Holds(apps) => {
+                self.idle.bus_holds = apps;
                 self.follow_idle_inhibitors();
             }
             // Not at the lock: an app mustn't keep the screens lit for whoever walks past.
@@ -388,13 +393,13 @@ mod tests {
                 Err(err) => panic!("never served: {err}"),
             }
         };
-        wait_for(Event::Holds(1), &mut got);
+        wait_for(Event::Holds(vec!["Game".into()]), &mut got);
 
         // Another app can't end the game's hold; the game can, at the older path too.
         let stranger = zbus::blocking::Connection::session().unwrap();
         call(&stranger, PATHS[0], "UnInhibit", &(cookie,)).unwrap();
         call(&game, PATHS[1], "UnInhibit", &(cookie,)).unwrap();
-        wait_for(Event::Holds(0), &mut got);
+        wait_for(Event::Holds(Vec::new()), &mut got);
 
         // A hold left when the app quits goes with it.
         let player = zbus::blocking::Connection::session().unwrap();
@@ -407,9 +412,9 @@ mod tests {
                 &("Player", "video"),
             )
             .unwrap();
-        wait_for(Event::Holds(1), &mut got);
+        wait_for(Event::Holds(vec!["Player".into()]), &mut got);
         drop(player);
-        wait_for(Event::Holds(0), &mut got);
+        wait_for(Event::Holds(Vec::new()), &mut got);
 
         game.call_method(
             Some(NAME),

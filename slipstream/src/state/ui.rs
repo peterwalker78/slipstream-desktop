@@ -52,19 +52,79 @@ impl Slipstream {
             .inhibitors
             .iter()
             .any(|surface| self.surface_on_screen(surface));
-        self.idle.portal_shown = self.idle.portal.iter().any(|hold| {
-            hold.idle
-                && crate::portal_inhibit::counts(
-                    self.open_windows()
-                        .into_iter()
-                        .filter(|(window, _)| window_app_id(window).as_deref() == Some(&hold.app))
-                        .map(|(window, _)| self.space.elements().any(|shown| *shown == window)),
-                )
-        });
+        self.idle.portal_shown = self
+            .idle
+            .portal
+            .iter()
+            .any(|hold| hold.idle && self.portal_hold_counts(hold));
         let inhibited = self.awake || self.idle.apps_hold();
         self.protocols
             .idle_notifier_state
             .set_is_inhibited(inhibited);
+    }
+
+    /// Whether an idle hold through the portal counts: one of its app's windows is on a screen,
+    /// or the app has none. A window is the app's when its app ID or X11 class is the app's, or
+    /// leads to the same desktop entry: an X11 app's class is rarely its Flatpak ID.
+    fn portal_hold_counts(&self, hold: &crate::portal_inhibit::Hold) -> bool {
+        crate::portal_inhibit::counts(
+            self.open_windows()
+                .into_iter()
+                .filter(|(window, _)| {
+                    window_app_id(window).is_some_and(|id| {
+                        id == hold.app
+                            || self
+                                .explorer
+                                .app_for(&id)
+                                .is_some_and(|app| app.id == hold.app)
+                    })
+                })
+                .map(|(window, _)| self.space.elements().any(|shown| *shown == window)),
+        )
+    }
+
+    /// The apps keeping the screen awake now, each by its name and the ID its icon is found by,
+    /// once each: whatever holds off the fade, the lock and the screens going off, apart from
+    /// Awake and fullscreen windows, which are the user's own doing.
+    pub fn keeping_awake(&self) -> Vec<crate::kept_awake::Holder> {
+        let mut holders: Vec<crate::kept_awake::Holder> = Vec::new();
+        let mut add = |holder: crate::kept_awake::Holder| {
+            if !holders.iter().any(|kept| kept.name == holder.name) {
+                holders.push(holder);
+            }
+        };
+        let named = |id: &str| crate::kept_awake::Holder {
+            name: self
+                .explorer
+                .app_name(id)
+                .unwrap_or_else(|| pretty_name(id)),
+            id: Some(id.to_string()),
+        };
+        for surface in &self.idle.inhibitors {
+            if !self.surface_on_screen(surface) {
+                continue;
+            }
+            let root = crate::takeback::root_of(surface);
+            let id = self
+                .space
+                .elements()
+                .find(|window| window.wl_surface().as_deref() == Some(&root))
+                .and_then(window_app_id);
+            add(id.map_or_else(crate::kept_awake::Holder::unnamed, |id| named(&id)));
+        }
+        for app in &self.idle.bus_holds {
+            add(if app.trim().is_empty() {
+                crate::kept_awake::Holder::unnamed()
+            } else {
+                named(app.trim())
+            });
+        }
+        for hold in &self.idle.portal {
+            if hold.idle && self.portal_hold_counts(hold) {
+                add(named(&hold.app));
+            }
+        }
+        holders
     }
 
     /// Whether `surface` can be seen: a window's only while it is in the space, so not minimised

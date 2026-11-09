@@ -178,6 +178,9 @@ pub enum Step {
     Notify(String, String, String, Vec<(String, String)>),
     /// A critical notification: app, title, body.
     NotifyCritical(String, String, String),
+    /// An app named this holding the screen awake on the session bus, as an X11 app asks; an
+    /// empty name lets every such hold go.
+    Hold(String),
     /// An app asking for shortcuts through the portal: its app ID, and each shortcut's id,
     /// description and preferred keys.
     AskShortcuts(String, Vec<(String, String, Option<String>)>),
@@ -492,6 +495,7 @@ impl Script {
                         let body = fields.next().unwrap_or_default().to_string();
                         Step::NotifyCritical(app, title, body)
                     }
+                    ("hold", name) => Step::Hold(name.unwrap_or_default().trim().to_string()),
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
                     ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),

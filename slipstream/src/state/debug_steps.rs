@@ -49,6 +49,14 @@ impl Slipstream {
                 }
                 debug::Step::Wallpaper(id) => self.debug_wallpaper(&id),
                 debug::Step::Demand(value) => self.rain.pin_demand(Some(value)),
+                debug::Step::Hold(name) => {
+                    if name.is_empty() {
+                        self.idle.bus_holds.clear();
+                    } else {
+                        self.idle.bus_holds.push(name);
+                    }
+                    self.follow_idle_inhibitors();
+                }
                 debug::Step::Fade(value) => {
                     self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
                 }

@@ -40,9 +40,9 @@ pub struct Idle {
     pub inhibitors: Vec<WlSurface>,
     /// Whether any of `inhibitors` is on a screen: only those count.
     pub inhibitors_shown: bool,
-    /// How many holds apps have on the session bus's `org.freedesktop.ScreenSaver`, which count
-    /// the same as an inhibitor: X11 and Electron apps ask there.
-    pub bus_holds: usize,
+    /// The holds apps have on the session bus's `org.freedesktop.ScreenSaver`, by the name each
+    /// gave, which count the same as an inhibitor: X11 and Electron apps ask there.
+    pub bus_holds: Vec<String>,
     /// What apps hold through the inhibit portal. The idle ones count the same as an inhibitor;
     /// the way out names the ones holding off the end of the session.
     pub portal: Vec<crate::portal_inhibit::Hold>,
@@ -75,7 +75,7 @@ impl Idle {
             reduced_motion,
             inhibitors: Vec::new(),
             inhibitors_shown: false,
-            bus_holds: 0,
+            bus_holds: Vec::new(),
             portal: Vec::new(),
             portal_shown: false,
             lock_idle_since: Instant::now(),
@@ -132,7 +132,7 @@ impl Idle {
     /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor on a
     /// screen, the session bus or the inhibit portal.
     pub fn apps_hold(&self) -> bool {
-        self.inhibitors_shown || self.bus_holds > 0 || self.portal_shown
+        self.inhibitors_shown || !self.bus_holds.is_empty() || self.portal_shown
     }
 
     /// Starts the wait before locking again, as input does.
@@ -334,14 +334,14 @@ mod tests {
         idle.lock_idle_since = start;
         idle.screen_idle_since = start;
         let later = |mins: u64| start + Duration::from_secs(mins * 60);
-        idle.bus_holds = 1;
+        idle.bus_holds = vec!["Game".into()];
         assert!(idle.apps_hold());
         assert_eq!(idle.update(0.0, false), 1.0, "the UI stays up");
         assert!(!idle.is_faded());
         assert!(!idle.lock_due(later(60), false), "nor does it lock");
         assert!(!idle.screen_off_due(later(60), false, false), "nor go dark");
         // Let go, the waits count from then.
-        idle.bus_holds = 0;
+        idle.bus_holds.clear();
         assert!(!idle.lock_due(later(64), false));
         assert!(idle.lock_due(later(65), false));
         idle.update(1.0, false);
