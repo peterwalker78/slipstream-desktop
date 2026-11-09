@@ -355,10 +355,8 @@ fn sample_all(arrivals: &Receiver<Watched>) {
 fn source(pid: u32) -> Source {
     let ours = fs::read_to_string("/proc/self/cgroup").ok();
     let theirs = fs::read_to_string(format!("/proc/{pid}/cgroup")).ok();
-    match theirs.as_deref().and_then(cgroup_path) {
-        Some(path)
-            if is_app_cgroup(path) && Some(path) != ours.as_deref().and_then(cgroup_path) =>
-        {
+    match theirs.as_deref().and_then(cgroup_path).and_then(app_of) {
+        Some(path) if Some(path) != ours.as_deref().and_then(cgroup_path).and_then(app_of) => {
             Source::Cgroup(PathBuf::from("/sys/fs/cgroup").join(path.trim_start_matches('/')))
         }
         _ => Source::Process(pid),
@@ -375,6 +373,21 @@ pub(crate) fn is_app_cgroup(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|leaf| {
         leaf.starts_with("app-") && (leaf.ends_with(".scope") || leaf.ends_with(".service"))
     })
+}
+
+/// The app a cgroup belongs to: the nearest at or above it that the desktop made for one app.
+/// Terminals keep each tab in a cgroup of their own inside the app's, as Konsole does, or each
+/// tab in a scope inside a slice for the app, as GNOME Terminal does; the app's own counts them
+/// all.
+fn app_of(path: &str) -> Option<&str> {
+    let mut path = path.trim_end();
+    loop {
+        let leaf = path.rsplit('/').next()?;
+        if is_app_cgroup(path) || (leaf.starts_with("app-") && leaf.ends_with(".slice")) {
+            return Some(path);
+        }
+        path = &path[..path.rfind('/')?];
+    }
 }
 
 fn counters(source: &Source) -> Option<Counters> {
@@ -673,6 +686,17 @@ mod tests {
         assert!(!is_app_cgroup(
             "/user.slice/user-1000.slice/session-5.scope"
         ));
+    }
+
+    #[test]
+    fn a_tab_counts_as_part_of_its_terminal() {
+        let app = "/user.slice/u/user@1000.service/app.slice/app-org.kde.konsole-9.scope";
+        assert_eq!(app_of(&format!("{app}/tab(12).scope")), Some(app));
+        assert_eq!(app_of(&format!("{app}/main.scope\n")), Some(app));
+        let slice = "/user.slice/u/user@1000.service/app.slice/app-org.gnome.Terminal.slice";
+        assert_eq!(app_of(&format!("{slice}/vte-spawn-1f.scope")), Some(slice));
+        assert_eq!(app_of("/user.slice/user-1000.slice/session-5.scope"), None);
+        assert_eq!(app_of("/user.slice/u/user@1000.service/app.slice"), None);
     }
 
     #[test]
