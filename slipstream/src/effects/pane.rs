@@ -4,7 +4,7 @@
 //!
 //! A pane is a window drawn flat into a texture of its own, then shown through a small shader
 //! that maps every screen pixel back onto that flat picture. The glass is rigid: it turns and
-//! moves in depth, it never bends.
+//! moves in depth, it never bends. A window opening arrives as a pane from behind the screen.
 
 use smithay::{
     backend::renderer::{
@@ -23,6 +23,20 @@ use crate::{
     render::OutputElement,
     tilt::{self, draw_offscreen},
 };
+
+/// How far the eye is from the screen, in screen widths.
+pub const EYE: f64 = 1.1;
+/// How far behind the screen an opening window sets off, in screen widths: 260 pixels of a
+/// 1280-wide screen.
+pub const ARRIVE_DEPTH: f64 = 260.0 / 1280.0;
+/// How far back it leans about its bottom edge as it sets off, in radians: 9°.
+const ARRIVE_LEAN: f64 = 9.0 * std::f64::consts::PI / 180.0;
+/// When, in its way forward, the band of light starts down an opening window; it reaches the foot
+/// as the window lands.
+const ARRIVE_BAND_FROM: f64 = 0.45;
+/// The band's half height, as a share of the window's, and its strength.
+const ARRIVE_BAND_HALF: f64 = 0.2;
+const ARRIVE_BAND_STRENGTH: f32 = 0.16;
 
 /// Where a pane is and how it's turned. `x` and `y` are its middle on the screen and `z` its
 /// depth, all in logical pixels; positive `z` is further away. `yaw` turns it about its upright
@@ -51,6 +65,25 @@ impl Pose {
             pitch: 0.0,
             w,
             h,
+        }
+    }
+
+    /// A window opening over `rect` on a screen `width` wide, `arrival` of its way forward: 0 is
+    /// `ARRIVE_DEPTH` behind the screen and leaning back about its bottom edge, so its top is
+    /// furthest away, and 1 is flat over `rect`. A little over 1 brings it a hair nearer than the
+    /// screen as it overshoots.
+    pub fn arriving(rect: [f64; 4], arrival: f64, width: f64) -> Self {
+        let left = 1.0 - arrival;
+        let lean = ARRIVE_LEAN * left;
+        let flat = Self::flat(rect);
+        let half = flat.h / 2.0;
+        // Leaning back is a negative pitch. The middle rises and goes back with it, so the
+        // bottom edge stays at the pane's depth, under where the window's foot will be.
+        Self {
+            y: rect[1] + rect[3] - half * lean.cos(),
+            z: ARRIVE_DEPTH * width * left + half * lean.sin(),
+            pitch: -lean,
+            ..flat
         }
     }
 
@@ -91,7 +124,7 @@ impl Camera {
         Self {
             x: w / 2.0,
             y: h / 2.0,
-            distance: 1.1 * w,
+            distance: EYE * w,
         }
     }
 }
@@ -172,6 +205,36 @@ pub struct Look {
     /// How far the lit edge's glow reaches into the pane, in the pane's own pixels, or 0 for the
     /// usual few. A pane drawn far away needs more of its own pixels to show any.
     pub reach: f32,
+    /// How much of the glass's own light off its top left corner it has lost, 0 to 1: a pane
+    /// settling into a window's place loses it as it lands, so the window takes over unchanged.
+    pub matte: f32,
+}
+
+impl Look {
+    /// An opening window `arrival` of its way forward (`Pose::arriving`), seen on the screen at
+    /// `pose`: a band of light crosses it from top to bottom over the last of the way, and the
+    /// glass's own light goes with it.
+    pub fn arriving(self, pose: &Pose, camera: &Camera, arrival: f64) -> Self {
+        let crossed = ((arrival - ARRIVE_BAND_FROM) / (1.0 - ARRIVE_BAND_FROM)).clamp(0.0, 1.0);
+        // From just above the top to just below the foot, so it comes in and goes out of sight.
+        let along = -0.06 + 1.12 * crossed;
+        let band = (crossed > 0.0 && crossed < 1.0)
+            .then(|| project(pose, camera, (0.5, along)))
+            .flatten()
+            .map(|(_, y)| {
+                (
+                    Axis::Down,
+                    y,
+                    ARRIVE_BAND_HALF * pose.h,
+                    ARRIVE_BAND_STRENGTH,
+                )
+            });
+        Self {
+            band,
+            matte: crossed as f32,
+            ..self
+        }
+    }
 }
 
 /// Along which screen direction something runs.
@@ -223,6 +286,7 @@ impl Panes {
             UniformName::new("band", UniformType::_4f),
             UniformName::new("edge", UniformType::_3f),
             UniformName::new("reach", UniformType::_1f),
+            UniformName::new("matte", UniformType::_1f),
         ];
         match renderer.compile_custom_texture_shader(SHADER, &uniforms) {
             Ok(program) => self.program = Some(program),
@@ -393,6 +457,7 @@ impl Panes {
             Uniform::new("band", (band[0], band[1], band[2], band[3])),
             Uniform::new("edge", (edge[0], edge[1], edge[2])),
             Uniform::new("reach", if look.reach > 0.0 { look.reach } else { 5.0 }),
+            Uniform::new("matte", look.matte),
         ];
         Some(TextureShaderElement::new(
             inner,
@@ -529,6 +594,7 @@ uniform float shade;
 uniform vec4 band;
 uniform vec3 edge;
 uniform float reach;
+uniform float matte;
 
 const float RING_GAP = 0.5;
 const float RING_WIDTH = 2.5;
@@ -551,7 +617,7 @@ vec4 seen_at(vec2 screen) {
     colour.rgb *= 1.0 - shade;
     // Light off the glass, strongest at the top left corner.
     float d = 0.5 * (own.x / pane.x + own.y / pane.y);
-    colour.rgb += vec3(0.07) * (1.0 - smoothstep(0.0, 0.45, d)) * colour.a;
+    colour.rgb += vec3(0.07) * (1.0 - matte) * (1.0 - smoothstep(0.0, 0.45, d)) * colour.a;
     if (band.w > 0.0) {
         float along = band.x < 0.5 ? screen.x : screen.y;
         float k = 1.0 - clamp(abs(along - band.y) / band.z, 0.0, 1.0);
@@ -602,6 +668,25 @@ mod tests {
 
     fn close(a: (f64, f64), b: (f64, f64)) -> bool {
         (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6
+    }
+
+    #[test]
+    fn an_opening_window_starts_behind_the_screen_leaning_back_and_lands_flat() {
+        let rect = [200.0, 100.0, 600.0, 400.0];
+        let start = Pose::arriving(rect, 0.0, 1536.0);
+        let top = project(&start, &CAMERA, (0.0, 0.0)).unwrap();
+        let foot = project(&start, &CAMERA, (0.0, 1.0)).unwrap();
+        let foot_right = project(&start, &CAMERA, (1.0, 1.0)).unwrap();
+        let top_right = project(&start, &CAMERA, (1.0, 0.0)).unwrap();
+        assert!(
+            foot_right.0 - foot.0 < 600.0,
+            "pushed back, it looks smaller"
+        );
+        assert!(
+            top_right.0 - top.0 < foot_right.0 - foot.0,
+            "the top is further away than the foot"
+        );
+        assert_eq!(Pose::arriving(rect, 1.0, 1536.0), Pose::flat(rect));
     }
 
     #[test]

@@ -1080,7 +1080,19 @@ fn draw_window(
         },
     };
     let ([x, y, w, h], fitted) = drawn_rect(state, v, &window, &frame, own, area);
-    let s = frame.scale;
+    // An opening window comes forward from behind the screen as a pane of glass. In bullet time,
+    // or where panes can't be drawn, it is drawn flat at the size its depth would give it.
+    let arriving =
+        (frame.arrival < 1.0 && v.zoomed_out <= 0.0 && !docked && chrome.panes.ready(renderer))
+            .then(|| {
+                let (width, height) = (v.geo.size.w as f64, v.geo.size.h as f64);
+                let flat = [x + dx - v.geo.loc.x as f64, y - v.geo.loc.y as f64, w, h];
+                let pose = crate::pane::Pose::arriving(flat, frame.arrival, width);
+                let camera = crate::pane::Camera::for_screen(width, height);
+                crate::pane::bounds(&pose, &camera, 0.0).map(|bounds| (pose, camera, bounds))
+            })
+            .flatten();
+    let s = frame.scale();
     let shown = Rectangle::<f64, Logical>::new(
         (
             x + dx - v.geo.loc.x as f64 + w * (1.0 - s) / 2.0,
@@ -1101,6 +1113,8 @@ fn draw_window(
                 .into(),
             (shown.size.w * (1.0 - k), shown.size.h * (1.0 - k)).into(),
         ))
+    } else if let Some((.., bounds)) = arriving {
+        bounds
     } else {
         shown
     };
@@ -1118,8 +1132,9 @@ fn draw_window(
     if docked {
         docked_marks(state, renderer, v, chrome, world, &drawn);
     }
-    // In bullet time the selection ring takes over from the focus ring.
-    if v.focused.as_ref() == Some(&drawn.window) {
+    // In bullet time the selection ring takes over from the focus ring. An opening pane carries
+    // its own.
+    if v.focused.as_ref() == Some(&drawn.window) && arriving.is_none() {
         let alpha = drawn.alpha * (1.0 - v.zoomed_out.min(1.0) as f32);
         let colour = overview::ring(state.ring_rgb);
         world.elements.extend(
@@ -1167,7 +1182,23 @@ fn draw_window(
     } else if !fitted {
         state.drawn.fitted.retain(|(w, _)| *w != window);
     }
-    if (frame.moving || fitted || s != 1.0 || v.zoom != 1.0) && own.size.w > 0 && own.size.h > 0 {
+    if let Some((pose, camera, _)) = arriving {
+        let look = crate::pane::Look {
+            alpha: drawn.alpha * crate::state::own_opacity(&window),
+            ring: (v.focused.as_ref() == Some(&window)).then_some((state.ring_rgb, RING_ALPHA)),
+            ..Default::default()
+        }
+        .arriving(&pose, &camera, frame.arrival);
+        world.elements.extend(
+            chrome
+                .panes
+                .element(renderer, &window, &pose, &camera, v.sizes(), &look)
+                .map(OutputElement::Shaded),
+        );
+    } else if (frame.moving || fitted || s != 1.0 || v.zoom != 1.0)
+        && own.size.w > 0
+        && own.size.h > 0
+    {
         let pivot = shown.loc.to_physical(world_scale).to_i32_round();
         let stretch = Scale::from((
             shown.size.w / own.size.w as f64,
@@ -1587,6 +1618,7 @@ fn dock_flight_elements(
                     band_half,
                     band_light,
                 )),
+                matte: 0.0,
             };
             pieces.extend(
                 chrome
