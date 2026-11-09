@@ -28,16 +28,16 @@ use super::{HEIGHT, TALL};
 pub const STEPS: f64 = 30.0;
 
 /// Seconds between one pulse leaving the marker and the next, picked afresh each time.
-const PULSE_EVERY: (f64, f64) = (2.5, 3.5);
+const PULSE_EVERY: (f64, f64) = (4.5, 6.0);
 /// How fast a pulse runs out along the edge, in the bar's units a second, picked per pulse.
-const PULSE_SPEED: (f64, f64) = (150.0, 190.0);
+const PULSE_SPEED: (f64, f64) = (110.0, 135.0);
 /// How far past the bar's far end a pulse runs before it is let go, so it leaves the bar whole.
 const PULSE_TAIL: f64 = 200.0;
 /// The furthest a pulse runs, however wide the bar: it fades out over the last stretch of it.
-/// The slowest takes under twenty seconds to get there, so `PULSES` is enough to have every one
-/// out at once.
+/// The slowest takes under 27 seconds to get there, so `PULSES` is enough to have every one out
+/// at once.
 const PULSE_LONGEST: f64 = 2950.0;
-/// The most pulses out at once: they leave at least 2.5 s apart and none lasts 20 s.
+/// The most pulses out at once: they leave at least 4.5 s apart and none lasts 27 s.
 const PULSES: usize = 8;
 
 /// Seconds between one arc and the next.
@@ -59,8 +59,8 @@ const MARKER_REACH: f64 = 360.0;
 
 /// How far the strip reaches above and below the line, in logical pixels: room for the glow
 /// either side and for an arc's bulge.
-const ABOVE: i32 = 11;
-const BELOW: i32 = 12;
+const ABOVE: i32 = 13;
+const BELOW: i32 = 14;
 
 /// The strip's shader, its numbers in the bar's units unless they say otherwise. The colours are
 /// light added to what's under the strip, apart from the line's own colour, which is laid over.
@@ -114,7 +114,7 @@ const float ARC_TAPER = 0.28;
 const float SLOT = 0.8;
 const float SLOT_TAPER = 48.0;
 // How far an arc's path strays from the line, and its segments' length.
-const float BULGE = 4.5;
+const float BULGE = 6.0;
 const float SEGMENT = 12.0;
 
 float sq(float v) {
@@ -202,7 +202,7 @@ void main() {
     // Everything an arc adds fades to nothing over the ends of its stretch.
     float along = (x - arc.x) / max(arc.y, 1.0);
     float stretch = smoothstep(0.0, ARC_TAPER, along) * smoothstep(0.0, ARC_TAPER, 1.0 - along);
-    charge += (0.45 * after.x + 0.3 * arc.w) * stretch;
+    charge += (0.45 * after.x + 0.4 * arc.w) * stretch;
     if (charge > KNEE) {
         float room = CEILING - KNEE;
         charge = KNEE + room * (1.0 - exp(-(charge - KNEE) / room));
@@ -240,7 +240,7 @@ void main() {
         // Nothing reaches the strip's top or bottom, so it has no edge to show.
         float rim = smoothstep(0.0, 2.0 * f, at.y - frame.w)
             * smoothstep(0.0, 2.0 * f, extent.y - (at.y - frame.w));
-        light += (vec3(0.62 * hot) + ring * (0.5 * halo + 0.2 * haze)) * arc.w * stretch * rim;
+        light += (vec3(0.9 * hot) + ring * (0.75 * halo + 0.2 * haze)) * arc.w * stretch * rim;
     }
 
     vec4 color = vec4(edge.rgb * cover + light, edge.a * cover) * open * look.z * alpha;
@@ -745,13 +745,13 @@ mod tests {
             }
             now += 1.0 / 60.0;
         }
-        assert!(leaving.len() > 80);
+        assert!(leaving.len() > 45);
         for pair in leaving.windows(2) {
             let apart = pair[1].0 - pair[0].0;
-            assert!((2.49..=3.51).contains(&apart), "{apart} s between pulses");
+            assert!((4.49..=6.01).contains(&apart), "{apart} s between pulses");
         }
         for (_, speed) in &leaving {
-            assert!((150.0..=190.0).contains(speed));
+            assert!((110.0..=135.0).contains(speed));
             // A step of the slow rate moves a pulse under a quarter of its narrowest width.
             assert!(speed / STEPS < 26.0 / 4.0);
         }
@@ -775,7 +775,7 @@ mod tests {
             furthest as f64 >= wide - marker,
             "they reach the far end: {furthest}"
         );
-        assert!(most_out >= 4, "{most_out} out at once");
+        assert!((3..=5).contains(&most_out), "{most_out} out at once");
         // However wide the bar, no pulse is let go while it still shows.
         assert!(PULSE_LONGEST / PULSE_SPEED.0 <= PULSES as f64 * PULSE_EVERY.0);
     }
