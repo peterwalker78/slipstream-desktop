@@ -350,8 +350,6 @@ impl Slipstream {
             self.bindings = crate::keys::checked(crate::keys::defaults(style), style);
             self.set_own_keys(&settings.keys);
         }
-        // Apps hear about dark and light over the settings portal, and change without restarting.
-        crate::appearance::set(settings.appearance.colour_scheme);
         self.plugins.configure(&settings);
         let now = self.clock.tick();
         self.wallpaper = settings.wallpaper.clone();

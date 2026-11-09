@@ -413,7 +413,7 @@ make_portals wlr gtk
 mkdir -p "$work/no-qt"
 QT_DIRS=$work/no-qt PORTAL_DIR=$work/portals XDPW=0.8.4 \
     SCRIPT=$download/scripts/install-session expect_status 0 --yes || true
-grep -q "dark and light in Qt apps" "$work/out" || fail "$case_name: nothing said about Qt"
+grep -q "dark Qt apps" "$work/out" || fail "$case_name: nothing said about Qt"
 
 case_name="a machine that logs in by itself is told how to reach the session list"
 fresh

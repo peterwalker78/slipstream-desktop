@@ -1,4 +1,4 @@
-//! Appearance: the colour scheme, Slipstream's three colours, motion and night light.
+//! Appearance: Slipstream's three colours, the bar's style and motion.
 
 use super::*;
 use crate::{harmony, picker::ColourButton};
@@ -6,30 +6,9 @@ use crate::{harmony, picker::ColourButton};
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Appearance",
-        "What apps are coloured, what Slipstream marks things with, and how much it moves",
+        "The colours Slipstream marks things with, the bar, and how much it moves",
     );
     let colours = group(&page, "Colours");
-    let schemes = slipstream_config::ColourScheme::ALL;
-    let names: Vec<&str> = schemes.iter().map(|scheme| scheme.label()).collect();
-    let scheme = gtk::DropDown::from_strings(&names);
-    let chosen = store.get().appearance.colour_scheme;
-    scheme.set_selected(schemes.iter().position(|held| *held == chosen).unwrap_or(0) as u32);
-    let scheme_store = store.clone();
-    scheme.connect_selected_notify(move |scheme| {
-        if let Some(chosen) = schemes.get(scheme.selected() as usize).copied() {
-            scheme_store.change(move |settings| settings.appearance.colour_scheme = chosen);
-        }
-    });
-    row(
-        &colours,
-        "Apps",
-        Some(
-            "Which one apps are asked for, and they change without restarting. Slipstream's own \
-             bar, panels and windows are dark either way, and an app that never asks the desktop \
-             keeps whatever colours it was set to.",
-        ),
-        &scheme,
-    );
     self::colours(&colours, store);
     bar_style(&page, store);
     let motion = group(&page, "Motion");
@@ -87,7 +66,6 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &rain,
     );
 
-    night_light(&page, store);
     page.upcast()
 }
 
@@ -116,131 +94,6 @@ fn bar_style(page: &gtk::Box, store: &Store) {
     );
 }
 
-/// Times offered for a night light schedule: every half hour.
-fn half_hours() -> Vec<String> {
-    (0..48)
-        .map(|n| slipstream_config::sun::format_time(n as f64 * 30.0))
-        .collect()
-}
-
-/// Tonight's sunset and tomorrow's sunrise where the time zone's city is, as the schedule's row
-/// says them.
-fn sunset_note() -> String {
-    let now = gtk::glib::DateTime::now_local();
-    let location = slipstream_config::sun::location();
-    let times = now.ok().zip(location).and_then(|(now, (lat, lon))| {
-        let date = (
-            now.year() as i64,
-            now.month() as u32,
-            now.day_of_month() as u32,
-        );
-        let offset = now.utc_offset().as_minutes() as f64;
-        slipstream_config::sun::sun_times(lat, lon, date, offset)
-    });
-    match times {
-        Some((sunrise, sunset)) => format!(
-            "Warms up over half an hour from sunset, about {} today, and cools again from \
-             sunrise, about {}, going by your time zone. Turning it by hand in quick settings \
-             lasts until the next change.",
-            slipstream_config::sun::format_time(sunset),
-            slipstream_config::sun::format_time(sunrise)
-        ),
-        None => "Your time zone doesn't say where the sun sets, so the hours below are used \
-                 instead."
-            .to_string(),
-    }
-}
-
-fn night_light(page: &gtk::Box, store: &Store) {
-    use slipstream_config::NightSchedule;
-    let night = group(page, "Night light");
-    let schedules = [
-        (NightSchedule::Off, "Only by hand"),
-        (NightSchedule::Sunset, "Sunset to sunrise"),
-        (NightSchedule::Custom, "Set hours"),
-    ];
-    let names: Vec<&str> = schedules.iter().map(|(_, name)| *name).collect();
-    let schedule = gtk::DropDown::from_strings(&names);
-    let current = store.get().display.night_light_schedule;
-    schedule.set_selected(
-        schedules
-            .iter()
-            .position(|(which, _)| *which == current)
-            .unwrap_or(0) as u32,
-    );
-    let sub = row(
-        &night,
-        "Schedule",
-        Some("Warmer colours in the evening. Quick settings turns it on and off by hand."),
-        &schedule,
-    );
-
-    let times = half_hours();
-    let names: Vec<&str> = times.iter().map(String::as_str).collect();
-    let pick = |value: &str| {
-        let minutes = slipstream_config::sun::parse_time(value).unwrap_or(0.0);
-        ((minutes / 30.0).round() as u32).min(47)
-    };
-    let from = gtk::DropDown::from_strings(&names);
-    from.set_selected(pick(&store.get().display.night_light_from));
-    let to = gtk::DropDown::from_strings(&names);
-    to.set_selected(pick(&store.get().display.night_light_to));
-    row(&night, "From", None, &from);
-    row(
-        &night,
-        "Until",
-        Some("The next morning, if earlier than the start."),
-        &to,
-    );
-
-    let follow = {
-        let (from, to, sub) = (from.clone(), to.clone(), sub.clone());
-        move |which: NightSchedule| {
-            // The hours count for a set schedule, and for sunset where the sun's times can't be
-            // worked out.
-            let custom = which == NightSchedule::Custom
-                || (which == NightSchedule::Sunset && slipstream_config::sun::location().is_none());
-            from.set_sensitive(custom);
-            to.set_sensitive(custom);
-            if let Some(sub) = &sub {
-                sub.set_text(&match which {
-                    NightSchedule::Off => "Warmer colours in the evening. Quick settings \
-                                           turns it on and off by hand."
-                        .to_string(),
-                    NightSchedule::Sunset => sunset_note(),
-                    NightSchedule::Custom => "Warms up over half an hour from the start, and \
-                                              cools over half an hour from the end."
-                        .to_string(),
-                });
-            }
-        }
-    };
-    follow(current);
-    let schedule_store = store.clone();
-    schedule.connect_selected_notify(move |schedule| {
-        if let Some((which, _)) = schedules.get(schedule.selected() as usize) {
-            let which = *which;
-            follow(which);
-            schedule_store.change(move |settings| settings.display.night_light_schedule = which);
-        }
-    });
-    for (dropdown, is_from) in [(from, true), (to, false)] {
-        let times = times.clone();
-        let store = store.clone();
-        dropdown.connect_selected_notify(move |dropdown| {
-            if let Some(time) = times.get(dropdown.selected() as usize).cloned() {
-                store.change(move |settings| {
-                    if is_from {
-                        settings.display.night_light_from = time;
-                    } else {
-                        settings.display.night_light_to = time;
-                    }
-                });
-            }
-        });
-    }
-}
-
 /// What the theme list says when the colours are none of its sets.
 const YOUR_OWN: &str = "Your own";
 
@@ -259,6 +112,10 @@ struct Colours {
     accent: ColourButton,
     /// Set while the rows are being changed to match, so their own handlers stay quiet.
     syncing: Cell<bool>,
+    /// The question about matching the other two, waiting for the rainbow to stop moving.
+    ask_after: RefCell<Option<gtk::glib::SourceId>>,
+    /// Set while that question is open, so it's only asked once at a time.
+    asking: Cell<bool>,
 }
 
 impl Colours {
@@ -283,10 +140,11 @@ impl Colours {
         self.show(three);
     }
 
-    /// A focus ring of `focus`, with the two colours that go with it.
+    /// A focus ring of `focus`, leaving the other two as they are.
     fn choose_focus(&self, focus: [f32; 3]) {
-        let (bullet, accent) = harmony::partners(focus);
-        self.choose([focus, bullet, accent]);
+        let mut three = self.shown.get();
+        three[0] = focus;
+        self.choose(three);
     }
 
     fn show(&self, three: Three) {
@@ -317,6 +175,52 @@ impl Colours {
         }
         self.syncing.set(false);
     }
+}
+
+/// How long the rainbow has to rest before the question about the other two is asked, so a drag
+/// asks once, at the end.
+const RAINBOW_RESTS: Duration = Duration::from_millis(700);
+
+/// Asks, `after` this long, whether the other two colours should change to go with the primary
+/// colour just chosen. Asking again before then waits from the start.
+fn offer_partners(colours: &Rc<Colours>, after: Duration) {
+    if let Some(waiting) = colours.ask_after.take() {
+        waiting.remove();
+    }
+    let weak = Rc::downgrade(colours);
+    let waiting = gtk::glib::timeout_add_local_once(after, move || {
+        let Some(colours) = weak.upgrade() else {
+            return;
+        };
+        // It has run, so there's nothing left to take back.
+        colours.ask_after.take();
+        if colours.asking.replace(true) {
+            return;
+        }
+        let dialog = gtk::AlertDialog::builder()
+            .message("Match the other two colours?")
+            .detail(
+                "The secondary and tertiary colours can change to ones that go with your new \
+                 primary colour.",
+            )
+            .buttons(["Keep them", "Match them"])
+            .cancel_button(0)
+            .default_button(1)
+            .modal(true)
+            .build();
+        let window = colours.wheel.root().and_downcast::<gtk::Window>();
+        gtk::glib::spawn_future_local(async move {
+            let answer = dialog.choose_future(window.as_ref()).await;
+            colours.asking.set(false);
+            if answer == Ok(1) {
+                // The primary colour as it is now, in case it moved while the question was open.
+                let focus = colours.shown.get()[0];
+                let (bullet, accent) = harmony::partners(focus);
+                colours.choose([focus, bullet, accent]);
+            }
+        });
+    });
+    colours.ask_after.replace(Some(waiting));
 }
 
 /// Which of the sets `three` is, if it's one of them.
@@ -405,6 +309,8 @@ fn colours(card: &gtk::Box, store: &Store) {
         bullet: ColourButton::new("Secondary colour"),
         accent: ColourButton::new("Tertiary colour"),
         syncing: Cell::new(false),
+        ask_after: RefCell::new(None),
+        asking: Cell::new(false),
     });
 
     let chosen = Rc::clone(&colours);
@@ -422,6 +328,7 @@ fn colours(card: &gtk::Box, store: &Store) {
     colours.wheel.connect_value_changed(move |wheel| {
         if !turned.syncing.get() {
             turned.choose_focus(harmony::on_wheel(wheel.value()));
+            offer_partners(&turned, RAINBOW_RESTS);
         }
     });
     // The handlers hold the colours weakly: the buttons belong to them, so a strong hold would
@@ -430,6 +337,7 @@ fn colours(card: &gtk::Box, store: &Store) {
     colours.focus.connect_chosen(move |rgb| {
         if let Some(picked) = picked.upgrade() {
             picked.choose_focus(rgb);
+            offer_partners(&picked, Duration::ZERO);
         }
     });
     for (which, button) in [(1, &colours.bullet), (2, &colours.accent)] {
@@ -459,7 +367,7 @@ fn colours(card: &gtk::Box, store: &Store) {
         Some(
             "Where the keyboard is: the ring around the focused window and in the panels, and the \
              workspace you're on. Also a battery that's charging and plugins that are on. Pick \
-             any colour, and the two below are chosen to go with it.",
+             any colour, and you're asked whether the two below should change to go with it.",
         ),
         &focus_control,
     );

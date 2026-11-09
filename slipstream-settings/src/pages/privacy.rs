@@ -2,15 +2,12 @@
 
 use super::*;
 
-/// Programs allowed to record the screen without asking, each of which can be taken back.
-pub(super) fn build(store: &Store) -> gtk::Widget {
-    let page = page(
-        "Privacy",
-        "What programs have been allowed to do without asking again. Nothing is added here: \
-         Slipstream asks when a program first tries, and this is where an answer is taken back.",
-    );
-    fill_capture_allowed(&group(&page, "Screen recording"), store);
-    page.upcast()
+/// Programs allowed to record the screen without asking, each of which can be taken back. The
+/// group shows only once a program has been allowed: Slipstream asks when a program first tries,
+/// and this is where an answer is taken back.
+pub(super) fn screen_recording(page: &gtk::Box, store: &Store) {
+    let card = group(page, "Allowed to record the screen");
+    fill_capture_allowed(&card, store);
 }
 
 /// The allowed programs, built again from the file whenever one is taken away.
@@ -19,17 +16,9 @@ fn fill_capture_allowed(card: &gtk::Box, store: &Store) {
         card.remove(&child);
     }
     let allowed = store.get().privacy.screen_capture_allowed;
-    if allowed.is_empty() {
-        row(
-            card,
-            "No programs are allowed",
-            Some(
-                "A program that asks to record the screen puts up a card naming it. Answer \
-                 \u{201c}Always allow\u{201d} and it appears here.",
-            ),
-            &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-        );
-        return;
+    // The title above the card goes with it.
+    if let Some(group) = card.parent() {
+        group.set_visible(!allowed.is_empty());
     }
     let refill = refiller(card, store, fill_capture_allowed);
     for exe in allowed {

@@ -7,20 +7,11 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Workspaces",
         "As many as you want, up to twenty, each with a name of its own or none. Super and a \
-         number goes to one of the first nine.",
+         number goes to one of the first nine. Deleting one moves its windows to the one before \
+         it, or the first, and one with no name goes by its number as the list changes.",
     );
     let card = group(&page, "Workspaces");
     fill_workspaces(&card, store);
-    let note = group(&page, "Deleting one");
-    row(
-        &note,
-        "Its windows aren't lost",
-        Some(
-            "They move to the workspace before it, or to the first one. A workspace with no name \
-             goes by its number, which changes as the list does.",
-        ),
-        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-    );
     page.upcast()
 }
 

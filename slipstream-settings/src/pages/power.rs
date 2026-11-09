@@ -1,4 +1,4 @@
-//! Power: the battery and the charger.
+//! Power & lock: the battery and the charger, locking, and the screen turning off.
 
 use super::*;
 use crate::power as supplies;
@@ -8,8 +8,11 @@ const POWER_EVERY: Duration = Duration::from_secs(2);
 
 /// The battery's charge and what it's doing, then the details: power flowing, the charger, and
 /// how the battery has worn. Read again every couple of seconds while the window is open.
-pub(super) fn build(_: &Store) -> gtk::Widget {
-    let page = page("Power", "Battery and charging");
+pub(super) fn build(store: &Store) -> gtk::Widget {
+    let page = page(
+        "Power & lock",
+        "Battery and charging, locking, and when the screen goes off",
+    );
 
     let card = gtk::Box::builder()
         .spacing(18)
@@ -165,7 +168,65 @@ pub(super) fn build(_: &Store) -> gtk::Widget {
         }
         gtk::glib::ControlFlow::Continue
     });
+    lock(&page, store);
     page.upcast()
+}
+
+/// Locking after a while and before sleep, and the screen turning off.
+fn lock(page: &gtk::Box, store: &Store) {
+    let lock = group(page, "Lock");
+    let current = store.get().lock.after_idle_mins;
+    let waits = lock_choices(current);
+    let names: Vec<String> = waits.iter().map(|&mins| describe(mins * 60)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let after = gtk::DropDown::from_strings(&names);
+    after.set_selected(waits.iter().position(|&mins| mins == current).unwrap_or(0) as u32);
+    let after_store = store.clone();
+    after.connect_selected_notify(move |after| {
+        if let Some(&mins) = waits.get(after.selected() as usize) {
+            after_store.change(|settings| settings.lock.after_idle_mins = mins);
+        }
+    });
+    row(
+        &lock,
+        "Lock after",
+        Some(
+            "Time with no keyboard or mouse input. A fullscreen window, a playing video or \
+             Awake (hold Caps Lock) holds it off.",
+        ),
+        &after,
+    );
+    let current = store.get().display.screen_off_mins;
+    let waits = lock_choices(current);
+    let names: Vec<String> = waits.iter().map(|&mins| describe(mins * 60)).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let off_after = gtk::DropDown::from_strings(&names);
+    off_after.set_selected(waits.iter().position(|&mins| mins == current).unwrap_or(0) as u32);
+    let off_store = store.clone();
+    off_after.connect_selected_notify(move |off_after| {
+        if let Some(&mins) = waits.get(off_after.selected() as usize) {
+            off_store.change(|settings| settings.display.screen_off_mins = mins);
+        }
+    });
+    row(
+        &lock,
+        "Turn the screen off after",
+        Some("Held off by the same things as the lock."),
+        &off_after,
+    );
+    let before_sleep = gtk::Switch::new();
+    before_sleep.set_active(store.get().lock.before_sleep);
+    let sleep_store = store.clone();
+    before_sleep.connect_active_notify(move |switch| {
+        let on = switch.is_active();
+        sleep_store.change(move |settings| settings.lock.before_sleep = on);
+    });
+    row(
+        &lock,
+        "Lock before sleep",
+        Some("The laptop wakes up locked."),
+        &before_sleep,
+    );
 }
 
 /// The charger row: its rating when the kernel knows it.
@@ -174,5 +235,27 @@ fn charger_text(reading: &supplies::Reading) -> String {
         (true, Some(watts)) => format!("{watts:.0} W, plugged in"),
         (true, None) => "Plugged in".to_string(),
         (false, _) => "Not plugged in".to_string(),
+    }
+}
+
+/// The waits offered for locking and for turning the screen off, in minutes: Never first, then
+/// the usual waits, with a hand-edited one in its place among them.
+fn lock_choices(current: u64) -> Vec<u64> {
+    let mut choices = vec![0, 1, 5, 10, 15, 30, 60];
+    if !choices.contains(&current) {
+        choices.push(current);
+        choices.sort_unstable();
+    }
+    choices
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_waits_start_at_never() {
+        assert_eq!(lock_choices(0), [0, 1, 5, 10, 15, 30, 60]);
+        assert_eq!(lock_choices(20), [0, 1, 5, 10, 15, 20, 30, 60]);
     }
 }

@@ -1,15 +1,16 @@
-//! Notifications: pop-ups, their waits and sounds, and do not disturb.
+//! Notifications: pop-ups, how long they wait, and do not disturb.
 
 use super::*;
 
 /// The longest a pop-up may wait for a pause in typing, in minutes.
 const LONGEST_WAIT_CHOICES: [u64; 6] = [1, 5, 10, 15, 30, 60];
 
-/// Pop-ups: whether they wait while you type and for how long, their sounds, and do not disturb.
+/// Pop-ups: whether they wait while you type and for how long, and do not disturb.
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Notifications",
-        "Pop-ups that wait for a pause instead of interrupting you.",
+        "Pop-ups wait for a pause instead of interrupting you, and so does a window an app opens \
+         while you type. The sounds are on the Sound page.",
     );
     let typing = group(&page, "While you type");
 
@@ -53,34 +54,6 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         follower.set_sensitive(on);
         wait_store.change(move |settings| settings.notifications.wait_while_typing = on);
     });
-
-    row(
-        &typing,
-        "Windows don't take the keyboard",
-        Some(
-            "A window that opens while you're typing waits beside you, so your next words don't \
-             land in it. Windows you open yourself still come straight to you.",
-        ),
-        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-    );
-
-    let heard = group(&page, "Sounds");
-    let sounds = gtk::Switch::new();
-    sounds.set_active(store.get().notifications.sounds);
-    let sounds_store = store.clone();
-    sounds.connect_active_notify(move |sounds| {
-        let on = sounds.is_active();
-        sounds_store.change(move |settings| settings.notifications.sounds = on);
-    });
-    row(
-        &heard,
-        "Play notification sounds",
-        Some(
-            "Not while you're in the app it came from. Under do not disturb, only critical \
-             notifications make a sound.",
-        ),
-        &sounds,
-    );
 
     let quiet = group(&page, "Do not disturb");
     let dnd = gtk::Switch::new();

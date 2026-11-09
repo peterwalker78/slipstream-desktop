@@ -30,24 +30,6 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         );
     }
 
-    let blip = gtk::CheckButton::new();
-    blip.set_active(store.get().sound.volume_blip);
-    row(
-        &keys,
-        "Click when the volume changes",
-        Some(
-            "A short click through the speakers at the new level, from the volume keys or a \
-             volume slider, as macOS and Windows do, so the volume can be heard as well as seen. \
-             Never on mute, and never on brightness.",
-        ),
-        &blip,
-    );
-    let blip_store = store.clone();
-    blip.connect_toggled(move |blip| {
-        let on = blip.is_active();
-        blip_store.change(move |settings| settings.sound.volume_blip = on);
-    });
-
     let current = store.get().sound.volume_step() as u64;
     let steps = choices(&STEP_CHOICES, current);
     let names: Vec<String> = steps.iter().map(|step| format!("{step}%")).collect();
@@ -68,32 +50,53 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     );
 
     let heard = group(&page, "Sounds");
+    // "None" is the old on/off switch: picking it turns the sound off and keeps the sound that
+    // was chosen in the file, and picking any other turns it back on.
     let click = sound_choice(
         store,
         sounds::CLICKS,
         false,
-        |settings| settings.sound.click.clone(),
-        |settings, choice| settings.sound.click = choice,
+        |settings| match settings.sound.volume_blip {
+            true => settings.sound.click.clone(),
+            false => NO_SOUND.into(),
+        },
+        |settings, choice| {
+            settings.sound.volume_blip = choice != NO_SOUND;
+            if choice != NO_SOUND {
+                settings.sound.click = choice;
+            }
+        },
     );
     row(
         &heard,
         "Volume click",
-        Some("A short sound works best: one plays for every step."),
+        Some(
+            "Plays at the new level when the volume keys or a slider change it, so you can hear \
+             the volume as well as see it. Never on mute or brightness.",
+        ),
         &click,
     );
     let ding = sound_choice(
         store,
         sounds::DINGS,
         true,
-        |settings| settings.notifications.ding.clone(),
-        |settings, choice| settings.notifications.ding = choice,
+        |settings| match settings.notifications.sounds {
+            true => settings.notifications.ding.clone(),
+            false => NO_SOUND.into(),
+        },
+        |settings, choice| {
+            settings.notifications.sounds = choice != NO_SOUND;
+            if choice != NO_SOUND {
+                settings.notifications.ding = choice;
+            }
+        },
     );
     row(
         &heard,
         "Notification sound",
         Some(
-            "Each app's own sound, or one for every notification. With one chosen, \
-             notifications that would be silent make it too.",
+            "Each app's own sound, or one for every notification. Not while you're in the app it \
+             came from, and under do not disturb only critical notifications make a sound.",
         ),
         &ding,
     );
@@ -295,9 +298,11 @@ fn read_index(path: &Path) -> Option<String> {
 
 /// What the list of sounds holds, row by row, as the settings file says each.
 const PICK_A_FILE: &str = "";
+/// The first row, which turns the sound off. Never a sound's name or a file's path.
+const NO_SOUND: &str = "none";
 
-/// A choice of sound: `presets` (after each app's own, with `apps_own`), a file of one's own, and a
-/// button to hear it. Picking one plays it.
+/// A choice of sound: none, then `presets` (after each app's own, with `apps_own`), a file of one's
+/// own, and a button to hear it. Picking one plays it.
 fn sound_choice(
     store: &Store,
     presets: &'static [Preset],
@@ -320,7 +325,7 @@ fn sound_choice(
         let (names, list, hear) = (names.clone(), list.clone(), hear.clone());
         let (choices, syncing) = (Rc::clone(&choices), Rc::clone(&syncing));
         move |current: &str| {
-            let mut rows: Vec<(String, String)> = Vec::new();
+            let mut rows: Vec<(String, String)> = vec![(NO_SOUND.into(), "None".into())];
             if apps_own {
                 rows.push((sounds::APPS_OWN.into(), "Each app's own".into()));
                 rows.extend(
@@ -350,7 +355,7 @@ fn sound_choice(
                     .unwrap_or(0) as u32,
             );
             syncing.set(false);
-            hear.set_sensitive(current != sounds::APPS_OWN);
+            hear.set_sensitive(current != sounds::APPS_OWN && current != NO_SOUND);
             *choices.borrow_mut() = rows.into_iter().map(|(choice, _)| choice).collect();
         }
     };
@@ -374,8 +379,10 @@ fn sound_choice(
             fill(&choice);
             let saved = choice.clone();
             store.change(move |settings| set(settings, saved));
-            let theme = store.get().notifications.sound_theme;
-            std::thread::spawn(move || play(&choice, presets, &theme));
+            if choice != NO_SOUND {
+                let theme = store.get().notifications.sound_theme;
+                std::thread::spawn(move || play(&choice, presets, &theme));
+            }
             return;
         }
         // A file of one's own. Turning away from the dialog leaves the sound as it was.

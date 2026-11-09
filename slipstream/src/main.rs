@@ -416,16 +416,12 @@ fn start_services(
     if wanted("SLIPSTREAM_TRAY") {
         tray::serve(channel_into(event_loop, Slipstream::tray_event)?);
     }
-    // The portal backend: dark or light, shortcuts apps keep while another app has the keyboard,
+    // The portal backend: telling apps to be dark, shortcuts apps keep while another app has the keyboard,
     // and apps asking the desktop to stay awake or not to log out yet.
     if wanted("SLIPSTREAM_PORTAL") {
         let shortcut_events = channel_into(event_loop, Slipstream::shortcut_event)?;
         let holds = channel_into(event_loop, Slipstream::portal_holds)?;
-        portal::serve(
-            state.settings.appearance.colour_scheme,
-            shortcut_events,
-            holds,
-        );
+        portal::serve(shortcut_events, holds);
         watch::watch_shortcuts(&event_loop.handle());
     }
     // The password card for programs that need an administrator's say-so. Polkit takes one

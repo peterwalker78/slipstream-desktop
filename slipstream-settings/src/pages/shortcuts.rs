@@ -11,8 +11,13 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
          the style chosen here.",
     );
     let styles = group(&page, "Shortcuts");
+    // The whole list is long and the shortcut sheet shows it too, so it waits behind a button.
     let keys = gtk::Box::new(gtk::Orientation::Vertical, 18);
-    page.append(&keys);
+    let every = gtk::Revealer::builder()
+        .child(&keys)
+        .transition_type(gtk::RevealerTransitionType::SlideDown)
+        .build();
+    page.append(&every);
     fill_keys(&keys, store);
     let refill = refiller(&keys, store, fill_keys);
     // Built here so a change of style can flag any that clash; placed beside the apps' own.
@@ -45,6 +50,23 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         row(&styles, style.label(), Some(style.summary()), &pick);
         first.get_or_insert(pick);
     }
+    let show = gtk::Button::with_label("Show");
+    show.connect_clicked({
+        let every = every.downgrade();
+        move |show| {
+            if let Some(every) = every.upgrade() {
+                let open = !every.reveals_child();
+                every.set_reveal_child(open);
+                show.set_label(if open { "Hide" } else { "Show" });
+            }
+        }
+    });
+    row(
+        &styles,
+        "Every key in this style",
+        Some("The shortcut sheet shows them too."),
+        &show,
+    );
     page.append(&own_group);
     page.append(&plugin_group);
     fill_app_shortcuts(&group(&page, "Apps' own shortcuts"), store);

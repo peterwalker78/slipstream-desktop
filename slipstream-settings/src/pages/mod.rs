@@ -37,7 +37,7 @@ pub struct Page {
     pub build: fn(&Store) -> gtk::Widget,
 }
 
-pub const PAGES: [Page; 13] = [
+pub const PAGES: [Page; 12] = [
     Page {
         id: "appearance",
         title: "Appearance",
@@ -75,7 +75,7 @@ pub const PAGES: [Page; 13] = [
     },
     Page {
         id: "power",
-        title: "Power",
+        title: "Power & lock",
         icons: &[
             "battery-full-charging-symbolic",
             "battery-good-symbolic",
@@ -132,16 +132,6 @@ pub const PAGES: [Page; 13] = [
             "view-grid-symbolic",
         ],
         build: workspaces::build,
-    },
-    Page {
-        id: "privacy",
-        title: "Privacy",
-        icons: &[
-            "preferences-system-privacy-symbolic",
-            "channel-secure-symbolic",
-            "security-high-symbolic",
-        ],
-        build: privacy::build,
     },
     Page {
         id: "session",

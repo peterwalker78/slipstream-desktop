@@ -18,8 +18,9 @@ const HOW_TO: &str =
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Plugins",
-        "Little apps that add a card to the panel beside the clock. Each one says what it can do \
-         before you switch it on, and can't do anything else.",
+        "Little apps that add a card to the panel beside the clock. Each one runs in a sandbox, \
+         says what it can do before you switch it on, and can't do anything else. One that \
+         changes after you switch it on stays off until you switch it on again.",
     );
     let list = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.append(&list);
@@ -45,12 +46,7 @@ fn fill(list: &gtk::Box, store: &Store) {
 
     let about = group(list, "What a plugin can do");
     let link = gtk::LinkButton::with_label(HOW_TO, "How to write one");
-    row(
-        &about,
-        "Only what it lists",
-        Some("Each plugin runs in a sandbox, and can do only what's listed under its name."),
-        &link,
-    );
+    row(&about, "Make your own", None, &link);
     // What each verdict beside a plugin's name means, a row each, in its own colour.
     for (care, means) in [
         (
@@ -80,14 +76,6 @@ fn fill(list: &gtk::Box, store: &Store) {
         line.append(&says);
         about.append(&line);
     }
-    row(
-        &about,
-        "Updates wait for you",
-        Some(
-            "A plugin that changes after you switch it on stays off until you switch it on again.",
-        ),
-        &gtk::Box::new(gtk::Orientation::Horizontal, 0),
-    );
 
     // Plugin folders are read and fingerprinted off the GTK thread, since a big one takes a
     // while; the rows go in once that's done, unless the page has been built again meanwhile.

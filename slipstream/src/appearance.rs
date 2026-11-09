@@ -1,4 +1,4 @@
-//! What apps are told to colour themselves: Slipstream answers the settings portal itself.
+//! Apps are told to be dark: Slipstream answers the settings portal itself.
 //!
 //! `org.freedesktop.impl.portal.Settings` is the one channel every toolkit uses to ask the
 //! desktop whether to be dark or light. GTK, Qt through its xdgdesktopportal platform theme,
@@ -12,16 +12,13 @@
 //! `slipstream-portals.conf` asks for it first; the rest of the namespace (accent colour, fonts,
 //! contrast) still goes on to whatever backend the machine has.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
 
-use slipstream_config::ColourScheme;
 use zbus::{
     interface,
     object_server::SignalEmitter,
     zvariant::{OwnedValue, Value},
 };
-
-const INTERFACE: &str = "org.freedesktop.impl.portal.Settings";
 
 /// The cross-desktop namespace, and the only one that carries a preference rather than a theme's
 /// name.
@@ -30,23 +27,21 @@ const APPEARANCE: &str = "org.freedesktop.appearance";
 /// than a preference still turn dark.
 const GNOME: &str = "org.gnome.desktop.interface";
 
-/// What the settings file says now. Read by the bus thread, written by the main loop.
-static SCHEME: Mutex<ColourScheme> = Mutex::new(ColourScheme::Dark);
-
-/// Every namespace and key Slipstream answers for, as they stand.
+/// Every namespace and key Slipstream answers for. Apps are always told dark, to match
+/// Slipstream's own bar, panels and windows.
 fn readings() -> Vec<(&'static str, Vec<(&'static str, OwnedValue)>)> {
-    let scheme = *SCHEME.lock().unwrap();
     let text = |value: &str| OwnedValue::from(zbus::zvariant::Str::from(value.to_string()));
     vec![
-        (
-            APPEARANCE,
-            vec![("color-scheme", OwnedValue::from(scheme.portal_value()))],
-        ),
+        // The portal's own spelling: 1 is dark, 2 light, 0 no preference.
+        (APPEARANCE, vec![("color-scheme", OwnedValue::from(1u32))]),
         (
             GNOME,
             vec![
-                ("color-scheme", text(scheme.gnome_value())),
-                ("gtk-theme", text(scheme.gtk_theme())),
+                // GNOME's, which GTK reads when it doesn't know the portal's key.
+                ("color-scheme", text("prefer-dark")),
+                // A theme's name, for apps that follow one rather than a preference. Adwaita
+                // ships with GTK itself, so it is on every machine GTK apps run on.
+                ("gtk-theme", text("Adwaita-dark")),
             ],
         ),
     ]
@@ -123,42 +118,6 @@ impl Server {
     ) -> zbus::Result<()>;
 }
 
-/// What apps are told before the settings change.
-pub fn start_with(scheme: ColourScheme) {
-    *SCHEME.lock().unwrap() = scheme;
-}
-
-/// The setting changed. Apps are told one key at a time, as the interface asks, and take it
-/// without restarting.
-pub fn set(scheme: ColourScheme) {
-    {
-        let mut held = SCHEME.lock().unwrap();
-        if *held == scheme {
-            return;
-        }
-        *held = scheme;
-    }
-    let Some(connection) = crate::portal::connection() else {
-        return;
-    };
-    std::thread::spawn(move || {
-        for (namespace, keys) in readings() {
-            for (key, value) in keys {
-                let body = (namespace, key, Value::from(value));
-                if let Err(err) = connection.emit_signal(
-                    None::<&str>,
-                    crate::portal::PATH,
-                    INTERFACE,
-                    "SettingChanged",
-                    &body,
-                ) {
-                    tracing::warn!(namespace, key, "couldn't send SettingChanged: {err}");
-                }
-            }
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,9 +133,9 @@ mod tests {
     }
 
     #[test]
-    fn dark_is_the_portals_first_preference_and_light_its_second() {
-        assert_eq!(ColourScheme::Dark.portal_value(), 1);
-        assert_eq!(ColourScheme::Light.portal_value(), 2);
+    fn apps_are_told_dark() {
+        let dark = reading(APPEARANCE, "color-scheme").unwrap();
+        assert_eq!(u32::try_from(dark).unwrap(), 1);
     }
 
     #[test]

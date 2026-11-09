@@ -713,12 +713,12 @@ check() {
         # atomic system and isn't where a program installed into /usr/local belongs.
         if [ -n "$xdp_have" ] && ! at_least 1.17 "$xdp_have"; then
             limits="$limits
-  - dark and light: this system's xdg-desktop-portal is $xdp_have, and 1.17 or newer is needed to
+  - dark apps: this system's xdg-desktop-portal is $xdp_have, and 1.17 or newer is needed to
     find a backend outside /usr/share. Apps will keep their own colours."
         elif ! qt_portal_theme; then
             limits="$limits
-  - dark and light in Qt apps: Qt's xdgdesktopportal platform theme isn't installed, so Qt apps
-    keep their own colours. GTK apps, browsers and anything in a Flatpak follow the setting."
+  - dark Qt apps: Qt's xdgdesktopportal platform theme isn't installed, so Qt apps keep their
+    own colours. GTK apps, browsers and anything in a Flatpak turn dark."
         fi
     fi
     if ! portal_backend_installed wlr; then

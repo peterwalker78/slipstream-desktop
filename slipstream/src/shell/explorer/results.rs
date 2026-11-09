@@ -409,8 +409,8 @@ mod tests {
                 .collect()
         };
         assert_eq!(pages("wallpaper"), [("wallpaper", None)]);
-        assert_eq!(pages("night light"), [("appearance", Some("Night light"))]);
-        assert_eq!(pages("night"), [("appearance", Some("Night light"))]);
+        assert_eq!(pages("night light"), [("screens", Some("Night light"))]);
+        assert_eq!(pages("night"), [("screens", Some("Night light"))]);
         assert_eq!(pages("battery"), [("power", Some("Battery"))]);
         // A title ahead of a setting on another page.
         assert_eq!(

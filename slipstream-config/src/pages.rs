@@ -12,16 +12,11 @@ pub struct SettingsPage {
     pub holds: &'static [&'static str],
 }
 
-pub const SETTINGS_PAGES: [SettingsPage; 13] = [
+pub const SETTINGS_PAGES: [SettingsPage; 12] = [
     SettingsPage {
         id: "appearance",
         title: "Appearance",
         holds: &[
-            "Night light",
-            "Dark mode",
-            "Light mode",
-            "Colour scheme",
-            "Color scheme",
             "Primary colour",
             "Primary color",
             "Secondary colour",
@@ -61,24 +56,40 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
             "Scale",
             "Arrangement",
             "Variable refresh rate",
+            "Night light",
         ],
     },
     SettingsPage {
         id: "sound",
         title: "Sound",
-        holds: &["Volume", "Audio", "Click when the volume changes"],
+        holds: &[
+            "Volume",
+            "Audio",
+            "Volume click",
+            "Volume key step",
+            "Notification sound",
+            "Bullet time",
+        ],
     },
     SettingsPage {
         id: "power",
-        title: "Power",
-        holds: &["Battery", "Charging", "Charge limit", "Battery health"],
+        title: "Power & lock",
+        holds: &[
+            "Battery",
+            "Charging",
+            "Charge limit",
+            "Battery health",
+            "Lock after",
+            "Lock before sleep",
+            "Turn the screen off after",
+            "Screen timeout",
+        ],
     },
     SettingsPage {
         id: "notifications",
         title: "Notifications",
         holds: &[
             "Do not disturb",
-            "Notification sounds",
             "Wait until I pause",
             "Windows don't take the keyboard",
         ],
@@ -129,21 +140,15 @@ pub const SETTINGS_PAGES: [SettingsPage; 13] = [
         holds: &["Workspace names", "Virtual desktops", "Delete a workspace"],
     },
     SettingsPage {
-        id: "privacy",
-        title: "Privacy",
-        holds: &["Screen recording", "Screen sharing"],
-    },
-    SettingsPage {
         id: "session",
         title: "Session",
         holds: &[
-            "Lock after",
-            "Lock before sleep",
-            "Turn the screen off after",
-            "Screen timeout",
             "Remember the layout",
             "Reopen without asking",
             "Clipboard history",
+            "Privacy",
+            "Screen recording",
+            "Screen sharing",
         ],
     },
     SettingsPage {

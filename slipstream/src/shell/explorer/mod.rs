@@ -734,7 +734,7 @@ mod tests {
         // A setting held on a page, ahead of running what was typed.
         explorer.key(Keysym::Escape, None, NONE);
         typed(&mut explorer, "night light");
-        assert_eq!(enter(&mut explorer), Some(Item::Setting("appearance")));
+        assert_eq!(enter(&mut explorer), Some(Item::Setting("screens")));
         // An app's name beats a page's title.
         explorer.key(Keysym::Escape, None, NONE);
         typed(&mut explorer, "wallpaper");
