@@ -46,6 +46,8 @@ pub struct Frame {
     /// How far an opening window has come forward, 0 behind the screen to 1 flat on it, a little
     /// over 1 while it overshoots. 1 for every window that isn't opening.
     pub arrival: f64,
+    /// How much bigger a tile held in a drag is drawn, about its centre: 1 when it isn't held.
+    pub held: f64,
     pub alpha: f64,
     /// Hasn't drawn anything yet; its open animation starts when it does.
     pub waiting: bool,
@@ -58,15 +60,17 @@ impl Frame {
             rect,
             moving: false,
             arrival: 1.0,
+            held: 1.0,
             alpha: 1.0,
             waiting: false,
         }
     }
 
-    /// How big an opening window looks for its depth, about its centre: for drawing it flat where
-    /// it can't be drawn as a pane.
+    /// How big the window looks about its centre: an opening window for its depth, for drawing it
+    /// flat where it can't be drawn as a pane, and a held tile lifted.
     pub fn scale(&self) -> f64 {
-        crate::pane::EYE / (crate::pane::EYE + crate::pane::ARRIVE_DEPTH * (1.0 - self.arrival))
+        self.held * crate::pane::EYE
+            / (crate::pane::EYE + crate::pane::ARRIVE_DEPTH * (1.0 - self.arrival))
     }
 }
 
@@ -75,6 +79,7 @@ struct Entry<T> {
     id: T,
     rect: Tween<4>,
     arrival: Tween<1>,
+    held: Tween<1>,
     alpha: Tween<1>,
     waiting: bool,
 }
@@ -126,6 +131,7 @@ impl<T: Clone + PartialEq> Motion<T> {
                 id: id.clone(),
                 rect: Tween::at_rest(to),
                 arrival: Tween::at_rest([arrival]),
+                held: Tween::at_rest([1.0]),
                 alpha: Tween::at_rest([0.0]),
                 waiting: true,
             }),
@@ -207,6 +213,30 @@ impl<T: Clone + PartialEq> Motion<T> {
         }
     }
 
+    /// Glides `id` on to where it is headed from `from`, where something else had it drawn, so
+    /// taking over from that drawing doesn't jump. With `scale`, it comes back to its own size
+    /// from that scale on the way.
+    pub fn glide_from(
+        &mut self,
+        id: &T,
+        from: [f64; 4],
+        scale: Option<f64>,
+        now: f64,
+        duration: f64,
+    ) {
+        let duration = if self.reduced_motion { 0.0 } else { duration };
+        let Some(entry) = self.entry_mut(id) else {
+            return;
+        };
+        let to = entry.rect.to;
+        entry.rect = Tween::at_rest(from);
+        entry.rect.retarget(to, now, duration, Easing::Glide);
+        if let Some(scale) = scale {
+            entry.held = Tween::at_rest([scale]);
+            entry.held.retarget([1.0], now, duration, Easing::Glide);
+        }
+    }
+
     pub fn remove(&mut self, id: &T) {
         self.entries.retain(|entry| &entry.id != id);
     }
@@ -219,6 +249,7 @@ impl<T: Clone + PartialEq> Motion<T> {
             rect: entry.rect.value(now),
             moving: !entry.rect.done(now),
             arrival,
+            held: entry.held.value(now)[0],
             // The curve overshoots; opacity can't.
             alpha: entry.alpha.value(now)[0].clamp(0.0, 1.0) * solid,
             waiting: entry.waiting,
