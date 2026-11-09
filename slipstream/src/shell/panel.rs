@@ -1,5 +1,5 @@
 //! What Slipstream's panels share: the glass card quick settings and the notification centre drop
-//! at the top right, just below the bar, pouring down out of it as they open; and the `Panel`
+//! at the top right, just below the bar, coming out of it as a drawer as they open; and the `Panel`
 //! trait every panel answers to, the explorer, the plugin panel, the shortcut sheet and clipboard
 //! history too, so that closing them, or asking whether one is open, goes through one list.
 
@@ -10,8 +10,8 @@ use crate::{
 
 /// What a card is drawn for: the screen's logical size and scale, the time on whichever clock
 /// the card animates by, and three of the colours from the settings: the accent, for what's on,
-/// the secondary colour, for what wants attention, and the focus ring's, which lights the edge a
-/// panel pours in behind.
+/// the secondary colour, for what wants attention, and the focus ring's, which lights the slot a
+/// panel comes out of and its drawer's leading edge.
 #[derive(Debug, Clone, Copy)]
 pub struct Frame {
     pub size: smithay::utils::Size<i32, smithay::utils::Logical>,
@@ -121,6 +121,7 @@ pub const ACCENT: u32 = 0xffb547ff;
 /// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
 /// nearly solid, as the explorer's is.
 pub fn glass(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
+    p.note_glass(x, y, w, h);
     p.card(x, y, w, h, &PANEL_CARD);
 }
 
@@ -289,6 +290,20 @@ pub fn key_hint(p: &mut Painter, right: f32, centre: f32, keys: &[&str], label: 
     start
 }
 
+/// Marks a piece of a panel, `w` × `h` at (`x`, `y`), with room for the keyboard's ring around it:
+/// it comes in on its own as the panel opens.
+pub fn piece(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
+    p.piece(
+        x - RING_ROOM,
+        y - RING_ROOM,
+        w + 2.0 * RING_ROOM,
+        h + 2.0 * RING_ROOM,
+    );
+}
+
+/// How far the keyboard's ring reaches outside a control.
+const RING_ROOM: f32 = 6.0;
+
 /// The keyboard's ring, just outside a control's box.
 pub fn focus_ring(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, radius: f32, colour: u32) {
     p.border(
@@ -371,13 +386,25 @@ impl Slipstream {
         ]
     }
 
+    /// The middle of a button on the focused screen's bar, in logical pixels from the screen's
+    /// left, where the panel it opens comes out of the bar.
+    pub fn button_middle(&self, target: crate::bar::Target) -> Option<f64> {
+        let name = self.focused_screen_name();
+        self.drawn
+            .chromes
+            .get(&name)
+            .and_then(|chrome| chrome.bar.area_of(target))
+            .map(|area| area.loc.x + area.size.w / 2.0)
+    }
+
     pub fn panel_open(&self) -> bool {
         self.panels().iter().any(|panel| panel.is_open())
     }
 
-    /// Every panel and card draining away after it closed, but the explorer, which draws its own.
+    /// Every panel and card going back into the bar after it closed.
     pub fn fades_mut(&mut self) -> impl Iterator<Item = &mut Fade> {
         [
+            &mut self.explorer.fade,
             &mut self.quick.fade,
             &mut self.plugin_panel.fade,
             &mut self.centre.fade,

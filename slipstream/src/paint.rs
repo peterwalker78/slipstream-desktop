@@ -159,6 +159,9 @@ pub struct Painter {
     /// move every frame, as the tour's miniature's do, turns this off: its one-off shadows would
     /// only push out the panels' cards the cache is for.
     pub cache_layers: bool,
+    /// The parts a panel comes in as, in device pixels, and its glass card: see `Pieces`.
+    pieces: Vec<[f32; 4]>,
+    glass: Option<[f32; 5]>,
 }
 
 impl Painter {
@@ -167,7 +170,22 @@ impl Painter {
             pixmap: Pixmap::new(width, height)?,
             f,
             cache_layers: true,
+            pieces: Vec::new(),
+            glass: None,
         })
+    }
+
+    /// Marks the box `w` × `h` at (`x`, `y`) as one piece of what is painted: a tile, a row or a
+    /// group of buttons that comes in on its own as the panel opens.
+    pub fn piece(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        let f = self.f;
+        self.pieces.push([x * f, y * f, w * f, h * f]);
+    }
+
+    /// Notes the panel's glass card, `w` × `h` at (`x`, `y`), so its bare card can be painted
+    /// again on its own. The first one painted is the panel's.
+    pub fn note_glass(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.glass.get_or_insert([x, y, w, h, self.f]);
     }
 
     fn transform(&self) -> Transform {
@@ -676,12 +694,48 @@ pub fn keycap_width(key: &str) -> f32 {
     text::width(&key.to_uppercase(), &style) + 14.0
 }
 
-/// A painted surface ready to show: its buffer, and its size in logical and buffer pixels.
+/// A painted surface ready to show: its buffer, its size in logical and buffer pixels, and the
+/// pieces a panel comes in as.
 pub struct Painted {
     pub buffer: MemoryRenderBuffer,
     pub logical: Size<i32, Logical>,
     pub device: (i32, i32),
     pub scale: f64,
+    pub pieces: Pieces,
+}
+
+/// The parts of a panel's picture that come in one by one as it opens: each a box in logical
+/// pixels from the picture's corner, on whole device pixels. None means the picture comes in
+/// whole. Also the glass card the parts sit on, in layout units with its `f`, and a number told
+/// to no other picture, which tells a repaint from the picture it replaced.
+#[derive(Debug, Clone, Default)]
+pub struct Pieces {
+    pub rects: Vec<Rectangle<f64, Logical>>,
+    pub glass: Option<[f32; 5]>,
+    pub serial: u64,
+}
+
+impl Pieces {
+    fn of(painter: &mut Painter, scale: f64) -> Self {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let rects = painter
+            .pieces
+            .drain(..)
+            .map(|[x, y, w, h]| {
+                let (left, top) = (x.floor() as f64, y.floor() as f64);
+                let (right, bottom) = ((x + w).ceil() as f64, (y + h).ceil() as f64);
+                Rectangle::new(
+                    (left / scale, top / scale).into(),
+                    ((right - left) / scale, (bottom - top) / scale).into(),
+                )
+            })
+            .collect();
+        Self {
+            rects,
+            glass: painter.glass,
+            serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        }
+    }
 }
 
 impl Painted {
@@ -697,12 +751,21 @@ impl Painted {
         );
         let mut painter = Painter::new(device.0 as u32, device.1 as u32, scale as f32)?;
         draw(&mut painter);
-        Some(Self {
+        Some(Self::from_painter(painter, logical, scale))
+    }
+
+    /// What `painter` painted, `logical` pixels big at `scale`.
+    pub fn from_painter(mut painter: Painter, logical: Size<i32, Logical>, scale: f64) -> Self {
+        Self {
             buffer: buffer(&painter.pixmap),
             logical,
-            device,
+            device: (
+                painter.pixmap.width() as i32,
+                painter.pixmap.height() as i32,
+            ),
             scale,
-        })
+            pieces: Pieces::of(&mut painter, scale),
+        }
     }
 
     /// The surface with its corner at `at`, on whole screen pixels so text stays sharp.

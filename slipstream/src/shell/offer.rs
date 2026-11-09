@@ -139,7 +139,7 @@ impl Offer {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed drains away.
+    /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
     pub fn fade_out(self) -> crate::panel::Fade {
         self.on_screen.fade_out()
     }

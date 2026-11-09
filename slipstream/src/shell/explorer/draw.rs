@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// The painted explorer, its size in logical pixels, and its size in buffer pixels.
-pub(super) type Painted = (MemoryRenderBuffer, Size<i32, Logical>, (i32, i32));
+/// The painted explorer.
+pub(super) type Painted = crate::paint::Painted;
 
 /// The caret's size in design pixels. It's an element of its own, so blinking never repaints the
 /// explorer.
@@ -44,7 +44,7 @@ impl Explorer {
         running: Vec<String>,
         ring: u32,
         keys: Keys,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
+    ) -> Vec<crate::flow::FlowElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -94,90 +94,60 @@ impl Explorer {
             }
             self.shown = Some(look);
         }
-        let Some((_, logical, _)) = self.buffer.as_ref() else {
+        let Some(painted) = self.buffer.as_ref() else {
             return Vec::new();
         };
-        let card = crate::flow::card_in(self.origin, *logical, MARGIN, BELOW);
-        let reveal = self.fade.opening(since, self.reduced_motion, card);
+        let card = crate::flow::card_in(self.origin, painted.logical, MARGIN, BELOW);
+        let mut elements = Vec::new();
+        let reveal = self.fade.show(
+            renderer,
+            frame,
+            since,
+            self.reduced_motion,
+            card,
+            &[(painted, self.origin, 1.0)],
+            &mut elements,
+        );
         // The caret blinks, half a second on and half off, unless motion is reduced: then it
-        // stays on.
+        // stays on. It shows once the explorer is whole.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
-        self.caret_on = caret_on;
-        self.painted(renderer, frame, reveal, caret_on)
+        if caret_on && reveal.whole() {
+            let caret = self.caret_element(renderer, frame, reveal.alpha);
+            elements.splice(0..0, caret.map(crate::flow::FlowElement::from));
+        }
+        elements
     }
 
-    /// The explorer draining away after it closed, as it was last drawn: nothing is repainted,
-    /// and once it has gone its buffer is let go.
-    pub fn closing_element<R>(
+    /// The caret, where the text typed ends.
+    fn caret_element<R>(
         &mut self,
         renderer: &mut R,
         frame: crate::panel::Frame,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
+        alpha: f32,
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let Some(reveal) = self.fade.closing(frame.time, self.reduced_motion) else {
-            self.buffer = None;
-            return Vec::new();
-        };
-        let caret_on = self.caret_on;
-        self.painted(renderer, frame, reveal, caret_on)
-    }
-
-    /// The painted explorer as `reveal` shows it, with the edge in front, and its caret when
-    /// `caret_on` and the reveal has passed it.
-    fn painted<R>(
-        &mut self,
-        renderer: &mut R,
-        frame: crate::panel::Frame,
-        reveal: crate::flow::Reveal,
-        caret_on: bool,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let Some((buffer, logical, device)) = self.buffer.as_ref() else {
-            return Vec::new();
-        };
         let (scale, accent) = (frame.scale, frame.accent);
+        let key = (scale, accent);
+        if self.caret.as_ref().is_none_or(|(at, _, _)| *at != key) {
+            self.caret = caret_buffer(key);
+        }
+        let (_, caret, size) = self.caret.as_ref()?;
         // Whole screen pixels, or the text blurs.
         let location = self.origin.to_physical(scale).to_i32_round::<i32>();
-        let mut elements = Vec::with_capacity(3);
-        elements.extend(reveal.edge(renderer, frame.ring, scale, frame.time));
-        if caret_on {
-            let key = (scale, accent);
-            if self.caret.as_ref().is_none_or(|(at, _, _)| *at != key) {
-                self.caret = caret_buffer(key);
-            }
-            if let Some((_, caret, size)) = &self.caret
-                && reveal.shows_above(self.origin.y + self.caret_at.y + size.h as f64)
-            {
-                let at = location + self.caret_at.to_physical(scale).to_i32_round::<i32>();
-                elements.extend(
-                    MemoryRenderBufferRenderElement::from_buffer(
-                        renderer,
-                        at.to_f64(),
-                        caret,
-                        Some(reveal.alpha),
-                        None,
-                        Some(*size),
-                        Kind::Unspecified,
-                    )
-                    .ok(),
-                );
-            }
-        }
-        elements.extend(reveal.buffer(
+        let at = location + self.caret_at.to_physical(scale).to_i32_round::<i32>();
+        MemoryRenderBufferRenderElement::from_buffer(
             renderer,
-            buffer,
-            (*logical, *device),
-            scale,
-            self.origin,
-            1.0,
-        ));
-        elements
+            at.to_f64(),
+            caret,
+            Some(alpha),
+            None,
+            Some(*size),
+            Kind::Unspecified,
+        )
+        .ok()
     }
 
     pub(super) fn repaint(&mut self, look: &Look) -> Option<()> {
@@ -227,10 +197,30 @@ impl Explorer {
         let run_opens = self.paint_side(&mut side, &results);
 
         paint_footer(&mut p, look, &results, card, run_opens);
+        // The pieces it comes in as: the search row, each app, the side column and the footer.
+        panel::piece(&mut p, card.x, card.y, width, SEARCH_H);
+        let side_left = card.on_screen(side_x, 0.0, 0.0, 0.0).loc.x;
+        let at = card.on_screen(card.x, card.y, 0.0, 0.0).loc;
+        for (_, area) in targets.iter().filter(|(_, area)| area.loc.x < side_left) {
+            panel::piece(
+                &mut p,
+                card.x + ((area.loc.x - at.x) / DESIGN_PX as f64) as f32,
+                card.y + ((area.loc.y - at.y) / DESIGN_PX as f64) as f32,
+                (area.size.w / DESIGN_PX as f64) as f32,
+                (area.size.h / DESIGN_PX as f64) as f32,
+            );
+        }
+        p.piece(side_x, body_y, width - apps_w, BODY_H);
+        p.piece(
+            card.x,
+            body_y + BODY_H,
+            width,
+            HEIGHT - SEARCH_H - 1.0 - BODY_H,
+        );
         self.origin = card.on_screen(0.0, 0.0, 0.0, 0.0).loc;
         self.frame = card.on_screen(card.x, card.y, width, HEIGHT);
         self.targets = targets;
-        self.buffer = Some((paint::buffer(&p.pixmap), logical, device));
+        self.buffer = Some(Painted::from_painter(p, logical, look.scale));
         Some(())
     }
 

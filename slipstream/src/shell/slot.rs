@@ -262,6 +262,7 @@ impl Slot {
                     logical,
                     device,
                     scale,
+                    pieces: Default::default(),
                 },
             ));
         }

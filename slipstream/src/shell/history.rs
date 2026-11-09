@@ -489,11 +489,17 @@ impl History {
             .iter()
             .map(|(index, rect)| (*index, Rectangle::new(rect.loc + at, rect.size)))
             .collect();
-        Some(
-            self.fade
-                .opening(now - self.opened_at, self.reduced_motion, self.frame)
-                .pair(renderer, painted, at, frame),
-        )
+        let mut drawn = panel::Pair::default();
+        self.fade.show(
+            renderer,
+            frame,
+            now - self.opened_at,
+            self.reduced_motion,
+            self.frame,
+            &[(painted, at, 1.0)],
+            &mut drawn,
+        );
+        Some(drawn)
     }
 
     fn rows_that_fit(&self, screen: Size<i32, Logical>) -> usize {
@@ -558,6 +564,8 @@ impl History {
         p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
 
         let mut rows = Vec::new();
+        p.piece(fx, fy, width, HEAD_H);
+        p.piece(fx, fy + height - FOOT_H, width, FOOT_H);
         let mut y = fy + HEAD_H + PADDING;
         if shown.is_empty() {
             p.text(
@@ -566,6 +574,7 @@ impl History {
                 y + TEXT_ROW / 2.0,
                 &Style::new(Face::Body, 16.0, panel::HINT),
             );
+            panel::piece(&mut p, fx + PADDING, y, width - 2.0 * PADDING, TEXT_ROW);
         }
         let mono = Style::new(Face::Mono, 14.0, panel::PROSE);
         let [r, g, b, _] = look.ring.to_be_bytes();
@@ -574,6 +583,7 @@ impl History {
         for (index, clip) in shown {
             let h = row_h(clip);
             let (x, w) = (fx + PADDING, width - 2.0 * PADDING);
+            panel::piece(&mut p, x, y, w, h);
             let selected = index == look.selected;
             if selected {
                 panel::selected_row(&mut p, x, y, w, h, look.ring);
@@ -686,12 +696,7 @@ impl History {
         ] {
             right = panel::key_hint(&mut p, right, foot, keys, label) - panel::HINT_GAP;
         }
-        let painted = Painted {
-            buffer: paint::buffer(&p.pixmap),
-            logical,
-            device,
-            scale: look.scale,
-        };
+        let painted = Painted::from_painter(p, logical, look.scale);
         Some((painted, rows))
     }
 }
@@ -894,7 +899,7 @@ mod tests {
     fn closing_lets_go_at_once_and_only_its_picture_drains() {
         let mut history = History::default();
         history.open(0.0);
-        history.fade.opening(1.0, false, Default::default());
+        history.fade.drawn_at(1.0, false);
         let painted = Painted::new((1, 1).into(), 1.0, |_| {}).unwrap();
         history.painted = Some((Look::default(), painted));
         history.close();

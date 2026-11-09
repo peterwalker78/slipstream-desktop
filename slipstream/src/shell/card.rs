@@ -266,9 +266,11 @@ pub fn paint(
         // things.
         p.fill(fx + 1.0, fy + PADDING, 3.0, 30.0, 1.5, accent);
         p.text(&card.title, x0 + 10.0, y + 15.0, &title);
+        p.piece(fx, y, WIDTH, 30.0);
         y += 30.0 + 8.0;
         for line in &lines {
             p.text(line, x0, y + 11.0, &note);
+            panel::piece(p, x0, y, inner, 22.0);
             y += 22.0;
         }
         if !card.rows.is_empty() || card.more.is_some() {
@@ -297,6 +299,7 @@ pub fn paint(
                         h: ROW_H,
                     });
                 }
+                panel::piece(p, x0 - 10.0, y, inner + 20.0, ROW_H);
                 let mut room = inner;
                 if let Some((text, colour)) = &row.note {
                     let style = Style::new(Face::Mono, 12.0, *colour);
@@ -314,12 +317,14 @@ pub fn paint(
             }
             if let Some(more) = &card.more {
                 p.text(more, x0, y + ROW_H / 2.0, &note);
+                panel::piece(p, x0, y, inner, ROW_H);
                 y += ROW_H;
             }
         }
         if let Some(field) = &card.field {
             y += 16.0;
             paint_field(p, field, (x0, y, inner), (accent, attention));
+            panel::piece(p, x0, y, inner, FIELD_H + FIELD_LINE);
             y += FIELD_H + FIELD_LINE;
         }
         if let Some(on) = card.remember {
@@ -332,11 +337,13 @@ pub fn paint(
                 inner,
                 card.hover == Some(Button::Remember),
             ));
+            panel::piece(p, x0, y, inner, fy + height - FOOT_H - y);
             // The footer is measured from the bottom, so nothing follows the switch here.
         }
         // The footer: the answers, in the same order everywhere, the one Enter presses at the
         // right where the eye ends up.
         let foot_y = fy + height - FOOT_H;
+        p.piece(fx, foot_y, WIDTH, FOOT_H);
         p.fill(fx, foot_y, WIDTH, 1.0, 0.0, panel::DIVIDER);
         let button_y = foot_y + (FOOT_H - BUTTON_H) / 2.0;
         let mut right = fx + WIDTH - PADDING;
@@ -449,7 +456,7 @@ impl<K: PartialEq> OnScreen<K> {
         self.hits.clear();
     }
 
-    /// Lets the card go: nothing on it can be clicked any more, and its last paint drains away.
+    /// Lets the card go: nothing on it can be clicked any more, and its last paint goes back into the bar.
     pub fn fade_out(mut self) -> crate::panel::Fade {
         let at = self.at;
         self.fade
@@ -540,8 +547,8 @@ impl OnScreen<Card> {
 }
 
 impl OnScreen<Card> {
-    /// `card` in the middle of the screen in `frame`, `since` seconds after it appeared, pouring
-    /// in as the panels do.
+    /// `card` in the middle of the screen in `frame`, `since` seconds after it appeared, coming
+    /// out of the bar as the panels do.
     pub fn pour<R>(
         &mut self,
         renderer: &mut R,
@@ -563,9 +570,17 @@ impl OnScreen<Card> {
         };
         let at = self.at;
         let card = crate::flow::card_in(at, painted.logical, MARGIN, BELOW);
-        self.fade
-            .opening(since, reduced_motion, card)
-            .pair(renderer, painted, at, frame)
+        let mut drawn = panel::Pair::default();
+        self.fade.show(
+            renderer,
+            frame,
+            since,
+            reduced_motion,
+            card,
+            &[(painted, at, 1.0)],
+            &mut drawn,
+        );
+        drawn
     }
 }
 

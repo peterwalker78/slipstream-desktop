@@ -9,7 +9,7 @@
 
 use resvg::tiny_skia::Pixmap;
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -145,7 +145,7 @@ pub struct Centre {
     origin: Point<f64, Logical>,
     frame: Rectangle<f64, Logical>,
     targets: Vec<(Target, Rectangle<f64, Logical>)>,
-    /// Opens with a short fade instead of pouring in (`Slipstream::set_reduced_motion`).
+    /// Opens with a short fade instead of coming out of the bar (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
     /// The background apps, as last drawn.
     chips: Vec<Chip>,
@@ -490,7 +490,7 @@ impl Centre {
         notices: &Notices,
         chips: Vec<Chip>,
         icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
+    ) -> Vec<crate::flow::FlowElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -555,29 +555,46 @@ impl Centre {
         }) else {
             return Vec::new();
         };
-        let reveal = self
-            .fade
-            .opening(now - self.opened_at, facts.reduced_motion, card);
         let at = self.origin;
         let mut elements = Vec::new();
-        elements.extend(reveal.edge(renderer, frame.ring, frame.scale, now));
         if let Some(menu) = self.menu.as_mut() {
-            elements.extend(menu.elements(renderer, frame, facts.ring, facts.reduced_motion, icon));
+            elements.extend(
+                menu.elements(renderer, frame, facts.ring, facts.reduced_motion, icon)
+                    .into_iter()
+                    .map(crate::flow::FlowElement::from),
+            );
         }
         self.ghosts.retain(|ghost| !ghost.faded(now));
         elements.extend(
             self.ghosts
                 .iter()
-                .filter_map(|ghost| ghost.element(renderer, now, facts.reduced_motion)),
+                .filter_map(|ghost| ghost.element(renderer, now, facts.reduced_motion))
+                .map(crate::flow::FlowElement::from),
         );
-        if let Some(glow) = &self.glow {
-            let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
-            self.breath = breath;
-            elements.extend(reveal.picture(renderer, glow, at, breath));
-        }
-        if let Some(painted) = self.painted.as_ref() {
-            elements.extend(reveal.picture(renderer, painted, at, 1.0));
-        }
+        let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
+        self.breath = breath;
+        let Some(painted) = self.painted.as_ref() else {
+            return elements;
+        };
+        // The chips' glow rides along in front of the picture.
+        let main = (painted, at, 1.0);
+        let both;
+        let shown: &[crate::flow::Shown<'_>] = match self.glow.as_ref() {
+            Some(glow) => {
+                both = [(glow, at, breath), main];
+                &both
+            }
+            None => std::slice::from_ref(&main),
+        };
+        self.fade.show(
+            renderer,
+            frame,
+            now - self.opened_at,
+            facts.reduced_motion,
+            card,
+            shown,
+            &mut elements,
+        );
         elements
     }
 
@@ -641,11 +658,15 @@ impl Centre {
                         boxes: &boxes,
                     },
                 );
+                panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, chips_top + chips_h - y);
                 y = chips_top + chips_h + GAP * 2.0;
             }
-            y += paint_heading(p, look, x0, y, &mut hits);
+            let heading_h = paint_heading(p, look, x0, y, &mut hits);
+            panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, heading_h);
+            y += heading_h;
             let foot_y = place.y + height - PADDING - FOOT_H;
             paint_footer(p, x0, foot_y, listed.is_empty(), chip_hint, &mut hits);
+            panel::piece(p, x0, foot_y, WIDTH - 2.0 * PADDING, FOOT_H);
             paint_notices(p, look, place, &listed, (y, foot_y), &mut hits);
             if let Some([x, y, w, h]) = hits.button_ring {
                 panel::focus_ring(p, x, y, w, h, panel::ROW_RADIUS, look.ring);
@@ -752,6 +773,9 @@ fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
 
         let grid_x = x0 + CAL_PAD_X;
         let grid_y = y + CAL_PAD_Y + CAL_HEAD;
+        panel::piece(p, x0, y, inner, CAL_PAD_Y + CAL_HEAD);
+        panel::piece(p, x0, grid_y, inner, DOW_H);
+        let weeks = calendar::grid(year, month).len() / 7;
         let cell_w = (inner - 2.0 * CAL_PAD_X - 6.0 * CELL_GAP) / 7.0;
         let initial = Style::new(Face::Body, 12.0, panel::PLACEHOLDER);
         for (column, letter) in ["M", "T", "W", "T", "F", "S", "S"].iter().enumerate() {
@@ -767,6 +791,15 @@ fn paint_calendar(p: &mut Painter, look: &Look, x0: f32, y: f32) -> f32 {
         for (i, cell) in calendar::grid(year, month).iter().enumerate() {
             let cell_x = grid_x + (i % 7) as f32 * (cell_w + CELL_GAP);
             let cell_y = grid_y + DOW_H + CELL_GAP + (i / 7) as f32 * (CELL_H + CELL_GAP);
+            if i % 7 == 0 {
+                // The last week reaches down to the calendar's foot.
+                let h = if i / 7 + 1 == weeks {
+                    y + card_h - cell_y
+                } else {
+                    CELL_H
+                };
+                panel::piece(p, x0, cell_y, inner, h);
+            }
             let is_today = look.month == 0 && cell.in_month && cell.day == today.day;
             let style = if is_today {
                 p.fill(cell_x, cell_y, cell_w, CELL_H, 8.0, look.accent);
@@ -914,6 +947,7 @@ fn paint_notices(
                 break;
             }
             p.fill(x0, top, inner, *h, panel::TILE_RADIUS, panel::TILE);
+            panel::piece(p, x0, top, inner, *h);
             let card = notices::paint_card(p, notice, x0, top, inner, CARD_LINES);
             let [cx, cy, cw, ch] = card.cross;
             hits.targets
@@ -957,6 +991,8 @@ impl Slipstream {
         let now = self.clock.tick();
         let ids = self.notices.ids();
         self.centre.open(now, &ids);
+        let bell = self.button_middle(crate::bar::Target::Bell);
+        self.centre.fade.hang_from(bell);
         self.notices.mark_read();
         // The pop-ups would sit on top of it; their notifications are all in it.
         let gone = self.notices.hide_popups();

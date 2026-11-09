@@ -421,6 +421,8 @@ impl Slipstream {
             self.close_panels();
             let now = self.clock.tick();
             self.explorer.open(now);
+            let apps = self.button_middle(crate::bar::Target::Apps);
+            self.explorer.fade.hang_from(apps);
         }
     }
 

@@ -209,7 +209,7 @@ pub struct QuickSettings {
     /// A slider held under the pointer, and the level it was last set to, so moving along it
     /// only changes the machine when the level does.
     dragging: Option<(Control, u8)>,
-    /// Opens with a short fade instead of pouring in (`Slipstream::set_reduced_motion`).
+    /// Opens with a short fade instead of coming out of the bar (`Slipstream::set_reduced_motion`).
     pub reduced_motion: bool,
 }
 
@@ -473,9 +473,17 @@ impl QuickSettings {
             return Default::default();
         };
         let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
-        self.fade
-            .opening(now - self.opened_at, reduced_motion, card)
-            .pair(renderer, painted, self.origin, frame)
+        let mut drawn = panel::Pair::default();
+        self.fade.show(
+            renderer,
+            frame,
+            now - self.opened_at,
+            reduced_motion,
+            card,
+            &[(painted, self.origin, 1.0)],
+            &mut drawn,
+        );
+        drawn
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
@@ -512,18 +520,22 @@ impl QuickSettings {
             let x0 = place.x + PADDING;
             let mut y = place.y + PADDING;
             paint_header(p, look, x0, y, &mut hits);
+            panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, HEAD_H);
             y += HEAD_H + GAP;
             if look.power_menu {
                 paint_power_menu(p, x0, y, &mut hits);
+                panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, MENU_H);
                 y += MENU_H + GAP;
             }
             paint_tiles(p, facts, x0, y, &mut hits);
             y += tiles_h + GAP;
             for &slider in &sliders {
                 paint_slider(p, facts, slider, place, y, &mut hits);
+                panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, SLIDER_H);
                 y += SLIDER_H + GAP;
             }
             paint_footer(p, look, x0, y, &mut hits);
+            panel::piece(p, x0, y, WIDTH - 2.0 * PADDING, FOOT_H);
             for (control, [x, y, w, h, radius]) in &hits.shapes {
                 if *control == look.selected {
                     panel::focus_ring(p, *x, *y, *w, *h, *radius, look.facts.ring);
@@ -654,6 +666,7 @@ fn paint_tiles(p: &mut Painter, facts: &Facts, x0: f32, y: f32, hits: &mut Hits)
         let (on, detail) = tile(control, facts);
         let fill = if on { facts.accent } else { panel::TILE };
         p.fill(x, top, tile_w, TILE_H, panel::TILE_RADIUS, fill);
+        panel::piece(p, x, top, tile_w, TILE_H);
         let ink = if on { panel::ink_on(fill) } else { INK };
         let icon = match control {
             Control::WiFi if !status.wifi => icons::WIFI_OFF,
@@ -867,6 +880,8 @@ impl Slipstream {
             self.close_panels();
             let now = self.clock.tick();
             self.quick.open(now);
+            let tray = self.button_middle(crate::bar::Target::Tray);
+            self.quick.fade.hang_from(tray);
             // Its sliders show the volume and the brightness, so the keys' display would be a
             // second answer to the same question.
             self.osd.hide();

@@ -370,11 +370,17 @@ impl PluginPanel {
         }
         let painted = self.painted.as_ref()?;
         let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
-        Some(
-            self.fade
-                .opening(now - self.opened_at, reduced_motion, card)
-                .pair(renderer, painted, self.origin, frame),
-        )
+        let mut drawn = panel::Pair::default();
+        self.fade.show(
+            renderer,
+            frame,
+            now - self.opened_at,
+            reduced_motion,
+            card,
+            &[(painted, self.origin, 1.0)],
+            &mut drawn,
+        );
+        Some(drawn)
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
@@ -424,6 +430,7 @@ impl PluginPanel {
             let x0 = place.x + PADDING;
             let mut y = place.y + PADDING;
             paint_head(p, facts, x0, y);
+            panel::piece(p, x0, y, inner, HEAD_H);
             y += HEAD_H + GAP;
             if facts.cards.is_empty() {
                 let quiet = Style::new(Face::Body, 14.0, panel::HINT);
@@ -433,9 +440,11 @@ impl PluginPanel {
                     "No plugins are on"
                 };
                 p.text(said, x0, y + LINE_H, &quiet);
+                panel::piece(p, x0, y, inner, 2.0 * LINE_H);
             }
             for (shown, h) in facts.cards.iter().zip(&heights) {
                 p.fill(x0, y, inner, *h, panel::TILE_RADIUS, panel::TILE);
+                panel::piece(p, x0, y, inner, *h);
                 p.border(x0, y, inner, *h, panel::TILE_RADIUS, 1.0, panel::DIVIDER);
                 match turned(shown) {
                     0.0 => paint_front(p, facts, shown, x0, y, inner, &mut shapes),
@@ -478,6 +487,7 @@ impl PluginPanel {
             }
             y += GAP;
             p.fill(x0, y, inner, 1.0, 0.0, panel::DIVIDER);
+            panel::piece(p, x0, y, inner, FOOT_H);
             let centre = y + FOOT_H - 9.0;
             let link = Style::new(Face::Body, 14.0, panel::lighter(facts.accent, 0.36));
             let link_w = p.text("Plugin settings", x0, centre, &link);
@@ -961,6 +971,7 @@ impl Slipstream {
             self.close_panels();
             let now = self.clock.tick();
             self.plugin_panel.open(now, under);
+            self.plugin_panel.fade.hang_from(Some(under));
             // A plugin's folder can change without anything to say so: look again.
             self.plugins.rescan();
         }
@@ -984,12 +995,7 @@ impl Slipstream {
     /// Where the chip's middle is on the focused screen's bar, in logical pixels from its left;
     /// the screen's middle if its bar has no chip.
     pub fn chip_middle(&self) -> f64 {
-        let name = self.focused_screen_name();
-        self.drawn
-            .chromes
-            .get(&name)
-            .and_then(|chrome| chrome.bar.area_of(crate::bar::Target::Plugins))
-            .map(|area| area.loc.x + area.size.w / 2.0)
+        self.button_middle(crate::bar::Target::Plugins)
             .or_else(|| {
                 self.focused_screen_geometry()
                     .map(|geo| geo.size.w as f64 / 2.0)

@@ -19,7 +19,7 @@ use smithay::{
 use crate::{
     gravity::Rung,
     layout::Rect,
-    paint::{self, Painted, Painter},
+    paint::{Painted, Painter},
     panel::{self, DESIGN_PX},
     text::{self, Face, Style},
 };
@@ -311,12 +311,7 @@ fn paint(look: &Look) -> Option<Painted> {
         "choose",
     );
 
-    Some(Painted {
-        buffer: paint::buffer(&p.pixmap),
-        logical,
-        device,
-        scale: look.scale,
-    })
+    Some(Painted::from_painter(p, logical, look.scale))
 }
 
 /// A picture of `rects` in `area`, as fractions of it, with `centre` marked.

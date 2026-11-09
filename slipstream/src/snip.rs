@@ -777,6 +777,7 @@ fn crop_painted(frozen: &Frozen, rect: Rectangle<f64, Logical>) -> Option<Painte
         logical: Size::from((rect.size.w.round() as i32, rect.size.h.round() as i32)),
         device: (w as i32, h as i32),
         scale: frozen.scale,
+        pieces: Default::default(),
     })
 }
 
@@ -833,6 +834,7 @@ fn paint_tile(
         logical,
         device,
         scale,
+        pieces: Default::default(),
     })
 }
 
@@ -908,6 +910,7 @@ mod tests {
                 logical: Size::from((100, 100)),
                 device: (100, 100),
                 scale: 1.0,
+                pieces: Default::default(),
             },
             tile: None,
             from: Rectangle::new((0.0, 0.0).into(), (100.0, 100.0).into()),

@@ -134,9 +134,7 @@ pub struct Explorer {
     /// When it opened, on the animation clock.
     opened_at: f64,
     /// Its way in and out: the cards' opening, and the panels' close.
-    fade: crate::panel::Fade,
-    /// Whether the caret was last drawn showing, which is how it stays while it drains away.
-    caret_on: bool,
+    pub(crate) fade: crate::panel::Fade,
     catalog: Arc<Mutex<Catalog>>,
     scanned: Option<Instant>,
     read_recent_files: RecentReader,
@@ -193,7 +191,6 @@ impl Explorer {
             scroll: 0,
             opened_at: 0.0,
             fade: Default::default(),
-            caret_on: false,
             catalog: Arc::default(),
             scanned: None,
             read_recent_files: Arc::new(|| apps::recent_files(RECENT, |path| path.is_file())),
@@ -248,16 +245,18 @@ impl Explorer {
         if !self.open {
             return;
         }
-        // Drawn here rather than by the fade, for the caret: it keeps no picture of its own.
-        if !self.fade.close(self.buffer.is_some().then(Vec::new)) {
-            self.buffer = None;
-        }
+        let origin = self.origin;
+        self.fade.close(
+            self.buffer
+                .take()
+                .map(|painted| vec![(painted, origin, 1.0)]),
+        );
         self.open = false;
         self.shown = None;
         self.targets.clear();
     }
 
-    /// Whether it's still draining away after closing.
+    /// Whether it's still going back into the bar after closing.
     pub fn is_closing(&self) -> bool {
         self.fade.is_closing()
     }
@@ -983,16 +982,11 @@ mod tests {
     fn closing_lets_go_at_once_and_only_the_paint_drains() {
         let mut explorer = Explorer::idle(false);
         explorer.open(0.0);
-        explorer.fade.opening(1.0, false, Default::default());
-        explorer.buffer = Some((
-            paint::buffer(&Pixmap::new(1, 1).unwrap()),
-            (1, 1).into(),
-            (1, 1),
-        ));
+        explorer.fade.drawn_at(1.0, false);
+        explorer.buffer = crate::paint::Painted::new((1, 1).into(), 1.0, |_| {});
         explorer.close();
         assert!(!explorer.is_open(), "keys go back to the window now");
-        assert!(explorer.is_closing());
-        assert!(explorer.buffer.is_some(), "its paint stays to drain away");
+        assert!(explorer.is_closing(), "its paint stays to go back in");
         explorer.open(1.0);
         assert!(!explorer.is_closing());
     }

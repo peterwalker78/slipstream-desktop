@@ -5,7 +5,7 @@
 //! key added or changed shows up here without anyone remembering to list it.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::{ImportMem, Renderer},
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -578,7 +578,7 @@ impl Sheet {
         listing: Listing,
         (ring, bullet): (u32, u32),
         effects: Effects,
-    ) -> Vec<MemoryRenderBufferRenderElement<R>>
+    ) -> Vec<crate::flow::FlowElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
@@ -674,26 +674,35 @@ impl Sheet {
             )
                 .into(),
         );
-        let reveal = self
-            .fade
-            .opening(now - self.opened_at, self.reduced_motion, self.frame);
         self.at = (at, None);
+        // The miniature rides in front of the card, in the place the card leaves for it.
+        let main = (painted, at, 1.0);
+        let both;
+        let shown: &[crate::flow::Shown<'_>] =
+            match self.stage.as_ref().filter(|_| self.tour.is_some()) {
+                Some(stage) => {
+                    let layout = tour_layout(screen);
+                    let (sx, sy, ..) = layout.stage;
+                    let offset = Point::<f64, Logical>::from((
+                        (((MARGIN + sx) * DESIGN_PX) as f64).round(),
+                        (((MARGIN + sy) * DESIGN_PX) as f64).round(),
+                    ));
+                    self.at.1 = Some(at + offset);
+                    both = [(stage, at + offset, 1.0), main];
+                    &both
+                }
+                None => std::slice::from_ref(&main),
+            };
         let mut elements = Vec::new();
-        elements.extend(reveal.edge(renderer, ring, painted.scale, now));
-        // The miniature goes in front of the card, in the place the card leaves for it.
-        if self.tour.is_some()
-            && let Some(stage) = self.stage.as_ref()
-        {
-            let layout = tour_layout(screen);
-            let (sx, sy, ..) = layout.stage;
-            let offset = Point::<f64, Logical>::from((
-                (((MARGIN + sx) * DESIGN_PX) as f64).round(),
-                (((MARGIN + sy) * DESIGN_PX) as f64).round(),
-            ));
-            self.at.1 = Some(self.at.0 + offset);
-            elements.extend(reveal.picture(renderer, stage, at + offset, 1.0));
-        }
-        elements.extend(reveal.picture(renderer, painted, at, 1.0));
+        self.fade.show(
+            renderer,
+            frame,
+            now - self.opened_at,
+            self.reduced_motion,
+            self.frame,
+            shown,
+            &mut elements,
+        );
         elements
     }
 }
@@ -745,17 +754,20 @@ fn paint_tour(look: &Look, step: usize, tried: bool, names: &KeyNames) -> Option
     }
     panel::key_hint(&mut p, fx + width - PADDING, centre, &["Esc"], "every key");
     p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
+    p.piece(fx, fy, width, HEAD_H);
 
     // The miniature's place, filled in case a frame shows before it's painted.
     let (sx, sy, sw, sh) = layout.stage;
     let (sx, sy) = (fx + sx, fy + sy);
     p.border(sx - 1.0, sy - 1.0, sw + 2.0, sh + 2.0, 9.0, 1.0, 0xffffff1f);
     p.fill(sx, sy, sw, sh, 8.0, 0x0b0d12ff);
+    panel::piece(&mut p, sx, sy, sw, sh);
 
     // The words, beside it.
     let cx = sx + sw + TOUR_COLUMN_GAP;
     let cw = fx + width - PADDING - cx;
     let mut y = sy + 12.0;
+    panel::piece(&mut p, cx, sy, cw, fy + height - PADDING - sy);
     let title = Style::new(Face::BodyBold, 26.0, panel::BRIGHT);
     for line in text::wrap(lesson.title, &title, cw) {
         p.text(&line, cx, y, &title);
@@ -839,12 +851,7 @@ fn paint_tour(look: &Look, step: usize, tried: bool, names: &KeyNames) -> Option
     if step > 0 {
         panel::key_hint(&mut p, start - panel::HINT_GAP, centre, &["←"], "back");
     }
-    Some(Painted {
-        buffer: paint::buffer(&p.pixmap),
-        logical,
-        device,
-        scale: look.scale,
-    })
+    Some(Painted::from_painter(p, logical, look.scale))
 }
 
 /// The tour's miniature at one moment, painted at the screen's scale to sit in the card's place
@@ -978,6 +985,7 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
         );
     }
     p.fill(fx, fy + HEAD_H, width, 1.0, 0.0, panel::DIVIDER);
+    p.piece(fx, fy, width, HEAD_H);
 
     let column_w = (width - 2.0 * PADDING - COLUMN_GAP) / 2.0;
     let title = panel::section_style();
@@ -1007,6 +1015,7 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
             .min(column_w / 2.0);
         let mut y = top;
         for section in list {
+            let section_top = y;
             p.text(
                 &section.group.title().to_uppercase(),
                 x0,
@@ -1036,15 +1045,11 @@ fn paint(look: &Look, sections: &[Section]) -> Option<Painted> {
                 );
                 y += pitch;
             }
+            panel::piece(&mut p, x0, section_top, column_w, y - section_top);
             y += GROUP_GAP;
         }
     }
-    Some(Painted {
-        buffer: paint::buffer(&p.pixmap),
-        logical,
-        device,
-        scale: look.scale,
-    })
+    Some(Painted::from_painter(p, logical, look.scale))
 }
 
 impl Slipstream {

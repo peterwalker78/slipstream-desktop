@@ -97,6 +97,8 @@ smithay::backend::renderer::element::render_elements! {
     /// A window stretched or shrunk while it animates.
     Rescaled=RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
     Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
+    /// A panel or card on its way in or out of the bar, or settled.
+    Flow=crate::flow::FlowElement<GlesRenderer>,
     Solid=SolidColorRenderElement,
     /// A texture shown through one of Slipstream's shaders: bullet time's tilted overview, or the
     /// UI's glass fade.
@@ -113,6 +115,7 @@ impl std::fmt::Debug for OutputElement {
             Self::Surface(e) => f.debug_tuple("Surface").field(e).finish(),
             Self::Rescaled(e) => f.debug_tuple("Rescaled").field(e).finish(),
             Self::Memory(e) => f.debug_tuple("Memory").field(e).finish(),
+            Self::Flow(e) => f.debug_tuple("Flow").field(e).finish(),
             Self::Solid(e) => f.debug_tuple("Solid").field(e).finish(),
             Self::Shaded(e) => f.debug_tuple("Shaded").field(e).finish(),
             Self::Pixel(e) => f.debug_tuple("Pixel").field(e).finish(),
@@ -252,15 +255,7 @@ fn card_elements(
                 .explorer
                 .element(renderer, frame(now), running, ring, keys)
                 .into_iter()
-                .map(OutputElement::Memory),
-        );
-    } else if state.explorer.is_closing() {
-        elements.extend(
-            state
-                .explorer
-                .closing_element(renderer, frame(now))
-                .into_iter()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     if state.plugin_panel.is_open() {
@@ -270,8 +265,7 @@ fn card_elements(
                 .plugin_panel
                 .element(renderer, frame(now), facts)
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     if state.quick.is_open() {
@@ -281,8 +275,7 @@ fn card_elements(
                 .quick
                 .element(renderer, frame(now), facts)
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     if state.centre.is_open() {
@@ -302,7 +295,7 @@ fn card_elements(
                     &mut icon,
                 )
                 .into_iter()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
         state.finish_chip_launch(now);
         state.centre.finish_menu_choice(now);
@@ -316,8 +309,7 @@ fn card_elements(
                 .history
                 .element(renderer, frame(now), ring, key)
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     if state.sheet.is_open() {
@@ -339,7 +331,7 @@ fn card_elements(
                     effects,
                 )
                 .into_iter()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     // Alt+Tab's switcher, on the screen the keyboard is on.
@@ -363,8 +355,7 @@ fn card_elements(
         elements.extend(
             card.element(renderer, frame(wall))
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     // The card asking what a screen never seen here should show. Drawn where the keyboard is, as
@@ -374,8 +365,7 @@ fn card_elements(
             connect
                 .element(renderer, frame(wall))
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     // The offer at login, above everything else it is asking about.
@@ -384,8 +374,7 @@ fn card_elements(
             offer
                 .element(renderer, frame(wall))
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     // The share picker, on the screen the keyboard is on: the app waiting for it is usually the
@@ -403,8 +392,7 @@ fn card_elements(
         elements.extend(
             ask.element(renderer, frame(wall), ring)
                 .into_iter()
-                .flatten()
-                .map(OutputElement::Memory),
+                .map(OutputElement::Flow),
         );
     }
     // The way out: the ask card in the middle of the screen, or the slim one while the apps are
@@ -416,18 +404,25 @@ fn card_elements(
                 .map(OutputElement::Memory),
         );
     }
-    // Panels and cards draining away after they closed, behind whatever is open: only their
-    // last picture, which takes no input.
+    // Panels and cards going back into the bar after they closed, behind whatever is open: only
+    // their last picture, which takes no input.
     let ring = state.panel_ring();
     let reduced_motion = state.motion.reduced_motion;
+    let mut gone = Flows(&mut elements);
     for fade in state.fades_mut() {
-        elements.extend(
-            fade.elements(renderer, now, ring, reduced_motion)
-                .map(OutputElement::Memory),
-        );
+        fade.draw_closing(renderer, now, ring, reduced_motion, &mut gone);
     }
     state.fading.retain(crate::panel::Fade::is_closing);
     elements
+}
+
+/// Panels' elements, added to a frame's.
+struct Flows<'a>(&'a mut Vec<OutputElement>);
+
+impl Extend<crate::flow::FlowElement<GlesRenderer>> for Flows<'_> {
+    fn extend<I: IntoIterator<Item = crate::flow::FlowElement<GlesRenderer>>>(&mut self, iter: I) {
+        self.0.extend(iter.into_iter().map(OutputElement::Flow));
+    }
 }
 
 /// The cursor theme's shape `name` with its hotspot at `pos`, `time` into its animation.

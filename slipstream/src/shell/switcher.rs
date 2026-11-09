@@ -15,7 +15,7 @@ use smithay::{
 
 use crate::{
     Slipstream,
-    paint::{self, Painted, Painter},
+    paint::{Painted, Painter},
     panel::{self, DESIGN_PX},
     state::{window_app_id, window_title},
     text::{self, Face, Style},
@@ -350,12 +350,7 @@ fn paint(look: &Look, icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>) -> Opti
         let title = text::ellipsize(&tile.title, &title_style, room);
         p.text(&title, x + INSET, y + 107.0, &title_style);
     }
-    Some(Painted {
-        buffer: paint::buffer(&p.pixmap),
-        logical,
-        device,
-        scale: look.scale,
-    })
+    Some(Painted::from_painter(p, logical, look.scale))
 }
 
 /// A coloured square with the app's initial, for an app with no icon.
