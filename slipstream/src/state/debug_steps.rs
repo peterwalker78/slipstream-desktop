@@ -115,9 +115,21 @@ impl Slipstream {
                 }
                 // Key steps act only on an open panel. A closed one keeps its last selection, and a
                 // mistimed step would otherwise press it.
-                debug::Step::Type(_) | debug::Step::Key(_) if !self.explorer.is_open() => {
+                // With no panel open, text goes to the app with the keyboard, as typing does.
+                debug::Step::Type(text) if !self.explorer.is_open() => {
+                    for ch in text.chars() {
+                        let name = match ch {
+                            ' ' => "space".to_string(),
+                            _ => ch.to_string(),
+                        };
+                        self.inject_key(&name, true);
+                        self.inject_key(&name, false);
+                    }
+                }
+                debug::Step::Key(_) if !self.explorer.is_open() => {
                     tracing::info!("debug step ignored: panel closed");
                 }
+                debug::Step::Sun(minute) => self.night.light_at(minute),
                 debug::Step::Type(text) => {
                     for ch in text.chars() {
                         self.explorer_key(Keysym::NoSymbol, Some(ch), Mods::default());

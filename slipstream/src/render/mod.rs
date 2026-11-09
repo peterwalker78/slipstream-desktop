@@ -220,13 +220,18 @@ fn card_elements(
     wall: f64,
     deck_shown: bool,
 ) -> Vec<OutputElement> {
-    let (accent, attention) = (state.panel_accent(), state.panel_attention());
+    let (accent, attention, bar) = (
+        state.panel_accent(),
+        state.panel_attention(),
+        state.bar_place(),
+    );
     let frame = |time| crate::panel::Frame {
         size,
         scale,
         time,
         accent,
         attention,
+        bar,
     };
     let mut elements = Vec::new();
     if state.explorer.is_open() {

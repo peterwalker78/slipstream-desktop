@@ -124,6 +124,8 @@ struct Look {
     turned: Option<(String, f32)>,
     width: i32,
     scale: f64,
+    /// Where the bar it drops from sits.
+    bar: crate::bar::Place,
 }
 
 #[derive(Default)]
@@ -347,6 +349,7 @@ impl PluginPanel {
             facts,
             width: frame.size.w,
             scale: frame.scale,
+            bar: frame.bar,
         };
         if self.shown.as_ref() != Some(&look) {
             self.repaint(&look)?;
@@ -393,7 +396,7 @@ impl PluginPanel {
             y: panel::MARGIN,
             width: WIDTH,
             left,
-            top: panel::TOP,
+            top: panel::top(look.bar),
         };
         let logical = Size::<i32, Logical>::from((
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,

@@ -46,7 +46,7 @@ pub struct Chrome {
     pub(super) panes: crate::pane::Panes,
     /// The bar's material round the docked pane with the shadow the piece casts, for each pane
     /// size painted lately: the one at rest, and the one a pane changing size is heading for.
-    pub(super) dock_frames: Vec<((i32, i32), paint::Painted)>,
+    pub(super) dock_frames: Vec<(DockFrameKey, paint::Painted)>,
     /// A closed window falling away as code.
     pub(super) fx: crate::fx::Fx,
     /// The dark behind Alt+Tab's deck.
@@ -247,7 +247,7 @@ impl Chrome {
             }
         };
         let top = (screen.h as f64 * TIPS_DOWN - size.h as f64 / 2.0 + float)
-            .clamp(bar::HEIGHT as f64, (screen.h - size.h).max(0) as f64);
+            .clamp(view.bar.foot() as f64, (screen.h - size.h).max(0) as f64);
         let device = (
             (size.w as f64 * scale.x).round(),
             (size.h as f64 * scale.x).round(),
@@ -416,16 +416,24 @@ fn paint_window_shadow(scale: f64) -> Option<paint::Painted> {
     })
 }
 
+/// What a docked pane's frame was painted for: the pane's size, and the fill and edge of the bar
+/// it hangs from.
+type DockFrameKey = ((i32, i32), (u32, u32));
+
 /// Room around the docked pane for its frame and the shadow, in logical pixels.
 const DOCK_MARGIN: i32 = 64;
 /// How round the frame's two lower corners are.
 const DOCK_RADIUS: f32 = 7.0;
 
 /// The frame of a docked pane `size` logical pixels big, with `DOCK_MARGIN` of room all round:
-/// the bar's own material round the pane, edged with the bar's line down its sides and under
-/// its foot, and the shadow the piece casts. Nothing is painted where the window goes, nor above
-/// the frame's top, which is the bar's lower edge.
-fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
+/// the bar's own material round the pane, its `fill`, edged with the bar's `line` down its sides
+/// and under its foot, and the shadow the piece casts. Nothing is painted where the window goes,
+/// nor above the frame's top, which is the bar's lower edge.
+fn paint_dock_frame(
+    size: (i32, i32),
+    scale: f64,
+    (fill, line): (u32, u32),
+) -> Option<paint::Painted> {
     let logical = Size::<i32, Logical>::from((size.0 + 2 * DOCK_MARGIN, size.1 + 2 * DOCK_MARGIN));
     paint::Painted::new(logical, scale, |p| {
         let m = DOCK_MARGIN as f32;
@@ -444,8 +452,8 @@ fn paint_dock_frame(size: (i32, i32), scale: f64) -> Option<paint::Painted> {
             SHADOW_BLUR,
             SHADOW_COLOUR,
         );
-        p.fill(x, y, wide, tall, DOCK_RADIUS, panel::CHIP | 0xe6);
-        p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, panel::DIVIDER);
+        p.fill(x, y, wide, tall, DOCK_RADIUS, fill);
+        p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, line);
         p.clear(0.0, 0.0, logical.w as f32, m - edge);
         p.clear(m, m, w, h);
     })
@@ -534,7 +542,7 @@ impl Chrome {
         &mut self,
         renderer: &mut R,
         size: (i32, i32),
-        scale: f64,
+        (scale, place): (f64, crate::bar::Place),
         at: Point<f64, Logical>,
         alpha: f32,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
@@ -542,10 +550,12 @@ impl Chrome {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
+        // In the material of the bar it hangs from.
+        let key = (size, place.material());
         let kept = self
             .dock_frames
             .iter()
-            .position(|(painted, frame)| *painted == size && frame.scale == scale);
+            .position(|(painted, frame)| *painted == key && frame.scale == scale);
         let index = match kept {
             Some(index) => index,
             None => {
@@ -554,7 +564,7 @@ impl Chrome {
                     self.dock_frames.remove(0);
                 }
                 self.dock_frames
-                    .push((size, paint_dock_frame(size, scale)?));
+                    .push((key, paint_dock_frame(size, scale, key.1)?));
                 self.dock_frames.len() - 1
             }
         };

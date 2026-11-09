@@ -177,6 +177,8 @@ struct Look {
     power_menu: bool,
     width: i32,
     scale: f64,
+    /// Where the bar it drops from sits.
+    bar: crate::bar::Place,
 }
 
 /// A slider's track: where a click lands, and the line the level is measured along, in logical
@@ -459,6 +461,7 @@ impl QuickSettings {
             power_menu: self.power_menu,
             width,
             scale,
+            bar: frame.bar,
         };
         if self.shown.as_ref() != Some(&look) {
             self.repaint(&look)?;
@@ -492,7 +495,7 @@ impl QuickSettings {
             y: panel::MARGIN,
             width: WIDTH,
             left: look.width as f32 / DESIGN_PX - panel::RIGHT - WIDTH,
-            top: panel::TOP,
+            top: panel::top(look.bar),
         };
         let logical = Size::<i32, Logical>::from((
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
@@ -1228,6 +1231,7 @@ mod tests {
             power_menu: false,
             width: 1536,
             scale: 1.25,
+            bar: crate::bar::Place::default(),
         };
         quick.repaint(&look).unwrap();
         let right = quick.frame.loc.x + quick.frame.size.w;

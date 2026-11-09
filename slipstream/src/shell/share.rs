@@ -593,6 +593,7 @@ mod tests {
             time: 0.0,
             accent: crate::panel::ACCENT,
             attention: crate::panel::AMBER,
+            bar: crate::bar::Place::default(),
         };
         picker.on_screen.paint(picker.card(0), frame, card::paint);
         let px = crate::panel::DESIGN_PX as f64;

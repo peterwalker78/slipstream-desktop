@@ -396,7 +396,11 @@ impl Slipstream {
                 })
                 .collect();
             let ring = self.panel_ring();
-            let (accent, attention) = (self.panel_accent(), self.panel_attention());
+            let (accent, attention, bar) = (
+                self.panel_accent(),
+                self.panel_attention(),
+                self.bar_place(),
+            );
             let explorer = &mut self.explorer;
             let frame = crate::panel::Frame {
                 size: screen,
@@ -404,6 +408,7 @@ impl Slipstream {
                 time: now,
                 accent,
                 attention,
+                bar,
             };
             switcher.element(renderer, frame, ring, tiles, &mut |id, px| {
                 explorer.app_icon(id, px)

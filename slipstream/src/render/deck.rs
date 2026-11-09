@@ -50,7 +50,7 @@ pub(super) fn deck_elements_for(
                     w: output_geo.size.w,
                     h: output_geo.size.h,
                 };
-                let column = Rain::column(stream, screen_rect, bar::HEIGHT);
+                let column = Rain::column(stream, screen_rect, state.bar_place().foot());
                 let w = column.w as f64;
                 return Pose::flat([column.x as f64, column.y as f64, w, w * 0.75]);
             }

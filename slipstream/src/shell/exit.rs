@@ -40,7 +40,6 @@ const FADE_OUT: f64 = 0.35;
 const MAX_ROWS: usize = 8;
 /// The slim card while the apps are closing: the toast's width, hanging from the panels' line.
 const SLIM_WIDTH: f32 = 440.0;
-const SLIM_TOP: f32 = panel::TOP;
 
 /// Where the session is going.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -658,7 +657,7 @@ impl<W: Clone + PartialEq> Exit<W> {
                 Shape::Slim(slim) => (paint_slim(slim, inks.0, scale), Vec::new()),
                 Shape::Blank => (None, Vec::new()),
             })?;
-        let at = self.origin(screen, size);
+        let at = self.origin(screen, size, crate::panel::top(frame.bar));
         let opening = opening(now - self.since, self.reduced_motion);
         self.on_screen.place(renderer, at, opening)
     }
@@ -669,11 +668,12 @@ impl<W: Clone + PartialEq> Exit<W> {
         &self,
         screen: Size<i32, Logical>,
         painted: Size<i32, Logical>,
+        slim_top: f32,
     ) -> Point<f64, Logical> {
         let x = ((screen.w - painted.w) / 2) as f64;
         match self.phase {
             Phase::Closing { .. } | Phase::Waiting { .. } => {
-                Point::from((x, ((SLIM_TOP - MARGIN) * DESIGN_PX) as f64))
+                Point::from((x, ((slim_top - MARGIN) * DESIGN_PX) as f64))
             }
             _ => Point::from((x, ((screen.h - painted.h) / 2).max(0) as f64)),
         }
@@ -876,6 +876,7 @@ mod tests {
             time: 0.0,
             accent: panel::ACCENT,
             attention: panel::AMBER,
+            bar: crate::bar::Place::default(),
         };
         let size = exit
             .on_screen
@@ -884,7 +885,7 @@ mod tests {
                 _ => (None, Vec::new()),
             })
             .unwrap();
-        exit.on_screen.at = exit.origin(screen, size);
+        exit.on_screen.at = exit.origin(screen, size, panel::TOP);
         let at = exit.on_screen.at;
         let px = DESIGN_PX as f64;
         hits.iter()

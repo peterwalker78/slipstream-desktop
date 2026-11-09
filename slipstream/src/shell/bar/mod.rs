@@ -4,18 +4,29 @@
 //! window docked to the bar.
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
-//! stays sharp at fractional scales, and repainted only when what it shows changes.
+//! stays sharp at fractional scales, and repainted only when what it shows changes. Each of its
+//! styles has a touch of its own that moves (`breath`, `light`, `lean`), drawn over that picture
+//! rather than into it.
+
+pub mod breath;
+pub mod lean;
+pub mod light;
+pub mod place;
+
+pub use place::Place;
 
 use resvg::tiny_skia::Pixmap;
+use slipstream_config::{BarStyle, sun::Daylight};
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
         element::{
             Kind,
             memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+            solid::SolidColorRenderElement,
         },
     },
-    utils::{Buffer, Logical, Rectangle, Size},
+    utils::{Buffer, Logical, Point, Rectangle, Size},
 };
 
 use crate::{
@@ -192,12 +203,20 @@ type Edges = (f32, f32);
 
 #[derive(Default)]
 pub struct Bar {
-    /// What the buffer shows, for what screen width and scale, and the marker's edges while it
-    /// slides.
-    shown: Option<(Content, i32, f64, Option<Edges>)>,
+    /// What the buffer shows, for what width and scale, the marker's edges while it slides, and
+    /// in which style.
+    shown: Option<(Content, i32, f64, Option<Edges>, BarStyle)>,
     buffer: Option<(MemoryRenderBuffer, Size<i32, Buffer>)>,
     targets: Targets,
     marker: Option<Marker>,
+    /// Where the bar was last drawn, in logical pixels from the screen's corner.
+    at: Rectangle<f64, Logical>,
+    /// What wants attention on it, never dimmed: each one's left and right edges, the same way.
+    attention: Vec<(f64, f64)>,
+    breath: breath::Breath,
+    light: light::Light,
+    /// The floating strip's lean.
+    pub lean: lean::Lean,
 }
 
 impl Bar {
@@ -206,29 +225,35 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar for a screen `width` logical pixels wide at `scale`, `wall` seconds in. A new
-    /// current workspace sends the marker sliding over to it from where it's drawn, unless motion
-    /// is reduced.
+    /// The bar in `style` for a screen `width` logical pixels wide at `scale`, `wall` seconds in.
+    /// A new current workspace sends the marker sliding over to it from where it's drawn, unless
+    /// motion is reduced.
     #[allow(clippy::too_many_arguments)]
     pub fn element<R>(
         &mut self,
         renderer: &mut R,
-        content: Content,
+        mut content: Content,
         width: i32,
         scale: f64,
         alpha: f32,
         wall: f64,
         reduced_motion: bool,
+        style: BarStyle,
     ) -> Option<MemoryRenderBufferRenderElement<R>>
     where
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        self.follow(&content, width, scale, wall, reduced_motion);
+        let rect = Place::of(style).rect(width);
+        // The bar is painted in its own coordinates, from its left end.
+        content.dock = content
+            .dock
+            .map(|(left, right)| (left - rect.x, right - rect.x));
+        self.follow(&content, rect.w, scale, wall, reduced_motion);
         let sliding = self.marker.and_then(|marker| marker.sliding(wall));
-        let key = (content, width, scale, sliding);
+        let key = (content, rect.w, scale, sliding, style);
         if self.shown.as_ref() != Some(&key) {
-            let painted = paint(&key.0, width, scale, sliding)?;
+            let painted = paint(&key.0, rect.w, scale, sliding, style)?;
             // At rest the marker sits on its workspace however the bar is laid out, so a slide
             // starts from where it's really drawn.
             if sliding.is_none() {
@@ -239,21 +264,68 @@ impl Bar {
                 painted.pixmap.height() as i32,
             ));
             self.buffer = Some((paint::buffer(&painted.pixmap), size));
-            self.targets = painted.targets;
+            self.targets = placed(painted.targets, rect, width);
+            let (x, unit) = (rect.x as f64, painted.unit);
+            self.attention = painted
+                .attention
+                .iter()
+                .map(|&(left, right)| (x + left as f64 * unit, x + right as f64 * unit))
+                .collect();
             self.shown = Some(key);
         }
+        self.at = Rectangle::new(
+            (rect.x as f64, rect.y as f64).into(),
+            (rect.w as f64, rect.h as f64).into(),
+        );
         let (buffer, size) = self.buffer.as_ref()?;
         // One buffer pixel per screen pixel, however fractional the scale.
+        let corner = Point::<f64, Logical>::from((rect.x as f64, rect.y as f64))
+            .to_physical(scale)
+            .to_i32_round::<i32>()
+            .to_f64();
         MemoryRenderBufferRenderElement::from_buffer(
             renderer,
-            (0.0, 0.0),
+            corner,
             buffer,
             Some(alpha),
             Some(Rectangle::from_size((size.w as f64, size.h as f64).into())),
-            Some((width, HEIGHT).into()),
+            Some((rect.w, HEIGHT).into()),
             Kind::Unspecified,
         )
         .ok()
+    }
+
+    /// The bar as it is, holding its breath while you type: its contents dimmed by its own fill,
+    /// all but what wants attention, at `alpha`. Nothing at rest.
+    pub fn breath(
+        &mut self,
+        typing: bool,
+        now: f64,
+        reduced_motion: bool,
+        scale: f64,
+        alpha: f32,
+    ) -> Vec<SolidColorRenderElement> {
+        let strength = self.breath.step(typing, now, reduced_motion) * alpha;
+        self.breath
+            .elements(self.at, &self.attention, scale, strength)
+    }
+
+    /// The lit edge's passing light at `now` seconds, from where `light` says the sun is, at
+    /// `alpha`. Nothing between passes.
+    pub fn light<R>(
+        &mut self,
+        renderer: &mut R,
+        scale: f64,
+        now: f64,
+        light: Daylight,
+        alpha: f32,
+    ) -> Option<MemoryRenderBufferRenderElement<R>>
+    where
+        R: Renderer + ImportMem,
+        R::TextureId: Send + Clone + 'static,
+    {
+        self.light
+            .element(renderer, self.at, scale, now, light, alpha)
     }
 
     /// Sends the marker towards the current workspace when that changes.
@@ -288,6 +360,11 @@ impl Bar {
             }
             _ => self.marker = Some(Marker::at(content.active, (x, x + w))),
         }
+    }
+
+    /// How far below the screen's top the bar was last drawn.
+    pub fn top(&self) -> f64 {
+        self.at.loc.y
     }
 
     /// Where the docked window's slot goes, in logical pixels from the screen's left: its left
@@ -328,6 +405,36 @@ struct Painted {
     pixmap: Pixmap,
     targets: Targets,
     marker: Option<(f32, f32)>,
+    /// What wants attention, its left and right edges in the bar's units.
+    attention: Vec<(f32, f32)>,
+    /// Logical pixels to one of the bar's units.
+    unit: f64,
+}
+
+/// The targets of a bar painted at `rect` on a screen `width` wide, moved from the bar's own
+/// coordinates to the screen's. They take clicks from the screen's top edge down to the bar's
+/// foot, and those at the bar's ends out to the screen's sides, so a pointer thrown against an
+/// edge still lands on what's nearest it.
+fn placed(targets: Targets, rect: crate::layout::Rect, width: i32) -> Targets {
+    let (x, end) = (rect.x as f64, (rect.x + rect.w) as f64);
+    targets
+        .into_iter()
+        .map(|(target, area)| {
+            let mut left = area.loc.x + x;
+            let mut right = left + area.size.w;
+            if area.loc.x <= 0.0 {
+                left = 0.0;
+            }
+            if right >= end - 0.5 {
+                right = right.max(width as f64);
+            }
+            let area = Rectangle::new(
+                (left, 0.0).into(),
+                (right - left, (rect.y + rect.h) as f64).into(),
+            );
+            (target, area)
+        })
+        .collect()
 }
 
 /// The bar's size in device pixels for a screen `width` logical pixels wide at `scale`.
@@ -346,7 +453,13 @@ fn design_width(width: i32, scale: f64) -> f32 {
 
 /// Paints the bar for a screen `width` logical pixels wide, with the marker at `marker`'s edges
 /// while it slides, and says where its buttons are.
-fn paint(content: &Content, width: i32, scale: f64, marker: Option<(f32, f32)>) -> Option<Painted> {
+fn paint(
+    content: &Content,
+    width: i32,
+    scale: f64,
+    marker: Option<(f32, f32)>,
+    style: BarStyle,
+) -> Option<Painted> {
     let (device_w, device_h) = device_size(width, scale);
     let f = device_h as f32 / TALL;
     let mut bar = Strip {
@@ -355,27 +468,25 @@ fn paint(content: &Content, width: i32, scale: f64, marker: Option<(f32, f32)>) 
         // Design pixels to logical ones, for the click targets.
         unit: f as f64 / scale,
         targets: Vec::new(),
+        attention: Vec::new(),
     };
-    let wide = bar.wide;
-    bar.p.fill(0.0, 0.0, wide, TALL, 0.0, panel::CHIP | 0xe6);
-    // The line along the foot, broken where a docked pane's frame carries the bar on downwards.
+    // Where a docked pane's frame carries the bar on downwards: its foot has no edge there.
     let span = content.dock.map(|(left, right)| {
         (
             (left as f64 / bar.unit) as f32,
             (right as f64 / bar.unit) as f32,
         )
     });
-    match span {
-        Some((left, right)) => {
-            bar.p
-                .fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, panel::DIVIDER);
-            let rest = (wide - right).max(0.0);
-            bar.p
-                .fill(right, TALL - 1.0, rest, 1.0, 0.0, panel::DIVIDER);
-        }
-        None => bar.p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, panel::DIVIDER),
+    let place = Place::of(style);
+    if place.floating {
+        paint_strip(&mut bar, place, span);
+    } else {
+        paint_band(&mut bar, place, span);
     }
     let (x, at_rest) = paint_left(&mut bar, content, marker);
+    if style == BarStyle::LitEdge {
+        paint_lit_edge(&mut bar, content, marker.or(at_rest), span);
+    }
     let right = paint_right(&mut bar, content);
     let (centre_x, block_w) = paint_centre(&mut bar, content);
     paint_title(&mut bar, content, x, centre_x);
@@ -393,16 +504,123 @@ fn paint(content: &Content, width: i32, scale: f64, marker: Option<(f32, f32)>) 
         pixmap: bar.p.pixmap,
         targets: bar.targets,
         marker: at_rest,
+        attention: bar.attention,
+        unit: bar.unit,
     })
 }
 
-/// The bar as it is painted, in design pixels `wide`, and where its buttons are.
+/// The bar along the screen's top edge: its fill, and the line along its foot, broken over
+/// `span` where a docked pane's frame carries it on downwards.
+fn paint_band(bar: &mut Strip, place: Place, span: Option<(f32, f32)>) {
+    let (wide, (fill, edge)) = (bar.wide, place.material());
+    bar.p.fill(0.0, 0.0, wide, TALL, 0.0, fill);
+    match span {
+        Some((left, right)) => {
+            bar.p.fill(0.0, TALL - 1.0, left.max(0.0), 1.0, 0.0, edge);
+            let rest = (wide - right).max(0.0);
+            bar.p.fill(right, TALL - 1.0, rest, 1.0, 0.0, edge);
+        }
+        None => bar.p.fill(0.0, TALL - 1.0, wide, 1.0, 0.0, edge),
+    }
+}
+
+/// A floating strip: the panels' glass and edge with rounded corners. Over `span` its foot opens
+/// into a docked pane's frame, and a corner the frame reaches is squared off, its side running
+/// straight on down into the frame's.
+fn paint_strip(bar: &mut Strip, place: Place, span: Option<(f32, f32)>) {
+    let (wide, (fill, edge)) = (bar.wide, place.material());
+    let radius = (place::STRIP_RADIUS as f64 / bar.unit) as f32;
+    let p = &mut bar.p;
+    p.fill(0.0, 0.0, wide, TALL, radius, fill);
+    p.border(0.0, 0.0, wide, TALL, radius, 1.0, edge);
+    let Some((left, right)) = span else {
+        return;
+    };
+    let (left, right) = (left.max(0.0), right.min(wide));
+    p.clear(left, TALL - 1.0, right - left, 1.0);
+    p.fill(left, TALL - 1.0, right - left, 1.0, 0.0, fill);
+    for (reaches, x) in [
+        (left <= radius, 0.0),
+        (right >= wide - radius, wide - radius),
+    ] {
+        if reaches {
+            p.clear(x, TALL - radius, radius, radius);
+            p.fill(x, TALL - radius, radius, radius, 0.0, fill);
+            let side = if x == 0.0 { 0.0 } else { wide - 1.0 };
+            p.fill(side, TALL - radius, 1.0, radius, 0.0, edge);
+        }
+    }
+}
+
+/// The lit edge: a faint light along the bar's top, and the line under it glowing in the focus
+/// ring's colour beneath the current workspace's marker at `marker`, fading out across the bar.
+/// Over `span` the foot stays open into a docked pane's frame.
+fn paint_lit_edge(
+    bar: &mut Strip,
+    content: &Content,
+    marker: Option<(f32, f32)>,
+    span: Option<(f32, f32)>,
+) {
+    let wide = bar.wide;
+    bar.p.fill(0.0, 0.0, wide, 1.0, 0.0, TOP_LIGHT);
+    bar.p
+        .fill(0.0, 1.0, wide, 1.0, 0.0, (TOP_LIGHT & 0xffffff00) | 0x06);
+    let Some((left, right)) = marker else {
+        return;
+    };
+    let middle = ((left + right) / 2.0).clamp(0.0, wide);
+    let ring = content.ring & 0xffffff00;
+    let peak = if content.keyboard_here {
+        GLOW
+    } else {
+        GLOW / 2.0
+    };
+    // Falling away softly with distance from the marker, gone a third of the way across.
+    let reach = wide * 0.2;
+    let strength = |x: f32| peak * (-((x - middle) / reach).powi(2)).exp();
+    let mut xs: Vec<f32> = (0..=24)
+        .map(|n| n as f32 * wide / 24.0)
+        .chain(
+            [0.0, 4.0, 12.0, 32.0, 80.0]
+                .iter()
+                .flat_map(|d| [middle - d, middle + d]),
+        )
+        .filter(|x| (0.0..=wide).contains(x))
+        .collect();
+    xs.sort_by(f32::total_cmp);
+    xs.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+    let stops: Vec<(f32, u32)> = xs
+        .iter()
+        .map(|&x| {
+            (
+                x / wide,
+                ring | strength(x).round().clamp(0.0, 255.0) as u32,
+            )
+        })
+        .collect();
+    bar.p.fill_across(0.0, TALL - 1.0, wide, 1.0, &stops);
+    if let Some((left, right)) = span {
+        let (left, right) = (left.max(0.0), right.min(wide));
+        let fill = Place::default().material().0;
+        bar.p.clear(left, TALL - 1.0, right - left, 1.0);
+        bar.p.fill(left, TALL - 1.0, right - left, 1.0, 0.0, fill);
+    }
+}
+
+/// The lit edge's light along the bar's top.
+const TOP_LIGHT: u32 = 0xffffff0c;
+/// How strongly the line under the bar glows beneath the marker, out of 255.
+const GLOW: f32 = 175.0;
+
+/// The bar as it is painted, in design pixels `wide`, where its buttons are, and what on it
+/// wants attention.
 struct Strip {
     p: Painter,
     wide: f32,
     /// Logical pixels to a design pixel.
     unit: f64,
     targets: Targets,
+    attention: Vec<(f32, f32)>,
 }
 
 impl Strip {
@@ -518,6 +736,7 @@ fn paint_left(
         };
         let w = text::width(mode, &style) + 20.0;
         bar.p.fill(x, 7.0, w, 26.0, 6.0, chip);
+        bar.attention.push((x, x + w));
         bar.p.text(mode, x + 10.0, 20.0, &style);
         x += w + 8.0;
     }
@@ -736,6 +955,7 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
         let badge_w = (count_w + 8.0).max(16.0);
         let badge_x = right + 36.0 - 2.0 - badge_w;
         bar.p.fill(badge_x, 6.0, badge_w, 16.0, 8.0, content.bullet);
+        bar.attention.push((badge_x, badge_x + badge_w));
         bar.p
             .text(&count, badge_x + (badge_w - count_w) / 2.0, 14.0, &style);
     }
@@ -824,6 +1044,7 @@ fn paint_right(bar: &mut Strip, content: &Content) -> f32 {
     // share when clicked.
     if content.sharing {
         let (x, w) = pill(bar, right, "SHARING", LIVE, Mark::Dot);
+        bar.attention.push((x, x + w));
         bar.target(Target::Sharing, x, w);
         right = x;
     }
@@ -871,7 +1092,8 @@ mod tests {
     use super::*;
 
     fn paint_plain(content: &Content, width: i32, scale: f64) -> Option<(Pixmap, Targets)> {
-        paint(content, width, scale, None).map(|painted| (painted.pixmap, painted.targets))
+        paint(content, width, scale, None, BarStyle::Plain)
+            .map(|painted| (painted.pixmap, painted.targets))
     }
 
     #[test]
@@ -932,7 +1154,14 @@ mod tests {
         let chips = workspace_chips(&quiet, design_width(1536, 1.0));
         let (x, w) = (chips[1].1, chips[1].2);
         // Over the left half of workspace 2's chip.
-        let half = paint(&quiet, 1536, 1.0, Some((x - 20.0, x + w / 2.0))).unwrap();
+        let half = paint(
+            &quiet,
+            1536,
+            1.0,
+            Some((x - 20.0, x + w / 2.0)),
+            BarStyle::Plain,
+        )
+        .unwrap();
         // Design pixels to device ones.
         let f = device_size(1536, 1.0).1 as f32 / TALL;
         let (left, right) = ((x * f) as u32, ((x + w) * f) as u32);
@@ -1125,6 +1354,49 @@ mod tests {
         assert_ne!(foot(&pixmap, 400), foot(&pixmap, 1400));
         assert_eq!(foot(&pixmap, 400), foot(&plain, 400));
         assert_ne!(foot(&pixmap, 1400), foot(&plain, 1400));
+    }
+
+    #[test]
+    fn the_lit_edge_glows_under_the_marker_and_fades_across() {
+        let content = content();
+        let lit = paint(&content, 1536, 1.0, None, BarStyle::LitEdge).unwrap();
+        let foot = |x: u32| lit.pixmap.pixel(x, lit.pixmap.height() - 1).unwrap();
+        let (left, right) = lit.marker.unwrap();
+        let under = foot(((left + right) / 2.0 / 1.25) as u32);
+        let far = foot(1500);
+        assert!(under.alpha() > far.alpha() && under.blue() > far.blue() + 60);
+        // The picture is the plain bar's apart from its edges.
+        let plain = paint(&content, 1536, 1.0, None, BarStyle::Plain).unwrap();
+        assert_eq!(lit.pixmap.pixel(900, 20), plain.pixmap.pixel(900, 20));
+    }
+
+    #[test]
+    fn a_floating_strip_has_round_corners_and_clicks_reach_the_edges() {
+        let strip = paint(&content(), 1512, 1.0, None, BarStyle::FloatingStrip).unwrap();
+        assert_eq!(
+            strip.pixmap.pixel(0, 0).unwrap().alpha(),
+            0,
+            "a rounded corner"
+        );
+        assert!(
+            strip.pixmap.pixel(756, 16).unwrap().alpha() > 0xf0,
+            "the panels' glass"
+        );
+        let rect = Place::of(BarStyle::FloatingStrip).rect(1536);
+        let targets = placed(strip.targets, rect, 1536);
+        let apps = targets.iter().find(|(t, _)| *t == Target::Apps).unwrap().1;
+        let bell = targets.iter().find(|(t, _)| *t == Target::Bell).unwrap().1;
+        assert_eq!(
+            (apps.loc.x, apps.loc.y),
+            (0.0, 0.0),
+            "from the screen's corner"
+        );
+        assert_eq!(bell.loc.x + bell.size.w, 1536.0, "to the screen's side");
+        assert_eq!(
+            apps.size.h,
+            (rect.y + rect.h) as f64,
+            "down to the strip's foot"
+        );
     }
 
     #[test]

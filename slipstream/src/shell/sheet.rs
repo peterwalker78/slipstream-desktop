@@ -325,6 +325,8 @@ struct StageLook {
     bullet: u32,
     effects: Effects,
     style: KeyStyle,
+    /// The bar is a floating strip.
+    strip: bool,
 }
 
 /// Where the tour is.
@@ -643,6 +645,7 @@ impl Sheet {
                 bullet,
                 effects,
                 style,
+                strip: frame.bar.floating,
             }
         });
         if self.stage_shown != stage_look {
@@ -861,6 +864,7 @@ fn paint_stage(look: &StageLook, names: &KeyNames) -> Option<Painted> {
         ring: look.ring,
         bullet: look.bullet,
         effects: look.effects,
+        strip: look.strip,
         secs: (look.clock as f64 / TOUR_FPS) as f32,
         keys: names,
     };

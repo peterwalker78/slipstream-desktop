@@ -92,6 +92,7 @@ pub(super) fn lock_elements(
                         time: now,
                         accent: state.panel_accent(),
                         attention: state.panel_attention(),
+                        bar: state.bar_place(),
                     },
                     crate::lock::WALLPAPER_GLOW,
                     false,

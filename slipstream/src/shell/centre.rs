@@ -110,6 +110,8 @@ struct Look {
     scroll: usize,
     size: Size<i32, Logical>,
     scale: f64,
+    /// Where the bar it drops from sits.
+    bar: crate::bar::Place,
     chips: Vec<Chip>,
     /// The chip whose menu is open.
     menu_chip: Option<usize>,
@@ -534,6 +536,7 @@ impl Centre {
             scroll: self.scroll,
             size,
             scale,
+            bar: frame.bar,
             chips: self.chips.clone(),
             menu_chip,
             launch_frac,
@@ -578,13 +581,13 @@ impl Centre {
     fn repaint(&mut self, look: &Look, notices: &Notices) -> Option<()> {
         let screen_w = look.size.w as f32 / DESIGN_PX;
         let screen_h = look.size.h as f32 / DESIGN_PX;
-        let height = (screen_h - panel::TOP - BOTTOM).max(420.0);
+        let height = (screen_h - panel::top(look.bar) - BOTTOM).max(420.0);
         let place = panel::Place {
             x: panel::MARGIN,
             y: panel::MARGIN,
             width: WIDTH,
             left: screen_w - panel::RIGHT - WIDTH,
-            top: panel::TOP,
+            top: panel::top(look.bar),
         };
         let logical = Size::<i32, Logical>::from((
             ((WIDTH + 2.0 * panel::MARGIN) * DESIGN_PX).ceil() as i32,
@@ -1111,6 +1114,7 @@ mod tests {
             ring: panel::FOCUS,
             accent: panel::ACCENT,
             attention: panel::AMBER,
+            bar: crate::bar::Place::default(),
             revision: notices.revision(),
             selected: centre.selected,
             action: centre.action,

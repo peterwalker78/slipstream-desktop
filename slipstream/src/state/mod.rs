@@ -998,6 +998,12 @@ impl Slipstream {
         })
     }
 
+    /// Where the bar sits, which the tiling area, the docked pane, the panels and the streams all
+    /// keep to.
+    pub fn bar_place(&self) -> bar::Place {
+        bar::Place::of(self.settings.appearance.bar_style)
+    }
+
     /// The area windows tile into on one screen: below the bar, and on the screen that has the
     /// code rain, left of it.
     ///
@@ -1008,10 +1014,8 @@ impl Slipstream {
         let screen = self.screen_rect(index)?;
         let reserve = if index == 0 { self.rain.reserve() } else { 0 };
         let area = Rect {
-            y: screen.y + bar::HEIGHT,
             w: (screen.w - reserve).max(1),
-            h: (screen.h - bar::HEIGHT).max(1),
-            ..screen
+            ..self.bar_place().below(screen)
         };
         // Less whatever docks and panels along the edges have reserved.
         let zone = self.screens.get(index).map(|screen| {

@@ -28,6 +28,8 @@ pub struct Look<'a> {
     /// the bell when something has come in.
     pub bullet: u32,
     pub effects: Effects,
+    /// The bar is a floating strip, clear of the screen's edges.
+    pub strip: bool,
     pub secs: f32,
     /// The keys it shows being pressed, named in the style the keys follow.
     pub keys: &'a KeyNames,
@@ -305,8 +307,30 @@ fn wallpaper(p: &mut Painter, w: f32, h: f32, secs: f32) {
 
 /// The bar across the top: logo, workspaces, what has the keyboard, the clock and the tray.
 fn bar(p: &mut Painter, scene: &Scene, w: f32, look: &Look) {
-    p.fill(0.0, 0.0, w, BAR_H, 0.0, WALL);
-    p.fill(0.0, BAR_H - 0.6, w, 0.6, 0.0, 0xffffff10);
+    if look.strip {
+        // Clear of the edges by the tiles' own gap, in the panels' glass.
+        let (fill, edge) = crate::bar::Place { floating: true }.material();
+        p.fill(
+            EDGE - 2.0,
+            1.0,
+            w - 2.0 * (EDGE - 2.0),
+            BAR_H - 1.0,
+            3.0,
+            fill,
+        );
+        p.border(
+            EDGE - 2.0,
+            1.0,
+            w - 2.0 * (EDGE - 2.0),
+            BAR_H - 1.0,
+            3.0,
+            0.6,
+            edge,
+        );
+    } else {
+        p.fill(0.0, 0.0, w, BAR_H, 0.0, WALL);
+        p.fill(0.0, BAR_H - 0.6, w, 0.6, 0.0, 0xffffff10);
+    }
     let centre = BAR_H / 2.0;
     p.icon(icons::LOGO, 4.0, 2.5, 10.0, None);
     let digits = Style::new(Face::Mono, 6.5, panel::TERTIARY);
@@ -1650,6 +1674,7 @@ mod tests {
             ring: 0x42d3ffcc,
             bullet: panel::AMBER,
             effects: Effects::Matrix,
+            strip: true,
             secs: 1.3,
             keys: &names,
         };

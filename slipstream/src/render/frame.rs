@@ -64,6 +64,8 @@ pub(super) struct View {
     pub labels: Vec<(Target<Window>, String)>,
     pub accent: u32,
     pub attention: u32,
+    /// Where the bar sits.
+    pub bar: bar::Place,
 }
 
 impl View {
@@ -183,6 +185,7 @@ impl View {
             labels,
             accent: state.panel_accent(),
             attention: state.panel_attention(),
+            bar: state.bar_place(),
         }
     }
 
@@ -226,6 +229,7 @@ impl View {
             time,
             accent: self.accent,
             attention: self.attention,
+            bar: self.bar,
         }
     }
 
@@ -387,7 +391,7 @@ pub fn output_elements(
         elements.extend(
             state
                 .rain
-                .elements(renderer, geo.size, bar::HEIGHT, v.scale.x, now, v.ui_alpha)
+                .elements(renderer, geo.size, v.bar.foot(), v.scale.x, now, v.ui_alpha)
                 .into_iter()
                 .map(OutputElement::Memory),
         );
@@ -616,9 +620,13 @@ fn popup_elements(
     let mut over_windows = Vec::new();
     let (size, scale) = (v.geo.size, v.scale);
     if v.first && v.ui > 0.0 && !state.fullscreen_on(v.active) {
-        let (popups, expired) = state
-            .notices
-            .popup_elements(renderer, size.w, scale.x, v.now, v.ui_alpha);
+        let (popups, expired) = state.notices.popup_elements(
+            renderer,
+            (size.w, crate::panel::top(v.bar)),
+            scale.x,
+            v.now,
+            v.ui_alpha,
+        );
         over_windows.extend(popups.iter().map(|popup| popup.geometry(scale)));
         elements.extend(popups.into_iter().map(OutputElement::Memory));
         crate::notify::closed(expired, crate::notify::Reason::Expired);
@@ -708,6 +716,7 @@ fn bar_elements(
         state.clock.reduced_motion,
         state.rain.demand(),
     );
+    let style = state.settings.appearance.bar_style;
     let bar = chrome.bar.element(
         renderer,
         content,
@@ -716,6 +725,7 @@ fn bar_elements(
         v.ui_alpha,
         v.wall,
         reduced_motion,
+        style,
     );
     // The slot opens, lights and flashes in step with its pane's flight (`dock::SlotLook`).
     let mut slot = None;
@@ -769,7 +779,7 @@ fn bar_elements(
                 lit: look.lit,
                 flash: look.flash,
             };
-            let at = Point::from((x, crate::slot::TOP as f64));
+            let at = Point::from((x, chrome.bar.top() + crate::slot::TOP as f64));
             let element = drawn.element(
                 renderer,
                 at,
@@ -782,6 +792,77 @@ fn bar_elements(
         }
     }
     elements.extend(bar.map(OutputElement::Memory));
+    bar_touch(state, renderer, v, chrome, style, docked, elements)
+}
+
+/// Each bar style's own touch, drawn over the bar's picture rather than into it: the bar as it is
+/// dims what's on it while you type, the lit edge's light passes along it, and the floating strip
+/// leans as the workspaces slide. Takes the bar's `elements` and hands them back with the touch.
+fn bar_touch(
+    state: &mut Slipstream,
+    renderer: &mut GlesRenderer,
+    v: &View,
+    chrome: &mut Chrome,
+    style: slipstream_config::BarStyle,
+    docked: bool,
+    mut elements: Vec<OutputElement>,
+) -> Vec<OutputElement> {
+    use slipstream_config::BarStyle;
+    let reduced = state.clock.reduced_motion;
+    if style != BarStyle::FloatingStrip {
+        chrome.bar.lean.rest();
+    }
+    match style {
+        BarStyle::Plain => {
+            let typing = state.concentration.typing(std::time::Instant::now());
+            let dim = chrome
+                .bar
+                .breath(typing, v.now, reduced, v.scale.x, v.ui_alpha);
+            elements.splice(0..0, dim.into_iter().map(OutputElement::Solid));
+        }
+        // The light rests once the desktop fades, and with reduced motion, which keeps the lit
+        // edge itself. Locked, or with the screens off, nothing here is drawn at all.
+        BarStyle::LitEdge if !reduced && v.ui >= 1.0 => {
+            let light = state.night.daylight();
+            let element = chrome
+                .bar
+                .light(renderer, v.scale.x, v.now, light, v.ui_alpha);
+            elements.splice(0..0, element.map(OutputElement::Memory));
+        }
+        BarStyle::LitEdge => {}
+        BarStyle::FloatingStrip => {
+            // Upright in bullet time, still with reduced motion, and held level by a pane
+            // hanging from it, whose frame it is one piece with.
+            if reduced || v.zoomed_out > 0.0 || docked {
+                chrome.bar.lean.rest();
+                return elements;
+            }
+            let yaw = chrome.bar.lean.follow(v.camera, v.wall);
+            if yaw == 0.0 {
+                return elements;
+            }
+            let place = v.bar;
+            let middle = (place.top() + bar::HEIGHT / 2) as f64;
+            let screen = tilt::Sizes {
+                logical: v.geo.size,
+                physical: v.physical,
+                scale: v.scale.x,
+            };
+            let leaning = chrome.bar.lean.element(
+                renderer,
+                &mut chrome.panes,
+                &elements,
+                (v.geo.size.w, place.foot()),
+                middle,
+                v.scale.x,
+                yaw,
+                screen,
+            );
+            if let Some(leaning) = leaning {
+                return vec![OutputElement::Shaded(leaning)];
+            }
+        }
+    }
     elements
 }
 
@@ -804,7 +885,7 @@ fn stream_hint_elements(
         };
         for (index, stream) in state.rain.streams.iter().enumerate() {
             let window = &stream.window;
-            let column = Rain::column(index, screen, bar::HEIGHT);
+            let column = Rain::column(index, screen, v.bar.foot());
             let middle = Point::from((
                 column.x as f64 + column.w as f64 / 2.0,
                 column.y as f64 + 200.0,
@@ -944,7 +1025,13 @@ fn dock_bay_elements(
     let at = Point::from(((pane.x - v.geo.loc.x) as f64, (pane.y - v.geo.loc.y) as f64));
     world.elements.extend(
         chrome
-            .dock_frame(renderer, (pane.w, pane.h), v.scale.x, at, v.ui_alpha)
+            .dock_frame(
+                renderer,
+                (pane.w, pane.h),
+                (v.scale.x, v.bar),
+                at,
+                v.ui_alpha,
+            )
             .map(OutputElement::Memory),
     );
     let inside =
@@ -1293,7 +1380,7 @@ fn draw_window(
         let size = (shown.size.w.round() as i32, shown.size.h.round() as i32);
         world.elements.extend(
             chrome
-                .dock_frame(renderer, size, v.scale.x, shown.loc, drawn.alpha)
+                .dock_frame(renderer, size, (v.scale.x, v.bar), shown.loc, drawn.alpha)
                 .map(OutputElement::Memory),
         );
         // With the overview open, everything of the pane's goes in front of it; fading, it goes
@@ -1689,7 +1776,7 @@ fn dock_flight_elements(
                 let alpha = v.ui_alpha * shown;
                 pieces.extend(
                     chrome
-                        .dock_frame(renderer, size, v.scale.x, at, alpha)
+                        .dock_frame(renderer, size, (v.scale.x, v.bar), at, alpha)
                         .map(OutputElement::Memory),
                 );
                 let inside = Rectangle::<i32, Logical>::new(

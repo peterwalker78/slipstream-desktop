@@ -12,8 +12,6 @@ pub(super) const TITLE_H: f32 = 20.0;
 pub(super) const LINE_H: f32 = 18.0;
 pub(super) const POPUP_W: f32 = 440.0;
 pub(super) const POPUP_RIGHT: f32 = 14.0;
-/// Pop-ups hang from the same line as the panels.
-pub(super) const POPUP_TOP: f32 = crate::panel::TOP;
 /// A pop-up's fade as its time runs out.
 pub(super) const POP_OUT: f64 = 0.25;
 pub(super) const POPUP_GAP: f32 = 10.0;
@@ -34,12 +32,12 @@ pub(super) struct Card {
 }
 
 impl Notices {
-    /// The pop-ups for a screen `width` logical pixels wide, and the transient notifications that
-    /// expired since the last frame.
+    /// The pop-ups for a screen `width` logical pixels wide, from `top` design pixels down, and the
+    /// transient notifications that expired since the last frame.
     pub fn popup_elements<R>(
         &mut self,
         renderer: &mut R,
-        width: i32,
+        (width, top): (i32, f32),
         scale: f64,
         now: f64,
         alpha: f32,
@@ -59,7 +57,7 @@ impl Notices {
         self.cross_hits.clear();
         self.button_hits.clear();
         let left = width as f32 / DESIGN_PX - POPUP_RIGHT - POPUP_W;
-        let mut top = POPUP_TOP;
+        let mut top = top;
         let mut elements = Vec::new();
         let Self {
             list,

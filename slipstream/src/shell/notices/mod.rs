@@ -684,13 +684,17 @@ mod tests {
         let cross = Rectangle::new(
             (
                 ((left + cx - SHADOW) * DESIGN_PX) as f64,
-                ((POPUP_TOP + cy - SHADOW) * DESIGN_PX) as f64,
+                ((crate::panel::TOP + cy - SHADOW) * DESIGN_PX) as f64,
             )
                 .into(),
             ((cw * DESIGN_PX) as f64, (ch * DESIGN_PX) as f64).into(),
         );
         let popup = Rectangle::<f64, Logical>::new(
-            ((left * DESIGN_PX) as f64, (POPUP_TOP * DESIGN_PX) as f64).into(),
+            (
+                (left * DESIGN_PX) as f64,
+                (crate::panel::TOP * DESIGN_PX) as f64,
+            )
+                .into(),
             (
                 (POPUP_W * DESIGN_PX) as f64,
                 (card.height * DESIGN_PX) as f64,

@@ -31,6 +31,14 @@ pub struct Frame {
     pub time: f64,
     pub accent: u32,
     pub attention: u32,
+    /// Where the bar sits, which the cards dropping from under it hang from.
+    pub bar: crate::bar::Place,
+}
+
+/// Where a card dropping from under the bar at `bar` starts, in design pixels from the screen's
+/// top: `TOP` under the bar along the edge, and as much lower as a floating strip's foot is.
+pub fn top(bar: crate::bar::Place) -> f32 {
+    TOP + bar.drop() as f32 / DESIGN_PX
 }
 
 /// Where a card is painted, in design pixels: its corner (`x`, `y`) inside the painted area, its

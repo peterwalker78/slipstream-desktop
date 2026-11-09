@@ -206,7 +206,7 @@ impl Slipstream {
             return;
         };
         let now = self.clock.tick();
-        let column = Rain::column(index, screen, bar::HEIGHT);
+        let column = Rain::column(index, screen, self.bar_place().foot());
         self.motion.place_over(window, column, now, over);
         self.motion.fade_out_landing(window, now, over);
     }
@@ -237,7 +237,10 @@ impl Slipstream {
             .iter()
             .filter_map(|window| {
                 let index = self.rain.index_of(window)?;
-                Some((window.clone(), Rain::column(index, screen, bar::HEIGHT)))
+                Some((
+                    window.clone(),
+                    Rain::column(index, screen, self.bar_place().foot()),
+                ))
             })
             .collect();
         if from.is_empty() {
@@ -276,9 +279,9 @@ impl Slipstream {
         if self.fullscreen_on(showing) {
             return None;
         }
-        let index = self
-            .rain
-            .stream_hit(pos.x, pos.y, self.screen_rect(0)?, bar::HEIGHT)?;
+        let index =
+            self.rain
+                .stream_hit(pos.x, pos.y, self.screen_rect(0)?, self.bar_place().foot())?;
         Some(self.rain.streams[index].window.clone())
     }
 
