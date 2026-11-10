@@ -10,12 +10,9 @@
 //! The interface is served at both paths apps use: `/org/freedesktop/ScreenSaver` and the older
 //! `/ScreenSaver`.
 
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex, OnceLock, PoisonError,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc, Mutex, OnceLock, PoisonError,
+    atomic::{AtomicBool, Ordering},
 };
 
 use smithay::reexports::calloop::channel::Sender;
@@ -55,10 +52,10 @@ struct Hold {
     app: String,
 }
 
-/// Every hold, by cookie.
+/// Every hold with its cookie, in the order they came.
 #[derive(Debug, Default)]
 struct Holds {
-    held: HashMap<u32, Hold>,
+    held: Vec<(u32, Hold)>,
     next: u32,
 }
 
@@ -67,8 +64,8 @@ impl Holds {
     fn add(&mut self, owner: &str, app: &str) -> Option<u32> {
         if self
             .held
-            .values()
-            .filter(|hold| hold.owner == owner)
+            .iter()
+            .filter(|(_, hold)| hold.owner == owner)
             .count()
             >= PER_CLIENT
         {
@@ -77,37 +74,37 @@ impl Holds {
         // Never 0, which some apps take to mean "not held".
         loop {
             self.next = self.next.wrapping_add(1);
-            if self.next != 0 && !self.held.contains_key(&self.next) {
+            if self.next != 0 && !self.held.iter().any(|(cookie, _)| *cookie == self.next) {
                 break;
             }
         }
-        self.held.insert(
+        self.held.push((
             self.next,
             Hold {
                 owner: owner.to_string(),
                 app: app.chars().take(64).collect(),
             },
-        );
+        ));
         Some(self.next)
     }
 
     /// Lets go of `cookie`, if `owner` holds it: one app can't end another's.
     fn remove(&mut self, cookie: u32, owner: &str) -> bool {
-        if self
+        let Some(at) = self
             .held
-            .get(&cookie)
-            .is_some_and(|hold| hold.owner == owner)
-        {
-            self.held.remove(&cookie);
-            return true;
-        }
-        false
+            .iter()
+            .position(|(held, hold)| *held == cookie && hold.owner == owner)
+        else {
+            return false;
+        };
+        self.held.remove(at);
+        true
     }
 
     /// Lets go of everything `owner` held, now it has left the bus.
     fn drop_owner(&mut self, owner: &str) -> bool {
         let before = self.held.len();
-        self.held.retain(|_, hold| hold.owner != owner);
+        self.held.retain(|(_, hold)| hold.owner != owner);
         self.held.len() != before
     }
 
@@ -115,9 +112,9 @@ impl Holds {
         self.held.len()
     }
 
-    /// The name each hold's app gave, one per hold.
+    /// The name each hold's app gave, one per hold, oldest first.
     fn apps(&self) -> Vec<String> {
-        self.held.values().map(|hold| hold.app.clone()).collect()
+        self.held.iter().map(|(_, hold)| hold.app.clone()).collect()
     }
 }
 
@@ -311,6 +308,21 @@ mod tests {
         assert!(holds.remove(game, ":1.10"));
         assert!(!holds.remove(game, ":1.10"), "once only");
         assert_eq!(holds.count(), 1);
+    }
+
+    #[test]
+    fn holds_are_named_in_the_order_they_came() {
+        let mut holds = Holds::default();
+        for (n, app) in ["Player", "Game", "Editor", "Viewer", "Browser"]
+            .iter()
+            .enumerate()
+        {
+            holds.add(&format!(":1.{n}"), app).unwrap();
+        }
+        let game = holds.held[1].0;
+        holds.remove(game, ":1.1");
+        // The pill names the oldest hold first, whatever order a table would keep them in.
+        assert_eq!(holds.apps(), ["Player", "Editor", "Viewer", "Browser"]);
     }
 
     #[test]

@@ -15,10 +15,7 @@ use smithay::{
                 texture::TextureRenderElement,
                 utils::RescaleRenderElement,
             },
-            gles::{
-                GlesRenderer, GlesTexture,
-                element::{PixelShaderElement, TextureShaderElement},
-            },
+            gles::{GlesRenderer, GlesTexture, element::TextureShaderElement},
         },
     },
     desktop::{
@@ -103,8 +100,8 @@ smithay::backend::renderer::element::render_elements! {
     /// A texture shown through one of Slipstream's shaders: bullet time's tilted overview, or the
     /// UI's glass fade.
     Shaded=TextureShaderElement,
-    /// Drawn by a shader alone: the lit edge along the bar's foot.
-    Pixel=PixelShaderElement,
+    /// The bar's own shader-drawn parts: the lit edge, a panel's slot, the workspace marker.
+    Bar=crate::bar::Shaded,
     /// The desktop drawn into a texture, coming forward as the lock goes.
     Texture=TextureRenderElement<GlesTexture>,
 }
@@ -118,7 +115,7 @@ impl std::fmt::Debug for OutputElement {
             Self::Flow(e) => f.debug_tuple("Flow").field(e).finish(),
             Self::Solid(e) => f.debug_tuple("Solid").field(e).finish(),
             Self::Shaded(e) => f.debug_tuple("Shaded").field(e).finish(),
-            Self::Pixel(e) => f.debug_tuple("Pixel").field(e).finish(),
+            Self::Bar(e) => f.debug_tuple("Bar").field(e).finish(),
             Self::Texture(e) => f.debug_tuple("Texture").field(e).finish(),
             Self::_GenericCatcher(e) => f.debug_tuple("_GenericCatcher").field(e).finish(),
         }
@@ -201,7 +198,7 @@ fn bar_content(
             .get_keyboard()
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         awake: state.awake,
-        kept_awake: crate::kept_awake::pill_word(&state.keeping_awake()),
+        kept_awake: crate::kept_awake::pill_word(&state.idle.holders),
         layout: state.layout_label(),
         plugins: state.plugins.chip(&state.plugins.shown()),
         plugins_open: state.plugin_panel.is_open(),
@@ -249,7 +246,6 @@ fn card_elements(
     if state.explorer.is_open() {
         state.ask_plugins();
         let running = state.running_apps();
-        let ring = state.panel_ring();
         let keys = crate::explorer::Keys::new(|action| state.key_label(action));
         elements.extend(
             state
@@ -281,20 +277,7 @@ fn card_elements(
     }
     if state.centre.is_open() {
         let chips = state.background_chips(scale);
-        let mut facts = state.centre_facts();
-        let px = (crate::kept_awake::ICON * crate::panel::DESIGN_PX * scale as f32)
-            .round()
-            .max(1.0) as u32;
-        facts.awake_icons = facts
-            .awake
-            .iter()
-            .map(|holder| {
-                let id = holder.id.as_deref()?;
-                state.explorer.app_icon(id, px)
-            })
-            .collect();
-        let explorer = &mut state.explorer;
-        let mut icon = |name: &str, px: u32| explorer.named_icon(name, px);
+        let facts = state.centre_facts();
         elements.extend(
             state
                 .centre
@@ -304,7 +287,7 @@ fn card_elements(
                     facts,
                     &state.notices,
                     chips,
-                    &mut icon,
+                    &mut state.explorer,
                 )
                 .into_iter()
                 .map(OutputElement::Flow),
@@ -313,7 +296,6 @@ fn card_elements(
         state.centre.finish_menu_choice(now);
     }
     if state.history.is_open() {
-        let ring = state.panel_ring();
         let now = state.wall();
         let key = state.key_label(crate::keys::Action::ClipboardHistory);
         elements.extend(
@@ -325,7 +307,7 @@ fn card_elements(
         );
     }
     if state.sheet.is_open() {
-        let colours = (state.panel_ring(), crate::panel::opaque(state.bullet_rgb));
+        let colours = (ring, crate::panel::opaque(state.bullet_rgb));
         let effects = state.settings.motion.effects;
         elements.extend(
             state
@@ -409,7 +391,6 @@ fn card_elements(
     }
     // The way out: the ask card in the middle of the screen, or the slim one while the apps are
     // closing. It draws whatever else is up, and the fade to black goes over everything below.
-    let ring = state.panel_ring();
     if let Some(exit) = state.exit.as_mut() {
         elements.extend(
             exit.element(renderer, frame(wall), ring)
@@ -418,7 +399,6 @@ fn card_elements(
     }
     // Panels and cards going back into the bar after they closed, behind whatever is open: only
     // their last picture, which takes no input.
-    let ring = state.panel_ring();
     let reduced_motion = state.motion.reduced_motion;
     let mut gone = Flows(&mut elements);
     for fade in state.fades_mut() {
@@ -538,6 +518,9 @@ pub struct Frames {
     /// it is for, so sharing one between two screens of different sizes would repaint it twice a
     /// frame and, in the wallpaper's case, restart the animation.
     pub chromes: HashMap<String, Chrome>,
+    /// The lit edge's pulses and gusts, one for every screen: only the one with the keyboard
+    /// moves.
+    pub edge: crate::bar::light::Charge,
 }
 
 #[cfg(test)]

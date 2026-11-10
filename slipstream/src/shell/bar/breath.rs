@@ -13,7 +13,7 @@ use smithay::{
     utils::{Logical, Point, Rectangle, Size},
 };
 
-use crate::{motion::REDUCED_FADE, panel};
+use crate::motion::REDUCED_FADE;
 
 /// How far the contents dim: to 55% of their strength.
 pub const DIM: f32 = 0.45;
@@ -53,19 +53,21 @@ impl Breath {
     }
 
     /// The dim over a bar at `bar` (logical pixels from the screen's corner), leaving out the
-    /// spans of it in `attention` (left and right edges, the same way), at `strength`.
+    /// spans of it in `attention` (left and right edges, the same way), at `strength`: the bar's
+    /// own `fill` (0xRRGGBBAA), laid on whole.
     pub fn elements(
         &mut self,
         bar: Rectangle<f64, Logical>,
         attention: &[(f64, f64)],
         scale: f64,
         strength: f32,
+        fill: u32,
     ) -> Vec<SolidColorRenderElement> {
         if strength <= 0.0 {
             return Vec::new();
         }
         let spans = calm_spans(bar.loc.x, bar.loc.x + bar.size.w, attention);
-        let [r, g, b, _] = (panel::CHIP | 0xff).to_be_bytes();
+        let [r, g, b, _] = fill.to_be_bytes();
         let colour = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
         self.boxes
             .resize_with(spans.len(), SolidColorBuffer::default);

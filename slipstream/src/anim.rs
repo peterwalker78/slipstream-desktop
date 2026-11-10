@@ -113,6 +113,16 @@ impl Clock {
         self.tick()
     }
 
+    /// The moment of the clock's last reading, for what is timed against input's own moments: a
+    /// frame asks once, at its start, rather than reading the present part way through. A
+    /// recording's steps have no real moment of their own, so it reads the present.
+    pub fn instant(&self) -> Instant {
+        if self.step.is_some() {
+            return Instant::now();
+        }
+        self.started + std::time::Duration::from_secs_f64(self.recorded.get().0)
+    }
+
     /// The animation time as of the last tick.
     pub fn now(&self) -> f64 {
         self.anim

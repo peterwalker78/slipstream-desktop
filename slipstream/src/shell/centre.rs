@@ -93,9 +93,8 @@ pub struct Facts {
     pub accent: u32,
     /// The ring round a background app that wants attention: the secondary colour.
     pub attention: u32,
-    /// The apps keeping the screen awake, and each one's icon at the centre's scale.
+    /// The apps keeping the screen awake.
     pub awake: Vec<crate::kept_awake::Holder>,
-    pub awake_icons: Vec<Option<Pixmap>>,
 }
 
 /// Everything the painted panel depends on.
@@ -108,7 +107,6 @@ struct Look {
     accent: u32,
     attention: u32,
     awake: Vec<crate::kept_awake::Holder>,
-    awake_icons: Vec<Option<Pixmap>>,
     revision: u64,
     selected: Item,
     action: Option<usize>,
@@ -486,7 +484,8 @@ impl Centre {
     }
 
     /// The panel, and any tray menu over it, for a screen `size` logical pixels big at `scale`,
-    /// front to back, repainted when what they show changes. `icon` finds a menu entry's icon.
+    /// front to back, repainted when what they show changes. `icons` finds a menu entry's icon, and the icons of
+    /// the apps keeping the screen awake when it repaints.
     pub fn elements<R>(
         &mut self,
         renderer: &mut R,
@@ -494,7 +493,7 @@ impl Centre {
         facts: Facts,
         notices: &Notices,
         chips: Vec<Chip>,
-        icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>,
+        icons: &mut crate::explorer::Explorer,
     ) -> Vec<crate::flow::FlowElement<R>>
     where
         R: Renderer + ImportMem,
@@ -536,7 +535,6 @@ impl Centre {
             accent: facts.accent,
             attention: facts.attention,
             awake: facts.awake.clone(),
-            awake_icons: facts.awake_icons.clone(),
             revision: notices.revision(),
             selected: self.selected,
             action: self.action,
@@ -549,7 +547,10 @@ impl Centre {
             launch_frac,
         };
         if self.shown.as_ref() != Some(&look) {
-            if self.repaint(&look, notices).is_none() {
+            if self
+                .repaint(&look, notices, &mut |id, px| icons.app_icon(id, px))
+                .is_none()
+            {
                 return Vec::new();
             }
             self.shown = Some(Look {
@@ -566,9 +567,15 @@ impl Centre {
         let mut elements = Vec::new();
         if let Some(menu) = self.menu.as_mut() {
             elements.extend(
-                menu.elements(renderer, frame, facts.ring, facts.reduced_motion, icon)
-                    .into_iter()
-                    .map(crate::flow::FlowElement::from),
+                menu.elements(
+                    renderer,
+                    frame,
+                    facts.ring,
+                    facts.reduced_motion,
+                    &mut |name, px| icons.named_icon(name, px),
+                )
+                .into_iter()
+                .map(crate::flow::FlowElement::from),
             );
         }
         self.ghosts.retain(|ghost| !ghost.faded(now));
@@ -605,7 +612,20 @@ impl Centre {
         elements
     }
 
-    fn repaint(&mut self, look: &Look, notices: &Notices) -> Option<()> {
+    fn repaint(
+        &mut self,
+        look: &Look,
+        notices: &Notices,
+        app_icon: &mut dyn FnMut(&str, u32) -> Option<Pixmap>,
+    ) -> Option<()> {
+        let px = (crate::kept_awake::ICON * DESIGN_PX * look.scale as f32)
+            .round()
+            .max(1.0) as u32;
+        let awake_icons: Vec<Option<Pixmap>> = look
+            .awake
+            .iter()
+            .map(|holder| app_icon(holder.id.as_deref()?, px))
+            .collect();
         let screen_w = look.size.w as f32 / DESIGN_PX;
         let screen_h = look.size.h as f32 / DESIGN_PX;
         let height = (screen_h - panel::top(look.bar) - BOTTOM).max(420.0);
@@ -647,15 +667,7 @@ impl Centre {
             y += paint_calendar(p, look, x0, y);
             // What's keeping the screen awake, under the clock it's keeping awake past.
             if !look.awake.is_empty() {
-                crate::kept_awake::paint(
-                    p,
-                    x0,
-                    y,
-                    inner,
-                    &look.awake,
-                    &look.awake_icons,
-                    look.ring,
-                );
+                crate::kept_awake::paint(p, x0, y, inner, &look.awake, &awake_icons, look.ring);
                 panel::piece(p, x0, y, inner, crate::kept_awake::HEIGHT);
                 y += awake_h;
             }
@@ -1033,9 +1045,7 @@ impl Slipstream {
             ring: self.panel_ring(),
             accent: self.panel_accent(),
             attention: self.panel_attention(),
-            awake: self.keeping_awake(),
-            // Filled in where the icons can be read.
-            awake_icons: Vec::new(),
+            awake: self.idle.holders.clone(),
         }
     }
 
@@ -1183,7 +1193,6 @@ mod tests {
             accent: panel::ACCENT,
             attention: panel::AMBER,
             awake: Vec::new(),
-            awake_icons: Vec::new(),
             bar: crate::bar::Place::default(),
             revision: notices.revision(),
             selected: centre.selected,
@@ -1276,7 +1285,7 @@ mod tests {
             centre.open(0.0, &[]);
             centre.chips = vec![chip("Sync", Some("item"))];
             let look = look(&centre, &notices);
-            centre.repaint(&look, &notices).unwrap();
+            centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
             centre.open_menu("item".into(), 0, true, 0.0);
             centre.menu_chosen(0.0);
             let length = tray_menu::confirm_length(reduced_motion);
@@ -1305,7 +1314,7 @@ mod tests {
             chip("Editor", None),
         ];
         let look = look(&centre, &notices);
-        centre.repaint(&look, &notices).unwrap();
+        centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
         let chip = centre.chip_box(1).unwrap();
         let (x, y) = (
             chip.loc.x + chip.size.w / 2.0,
@@ -1329,7 +1338,7 @@ mod tests {
         centre.open(0.0, &[]);
         centre.chips = vec![chip("Sync", Some(":1.5/StatusNotifierItem"))];
         let look = look(&centre, &notices);
-        centre.repaint(&look, &notices).unwrap();
+        centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
         centre.open_menu(":1.5/StatusNotifierItem".into(), 0, true, 0.0);
         assert!(centre.menu_open());
         assert_eq!(centre.menu_item(), Some(":1.5/StatusNotifierItem"));
@@ -1375,7 +1384,7 @@ mod tests {
         let mut centre = Centre::default();
         centre.open(0.0, &notices.ids());
         let look = look(&centre, &notices);
-        centre.repaint(&look, &notices).unwrap();
+        centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
         let right = centre.frame.loc.x + centre.frame.size.w;
         assert!(
             (right - 1528.0).abs() < 0.5,
@@ -1431,7 +1440,7 @@ mod tests {
         }
         assert_eq!(centre.selected, Item::Notice(1), "the oldest");
         let look = look(&centre, &notices);
-        centre.repaint(&look, &notices).unwrap();
+        centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
         assert!(centre.scroll > 0);
         assert!(
             centre

@@ -87,8 +87,9 @@ fn bar_style(page: &gtk::Box, store: &Store) {
         &bar,
         "Style",
         Some(
-            "The focus bar quietens while you type, the lit edge has soft light drifting along \
-             it, and the floating strip sits clear of the screen's edges",
+            "The focus bar quietens while you type, the lit edge carries a charge with calm \
+             pulses and gusts that leave a curling wake, and the floating strip sits clear of \
+             the screen's edges.",
         ),
         &choice,
     );

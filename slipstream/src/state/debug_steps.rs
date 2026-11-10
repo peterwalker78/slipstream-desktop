@@ -67,11 +67,7 @@ impl Slipstream {
                 debug::Step::Screens => self.log_screens(),
                 debug::Step::Windows => self.log_windows(),
                 debug::Step::Motion => self.log_reduced_motion(),
-                debug::Step::Arc => {
-                    for chrome in self.drawn.chromes.values_mut() {
-                        chrome.bar.strike_now();
-                    }
-                }
+                debug::Step::Gust => self.drawn.edge.gust_now(),
                 debug::Step::NextScreen => self.focus_next_screen(),
                 debug::Step::MoveToNextScreen => self.move_focused_to_next_screen(),
                 debug::Step::SwapScreens => self.swap_with_next_screen(),

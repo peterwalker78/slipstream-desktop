@@ -1,30 +1,31 @@
 //! The lit edge: the line along the bar's foot, carrying a charge in the focus ring's colour. It
 //! glows faintly all along, brighter around the workspace marker, and the glow follows the
-//! marker as it slides. Every few seconds a soft pulse leaves the marker and runs out both ways
-//! to the bar's ends, fading gently on the way, so several are always out; the line shimmers
-//! faintly as a live wire does, and now and then a short electric arc jumps along a stretch of
-//! it, restriking two to four times in a tenth of a second or so, and leaves a brief afterglow.
-//! Every part of an arc fades in and out along its stretch, so it has no ends to see. While a
-//! panel comes out of the bar, the line brightens over the slot it comes out of.
+//! marker as it slides. Every few seconds a calm pulse leaves the marker and runs out both ways
+//! to the bar's ends, fading gently on the way. Now and then a faster gust leaves the marker
+//! towards the side with more room, and the edge sheds a wake behind it: small curls of light,
+//! above and below the line in turn, that drift back against the gust, turn slowly and thin into
+//! smoke. While a panel comes out of the bar, the line brightens over the slot it comes out of.
 //!
-//! One shader strip draws the line, its glow and the arcs, worked out per pixel from continuous
-//! time and sub-pixel positions, so nothing in it steps or comes in blocks. The bar's own picture
-//! leaves its foot line out in this style, so the line has one owner and no seam. The slow parts
-//! move in steps of a thirtieth of a second, well under a pixel each, so between steps a frame
-//! has nothing new and the screen isn't redrawn for it; while an arc is live the strip changes
-//! every frame, so the arc runs at the display's own rate.
+//! One shader strip draws all of it, worked out per pixel from when each pulse and the gust set
+//! off, so the processor does nothing per curl and nothing in it steps or comes in blocks. The
+//! bar's own picture leaves its foot line out in this style, so the line has one owner.
+//!
+//! Only the screen with the keyboard moves; the others show the still edge. The pulses move in
+//! steps of a thirtieth of a second and a gust at the display's own rate, and with neither out
+//! the strip's numbers stay as they are, so the screen isn't redrawn for it.
 
 use smithay::{
     backend::renderer::{
-        element::Kind,
-        gles::{GlesRenderer, Uniform, UniformName, UniformType, element::PixelShaderElement},
+        gles::{GlesPixelProgram, GlesRenderer, Uniform, UniformName, UniformType},
+        utils::CommitCounter,
     },
     utils::{Logical, Physical, Rectangle},
 };
 
-use super::{HEIGHT, TALL};
+use super::{HEIGHT, TALL, shaded};
+use crate::flow::BarSlot;
 
-/// How often the glow and the pulses move, a second.
+/// How often the pulses move, a second, while no gust is out.
 pub const STEPS: f64 = 30.0;
 
 /// Seconds between one pulse leaving the marker and the next, picked afresh each time.
@@ -40,30 +41,27 @@ const PULSE_LONGEST: f64 = 2950.0;
 /// The most pulses out at once: they leave at least 4.5 s apart and none lasts 27 s.
 const PULSES: usize = 8;
 
-/// Seconds between one arc and the next.
-const ARC_EVERY: (f64, f64) = (3.0, 7.0);
-/// How long an arc lasts, in seconds: a little slower than a real one, so it can be followed.
-const ARC_LIFE: (f64, f64) = (0.18, 0.32);
-/// How long each strike lasts before the arc restrikes along a new path, in seconds.
-const RESTRIKE: (f64, f64) = (0.055, 0.09);
-/// How many strikes an arc has.
-const STRIKES: (usize, usize) = (2, 4);
-/// How long a stretch of the edge an arc spans, in the bar's units.
-const ARC_STRETCH: (f64, f64) = (40.0, 200.0);
-/// How long the stretch an arc spanned keeps glowing after it, in seconds.
-const AFTERGLOW: f64 = 0.4;
-/// The share of arcs that strike near the marker rather than anywhere along the bar, and how far
-/// from it they reach, in the bar's units.
-const NEAR_MARKER: f64 = 0.4;
-const MARKER_REACH: f64 = 600.0;
+/// Seconds between one gust and the next.
+const GUST_EVERY: (f64, f64) = (6.0, 10.0);
+/// How fast a gust runs, in the bar's units a second, and how far before it has faded out.
+const GUST_SPEED: (f64, f64) = (380.0, 500.0);
+const GUST_RUN: (f64, f64) = (700.0, 1200.0);
+/// How far from the marker's middle a gust sets off.
+const GUST_FROM: f64 = 20.0;
+/// The wake: a curl every `CURL_EVERY` units of the gust's run, shed once the gust is
+/// `CURL_BEHIND` past it, each lasting a time within `CURL_LIFE`.
+const CURL_EVERY: f64 = 52.0;
+const CURL_BEHIND: f64 = 30.0;
+const CURL_LIFE: (f64, f64) = (1.4, 1.9);
 
 /// How far the strip reaches above and below the line, in logical pixels: room for the glow
-/// either side and for an arc's bulge.
+/// either side and for the curls, which fade out before they reach either edge.
 const ABOVE: i32 = 16;
 const BELOW: i32 = 17;
 
 /// The strip's shader, its numbers in the bar's units unless they say otherwise. The colours are
 /// light added to what's under the strip, apart from the line's own colour, which is laid over.
+/// The numbers it shares with the timing here are put in front of it when it's compiled.
 const SHADER: &str = r#"
 precision highp float;
 varying vec2 v_coords;
@@ -80,43 +78,57 @@ uniform vec2 extent;
 uniform vec3 ring;
 // The line's own colour, premultiplied.
 uniform vec4 edge;
-// The marker's middle, how strongly it glows, the strip's alpha, and the time the shimmer runs
-// on (below zero, a still edge).
+// The marker's middle, how strongly it glows, the strip's alpha, and how strongly the line is
+// charged all along: none when the strip draws a panel's slot alone.
 uniform vec4 look;
 // How far each pulse has run from the marker; below zero, none.
 uniform vec4 pulses;
 uniform vec4 pulses_more;
-// The arc's left end and stretch, the seed of its current path, and how bright it is now.
-uniform vec4 arc;
-// The arc's afterglow, the gap where a docked pane's frame carries the bar on down, and how far
-// it is from the marker to the bar's further end.
-uniform vec4 after;
+// The gust: where it set off, its speed (signed the way it runs), how far it runs, and how long
+// ago it set off; below zero, none.
+uniform vec4 gust;
+// The gust's seed, and the side its first curl is on: 1 below the line, -1 above.
+uniform vec2 wake;
+// The gap where a docked pane's frame carries the bar on down, and how far it is from the
+// marker to the bar's further end.
+uniform vec3 bar;
 // The slot a panel is coming out of: its left and right ends, and how strongly it is lit.
 uniform vec3 slot;
 
+const float PI = 3.14159265;
 // The charge all along the edge, and what the marker adds at its middle.
 const float BASE = 0.14;
 const float MARKER = 0.34;
 const float SPREAD = 420.0;
-// What a pulse adds at its middle when it leaves the marker, its share of that at the bar's far
-// end, and the furthest it runs, fading out over the last of it.
+// What a pulse adds at its middle when it leaves the marker, and its share of that at the bar's
+// far end.
 const float PULSE = 0.7;
 const float FAR = 0.33;
-const float LONGEST = 2950.0;
-// The shimmer, as a share of the line's brightness either way.
-const float BUZZ = 0.06;
+// What a gust adds at its head, and how fast its tail fades behind it and its head ahead.
+const float GUST = 0.75;
+const float TAIL = 38.0;
+const float HEAD = 8.0;
 // Above KNEE the line brightens ever more slowly towards CEILING, so it never glares.
 const float KNEE = 0.62;
 const float CEILING = 0.88;
-// An arc fades in and out over this share of its stretch at either end.
-const float ARC_TAPER = 0.28;
 // What a lit slot adds to the line, and how far its ends taper, at most.
 const float SLOT = 0.8;
 const float SLOT_TAPER = 48.0;
-// How far an arc's path strays from the line, and its segments' length. A longer arc strays
-// further, so arcs vary in size as well as length.
-const float BULGE = 6.0;
-const float SEGMENT = 12.0;
+// A curl: how far it drifts back against the gust over its life, how far it lies from the line
+// at first and at last, its radius at least and at most, how much wider it is than tall, how far
+// round its spiral goes, how fast it turns in radians a second, and the share of its life it
+// spends whole before it breaks into smoke.
+const float DRIFT = 30.0;
+const float OFF_NEAR = 2.5;
+const float OFF_FAR = 6.0;
+const float RADIUS_LOW = 5.0;
+const float RADIUS_HIGH = 8.0;
+const float STRETCH = 1.7;
+const float SPIRAL = 1.35 * PI;
+const float SPIN = 3.2;
+const float WHOLE = 0.45;
+// The curl's spiral is followed in this many straight pieces.
+const int PIECES = 12;
 
 float sq(float v) {
     return v * v;
@@ -126,57 +138,101 @@ float hash(float n) {
     return fract(sin(n) * 43758.5453);
 }
 
-// Smooth value noise: continuous in both directions, so the shimmer never comes in blocks.
-float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    float n = i.x + i.y * 57.0;
-    float a = mix(hash(n), hash(n + 1.0), u.x);
-    float b = mix(hash(n + 57.0), hash(n + 58.0), u.x);
-    return mix(a, b, u.y);
-}
-
-float bulge() {
-    return BULGE * clamp(arc.y / 120.0, 0.6, 1.15);
-}
-
-// How far an arc may stray at `share` of the way along it: none at its ends.
-float taper(float share) {
-    return pow(max(sin(3.14159265 * clamp(share, 0.0, 1.0)), 0.0), 0.6);
-}
-
-// A corner of the arc's main path, `count` segments long.
-float corner(float i, float count) {
-    if (i <= 0.0 || i >= count) return 0.0;
-    return (hash(arc.z * 1.37 + i * 7.13) * 2.0 - 1.0) * bulge() * taper(i / count);
-}
-
-// The `j`th point of the path, which halves each main segment with a smaller kink.
-vec2 point(float j, float count, float step) {
-    float i = floor(j * 0.5);
-    float y = corner(i, count);
-    if (mod(j, 2.0) > 0.5) {
-        float kink = (hash(arc.z * 2.11 + i * 3.71 + 101.0) * 2.0 - 1.0) * bulge() * 0.5;
-        y = 0.5 * (y + corner(i + 1.0, count)) + kink * taper(j / (2.0 * count));
-    }
-    return vec2(arc.x + j * step, y);
-}
-
 // What a pulse `run` units out adds at `d` units from the marker: its charge and its white core.
 vec2 pulse(float run, float d) {
     if (run < 0.0) return vec2(0.0);
     float wide = 26.0 + 0.06 * min(run, 1400.0);
-    float fade = mix(1.0, FAR, pow(clamp(run / max(after.w, 1.0), 0.0, 1.0), 0.85))
+    float fade = mix(1.0, FAR, pow(clamp(run / max(bar.z, 1.0), 0.0, 1.0), 0.85))
         * smoothstep(0.0, 30.0, run) * (1.0 - smoothstep(LONGEST - 250.0, LONGEST, run));
     float g = exp(-sq((d - run) / wide));
     return vec2(PULSE * look.y * g * fade, pow(g, 8.0) * fade);
 }
 
-float to_segment(vec2 p, vec2 a, vec2 b) {
-    vec2 ab = b - a;
-    float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0);
-    return length(p - a - ab * t);
+// What the gust adds on the line at `x`: its charge and its white core, brightest at its head
+// with a short tail behind, fading out over its run.
+vec2 gust_line(float x) {
+    if (gust.w < 0.0) return vec2(0.0);
+    float way = sign(gust.y);
+    float run = gust.w * abs(gust.y);
+    float fade = max(1.0 - run / gust.z, 0.0) * smoothstep(0.0, 30.0, run);
+    float behind = way * (gust.x + way * run - x);
+    float k = behind < 0.0 ? exp(-sq(behind / HEAD)) : exp(-behind / TAIL);
+    return vec2(GUST * k * fade, k * k * fade);
+}
+
+// How strongly a stroke `w` screen pixels wide covers a pixel `d` from its middle: thinner than
+// a pixel, it fades rather than breaking up.
+float stroke(float d, float w) {
+    float body = max(w, 1.0);
+    return min(w, 1.0) * clamp(0.5 * body + 0.5 - d, 0.0, 1.0);
+}
+
+// The wake's light at `p` (units along the bar, and below the line's middle), `f` screen pixels
+// to a unit: its coloured halo and its near-white core.
+vec2 wake_at(vec2 p, float f) {
+    vec2 light = vec2(0.0);
+    if (gust.w < 0.0) return light;
+    float way = sign(gust.y);
+    float speed = abs(gust.y);
+    // Curls drift back from where they are shed, so this pixel can only be near these three.
+    float along = way * (p.x - gust.x);
+    float first = floor((along - RADIUS_HIGH * 2.0 * STRETCH) / CURL_EVERY);
+    for (int n = 0; n < 3; n++) {
+        float k = first + float(n);
+        float shed = k * CURL_EVERY + CURL_BEHIND;
+        if (k < 1.0 || shed >= gust.z) continue;
+        float age = gust.w - shed / speed;
+        float life = mix(CURL_LIFE_LOW, CURL_LIFE_HIGH, hash(k * 1.31 + wake.x));
+        float u = age / life;
+        if (u <= 0.0 || u >= 1.0) continue;
+        float side = mod(k, 2.0) < 0.5 ? wake.y : -wake.y;
+        float spin = side * way;
+        float r = mix(RADIUS_LOW, RADIUS_HIGH, hash(k * 2.17 + wake.x + 11.0)) * (0.8 + 0.9 * u);
+        float stretch = STRETCH + 0.4 * u;
+        vec2 c = vec2(gust.x + way * (k * CURL_EVERY - DRIFT * u),
+                      side * mix(OFF_NEAR, OFF_FAR, u));
+        if (abs(p.x - c.x) > r * stretch + 3.0 || abs(p.y - c.y) > 0.5 * r + 3.0) continue;
+        float turn = 2.0 * PI * hash(k * 3.73 + wake.x + 23.0) + SPIN * age;
+        // The nearest point of its spiral, piece by piece, and how far along the spiral it is.
+        float near = 1e6;
+        float at_len = 0.0;
+        float len = 0.0;
+        vec2 a = c + vec2(way * 0.45 * r * cos(turn * spin) * stretch,
+                          0.45 * r * sin(turn * spin) * 0.5);
+        for (int i = 1; i <= PIECES; i++) {
+            float q = float(i) / float(PIECES);
+            float th = spin * (q * SPIRAL + turn);
+            float rho = r * (0.45 + 0.55 * q);
+            vec2 b = c + vec2(way * rho * cos(th) * stretch, rho * sin(th) * 0.5);
+            vec2 ab = b - a;
+            float piece = length(ab);
+            float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
+            float d = length(p - a - ab * t);
+            if (d < near) {
+                near = d;
+                at_len = len + t * piece;
+            }
+            len += piece;
+            a = b;
+        }
+        float strength = (1.0 - shed / gust.z) * min(u / 0.08, 1.0) * pow(1.0 - u, 1.4);
+        float thin = 1.0 - 0.45 * u;
+        // Past its whole stretch it breaks into dots along the spiral, ever further apart.
+        float smoke = smoothstep(WHOLE - 0.05, WHOLE + 0.1, u);
+        float period = 3.8 + 4.0 * u;
+        float from_dot = abs(fract(at_len / period) - 0.5) * period;
+        float dots = clamp((0.6 - from_dot) * f + 0.5, 0.0, 1.0);
+        // It has no ends to see: it grows out of nothing at its middle and thins away at its
+        // outer end, so it reads as a wisp rather than a mark.
+        float share = at_len / max(len, 1e-3);
+        float ends = smoothstep(0.0, 0.35, share) * (1.0 - smoothstep(0.8, 1.0, share));
+        thin *= mix(0.55, 1.0, share);
+        float broken = mix(1.0, dots, smoke) * ends;
+        float d = near * f;
+        light.x += 0.2 * strength * broken * exp(-sq(d / max(1.5 * thin * f, 0.8)));
+        light.y += 0.6 * strength * broken * stroke(d, 0.9 * thin * f);
+    }
+    return light;
 }
 
 void main() {
@@ -189,25 +245,16 @@ void main() {
     float cover = clamp(min(at.y + 0.5, frame.y) - max(at.y - 0.5, line_top), 0.0, 1.0);
     // Units from the line's middle, downwards.
     float below = (at.y - (frame.y - 0.5 * f)) / f;
-    float in_gap = clamp(min(at.x + 0.5, after.z * f) - max(at.x - 0.5, after.y * f), 0.0, 1.0);
+    float in_gap = clamp(min(at.x + 0.5, bar.y * f) - max(at.x - 0.5, bar.x * f), 0.0, 1.0);
     float open = 1.0 - in_gap;
 
     float d = abs(x - look.x);
-    float charge = BASE + MARKER * look.y * exp(-sq(d / SPREAD));
+    float charge = look.w * (BASE + MARKER * look.y * exp(-sq(d / SPREAD)));
     vec2 runs = pulse(pulses.x, d) + pulse(pulses.y, d) + pulse(pulses.z, d)
         + pulse(pulses.w, d) + pulse(pulses_more.x, d) + pulse(pulses_more.y, d)
-        + pulse(pulses_more.z, d) + pulse(pulses_more.w, d);
+        + pulse(pulses_more.z, d) + pulse(pulses_more.w, d) + gust_line(x);
     charge += runs.x;
     float core = runs.y;
-    if (look.w >= 0.0) {
-        float shimmer = 0.7 * (noise(vec2(x / 14.0, look.w * 2.3)) * 2.0 - 1.0)
-            + 0.3 * (noise(vec2(x / 5.0 + 31.0, look.w * 6.1)) * 2.0 - 1.0);
-        charge *= 1.0 + BUZZ * shimmer;
-    }
-    // Everything an arc adds fades to nothing over the ends of its stretch.
-    float along = (x - arc.x) / max(arc.y, 1.0);
-    float stretch = smoothstep(0.0, ARC_TAPER, along) * smoothstep(0.0, ARC_TAPER, 1.0 - along);
-    charge += (0.45 * after.x + 0.4 * arc.w) * stretch;
     if (charge > KNEE) {
         float room = CEILING - KNEE;
         charge = KNEE + room * (1.0 - exp(-(charge - KNEE) / room));
@@ -228,25 +275,12 @@ void main() {
     // A white-hot touch at a pulse's very core, on the line alone.
     light += vec3((0.25 * min(core, 1.0) + 0.4 * max(slot.z - 1.0, 0.0) * lit) * cover);
 
-    if (arc.w > 0.0) {
-        float count = max(4.0, floor(arc.y / SEGMENT + 0.5));
-        float step = arc.y / (2.0 * count);
-        vec2 p = vec2(x, below);
-        float k = clamp(floor((x - arc.x) / step), 0.0, 2.0 * count - 1.0);
-        float near = 1e6;
-        for (int n = -1; n <= 1; n++) {
-            float j = clamp(k + float(n), 0.0, 2.0 * count - 1.0);
-            near = min(near, to_segment(p, point(j, count, step), point(j + 1.0, count, step)));
-        }
-        // The core is at least about a screen pixel wide, so it never breaks up.
-        float hot = exp(-sq(near * f / max(0.85, 0.55 * f)));
-        float halo = exp(-sq(near / 2.2));
-        float haze = exp(-sq(near / 3.0));
-        // Nothing reaches the strip's top or bottom, so it has no edge to show.
-        float rim = smoothstep(0.0, 2.0 * f, at.y - frame.w)
-            * smoothstep(0.0, 2.0 * f, extent.y - (at.y - frame.w));
-        light += (vec3(0.9 * hot) + ring * (0.75 * halo + 0.2 * haze)) * arc.w * stretch * rim;
-    }
+    // The wake, in the ring's colour round a near-white core. Nothing reaches the strip's top
+    // or bottom, so it has no edge to show.
+    vec2 curls = wake_at(vec2(x, below), f);
+    float rim = smoothstep(0.0, 2.0 * f, at.y - frame.w)
+        * smoothstep(0.0, 2.0 * f, extent.y - (at.y - frame.w));
+    light += (ring * curls.x + mix(ring, vec3(1.0), 0.65) * curls.y) * rim;
 
     vec4 color = vec4(edge.rgb * cover + light, edge.a * cover) * open * look.z * alpha;
 #if defined(DEBUG_FLAGS)
@@ -257,7 +291,19 @@ void main() {
 }
 "#;
 
-fn uniform_names() -> [UniformName<'static>; 10] {
+/// The shader with the numbers it shares with the timing here put in after its precision.
+fn shader() -> String {
+    let shared = format!(
+        "const float LONGEST = {PULSE_LONGEST:?};\nconst float CURL_EVERY = {CURL_EVERY:?};\n\
+         const float CURL_BEHIND = {CURL_BEHIND:?};\nconst float CURL_LIFE_LOW = {:?};\n\
+         const float CURL_LIFE_HIGH = {:?};\n",
+        CURL_LIFE.0, CURL_LIFE.1
+    );
+    let precision = "precision highp float;\n";
+    SHADER.replacen(precision, &format!("{precision}{shared}"), 1)
+}
+
+fn uniform_names() -> [UniformName<'static>; 11] {
     [
         UniformName::new("frame", UniformType::_4f),
         UniformName::new("extent", UniformType::_2f),
@@ -266,11 +312,25 @@ fn uniform_names() -> [UniformName<'static>; 10] {
         UniformName::new("look", UniformType::_4f),
         UniformName::new("pulses", UniformType::_4f),
         UniformName::new("pulses_more", UniformType::_4f),
-        UniformName::new("arc", UniformType::_4f),
-        UniformName::new("after", UniformType::_4f),
+        UniformName::new("gust", UniformType::_4f),
+        UniformName::new("wake", UniformType::_2f),
+        UniformName::new("bar", UniformType::_3f),
         UniformName::new("slot", UniformType::_3f),
     ]
 }
+
+/// The strip's program for `renderer`, compiled once for it; `None` if it didn't compile, which
+/// is said once.
+fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
+    shaded::program::<Program, _>(
+        renderer,
+        |renderer| renderer.compile_custom_pixel_shader(shader(), &uniform_names()),
+        "the lit edge's",
+    )
+}
+
+/// Marks the lit edge's program in a renderer's keeping.
+struct Program;
 
 /// What the bar tells the edge each frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -285,17 +345,20 @@ pub struct Edge {
     /// The focus ring's colour and the line's own, 0xRRGGBBAA.
     pub ring: u32,
     pub line: u32,
+    /// Whether the line carries its charge, or the strip draws a panel's slot alone over a bar
+    /// whose picture has its own foot line.
+    pub charged: bool,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
-    /// The slot a panel is coming out of: its ends in logical pixels across the screen, and how
-    /// strongly it is lit.
-    pub slot: Option<(f64, f64, f32)>,
+    /// The slot a panel is coming out of, its ends in logical pixels across the screen.
+    pub slot: Option<BarSlot>,
     pub alpha: f32,
 }
 
-/// The shader's numbers, all plain values, so working them out each frame allocates nothing.
+/// The shader's numbers, all plain values, so working them out and drawing them allocate
+/// nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Uniforms {
+pub struct Uniforms {
     frame: [f32; 4],
     extent: [f32; 2],
     ring: [f32; 3],
@@ -303,14 +366,16 @@ struct Uniforms {
     look: [f32; 4],
     pulses: [f32; 4],
     pulses_more: [f32; 4],
-    arc: [f32; 4],
-    after: [f32; 4],
+    gust: [f32; 4],
+    wake: [f32; 2],
+    bar: [f32; 3],
     slot: [f32; 3],
 }
 
 impl Uniforms {
-    fn list(&self) -> Vec<Uniform<'static>> {
-        vec![
+    /// The numbers as the shader takes them, named after `uniform_names`.
+    pub fn list(&self) -> [Uniform<'static>; 11] {
+        [
             Uniform::new("frame", self.frame),
             Uniform::new("extent", self.extent),
             Uniform::new("ring", self.ring),
@@ -318,99 +383,54 @@ impl Uniforms {
             Uniform::new("look", self.look),
             Uniform::new("pulses", self.pulses),
             Uniform::new("pulses_more", self.pulses_more),
-            Uniform::new("arc", self.arc),
-            Uniform::new("after", self.after),
+            Uniform::new("gust", self.gust),
+            Uniform::new("wake", self.wake),
+            Uniform::new("bar", self.bar),
             Uniform::new("slot", self.slot),
         ]
     }
 }
 
-/// One arc: when it struck, where, and when each of its strikes lands, in seconds from its start.
+/// One gust: when it set off, from where and which way, how fast and how far it runs, and the
+/// seed its curls are picked from.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Bolt {
+struct Gust {
     start: f64,
-    left: f64,
-    stretch: f64,
-    life: f64,
-    strikes: [f64; STRIKES.1],
-    count: usize,
-    /// Each strike's path comes from this, so the arc is the same every time it's drawn.
+    from: f64,
+    /// 1 to the right, -1 to the left.
+    way: f64,
+    speed: f64,
+    run: f64,
     seed: f32,
+    /// The side of the line its first curl is on: 1 below, -1 above.
+    side: f32,
 }
 
-impl Bolt {
-    /// The arc numbered `n`, striking at `start` along a bar `wide` units long with its marker
-    /// at `marker`.
+impl Gust {
+    /// The gust numbered `n`, setting off at `start` from the marker at `marker` on a bar `wide`
+    /// units long, towards the side with more room.
     fn new(n: u64, start: f64, marker: f64, wide: f64) -> Self {
-        let mut pick = Picker::new(n ^ 0xa5c3_17e9);
-        let life = pick.within(ARC_LIFE);
-        let wanted = STRIKES.0 + (pick.next() * (STRIKES.1 - STRIKES.0 + 1) as f64) as usize;
-        let mut strikes = [0.0; STRIKES.1];
-        let mut count = 1;
-        while count < wanted.min(STRIKES.1) {
-            let at = strikes[count - 1] + pick.within(RESTRIKE);
-            // The last strike has a moment to be seen before the arc goes.
-            if at > life - 0.02 {
-                break;
-            }
-            strikes[count] = at;
-            count += 1;
-        }
-        let stretch = pick.within(ARC_STRETCH).min(wide);
-        let middle = if pick.next() < NEAR_MARKER {
-            // Towards the side with room, so a marker near an end doesn't pile arcs up there.
-            let away = (pick.next() + pick.next() - 1.0) * MARKER_REACH;
-            let fits = |middle: f64| (stretch / 2.0..=wide - stretch / 2.0).contains(&middle);
-            if fits(marker + away) || !fits(marker - away) {
-                marker + away
-            } else {
-                marker - away
-            }
-        } else {
-            pick.next() * wide
-        };
-        let left = (middle - stretch / 2.0).clamp(0.0, (wide - stretch).max(0.0));
+        let mut pick = Picker::new(n ^ 0x6a09_e667);
+        let way = if marker <= wide / 2.0 { 1.0 } else { -1.0 };
         Self {
             start,
-            left,
-            stretch,
-            life,
-            strikes,
-            count,
+            from: marker + way * GUST_FROM,
+            way,
+            speed: pick.within(GUST_SPEED),
+            run: pick.within(GUST_RUN),
             seed: (n % 997) as f32,
+            side: if pick.next() < 0.5 { 1.0 } else { -1.0 },
         }
     }
 
-    /// The strike showing `age` seconds in, and how bright the arc is: each strike flashes and
-    /// dims fast, flickering low before the next, and the arc goes out at the end of its life.
-    fn flash(&self, age: f64) -> Option<(usize, f32)> {
-        if !(0.0..self.life).contains(&age) {
-            return None;
-        }
-        let strike = self.strikes[..self.count]
-            .iter()
-            .rposition(|&at| at <= age)
-            .unwrap_or(0);
-        let since = age - self.strikes[strike];
-        let going = ((self.life - age) / 0.015).clamp(0.0, 1.0);
-        Some((
-            strike,
-            ((0.12 + 0.88 * (-since / 0.012).exp()) * going) as f32,
-        ))
+    /// When its head has run its course.
+    fn head_gone(&self) -> f64 {
+        self.start + self.run / self.speed
     }
 
-    /// How brightly the stretch it spanned still glows `age` seconds in.
-    fn afterglow(&self, age: f64) -> f32 {
-        if age < 0.0 {
-            return 0.0;
-        }
-        let gone = ((age - self.life) / AFTERGLOW).clamp(0.0, 1.0);
-        ((1.0 - gone) * (1.0 - gone)) as f32
-    }
-
-    /// Whether it or its afterglow is still on the screen at `now`.
-    fn live(&self, now: f64) -> bool {
-        now < self.start + self.life + AFTERGLOW
+    /// When its last curl has gone.
+    fn over(&self) -> f64 {
+        self.start + self.run / self.speed + CURL_LIFE.1
     }
 }
 
@@ -437,46 +457,53 @@ impl Picker {
     }
 }
 
-/// The edge's timing: the pulses out, the next to leave, and the arcs.
+/// The edge's timing, shared by every screen, since only the one with the keyboard moves: the
+/// pulses out, the next to leave, and the gust.
 #[derive(Debug, Default)]
-struct Charge {
+pub struct Charge {
     /// When each pulse out left the marker and how fast it runs; `None` for none.
     pulses: [Option<(f64, f64)>; PULSES],
     next_pulse: Option<f64>,
     pulse_count: u64,
-    bolt: Option<Bolt>,
-    next_bolt: Option<f64>,
-    bolt_count: u64,
-    /// An arc asked for now, by a debug step.
-    strike_now: bool,
+    gust: Option<Gust>,
+    next_gust: Option<f64>,
+    gust_count: u64,
+    /// A gust asked for now, by a debug step.
+    gust_now: bool,
 }
 
 impl Charge {
+    /// Sends a gust off on the next frame that moves, so it can be looked at without waiting.
+    pub fn gust_now(&mut self) {
+        self.gust_now = true;
+    }
+
     /// Moves on to `now`, with the marker at `marker` on a bar `wide` units long, and says which
-    /// time the slow parts are drawn at: `now` itself while an arc is live, so it runs at the
+    /// time the edge is drawn at: `now` itself while a gust's head is running, so it runs at the
     /// display's rate, and otherwise `now` held to the last thirtieth of a second.
     fn advance(&mut self, now: f64, marker: f64, wide: f64) -> f64 {
         let done = done_at(marker, wide);
-        if self.strike_now {
-            self.strike_now = false;
-            self.next_bolt = Some(now);
+        if std::mem::take(&mut self.gust_now) {
+            self.next_gust = Some(now);
         }
-        let next_bolt = *self
-            .next_bolt
-            .get_or_insert_with(|| now + Picker::new(self.bolt_count).within(ARC_EVERY));
-        if now >= next_bolt {
-            // One missed by much, while the edge was still, is skipped rather than struck late.
-            if now - next_bolt < 0.25 {
-                self.bolt = Some(Bolt::new(self.bolt_count, next_bolt, marker, wide));
+        let next_gust = *self
+            .next_gust
+            .get_or_insert_with(|| now + Picker::new(self.gust_count).within(GUST_EVERY));
+        if now >= next_gust {
+            // One missed by much, while the edge was still, is skipped rather than sent late.
+            if now - next_gust < 0.25 {
+                self.gust = Some(Gust::new(self.gust_count, next_gust, marker, wide));
             }
-            self.bolt_count += 1;
-            let after = Picker::new(self.bolt_count ^ 0x51ed).within(ARC_EVERY);
-            self.next_bolt = Some(next_bolt.max(now - 0.25) + after);
+            self.gust_count += 1;
+            let after = Picker::new(self.gust_count ^ 0x51ed).within(GUST_EVERY);
+            self.next_gust = Some(next_gust.max(now - 0.25) + after);
         }
-        if self.bolt.is_some_and(|bolt| !bolt.live(now)) {
-            self.bolt = None;
+        if self.gust.is_some_and(|gust| now >= gust.over()) {
+            self.gust = None;
         }
-        let at = if self.bolt.is_some() {
+        // Only a gust's head is quick enough to need every frame; its curls drift and turn slowly
+        // enough for the pulses' steps once it has gone.
+        let at = if self.gust.is_some_and(|gust| now < gust.head_gone()) {
             now
         } else {
             (now * STEPS).floor() / STEPS
@@ -536,131 +563,127 @@ fn done_at(marker: f64, wide: f64) -> f64 {
     (reach(marker, wide) + PULSE_TAIL).min(PULSE_LONGEST)
 }
 
+/// One screen's strip: the numbers it was last drawn with, and the count that tells the screen
+/// when they change.
 #[derive(Default)]
 pub struct Light {
-    /// The strip, made once the shader compiles; `Err` if it didn't.
-    element: Option<Result<PixelShaderElement, ()>>,
-    shown: Option<Uniforms>,
-    charge: Charge,
+    shown: Option<(Rectangle<i32, Logical>, Uniforms)>,
+    commit: CommitCounter,
+    id: shaded::Kept,
 }
 
 impl Light {
-    /// Strikes an arc on the next frame that moves, so it can be looked at without waiting.
-    pub fn strike_now(&mut self) {
-        self.charge.strike_now = true;
-    }
-
-    /// The strip along the bar's foot at `now` seconds: moving unless `moving` is false, when it
-    /// is the still edge, the line and the marker's glow alone.
+    /// The strip along the bar's foot at `now` seconds, moving on `charge` when it is given and
+    /// otherwise the still edge, the line and the marker's glow alone. `None` if the shader
+    /// didn't compile.
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         edge: &Edge,
+        charge: Option<&mut Charge>,
         now: f64,
-        moving: bool,
-    ) -> Option<PixelShaderElement> {
-        let (area, uniforms) = self.uniforms(edge, now, moving);
-        let element = self.element.get_or_insert_with(|| {
-            renderer
-                .compile_custom_pixel_shader(SHADER, &uniform_names())
-                .map(|program| {
-                    PixelShaderElement::new(
-                        program,
-                        area,
-                        None,
-                        1.0,
-                        uniforms.list(),
-                        Kind::Unspecified,
-                    )
-                })
-                .map_err(|err| tracing::warn!("the lit edge's shader didn't compile: {err}"))
-        });
-        let element = element.as_mut().ok()?;
-        element.resize(area, None);
-        if self.shown != Some(uniforms) {
-            element.update_uniforms(uniforms.list());
-            self.shown = Some(uniforms);
-        }
-        Some(element.clone())
+    ) -> Option<shaded::Shaded> {
+        let program = program(renderer)?;
+        let (area, uniforms) = self.look(edge, charge, now);
+        Some(shaded::Shaded::edge(
+            program,
+            self.id.get(),
+            self.commit,
+            area,
+            uniforms,
+        ))
     }
 
-    /// The strip's place and its shader's numbers for `edge` at `now`.
-    fn uniforms(
+    /// The strip's place and numbers for `edge` at `now`, counted as a change only when they
+    /// differ from the last.
+    fn look(
         &mut self,
         edge: &Edge,
+        charge: Option<&mut Charge>,
         now: f64,
-        moving: bool,
     ) -> (Rectangle<i32, Logical>, Uniforms) {
-        let (bar, scale) = (edge.bar, edge.scale);
-        // The bar's picture: one pixel per screen pixel from its rounded corner.
-        let (left, top) = ((bar.loc.x * scale).round(), (bar.loc.y * scale).round());
-        let tall = (HEIGHT as f64 * scale).round();
-        let f = tall / TALL as f64;
-        let wide = (bar.size.w * scale).round() / f;
-        let area = Rectangle::<i32, Logical>::new(
-            (bar.loc.x as i32, bar.loc.y as i32 + HEIGHT - ABOVE).into(),
-            (bar.size.w as i32, ABOVE + BELOW).into(),
-        );
-        let screen: Rectangle<i32, Physical> = area.to_physical_precise_round(scale);
-        let marker = edge.marker.unwrap_or(-1e4);
-        let strength = if edge.marker.is_some() {
-            edge.strength
-        } else {
-            0.0
-        };
-        let rgb = |c: u32| {
-            [
-                (c >> 24) as f32 / 255.0,
-                ((c >> 16) & 0xff) as f32 / 255.0,
-                ((c >> 8) & 0xff) as f32 / 255.0,
-            ]
-        };
-        let ring = rgb(edge.ring);
-        let line_alpha = (edge.line & 0xff) as f32 / 255.0;
-        let line = rgb(edge.line).map(|c| c * line_alpha);
-        let (gap_left, gap_right) = edge.gap.unwrap_or((-1.0, -1.0));
-        let mut uniforms = Uniforms {
-            frame: [
-                f as f32,
-                tall as f32,
-                (screen.loc.x as f64 - left) as f32,
-                (screen.loc.y as f64 - top) as f32,
-            ],
-            extent: [screen.size.w as f32, screen.size.h as f32],
-            ring,
-            edge: [line[0], line[1], line[2], line_alpha],
-            look: [marker, strength, edge.alpha, -1.0],
-            pulses: [-1.0; 4],
-            pulses_more: [-1.0; 4],
-            arc: [0.0; 4],
-            after: [0.0, gap_left, gap_right, reach(marker as f64, wide) as f32],
-            slot: [0.0; 3],
-        };
-        if let Some((slot_left, slot_right, lit)) = edge.slot {
-            let units = |x: f64| (((x - bar.loc.x) * scale) / f) as f32;
-            uniforms.slot = [units(slot_left), units(slot_right), lit];
+        let looked = uniforms(edge, charge, now);
+        if self.shown != Some(looked) {
+            self.shown = Some(looked);
+            self.commit.increment();
         }
-        if !moving {
-            return (area, uniforms);
-        }
-        let at = self.charge.advance(now, marker as f64, wide);
-        uniforms.look[3] = at.rem_euclid(512.0) as f32;
-        let runs = self.charge.runs(at, marker as f64, wide);
-        uniforms.pulses = [runs[0], runs[1], runs[2], runs[3]];
-        uniforms.pulses_more = [runs[4], runs[5], runs[6], runs[7]];
-        if let Some(bolt) = self.charge.bolt {
-            let age = now - bolt.start;
-            let (strike, flash) = bolt.flash(age).unwrap_or((0, 0.0));
-            uniforms.arc = [
-                bolt.left as f32,
-                bolt.stretch as f32,
-                bolt.seed + strike as f32 * 13.0,
-                flash,
-            ];
-            uniforms.after[0] = bolt.afterglow(age);
-        }
-        (area, uniforms)
+        looked
     }
+}
+
+/// The strip's place and its shader's numbers for `edge` at `now`, moving on `charge` if given.
+fn uniforms(
+    edge: &Edge,
+    charge: Option<&mut Charge>,
+    now: f64,
+) -> (Rectangle<i32, Logical>, Uniforms) {
+    let (bar, scale) = (edge.bar, edge.scale);
+    // The bar's picture: one pixel per screen pixel from its rounded corner.
+    let (left, top) = ((bar.loc.x * scale).round(), (bar.loc.y * scale).round());
+    let tall = (HEIGHT as f64 * scale).round();
+    let f = tall / TALL as f64;
+    let wide = (bar.size.w * scale).round() / f;
+    let area = Rectangle::<i32, Logical>::new(
+        (bar.loc.x as i32, bar.loc.y as i32 + HEIGHT - ABOVE).into(),
+        (bar.size.w as i32, ABOVE + BELOW).into(),
+    );
+    let screen: Rectangle<i32, Physical> = area.to_physical_precise_round(scale);
+    let marker = edge.marker.unwrap_or(-1e4);
+    let strength = if edge.marker.is_some() {
+        edge.strength
+    } else {
+        0.0
+    };
+    let rgb = |c: u32| {
+        [
+            (c >> 24) as f32 / 255.0,
+            ((c >> 16) & 0xff) as f32 / 255.0,
+            ((c >> 8) & 0xff) as f32 / 255.0,
+        ]
+    };
+    let line_alpha = (edge.line & 0xff) as f32 / 255.0;
+    let line = rgb(edge.line).map(|c| c * line_alpha);
+    let (gap_left, gap_right) = edge.gap.unwrap_or((-1.0, -1.0));
+    let units = |x: f64| (((x - bar.loc.x) * scale) / f) as f32;
+    let mut uniforms = Uniforms {
+        frame: [
+            f as f32,
+            tall as f32,
+            (screen.loc.x as f64 - left) as f32,
+            (screen.loc.y as f64 - top) as f32,
+        ],
+        extent: [screen.size.w as f32, screen.size.h as f32],
+        ring: rgb(edge.ring),
+        edge: [line[0], line[1], line[2], line_alpha],
+        look: [
+            marker,
+            strength,
+            edge.alpha,
+            f32::from(u8::from(edge.charged)),
+        ],
+        pulses: [-1.0; 4],
+        pulses_more: [-1.0; 4],
+        gust: [0.0, 0.0, 0.0, -1.0],
+        wake: [0.0; 2],
+        bar: [gap_left, gap_right, reach(marker as f64, wide) as f32],
+        slot: edge.slot.map_or([0.0; 3], |slot| {
+            [units(slot.left), units(slot.right), slot.strength]
+        }),
+    };
+    let Some(charge) = charge.filter(|_| edge.charged) else {
+        return (area, uniforms);
+    };
+    let at = charge.advance(now, marker as f64, wide);
+    let runs = charge.runs(at, marker as f64, wide);
+    uniforms.pulses = [runs[0], runs[1], runs[2], runs[3]];
+    uniforms.pulses_more = [runs[4], runs[5], runs[6], runs[7]];
+    if let Some(gust) = charge.gust {
+        let signed = (gust.way * gust.speed) as f32;
+        let age = (at - gust.start).max(0.0) as f32;
+        uniforms.gust = [gust.from as f32, signed, gust.run as f32, age];
+        uniforms.wake = [gust.seed, gust.side];
+    }
+    (area, uniforms)
 }
 
 #[cfg(test)]
@@ -675,68 +698,76 @@ mod tests {
             strength: 1.0,
             ring: 0x00ceffff,
             line: 0xffffff12,
+            charged: true,
             gap: None,
             slot: None,
             alpha: 1.0,
         }
     }
 
-    #[test]
-    fn arcs_strike_every_three_to_seven_seconds_and_last_as_long_as_real_ones() {
-        let mut charge = Charge::default();
-        let mut starts = Vec::new();
-        let mut now = 0.0;
-        while now < 600.0 {
-            charge.advance(now, 400.0, 1900.0);
-            if let Some(bolt) = charge.bolt
-                && starts.last() != Some(&bolt.start)
-            {
-                starts.push(bolt.start);
-                assert!(
-                    (ARC_LIFE.0..=ARC_LIFE.1).contains(&bolt.life),
-                    "life {}",
-                    bolt.life
-                );
-                assert!((ARC_STRETCH.0..=ARC_STRETCH.1).contains(&bolt.stretch));
-                assert!(bolt.left >= 0.0 && bolt.left + bolt.stretch <= 1900.0);
+    /// Steps `light` at 60 frames a second from `from` for `secs`, and counts the frames whose
+    /// numbers changed.
+    fn changes(light: &mut Light, charge: &mut Charge, edge: &Edge, from: f64, secs: f64) -> usize {
+        let mut changed = 0;
+        let mut last = light.commit;
+        for frame in 0..(secs * 60.0) as usize {
+            light.look(edge, Some(charge), from + frame as f64 / 60.0);
+            if light.commit != last {
+                changed += 1;
+                last = light.commit;
             }
-            now += 1.0 / 60.0;
         }
-        assert!(starts.len() > 60, "{} arcs", starts.len());
-        for pair in starts.windows(2) {
-            let apart = pair[1] - pair[0];
-            assert!((2.99..=7.01).contains(&apart), "{apart} s between arcs");
-        }
+        changed
     }
 
     #[test]
-    fn restrikes_fall_inside_an_arcs_life() {
-        for n in 0..2000 {
-            let bolt = Bolt::new(n, 10.0, 300.0, 1536.0);
-            assert!(
-                (STRIKES.0..=STRIKES.1).contains(&bolt.count),
-                "{} strikes",
-                bolt.count
-            );
-            for pair in bolt.strikes[..bolt.count].windows(2) {
-                let apart = pair[1] - pair[0];
-                assert!(
-                    (RESTRIKE.0..=RESTRIKE.1).contains(&apart),
-                    "restrike after {apart}"
-                );
+    fn gusts_leave_every_six_to_ten_seconds_towards_the_side_with_room() {
+        let mut charge = Charge::default();
+        let mut gusts: Vec<Gust> = Vec::new();
+        let mut now = 0.0;
+        while now < 600.0 {
+            // The marker near the left end, then near the right.
+            let marker = if now < 300.0 { 200.0 } else { 1700.0 };
+            charge.advance(now, marker, 1900.0);
+            if let Some(gust) = charge.gust
+                && gusts.last().is_none_or(|last| last.start != gust.start)
+            {
+                gusts.push(gust);
+                assert_eq!(gust.way, if marker < 950.0 { 1.0 } else { -1.0 });
+                assert!((GUST_SPEED.0..=GUST_SPEED.1).contains(&gust.speed));
+                assert!((GUST_RUN.0..=GUST_RUN.1).contains(&gust.run));
             }
-            let last = bolt.strikes[bolt.count - 1];
-            assert!(last < bolt.life, "a strike after the arc has gone");
-            // Each strike takes its own path, and the arc goes out at the end of its life.
-            let seen: Vec<usize> = (0..=(ARC_LIFE.1 * 1000.0) as usize)
-                .filter_map(|ms| bolt.flash(ms as f64 / 1000.0).map(|(strike, _)| strike))
-                .collect();
-            assert_eq!(seen.iter().max(), Some(&(bolt.count - 1)));
-            assert!(bolt.flash(bolt.life + 0.001).is_none());
-            assert_eq!(bolt.afterglow(bolt.life + AFTERGLOW + 1e-9), 0.0);
+            now += 1.0 / 60.0;
         }
-        // The same arc every time for the same number.
-        assert_eq!(Bolt::new(7, 1.0, 2.0, 900.0), Bolt::new(7, 1.0, 2.0, 900.0));
+        assert!(gusts.len() > 55, "{} gusts", gusts.len());
+        for pair in gusts.windows(2) {
+            let apart = pair[1].start - pair[0].start;
+            assert!((5.99..=10.01).contains(&apart), "{apart} s between gusts");
+        }
+        // The same gust every time for the same number.
+        assert_eq!(Gust::new(7, 1.0, 2.0, 900.0), Gust::new(7, 1.0, 2.0, 900.0));
+    }
+
+    #[test]
+    fn a_gusts_head_runs_at_the_displays_rate_and_the_rest_steps() {
+        let mut charge = Charge::default();
+        let (mut stepped, mut smooth) = (0, 0);
+        let mut now = 0.0;
+        while now < 120.0 {
+            let at = charge.advance(now, 400.0, 1900.0);
+            if charge.gust.is_some_and(|gust| now < gust.head_gone()) {
+                assert_eq!(at, now);
+                smooth += 1;
+            } else {
+                assert_eq!(at, (now * STEPS).floor() / STEPS);
+                stepped += 1;
+            }
+            now += 1.0 / 60.0;
+        }
+        assert!(
+            smooth > 0 && stepped > smooth,
+            "{smooth} smooth, {stepped} stepped"
+        );
     }
 
     #[test]
@@ -745,15 +776,11 @@ mod tests {
         let mut leaving = Vec::new();
         let mut now = 0.0;
         while now < 300.0 {
-            let at = charge.advance(now, 400.0, 1900.0);
+            charge.advance(now, 400.0, 1900.0);
             for (left, speed) in charge.pulses.iter().flatten() {
                 if !leaving.iter().any(|(l, _)| l == left) {
                     leaving.push((*left, *speed));
                 }
-            }
-            // The slow parts move a thirtieth of a second at a time, except during an arc.
-            if charge.bolt.is_none() {
-                assert_eq!(at, (now * STEPS).floor() / STEPS);
             }
             now += 1.0 / 60.0;
         }
@@ -763,8 +790,7 @@ mod tests {
             assert!((4.49..=6.01).contains(&apart), "{apart} s between pulses");
         }
         for (_, speed) in &leaving {
-            assert!((110.0..=135.0).contains(speed));
-            // A step of the slow rate moves a pulse under a quarter of its narrowest width.
+            // A step of the pulses moves one under a quarter of its narrowest width.
             assert!(speed / STEPS < 26.0 / 4.0);
         }
     }
@@ -793,62 +819,104 @@ mod tests {
     }
 
     #[test]
-    fn a_panels_slot_is_passed_in_the_bars_units() {
+    fn with_nothing_in_flight_the_edge_changes_nothing_and_damages_nothing() {
         let mut light = Light::default();
-        let mut edge = edge();
-        edge.scale = 1.25;
-        edge.slot = Some((100.0, 420.0, 1.0));
-        let (_, u) = light.uniforms(&edge, 1.0, true);
-        // At 1.25 a unit of the bar is one screen pixel.
-        assert_eq!(u.slot, [125.0, 525.0, 1.0]);
-        edge.slot = None;
-        assert_eq!(
-            light.uniforms(&edge, 1.0, true).1.slot[2],
-            0.0,
-            "and nothing at rest"
-        );
+        // No pulse due for a minute, and no gust either.
+        let mut charge = Charge {
+            next_pulse: Some(1000.0),
+            next_gust: Some(1000.0),
+            ..Charge::default()
+        };
+        assert_eq!(changes(&mut light, &mut charge, &edge(), 5.0, 30.0), 1);
+        // A pulse out moves it at the pulses' own rate, never every frame.
+        charge.next_pulse = Some(40.0);
+        let moving = changes(&mut light, &mut charge, &edge(), 40.0, 10.0);
+        assert!((250..=301).contains(&moving), "{moving} changes in 10 s");
     }
 
     #[test]
-    fn with_reduced_motion_the_lit_edge_stands_still() {
+    fn the_still_edge_never_changes_and_has_no_pulses_or_gusts() {
         let mut light = Light::default();
-        let (_, first) = light.uniforms(&edge(), 5.0, false);
-        light.strike_now();
+        light.look(&edge(), None, 5.0);
+        let (commit, (_, first)) = (light.commit, light.shown.unwrap());
         for frame in 0..600 {
-            let (_, now) = light.uniforms(&edge(), 5.0 + frame as f64 / 60.0, false);
-            assert_eq!(now, first, "the still edge never changes");
+            light.look(&edge(), None, 5.0 + frame as f64 / 60.0);
         }
+        assert_eq!(light.commit, commit, "the still edge never changes");
         assert_eq!(first.pulses, [-1.0; 4]);
         assert_eq!(first.pulses_more, [-1.0; 4]);
-        assert_eq!(first.arc[3], 0.0);
-        assert!(first.look[3] < 0.0, "no shimmer");
+        assert!(first.gust[3] < 0.0, "no gust");
         assert!(first.look[1] > 0.0, "the marker still glows");
         // And it follows the marker by jumping with it.
         let mut moved = edge();
         moved.marker = Some(300.0);
-        let (_, jumped) = light.uniforms(&moved, 20.0, false);
-        assert_eq!(jumped.look[0], 300.0);
+        assert_eq!(uniforms(&moved, None, 20.0).1.look[0], 300.0);
     }
 
     #[test]
-    fn the_uniforms_are_plain_values() {
-        // Copy types own no heap, so working them out each frame allocates nothing.
-        fn copy<T: Copy>() {}
-        copy::<Uniforms>();
-        copy::<Bolt>();
-        let mut light = Light::default();
-        light.strike_now();
-        let (_, struck) = light.uniforms(&edge(), 3.0, true);
-        assert!(struck.arc[3] > 0.5, "an arc asked for strikes now");
+    fn a_gust_asked_for_leaves_now_and_its_wake_is_gone_when_it_is_over() {
+        let mut charge = Charge::default();
+        charge.gust_now();
+        let (_, sent) = uniforms(&edge(), Some(&mut charge), 3.0);
+        let gust = charge.gust.expect("a gust");
+        assert_eq!(sent.gust[3], 0.0, "it sets off now");
+        assert_eq!(sent.gust[1].signum(), 1.0, "towards the room on the right");
+        assert_eq!(sent.gust[0], 80.0 + GUST_FROM as f32);
+        let (_, after) = uniforms(&edge(), Some(&mut charge), gust.over() + 0.01);
+        assert!(after.gust[3] < 0.0, "nothing left of it");
+    }
+
+    #[test]
+    fn a_panels_slot_is_passed_in_the_bars_units_whether_or_not_the_line_is_charged() {
+        let mut edge = edge();
+        edge.scale = 1.25;
+        edge.slot = Some(BarSlot {
+            left: 100.0,
+            right: 420.0,
+            strength: 1.0,
+        });
+        // At 1.25 a unit of the bar is one screen pixel.
+        assert_eq!(uniforms(&edge, None, 1.0).1.slot, [125.0, 525.0, 1.0]);
+        edge.charged = false;
+        let (_, alone) = uniforms(&edge, Some(&mut Charge::default()), 1.0);
+        assert_eq!(alone.slot, [125.0, 525.0, 1.0]);
+        assert_eq!(alone.look[3], 0.0, "the line itself isn't charged");
+        assert_eq!(alone.pulses, [-1.0; 4], "and carries nothing");
+        edge.slot = None;
+        assert_eq!(uniforms(&edge, None, 1.0).1.slot[2], 0.0, "nothing at rest");
+    }
+
+    /// The furthest a curl reaches from the line's middle, in the bar's units, as the shader
+    /// draws it: its drift away from the line, half its widest turn (each is flattened to half
+    /// its height, and grows to 1.7 times its radius), and its halo.
+    const CURL_REACH: f64 = 6.0 + 8.0 * 1.7 * 0.5 + 2.0;
+
+    #[test]
+    fn the_shared_numbers_come_after_the_shaders_precision() {
+        let source = shader();
+        let precision = source.find("precision highp float;").unwrap();
+        assert!(source.find("const float CURL_EVERY = 52.0;").unwrap() > precision);
+        assert_eq!(source.matches("precision highp float;").count(), 1);
+    }
+
+    #[test]
+    fn the_curls_fit_inside_the_strip_at_every_scale() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let tall = (HEIGHT as f64 * scale).round();
+            let unit = tall / TALL as f64 / scale;
+            // Two units of fade at the strip's rim, either side.
+            let room = |side: i32| side as f64 / unit - 2.0 - 0.5;
+            assert!(CURL_REACH < room(ABOVE - 1), "above at {scale}");
+            assert!(CURL_REACH < room(BELOW), "below at {scale}");
+        }
     }
 
     #[test]
     fn the_strip_lines_up_with_the_bars_foot_at_fractional_scales() {
-        let mut light = Light::default();
         for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
             let mut edge = edge();
             edge.scale = scale;
-            let (area, u) = light.uniforms(&edge, 1.0, false);
+            let (area, u) = uniforms(&edge, None, 1.0);
             let screen: Rectangle<i32, Physical> = area.to_physical_precise_round(scale);
             // The line's rows are the bar's last unit, within the strip.
             let line_top = u.frame[1] - u.frame[0];

@@ -713,7 +713,6 @@ fn bar_elements(
     chrome: &mut Chrome,
     used: &[bool],
 ) -> Vec<OutputElement> {
-    let mut elements = Vec::new();
     let content = bar_content(state, v.active, v.screen_index, v.first, used);
     let docked = content.dock.is_some();
     let (ring, reduced_motion, demand) = (
@@ -721,17 +720,32 @@ fn bar_elements(
         state.clock.reduced_motion,
         state.rain.demand(),
     );
-    let style = state.settings.appearance.bar_style;
-    let bar = chrome.bar.element(
-        renderer,
-        content,
-        v.geo.size.w,
-        v.scale.x,
-        v.ui_alpha,
-        v.wall,
+    // The edge stands still once the desktop fades. Locked, with the screens off, or with a
+    // window filling the screen, the bar isn't drawn at all.
+    let draw = crate::bar::BarDraw {
+        width: v.geo.size.w,
+        scale: v.scale.x,
+        now: v.now,
+        wall: v.wall,
+        alpha: v.ui_alpha,
+        style: state.settings.appearance.bar_style,
         reduced_motion,
-        style,
-    );
+        typing: state.concentration.typing(state.clock.instant()),
+        shown: v.ui >= 1.0,
+        // The slot of a panel coming out of the bar, which the panels, drawn first, asked for.
+        slot: crate::flow::take_bar_slot(),
+    };
+    let bar = chrome
+        .bar
+        .draw(renderer, content, &draw, &mut state.drawn.edge);
+    let mut elements: Vec<OutputElement> = bar
+        .over
+        .into_iter()
+        .map(|over| match over {
+            crate::bar::Over::Dim(dim) => OutputElement::Solid(dim),
+            crate::bar::Over::Shaded(shaded) => OutputElement::Bar(shaded),
+        })
+        .collect();
     // The slot opens, lights and flashes in step with its pane's flight (`dock::SlotLook`).
     let mut slot = None;
     if docked
@@ -796,51 +810,7 @@ fn bar_elements(
             elements.extend(element.map(OutputElement::Memory));
         }
     }
-    elements.extend(bar.map(OutputElement::Memory));
-    bar_touch(state, renderer, v, chrome, style, elements)
-}
-
-/// The bar styles' own touches, drawn over the bar's picture rather than into it: the focus bar
-/// dims what's on it while you type, and the lit edge's line carries its charge. Takes the bar's
-/// `elements` and hands them back with the touch.
-fn bar_touch(
-    state: &mut Slipstream,
-    renderer: &mut GlesRenderer,
-    v: &View,
-    chrome: &mut Chrome,
-    style: slipstream_config::BarStyle,
-    mut elements: Vec<OutputElement>,
-) -> Vec<OutputElement> {
-    use slipstream_config::BarStyle;
-    let reduced = state.clock.reduced_motion;
-    // The slot of a panel coming out of the bar, which the panels, drawn first, asked for.
-    let slot = crate::flow::take_bar_slot();
-    match style {
-        BarStyle::Plain => {
-            let typing = state.concentration.typing(std::time::Instant::now());
-            let dim = chrome
-                .bar
-                .breath(typing, v.now, reduced, v.scale.x, v.ui_alpha);
-            elements.splice(0..0, dim.into_iter().map(OutputElement::Solid));
-        }
-        // The edge stands still once the desktop fades, and with reduced motion. Locked, with
-        // the screens off, or with a window filling the screen, the bar isn't drawn at all.
-        BarStyle::LitEdge => {
-            let moving = !reduced && v.ui >= 1.0;
-            let edge = chrome
-                .bar
-                .lit_edge(renderer, v.scale.x, v.now, v.wall, v.ui_alpha, moving, slot);
-            elements.splice(0..0, edge.map(OutputElement::Pixel));
-        }
-        BarStyle::FloatingStrip => {}
-    }
-    // In the other styles the foot line is part of the bar's picture, so the slot is drawn over it.
-    if style != BarStyle::LitEdge
-        && let Some(slot) = slot
-    {
-        let line = chrome.bar.slot_line(renderer, v.scale.x, slot);
-        elements.splice(0..0, line.map(OutputElement::Flow));
-    }
+    elements.extend(bar.picture.map(OutputElement::Memory));
     elements
 }
 

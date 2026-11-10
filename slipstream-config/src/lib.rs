@@ -306,8 +306,8 @@ pub enum BarStyle {
     /// A dark band across the top edge. What's on it dims a little while you type.
     #[default]
     Plain,
-    /// The band with a lit top edge and a line under it that glows below the current workspace,
-    /// and soft light drifting slowly along it.
+    /// The band with a lit top edge and a charged line under it, brightest below the current
+    /// workspace: calm pulses run out along it, and now and then a gust leaves a curling wake.
     LitEdge,
     /// A strip floating clear of the screen's edges, lined up with the windows below.
     FloatingStrip,

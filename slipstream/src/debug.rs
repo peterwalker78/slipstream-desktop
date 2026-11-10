@@ -233,8 +233,8 @@ pub enum Step {
     Screens,
     /// Writes each animating part's reduced-motion flag into the log.
     Motion,
-    /// Strikes the lit edge's arc on every screen now, rather than waiting for one.
-    Arc,
+    /// Sends the lit edge's gust off now, rather than waiting for one.
+    Gust,
     /// Super+P and Super+Shift+P.
     NextScreen,
     MoveToNextScreen,
@@ -510,7 +510,7 @@ impl Script {
                     ("screens", None) => Step::Screens,
                     ("windows", None) => Step::Windows,
                     ("motion", None) => Step::Motion,
-                    ("arc", None) => Step::Arc,
+                    ("gust", None) => Step::Gust,
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
                     ("swapscreens", None) => Step::SwapScreens,

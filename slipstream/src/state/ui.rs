@@ -61,6 +61,16 @@ impl Slipstream {
         self.protocols
             .idle_notifier_state
             .set_is_inhibited(inhibited);
+        // Who is holding it, named again only when that changes, not each time it's drawn.
+        let holds = self.holds();
+        if holds != self.idle.holds {
+            self.idle.holders = crate::kept_awake::holders(&holds, |id| {
+                self.explorer
+                    .app_name(id)
+                    .unwrap_or_else(|| pretty_name(id))
+            });
+            self.idle.holds = holds;
+        }
     }
 
     /// Whether an idle hold through the portal counts: one of its app's windows is on a screen,
@@ -83,48 +93,39 @@ impl Slipstream {
         )
     }
 
-    /// The apps keeping the screen awake now, each by its name and the ID its icon is found by,
-    /// once each: whatever holds off the fade, the lock and the screens going off, apart from
-    /// Awake and fullscreen windows, which are the user's own doing.
-    pub fn keeping_awake(&self) -> Vec<crate::kept_awake::Holder> {
-        let mut holders: Vec<crate::kept_awake::Holder> = Vec::new();
-        let mut add = |holder: crate::kept_awake::Holder| {
-            if !holders.iter().any(|kept| kept.name == holder.name) {
-                holders.push(holder);
-            }
-        };
-        let named = |id: &str| crate::kept_awake::Holder {
-            name: self
-                .explorer
-                .app_name(id)
-                .unwrap_or_else(|| pretty_name(id)),
-            id: Some(id.to_string()),
-        };
-        for surface in &self.idle.inhibitors {
-            if !self.surface_on_screen(surface) {
-                continue;
-            }
-            let root = crate::takeback::root_of(surface);
-            let id = self
-                .space
-                .elements()
-                .find(|window| window.wl_surface().as_deref() == Some(&root))
-                .and_then(window_app_id);
-            add(id.map_or_else(crate::kept_awake::Holder::unnamed, |id| named(&id)));
+    /// Everything holding the screen awake now, other than Awake: each inhibitor by its
+    /// window's app ID or X11 class and whether that window is on a screen or fills it, the
+    /// holds on the session bus, and the apps whose portal holds count.
+    fn holds(&self) -> crate::kept_awake::Holds {
+        let inhibitors = self
+            .idle
+            .inhibitors
+            .iter()
+            .map(|surface| {
+                let root = crate::takeback::root_of(surface);
+                let window = self
+                    .space
+                    .elements()
+                    .find(|window| window.wl_surface().as_deref() == Some(&root));
+                crate::kept_awake::Inhibitor {
+                    app: window.and_then(window_app_id),
+                    on_screen: self.surface_on_screen(surface),
+                    fullscreen: window.is_some_and(|window| self.is_fullscreen(window)),
+                }
+            })
+            .collect();
+        crate::kept_awake::Holds {
+            inhibitors,
+            bus: self.idle.bus_holds.clone(),
+            portal: self
+                .idle
+                .portal
+                .iter()
+                .filter(|hold| hold.idle && self.portal_hold_counts(hold))
+                .map(|hold| hold.app.clone())
+                .collect(),
+            catalog: self.explorer.catalog_version(),
         }
-        for app in &self.idle.bus_holds {
-            add(if app.trim().is_empty() {
-                crate::kept_awake::Holder::unnamed()
-            } else {
-                named(app.trim())
-            });
-        }
-        for hold in &self.idle.portal {
-            if hold.idle && self.portal_hold_counts(hold) {
-                add(named(&hold.app));
-            }
-        }
-        holders
     }
 
     /// Whether `surface` can be seen: a window's only while it is in the space, so not minimised
@@ -427,6 +428,8 @@ impl Slipstream {
             self.set_workspaces(&entries, self.screens.len());
         }
         let rearrange = settings.display.screens != self.settings.display.screens;
+        // A new bar style can move the bar's foot, and every tiling area with it.
+        let bar_moved = bar::Place::of(settings.appearance.bar_style) != self.bar_place();
         if !settings.clipboard.history && self.settings.clipboard.history {
             self.history.close();
             self.history.clear();
@@ -471,6 +474,8 @@ impl Slipstream {
             }
             self.retile();
             tracing::info!("the screens were rearranged in Settings");
+        } else if bar_moved {
+            self.retile();
         }
     }
 

@@ -49,6 +49,10 @@ pub struct Idle {
     /// Whether an idle hold through the portal counts: one of its app's windows is on a screen,
     /// or the app has none.
     pub portal_shown: bool,
+    /// Everything holding the screen awake as last looked at, and the apps doing it, which the
+    /// bar's pill and the notification centre name.
+    pub holds: crate::kept_awake::Holds,
+    pub holders: Vec<crate::kept_awake::Holder>,
     /// The last input, or the last moment something held the lock off.
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
@@ -78,6 +82,8 @@ impl Idle {
             bus_holds: Vec::new(),
             portal: Vec::new(),
             portal_shown: false,
+            holds: Default::default(),
+            holders: Vec::new(),
             lock_idle_since: Instant::now(),
             lock_after: None,
             screen_idle_since: Instant::now(),

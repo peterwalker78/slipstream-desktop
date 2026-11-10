@@ -48,6 +48,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "effects/glmatrix",
             "effects/glass",
             "idle",
+            "shell/kept_awake",
             "screensaver",
             "portal_inhibit",
             "effects/scope",
