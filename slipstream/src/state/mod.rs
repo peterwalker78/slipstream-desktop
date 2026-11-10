@@ -223,7 +223,7 @@ pub struct Slipstream {
     /// A gap or a window being dragged with the pointer (`grabs.rs`).
     pub drag: Option<crate::grabs::Drag>,
     /// A tile dragged to swap, lifted and followed by the pointer, with the others drawn where a
-    /// drop would put them; kept after the drop while it settles (`lift.rs`).
+    /// drop would put them (`lift.rs`). Only while it is held: the drop ends it.
     pub lift: Option<crate::lift::Lift<Window>>,
     /// A dragged gap has moved since the tiles last followed it.
     pub drag_retile_due: bool,

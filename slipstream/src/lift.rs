@@ -2,7 +2,9 @@
 //! drop would put them, and a frame marks where the dragged one would land.
 //!
 //! All of it is paint. The layout changes only when the tile is let go, by the same swap the
-//! preview was worked out from, and the tiles then settle from wherever they are drawn.
+//! preview was worked out from, and the tiles then settle from wherever they are drawn. The lift
+//! ends there: the settle is the usual window motion's, and the shadow fading with it is read
+//! from how big that motion still draws the tile (`settling_shadow`).
 
 use crate::anim::{Easing, Tween};
 use crate::layout::Rect;
@@ -63,9 +65,6 @@ pub struct Lift<T> {
     /// The other tiles drawn somewhere other than their own places, on their way to the layout
     /// a drop would give or back from it.
     making_way: Vec<(T, Tween<4>)>,
-    /// Let go: the tiles settle by the usual window motion now, and this only keeps the shadow
-    /// while the tile comes back down.
-    released: bool,
     reduced: bool,
 }
 
@@ -81,17 +80,12 @@ impl<T: Clone + PartialEq> Lift<T> {
             raise,
             landing: Tween::at_rest(home),
             making_way: Vec::new(),
-            released: false,
             reduced,
         }
     }
 
     fn duration(&self, duration: f64) -> f64 {
         if self.reduced { 0.0 } else { duration }
-    }
-
-    pub fn released(&self) -> bool {
-        self.released
     }
 
     /// The pointer has moved to `pointer`.
@@ -142,7 +136,7 @@ impl<T: Clone + PartialEq> Lift<T> {
     /// it. Added after the tile is fitted to its place, so the edge of the screen doesn't squeeze
     /// it on the way.
     pub fn carried(&self, id: &T) -> (f64, f64) {
-        if self.released || *id != self.window {
+        if *id != self.window {
             (0.0, 0.0)
         } else {
             self.offset()
@@ -152,9 +146,6 @@ impl<T: Clone + PartialEq> Lift<T> {
     /// How `id` is drawn this frame, given how the usual motion would draw it, before it is
     /// `carried`.
     pub fn frame(&self, id: &T, frame: Frame, now: f64) -> Frame {
-        if self.released {
-            return frame;
-        }
         if *id == self.window {
             return Frame {
                 held: frame.held * self.scale(now),
@@ -183,47 +174,51 @@ impl<T: Clone + PartialEq> Lift<T> {
         }
     }
 
-    /// How strongly `id`'s shadow shows, drawn at `scale`: fully once lifted, and fading as it
-    /// comes back down after the drop.
-    pub fn shadow(&self, id: &T, scale: f64, now: f64) -> f64 {
-        if *id != self.window {
-            0.0
-        } else if self.released {
-            ((scale - 1.0) / (LIFT_SCALE - 1.0)).clamp(0.0, 1.0)
-        } else {
+    /// How strongly `id`'s shadow shows while it is held: coming in as it lifts.
+    pub fn shadow(&self, id: &T, now: f64) -> f64 {
+        if *id == self.window {
             self.raise.value(now)[0].clamp(0.0, 1.0)
+        } else {
+            0.0
         }
     }
 
-    /// The landing frame, while the tile is held.
-    pub fn landing(&self, now: f64) -> Option<[f64; 4]> {
-        (!self.released).then(|| self.landing.value(now))
+    /// The landing frame.
+    pub fn landing(&self, now: f64) -> [f64; 4] {
+        self.landing.value(now)
     }
 
-    /// The tile is let go, `drawn` being where the usual motion draws a window now. Returns where
-    /// each tile the lift has moved is drawn, for the usual motion to settle it from, and the
-    /// dragged tile's scale.
+    /// `id` has closed: a tile making way for the drag stops being drawn by it.
+    pub fn forget(&mut self, id: &T) {
+        self.making_way.retain(|(other, _)| other != id);
+    }
+
+    /// The tile is let go, `drawn` being where the usual motion draws a window now, and the lift
+    /// is over. Returns where each tile the lift has moved is drawn, for the usual motion to
+    /// settle it from, and the dragged tile's scale, which that motion brings back down.
     pub fn release(
-        &mut self,
+        self,
         drawn: impl Fn(&T) -> Option<[f64; 4]>,
         now: f64,
     ) -> (Vec<(T, [f64; 4])>, f64) {
+        let scale = self.scale(now);
+        let (dx, dy) = self.offset();
         let mut from: Vec<(T, [f64; 4])> = self
             .making_way
-            .drain(..)
+            .into_iter()
             .map(|(id, tween)| (id, tween.value(now)))
             .collect();
         if let Some(rect) = drawn(&self.window) {
-            let (dx, dy) = self.offset();
-            from.push((
-                self.window.clone(),
-                [rect[0] + dx, rect[1] + dy, rect[2], rect[3]],
-            ));
+            from.push((self.window, [rect[0] + dx, rect[1] + dy, rect[2], rect[3]]));
         }
-        let scale = self.scale(now);
-        self.released = true;
         (from, scale)
     }
+}
+
+/// How strongly a tile's shadow shows once the lift is over, drawn at `held` by the usual motion
+/// as it comes back down: fading with the scale, and gone once it is back to its own size.
+pub fn settling_shadow(held: f64) -> f64 {
+    ((held - 1.0) / (LIFT_SCALE - 1.0)).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -321,7 +316,8 @@ mod tests {
         assert_eq!(lift.carried(&1), (50.0, -20.0));
         assert_eq!(lift.carried(&2), (0.0, 0.0));
         assert!((frame.held - LIFT_SCALE).abs() < 1e-9);
-        assert_eq!(lift.shadow(&1, frame.held, 1.0), 1.0);
+        assert_eq!(lift.shadow(&1, 1.0), 1.0);
+        assert_eq!(lift.shadow(&2, 1.0), 0.0);
         assert_eq!(lift.frame(&2, still(HOME_B), 1.0), still(HOME_B));
     }
 
@@ -333,11 +329,11 @@ mod tests {
         assert!(midway.moving, "stretched while it is out of its place");
         assert!(midway.rect[0] < HOME_B[0] && midway.rect[0] > HOME_A[0]);
         assert_eq!(lift.frame(&2, still(HOME_B), 1.0).rect, HOME_A);
-        assert_eq!(lift.landing(1.0), Some(HOME_B));
+        assert_eq!(lift.landing(1.0), HOME_B);
         // Back over its own place: the other goes home and is drawn as usual once there.
         lift.aim(&[(1, HOME_A), (2, HOME_B)], homes, 1.0);
         assert_eq!(lift.frame(&2, still(HOME_B), 2.0), still(HOME_B));
-        assert_eq!(lift.landing(2.0), Some(HOME_A));
+        assert_eq!(lift.landing(2.0), HOME_A);
     }
 
     #[test]
@@ -354,10 +350,44 @@ mod tests {
         let dragged = from.iter().find(|(id, _)| *id == 1).unwrap().1;
         assert_eq!(dragged, [600.0, 0.0, 600.0, 800.0]);
         assert!((scale - LIFT_SCALE).abs() < 1e-9);
-        assert!(lift.landing(0.2).is_none());
-        // From here the usual motion draws it.
-        assert_eq!(lift.frame(&1, still(HOME_B), 0.2), still(HOME_B));
-        assert_eq!(lift.carried(&1), (0.0, 0.0));
+    }
+
+    /// Once let go, the tile's shadow is the usual motion's to fade: it shows while the tile is
+    /// still drawn lifted and is gone once the settle has finished, with no lift left to ask.
+    #[test]
+    fn the_shadow_fades_with_the_settle_and_then_is_gone() {
+        use crate::motion::Motion;
+        let mut motion = Motion::new(false);
+        motion.place(&1u32, AREA, 0.0);
+        motion.shown(&1, 0.0);
+        let lift = Lift::new(1u32, (100.0, 100.0), HOME_A, 0.0, false);
+        let (from, scale) = lift.release(|_| Some(HOME_A), 1.0);
+        for (id, rect) in from {
+            motion.glide_from(&id, rect, Some(scale), 1.0, SETTLE);
+        }
+        let held = |now| motion.frame(&1, now).unwrap().held;
+        assert_eq!(
+            settling_shadow(held(1.0)),
+            1.0,
+            "still lifted as it is let go"
+        );
+        let midway = settling_shadow(held(1.0 + SETTLE / 2.0));
+        assert!(midway > 0.0 && midway < 1.0, "fading as it comes down");
+        assert_eq!(held(1.0 + SETTLE), 1.0);
+        assert_eq!(
+            settling_shadow(held(1.0 + SETTLE)),
+            0.0,
+            "gone once settled"
+        );
+    }
+
+    #[test]
+    fn a_tile_that_closes_stops_making_way() {
+        let mut lift = Lift::new(1u32, (100.0, 100.0), HOME_A, 0.0, false);
+        lift.aim(&[(1, HOME_B), (2, HOME_A)], homes, 0.0);
+        assert_eq!(lift.frame(&2, still(HOME_B), 1.0).rect, HOME_A);
+        lift.forget(&2);
+        assert_eq!(lift.frame(&2, still(HOME_B), 1.0), still(HOME_B));
     }
 
     #[test]
@@ -369,6 +399,6 @@ mod tests {
         assert_eq!(lift.carried(&1), (600.0, 0.0), "follows the pointer");
         lift.aim(&[(1, HOME_B), (2, HOME_A)], homes, 0.0);
         assert_eq!(lift.frame(&2, still(HOME_B), 0.0).rect, HOME_A, "jumps");
-        assert_eq!(lift.landing(0.0), Some(HOME_B));
+        assert_eq!(lift.landing(0.0), HOME_B);
     }
 }

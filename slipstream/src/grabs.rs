@@ -337,10 +337,7 @@ impl Slipstream {
         if let Some(Drag::Swap { over, .. }) = &mut self.drag {
             *over = target;
         }
-        let lifted = self
-            .lift
-            .as_ref()
-            .is_some_and(|lift| !lift.released() && lift.window == window);
+        let lifted = self.lift.as_ref().is_some_and(|lift| lift.window == window);
         if !lifted {
             if (pos.x - from.x).hypot(pos.y - from.y) < crate::lift::LIFT_AFTER {
                 return;
@@ -407,17 +404,17 @@ impl Slipstream {
         }
     }
 
-    /// The dragged tile is let go, swapped or not: each tile the lift had moved settles from
-    /// where it is drawn into the place the layout now has for it, and the dragged one comes back
-    /// down to its own size on the way.
+    /// The dragged tile is let go, swapped or not, and the lift ends: each tile it had moved
+    /// settles from where it is drawn into the place the layout now has for it, and the dragged
+    /// one comes back down to its own size on the way, all by the usual window motion.
     fn settle_lift(&mut self) {
         let now = self.clock.tick();
-        let motion = &self.motion;
-        let Some(lift) = self.lift.as_mut().filter(|lift| !lift.released()) else {
+        let Some(lift) = self.lift.take() else {
             return;
         };
-        let (from, scale) = lift.release(|id| Some(motion.frame(id, now)?.rect), now);
         let dragged = lift.window.clone();
+        let motion = &self.motion;
+        let (from, scale) = lift.release(|id| Some(motion.frame(id, now)?.rect), now);
         for (id, rect) in from {
             let scale = (id == dragged).then_some(scale);
             self.motion

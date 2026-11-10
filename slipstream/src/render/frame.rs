@@ -1112,7 +1112,7 @@ fn window_world(
 /// Where a dragged tile would land, behind every window: an edge and a faint tint in the focus
 /// ring's colour, `dx` along its workspace.
 fn landing_elements(state: &Slipstream, v: &View, chrome: &mut Chrome, world: &mut World, dx: f64) {
-    let Some([x, y, w, h]) = state.lift.as_ref().and_then(|lift| lift.landing(v.now)) else {
+    let Some([x, y, w, h]) = state.lift.as_ref().map(|lift| lift.landing(v.now)) else {
         return;
     };
     if v.zoomed_out > 0.0 {
@@ -1190,9 +1190,14 @@ fn draw_window(
         },
     };
     // A tile held in a drag follows the pointer, and the others show where a drop would put them.
+    // Once let go it settles by the usual motion, its shadow fading as it comes back down.
     let lift = state.lift.as_ref().filter(|_| v.zoomed_out <= 0.0);
     let frame = lift.map_or(frame, |lift| lift.frame(&window, frame, v.now));
-    let lifted = lift.map_or(0.0, |lift| lift.shadow(&window, frame.held, v.now));
+    let lifted = match lift {
+        Some(lift) => lift.shadow(&window, v.now),
+        None if v.zoomed_out <= 0.0 => crate::lift::settling_shadow(frame.held),
+        None => 0.0,
+    };
     let ([x, y, w, h], fitted) = drawn_rect(state, v, &window, &frame, own, area);
     let (cx, cy) = lift.map_or((0.0, 0.0), |lift| lift.carried(&window));
     let (x, y) = (x + cx, y + cy);

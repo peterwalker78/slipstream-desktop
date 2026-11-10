@@ -467,6 +467,15 @@ impl Slipstream {
         self.drawn.overview_hits.retain(|(hit, _)| hit != window);
         self.drawn.fitted.retain(|(hit, _)| hit != window);
         self.tiled_mins.retain(|(hit, _)| hit != window);
+        if self
+            .lift
+            .as_ref()
+            .is_some_and(|lift| lift.window == *window)
+        {
+            self.lift = None;
+        } else if let Some(lift) = self.lift.as_mut() {
+            lift.forget(window);
+        }
         self.motion.remove(window);
         self.space.unmap_elem(window);
         self.retile();
