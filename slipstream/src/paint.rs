@@ -200,37 +200,6 @@ impl Painter {
         }
     }
 
-    /// A box filled with a gradient running left to right: each stop is a share of the way
-    /// across, 0 to 1, and its colour.
-    pub fn fill_across(&mut self, x: f32, y: f32, w: f32, h: f32, stops: &[(f32, u32)]) {
-        let stops = stops
-            .iter()
-            .map(|&(at, rgba)| {
-                let [r, g, b, a] = rgba.to_be_bytes();
-                tiny_skia::GradientStop::new(at, tiny_skia::Color::from_rgba8(r, g, b, a))
-            })
-            .collect();
-        let Some(shader) = tiny_skia::LinearGradient::new(
-            tiny_skia::Point::from_xy(x, y),
-            tiny_skia::Point::from_xy(x + w, y),
-            stops,
-            tiny_skia::SpreadMode::Pad,
-            Transform::identity(),
-        ) else {
-            return;
-        };
-        let (Some(rect), transform) = (tiny_skia::Rect::from_xywh(x, y, w, h), self.transform())
-        else {
-            return;
-        };
-        let paint = tiny_skia::Paint {
-            shader,
-            anti_alias: true,
-            ..tiny_skia::Paint::default()
-        };
-        self.pixmap.fill_rect(rect, &paint, transform, None);
-    }
-
     /// Wipes a box back to nothing, whatever was painted there.
     pub fn clear(&mut self, x: f32, y: f32, w: f32, h: f32) {
         if let Some(rect) = tiny_skia::Rect::from_xywh(x, y, w, h) {
