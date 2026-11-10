@@ -176,6 +176,7 @@ impl XwmHandler for Slipstream {
         if let Some(window) = self.x11_window(&surface) {
             if places_itself(&window) {
                 self.space.unmap_elem(&window);
+                self.follow_idle_inhibitors();
             } else {
                 self.remove_window(&window);
             }
@@ -483,7 +484,12 @@ impl Slipstream {
         if let Some(layer) = self.x11_layer(&window) {
             window.override_z_index(layer as u8);
         }
+        let appears = self.space.element_location(&window).is_none();
         self.space.map_element(window, at, activate);
+        // A window coming on screen can hold it awake; one only moving changes nothing.
+        if appears {
+            self.follow_idle_inhibitors();
+        }
     }
 
     /// Stacks the X11 windows that place themselves again, now that what is fullscreen may have

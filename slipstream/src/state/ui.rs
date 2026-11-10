@@ -45,31 +45,30 @@ impl Slipstream {
     /// no screen is showing, doesn't keep the screens on. Inhibitors whose surfaces have gone are
     /// forgotten on the way. A hold through the inhibit portal goes by its app's windows in the
     /// same way.
+    ///
+    /// Called on whatever can change that: an inhibitor made or let go, a hold on the session
+    /// bus or through the portal, a window mapped, unmapped or moved by the tiling (which covers
+    /// a workspace switch, a minimise and a window filling the screen), and the installed apps
+    /// read again (`follow_app_catalog`).
     pub fn follow_idle_inhibitors(&mut self) {
         self.idle.inhibitors.retain(|surface| surface.alive());
-        self.idle.inhibitors_shown = self
-            .idle
-            .inhibitors
-            .iter()
-            .any(|surface| self.surface_on_screen(surface));
-        self.idle.portal_shown = self
-            .idle
-            .portal
-            .iter()
-            .any(|hold| hold.idle && self.portal_hold_counts(hold));
+        let holds = self.holds();
+        let explorer = &self.explorer;
+        // Who is holding it, named again only when that changes, not each time it's drawn.
+        self.idle.set_holds(holds, |id| {
+            explorer.app_name(id).unwrap_or_else(|| pretty_name(id))
+        });
         let inhibited = self.awake || self.idle.apps_hold();
         self.protocols
             .idle_notifier_state
             .set_is_inhibited(inhibited);
-        // Who is holding it, named again only when that changes, not each time it's drawn.
-        let holds = self.holds();
-        if holds != self.idle.holds {
-            self.idle.holders = crate::kept_awake::holders(&holds, |id| {
-                self.explorer
-                    .app_name(id)
-                    .unwrap_or_else(|| pretty_name(id))
-            });
-            self.idle.holds = holds;
+    }
+
+    /// A pass of the event loop: once the installed apps have been read again, the apps keeping
+    /// the screen awake are named afresh. Nothing else is looked at here.
+    pub fn follow_app_catalog(&mut self) {
+        if self.explorer.catalog_version() != self.idle.holds().catalog {
+            self.follow_idle_inhibitors();
         }
     }
 
@@ -96,7 +95,7 @@ impl Slipstream {
     /// Everything holding the screen awake now, other than Awake: each inhibitor by its
     /// window's app ID or X11 class and whether that window is on a screen or fills it, the
     /// holds on the session bus, and the apps whose portal holds count.
-    fn holds(&self) -> crate::kept_awake::Holds {
+    fn holds(&self) -> crate::idle::Holds {
         let inhibitors = self
             .idle
             .inhibitors
@@ -107,14 +106,14 @@ impl Slipstream {
                     .space
                     .elements()
                     .find(|window| window.wl_surface().as_deref() == Some(&root));
-                crate::kept_awake::Inhibitor {
+                crate::idle::Inhibitor {
                     app: window.and_then(window_app_id),
                     on_screen: self.surface_on_screen(surface),
                     fullscreen: window.is_some_and(|window| self.is_fullscreen(window)),
                 }
             })
             .collect();
-        crate::kept_awake::Holds {
+        crate::idle::Holds {
             inhibitors,
             bus: self.idle.bus_holds.clone(),
             portal: self

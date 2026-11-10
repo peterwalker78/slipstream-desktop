@@ -704,8 +704,9 @@ impl Slipstream {
     /// sleep waiting on the lock is let go once every screen has drawn it.
     pub fn tick_lock(&mut self) {
         let now = std::time::Instant::now();
-        // A window holding the screens on may have been minimised or switched away from since.
-        self.follow_idle_inhibitors();
+        // The holds themselves are followed as they change; only a new read of the installed
+        // apps, which can rename them, is looked for here.
+        self.follow_app_catalog();
         // Awake holds the lock off as it does the fade; it ends itself when the sitting does.
         let held = self.awake || self.fullscreen_on_screen();
         if self.lock.is_none() && self.idle.lock_due(now, held) {

@@ -30,63 +30,6 @@ impl Holder {
     }
 }
 
-/// A Wayland idle inhibitor as the session sees it: the app ID or X11 class of the window it's
-/// on, if it's on one, whether that window is on a screen, and whether it fills one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inhibitor {
-    pub app: Option<String>,
-    pub on_screen: bool,
-    pub fullscreen: bool,
-}
-
-/// Everything holding the screen awake, other than Awake itself: what the holders are worked out
-/// from, again only when it changes.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Holds {
-    pub inhibitors: Vec<Inhibitor>,
-    /// The names apps gave the session bus's screensaver, oldest first.
-    pub bus: Vec<String>,
-    /// The apps whose idle holds through the portal count.
-    pub portal: Vec<String>,
-    /// The installed apps' version, so names are looked up again once they're read.
-    pub catalog: u64,
-}
-
-/// The apps in `holds`, each by its name and the ID its icon is found by, once each, oldest
-/// first. `name_of` finds an app's name from its app ID or X11 class. A window that isn't on a
-/// screen holds nothing, and neither does one filling the screen: that is your own doing, as
-/// Awake is.
-pub fn holders(holds: &Holds, mut name_of: impl FnMut(&str) -> String) -> Vec<Holder> {
-    let mut holders: Vec<Holder> = Vec::new();
-    let mut add = |holder: Holder| {
-        if !holders.iter().any(|kept| kept.name == holder.name) {
-            holders.push(holder);
-        }
-    };
-    let mut named = |id: &str| Holder {
-        name: name_of(id),
-        id: Some(id.to_string()),
-    };
-    for inhibitor in &holds.inhibitors {
-        if inhibitor.on_screen && !inhibitor.fullscreen {
-            add(inhibitor
-                .app
-                .as_deref()
-                .map_or_else(Holder::unnamed, &mut named));
-        }
-    }
-    for app in &holds.bus {
-        add(match app.trim() {
-            "" => Holder::unnamed(),
-            app => named(app),
-        });
-    }
-    for app in &holds.portal {
-        add(named(app));
-    }
-    holders
-}
-
 /// The most icons the centre's tile shows side by side.
 const ICONS: usize = 3;
 /// An icon's side on the tile, the same as a background app's.
@@ -149,8 +92,10 @@ pub fn pill_word(holders: &[Holder]) -> String {
     let Some(first) = holders.first() else {
         return String::new();
     };
-    let mut name: String = first.name.to_uppercase().chars().take(PILL_NAME).collect();
-    if first.name.chars().count() > PILL_NAME {
+    // Cut in capitals, which can be longer than the name: ß is SS.
+    let upper = first.name.to_uppercase();
+    let mut name: String = upper.chars().take(PILL_NAME).collect();
+    if upper.chars().count() > PILL_NAME {
         name = format!("{}…", name.trim_end());
     }
     match holders.len() {
@@ -265,68 +210,6 @@ mod tests {
         assert_eq!(note(2), "The wallpaper and the lock wait for them.");
     }
 
-    fn window(app: &str, on_screen: bool, fullscreen: bool) -> Inhibitor {
-        Inhibitor {
-            app: Some(app.into()),
-            on_screen,
-            fullscreen,
-        }
-    }
-
-    /// Names as desktop entries give them: an X11 class leads to its entry as an app ID does.
-    fn entry_name(id: &str) -> String {
-        match id {
-            "org.example.player" => "Player".into(),
-            "examplegame" => "Example Game".into(),
-            other => other.to_string(),
-        }
-    }
-
-    fn names(holds: &Holds) -> Vec<String> {
-        super::holders(holds, entry_name)
-            .into_iter()
-            .map(|holder| holder.name)
-            .collect()
-    }
-
-    #[test]
-    fn the_holders_are_the_apps_on_screen_once_each_oldest_first() {
-        let holds = Holds {
-            inhibitors: vec![
-                window("org.example.player", true, false),
-                window("org.example.player", true, false),
-                // An X11 window's class finds the app's desktop entry.
-                window("examplegame", true, false),
-            ],
-            bus: vec!["Player".into(), "  ".into()],
-            portal: vec!["org.example.player".into()],
-            catalog: 1,
-        };
-        assert_eq!(names(&holds), ["Player", "Example Game", "An app"]);
-        let game = &super::holders(&holds, entry_name)[1];
-        assert_eq!(
-            game.id.as_deref(),
-            Some("examplegame"),
-            "its icon by its class"
-        );
-    }
-
-    #[test]
-    fn a_window_off_screen_or_filling_it_holds_nothing_here() {
-        let holds = Holds {
-            inhibitors: vec![
-                // Minimised, or on a workspace no screen shows.
-                window("org.example.player", false, false),
-                // Fullscreen, which holds the screen awake by itself as Awake does.
-                window("examplegame", true, true),
-            ],
-            ..Holds::default()
-        };
-        assert!(names(&holds).is_empty());
-        // Nor does Awake, which isn't an app's hold at all.
-        assert!(super::holders(&Holds::default(), entry_name).is_empty());
-    }
-
     #[test]
     fn the_cut_out_is_the_tiles_fill_on_the_glass() {
         assert_eq!(CUT_OUT, 0x21242aff);
@@ -343,5 +226,11 @@ mod tests {
             "A VERY LONG APPL…"
         );
         assert_eq!(pill_word(&[]), "");
+        // Sixteen letters, which in capitals run to seventeen, are cut as seventeen would be.
+        assert_eq!(
+            pill_word(&holders(&["Großstadtplanerx"])),
+            "GROSSSTADTPLANER…"
+        );
+        assert_eq!(pill_word(&holders(&["Straße"])), "STRASSE");
     }
 }

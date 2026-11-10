@@ -149,6 +149,8 @@ impl Slipstream {
         // Every layout change of any kind ends here: opening, closing, moving, swapping, gravity,
         // the code rain and switching workspace all retile.
         self.note_layout_change();
+        // What is on a screen may have changed, and with it what holds the screen awake.
+        self.follow_idle_inhibitors();
         // A tile held in a drag keeps showing where it would land in the layout as it is now.
         self.aim_lift();
     }

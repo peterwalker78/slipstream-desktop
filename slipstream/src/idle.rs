@@ -12,11 +12,17 @@
 //! off; an open panel or card doesn't, since neither is a sign anyone is there.
 
 use crate::motion::REDUCED_FADE;
-use std::time::{Duration, Instant};
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
-use crate::anim::{Easing, Tween};
+use crate::{
+    anim::{Easing, Tween},
+    kept_awake::Holder,
+};
 
 /// The UI passes through the wallpaper like a pane of glass either way (`glass.rs`). Fading out
 /// eases in and out, but the UI has gone before it slows, so what shows is the pane speeding
@@ -38,21 +44,17 @@ pub struct Idle {
     pub reduced_motion: bool,
     /// Surfaces whose apps asked for the screen to stay awake.
     pub inhibitors: Vec<WlSurface>,
-    /// Whether any of `inhibitors` is on a screen: only those count.
-    pub inhibitors_shown: bool,
     /// The holds apps have on the session bus's `org.freedesktop.ScreenSaver`, by the name each
     /// gave, which count the same as an inhibitor: X11 and Electron apps ask there.
     pub bus_holds: Vec<String>,
     /// What apps hold through the inhibit portal. The idle ones count the same as an inhibitor;
     /// the way out names the ones holding off the end of the session.
     pub portal: Vec<crate::portal_inhibit::Hold>,
-    /// Whether an idle hold through the portal counts: one of its app's windows is on a screen,
-    /// or the app has none.
-    pub portal_shown: bool,
-    /// Everything holding the screen awake as last looked at, and the apps doing it, which the
-    /// bar's pill and the notification centre name.
-    pub holds: crate::kept_awake::Holds,
-    pub holders: Vec<crate::kept_awake::Holder>,
+    /// Everything holding the screen awake as last looked at (`set_holds`), the apps doing it,
+    /// which the notification centre names, and the word on the bar's pill.
+    holds: Holds,
+    pub holders: Vec<Holder>,
+    pub pill: Rc<str>,
     /// The last input, or the last moment something held the lock off.
     lock_idle_since: Instant,
     /// How long without input before the screen locks; `None` never.
@@ -78,12 +80,11 @@ impl Idle {
             opacity: Tween::at_rest([1.0]),
             reduced_motion,
             inhibitors: Vec::new(),
-            inhibitors_shown: false,
             bus_holds: Vec::new(),
             portal: Vec::new(),
-            portal_shown: false,
             holds: Default::default(),
             holders: Vec::new(),
+            pill: Rc::from(""),
             lock_idle_since: Instant::now(),
             lock_after: None,
             screen_idle_since: Instant::now(),
@@ -138,7 +139,28 @@ impl Idle {
     /// Whether an app is asking for the screen to stay awake, through a Wayland inhibitor on a
     /// screen, the session bus or the inhibit portal.
     pub fn apps_hold(&self) -> bool {
-        self.inhibitors_shown || !self.bus_holds.is_empty() || self.portal_shown
+        self.holds
+            .inhibitors
+            .iter()
+            .any(|inhibitor| inhibitor.on_screen)
+            || !self.bus_holds.is_empty()
+            || !self.holds.portal.is_empty()
+    }
+
+    /// Everything holding the screen awake as last looked at.
+    pub fn holds(&self) -> &Holds {
+        &self.holds
+    }
+
+    /// Takes `holds` as everything holding the screen awake now, and names the apps doing it
+    /// again, by `name_of` (`holders`), only if that changed.
+    pub fn set_holds(&mut self, holds: Holds, name_of: impl FnMut(&str) -> String) {
+        if holds == self.holds {
+            return;
+        }
+        self.holders = holders(&holds, name_of);
+        self.pill = Rc::from(crate::kept_awake::pill_word(&self.holders));
+        self.holds = holds;
     }
 
     /// Starts the wait before locking again, as input does.
@@ -241,6 +263,63 @@ impl Idle {
 
 fn timeout(secs: u64) -> Option<Duration> {
     (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+/// A Wayland idle inhibitor as the session sees it: the app ID or X11 class of the window it's
+/// on, if it's on one, whether that window is on a screen, and whether it fills one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inhibitor {
+    pub app: Option<String>,
+    pub on_screen: bool,
+    pub fullscreen: bool,
+}
+
+/// Everything holding the screen awake, other than Awake itself: what the holders are worked out
+/// from, again only when it changes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Holds {
+    pub inhibitors: Vec<Inhibitor>,
+    /// The names apps gave the session bus's screensaver, oldest first.
+    pub bus: Vec<String>,
+    /// The apps whose idle holds through the portal count.
+    pub portal: Vec<String>,
+    /// The installed apps' version, so names are looked up again once they're read.
+    pub catalog: u64,
+}
+
+/// The apps in `holds`, each by its name and the ID its icon is found by, once each, oldest
+/// first. `name_of` finds an app's name from its app ID or X11 class. A window that isn't on a
+/// screen holds nothing, and neither does one filling the screen: that is your own doing, as
+/// Awake is.
+pub fn holders(holds: &Holds, mut name_of: impl FnMut(&str) -> String) -> Vec<Holder> {
+    let mut holders: Vec<Holder> = Vec::new();
+    let mut add = |holder: Holder| {
+        if !holders.iter().any(|kept| kept.name == holder.name) {
+            holders.push(holder);
+        }
+    };
+    let mut named = |id: &str| Holder {
+        name: name_of(id),
+        id: Some(id.to_string()),
+    };
+    for inhibitor in &holds.inhibitors {
+        if inhibitor.on_screen && !inhibitor.fullscreen {
+            add(inhibitor
+                .app
+                .as_deref()
+                .map_or_else(Holder::unnamed, &mut named));
+        }
+    }
+    for app in &holds.bus {
+        add(match app.trim() {
+            "" => Holder::unnamed(),
+            app => named(app),
+        });
+    }
+    for app in &holds.portal {
+        add(named(app));
+    }
+    holders
 }
 
 #[cfg(test)]
@@ -353,8 +432,105 @@ mod tests {
         idle.update(1.0, false);
         assert!(idle.is_faded());
         // A hold through the inhibit portal counts the same.
-        idle.portal_shown = true;
+        idle.set_holds(
+            Holds {
+                portal: vec!["org.example.player".into()],
+                ..Holds::default()
+            },
+            str::to_string,
+        );
         assert!(idle.apps_hold());
+    }
+
+    fn window(app: &str, on_screen: bool, fullscreen: bool) -> Inhibitor {
+        Inhibitor {
+            app: Some(app.into()),
+            on_screen,
+            fullscreen,
+        }
+    }
+
+    /// Names as desktop entries give them: an X11 class leads to its entry as an app ID does.
+    fn entry_name(id: &str) -> String {
+        match id {
+            "org.example.player" => "Player".into(),
+            "examplegame" => "Example Game".into(),
+            other => other.to_string(),
+        }
+    }
+
+    fn names(holds: &Holds) -> Vec<String> {
+        super::holders(holds, entry_name)
+            .into_iter()
+            .map(|holder| holder.name)
+            .collect()
+    }
+
+    #[test]
+    fn the_holders_are_the_apps_on_screen_once_each_oldest_first() {
+        let holds = Holds {
+            inhibitors: vec![
+                window("org.example.player", true, false),
+                window("org.example.player", true, false),
+                // An X11 window's class finds the app's desktop entry.
+                window("examplegame", true, false),
+            ],
+            bus: vec!["Player".into(), "  ".into()],
+            portal: vec!["org.example.player".into()],
+            catalog: 1,
+        };
+        assert_eq!(names(&holds), ["Player", "Example Game", "An app"]);
+        let game = &super::holders(&holds, entry_name)[1];
+        assert_eq!(
+            game.id.as_deref(),
+            Some("examplegame"),
+            "its icon by its class"
+        );
+    }
+
+    #[test]
+    fn a_window_off_screen_or_filling_it_holds_nothing_here() {
+        let holds = Holds {
+            inhibitors: vec![
+                // Minimised, or on a workspace no screen shows.
+                window("org.example.player", false, false),
+                // Fullscreen, which holds the screen awake by itself as Awake does.
+                window("examplegame", true, true),
+            ],
+            ..Holds::default()
+        };
+        assert!(names(&holds).is_empty());
+        // Nor does Awake, which isn't an app's hold at all.
+        assert!(super::holders(&Holds::default(), entry_name).is_empty());
+    }
+
+    #[test]
+    fn the_apps_and_the_pill_are_named_again_only_when_the_holds_change() {
+        let mut idle = Idle::new(false, 120);
+        let holds = Holds {
+            inhibitors: vec![window("org.example.player", true, false)],
+            ..Holds::default()
+        };
+        let mut asked = 0;
+        let mut name_of = |id: &str| {
+            asked += 1;
+            entry_name(id)
+        };
+        idle.set_holds(holds.clone(), &mut name_of);
+        idle.set_holds(holds.clone(), &mut name_of);
+        assert_eq!(asked, 1, "the same holds again are not named again");
+        assert_eq!(&*idle.pill, "PLAYER");
+        assert!(idle.apps_hold());
+        // A fullscreen window still holds the screen, though no app is named for it.
+        idle.set_holds(
+            Holds {
+                inhibitors: vec![window("org.example.player", true, true)],
+                ..Holds::default()
+            },
+            entry_name,
+        );
+        assert!(idle.apps_hold());
+        assert_eq!(&*idle.pill, "");
     }
 
     #[test]
