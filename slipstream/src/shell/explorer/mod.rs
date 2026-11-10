@@ -26,6 +26,7 @@ use smithay::{
             Kind,
             memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
         },
+        gles::GlesRenderer,
     },
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
@@ -134,7 +135,7 @@ pub struct Explorer {
     /// When it opened, on the animation clock.
     opened_at: f64,
     /// Its way in and out: the cards' opening, and the panels' close.
-    pub(crate) fade: crate::panel::Fade,
+    pub(crate) drawer: crate::panel::Drawer,
     catalog: Arc<Mutex<Catalog>>,
     scanned: Option<Instant>,
     read_recent_files: RecentReader,
@@ -190,7 +191,7 @@ impl Explorer {
             selected: 0,
             scroll: 0,
             opened_at: 0.0,
-            fade: Default::default(),
+            drawer: Default::default(),
             catalog: Arc::default(),
             scanned: None,
             read_recent_files: Arc::new(|| apps::recent_files(RECENT, |path| path.is_file())),
@@ -229,8 +230,8 @@ impl Explorer {
         self.selected = 0;
         self.scroll = 0;
         self.opened_at = now;
-        // Reopened while it fades, it comes back from where it's drawn.
-        self.fade.open();
+        // Reopened while it goes back in, it comes back from where it's drawn.
+        self.drawer.open(now, crate::panel::Hang::Own);
         self.shown = None;
         self.rescan();
         // What was last read shows now. A file deleted since goes from the list once this read
@@ -246,11 +247,11 @@ impl Explorer {
             return;
         }
         let origin = self.origin;
-        self.fade.close(
-            self.buffer
-                .take()
-                .map(|painted| vec![(painted, origin, 1.0)]),
-        );
+        let picture = self
+            .buffer
+            .take()
+            .map(|painted| crate::flow::Layer::new(painted, origin));
+        self.drawer.close_into_bar(picture.into_iter().collect());
         self.open = false;
         self.shown = None;
         self.targets.clear();
@@ -258,7 +259,7 @@ impl Explorer {
 
     /// Whether it's still going back into the bar after closing.
     pub fn is_closing(&self) -> bool {
-        self.fade.is_closing()
+        self.drawer.closing()
     }
 
     /// What is typed.
@@ -982,7 +983,7 @@ mod tests {
     fn closing_lets_go_at_once_and_only_the_paint_drains() {
         let mut explorer = Explorer::idle(false);
         explorer.open(0.0);
-        explorer.fade.drawn_at(1.0, false);
+        explorer.drawer.drawn_at(1.0, false);
         explorer.buffer = crate::paint::Painted::new((1, 1).into(), 1.0, |_| {});
         explorer.close();
         assert!(!explorer.is_open(), "keys go back to the window now");

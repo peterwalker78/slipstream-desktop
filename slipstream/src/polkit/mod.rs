@@ -852,9 +852,10 @@ impl Slipstream {
     /// keys are swallowed until typing stops (`Settle`).
     fn close_polkit(&mut self, answer: Answer, by_user: bool) {
         self.polkit.conversation = None;
-        let Some(prompt) = self.polkit.prompt.take() else {
+        let Some(mut prompt) = self.polkit.prompt.take() else {
             return;
         };
+        self.close_card(Some(prompt.close_into_bar()));
         // The password the card held is wiped as it drops.
         prompt.request.answer(answer);
         if self.lock.is_none() {

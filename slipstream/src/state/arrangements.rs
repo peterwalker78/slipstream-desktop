@@ -173,6 +173,7 @@ impl Slipstream {
                 attention: self.panel_attention(),
                 ring: self.panel_ring(),
                 bar: self.bar_place(),
+                reduced_motion: false,
             };
             arrange.element(renderer, frame, ring, pictures, key)
         } else {

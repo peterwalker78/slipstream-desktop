@@ -67,6 +67,8 @@ pub(super) struct View {
     pub ring: u32,
     /// Where the bar sits.
     pub bar: bar::Place,
+    /// Whether motion is reduced.
+    pub reduced_motion: bool,
 }
 
 impl View {
@@ -188,6 +190,7 @@ impl View {
             attention: state.panel_attention(),
             ring: state.panel_ring(),
             bar: state.bar_place(),
+            reduced_motion: state.clock.reduced_motion,
         }
     }
 
@@ -233,6 +236,7 @@ impl View {
             attention: self.attention,
             ring: self.ring,
             bar: self.bar,
+            reduced_motion: self.reduced_motion,
         }
     }
 
@@ -366,20 +370,26 @@ pub fn output_elements(
     if v.first && !deck_shown {
         state.deck = None;
     }
-    // A slot a panel asked for on another screen's bar isn't this one's.
-    crate::flow::take_bar_slot();
-    if v.first {
-        elements.extend(card_elements(
-            state, renderer, geo.size, v.scale.x, now, v.wall, deck_shown,
-        ));
-    }
+    // The slot a panel comes out of is in the bar of the screen it is drawn on.
+    let bar_slot = if v.first {
+        let screen = super::CardScreen {
+            size: geo.size,
+            scale: v.scale.x,
+            now,
+            wall: v.wall,
+            deck_shown,
+        };
+        card_elements(state, renderer, screen, &mut elements)
+    } else {
+        None
+    };
     elements.extend(popup_elements(state, renderer, &v));
     if v.first && v.zoomed_out > 0.0 && v.ui > 0.0 {
         elements.extend(bullet_border_elements(state, renderer, &v, &mut chrome));
     }
     // The bar hides when a window on screen fills it.
     if v.tiling && v.ui > 0.0 && !state.fullscreen_on(v.active) {
-        world.bar_pane = bar_elements(state, renderer, &v, &mut chrome, &used);
+        world.bar_pane = bar_elements(state, renderer, &v, &mut chrome, &used, bar_slot);
         // Fading with a window docked, the bar and what hangs from it are a pane of their own.
         if !v.bar_apart {
             elements.append(&mut world.bar_pane);
@@ -529,8 +539,7 @@ fn overlay_elements(
     let ring = state.panel_ring();
     if let Some(prompt) = state.polkit.prompt.as_mut() {
         if v.first {
-            let card = prompt.element(renderer, v.frame(v.wall), ring);
-            elements.extend(card.map(OutputElement::Memory));
+            prompt.element(renderer, v.frame(v.wall), ring, elements);
         }
         let shade = prompt.shade(&v.name, v.geo.size, v.scale.x, v.wall);
         elements.push(OutputElement::Solid(shade));
@@ -712,6 +721,7 @@ fn bar_elements(
     v: &View,
     chrome: &mut Chrome,
     used: &[bool],
+    bar_slot: Option<crate::flow::BarSlot>,
 ) -> Vec<OutputElement> {
     let content = bar_content(state, v.active, v.screen_index, v.first, used);
     let docked = content.dock.is_some();
@@ -733,7 +743,7 @@ fn bar_elements(
         typing: state.concentration.typing(state.clock.instant()),
         shown: v.ui >= 1.0,
         // The slot of a panel coming out of the bar, which the panels, drawn first, asked for.
-        slot: crate::flow::take_bar_slot(),
+        slot: bar_slot,
     };
     let bar = chrome
         .bar

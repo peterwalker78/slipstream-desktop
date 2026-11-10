@@ -60,7 +60,7 @@ const WAKE_DROP: f64 = 0.5;
 /// The failing tube, for something small drawn on the CPU's side in its look (the panels' lit
 /// edge): how long one of its frames of flicker and tearing lasts, in seconds, every other row's
 /// brightness, the flicker's floor and range, and how far its colours split, in pixels. `crt` in
-/// the shader has the same numbers.
+/// the shaders is given these numbers (`head`).
 pub const TUBE_FRAME: f64 = 0.04;
 pub const SCANLINE: f32 = 0.62;
 pub const FLICKER: (f32, f32) = (0.88, 0.12);
@@ -147,8 +147,9 @@ impl Fx {
             UniformName::new("window_w", UniformType::_1f),
         ];
         let derez =
-            renderer.compile_custom_texture_shader(format!("{HEAD}{DEREZ_MAIN}"), &uniforms);
-        let wake = renderer.compile_custom_texture_shader(format!("{HEAD}{WAKE_MAIN}"), &uniforms);
+            renderer.compile_custom_texture_shader(format!("{}{DEREZ_MAIN}", head()), &uniforms);
+        let wake =
+            renderer.compile_custom_texture_shader(format!("{}{WAKE_MAIN}", head()), &uniforms);
         match (derez, wake) {
             (Ok(derez), Ok(wake)) => {
                 self.derez = Some(derez);
@@ -332,6 +333,20 @@ impl Fx {
 /// from GLMatrix — its glyphs, the brightness wave running down each column, each column's depth
 /// fog, and light added in the rain's tint — so a closing window's rain is the minimised rain's.
 /// Then the failing CRT that either effect's `scene` is shown through.
+/// The shaders' shared head, with the tube's numbers written in from the ones the CPU's side
+/// uses, so the two can't drift apart.
+fn head() -> String {
+    let tube = format!(
+        "const float TUBE_FRAME = {TUBE_FRAME:?};\n\
+         const float SCANLINE = {SCANLINE:?};\n\
+         const float FLICKER_FLOOR = {:?};\n\
+         const float FLICKER_RANGE = {:?};\n\
+         const float SPLIT = {SPLIT:?};\n",
+        FLICKER.0, FLICKER.1,
+    );
+    HEAD.replacen("//_TUBE_\n", &tube, 1)
+}
+
 const HEAD: &str = r#"#version 100
 
 //_DEFINES_
@@ -359,6 +374,8 @@ uniform vec2 content;
 uniform vec2 cell;
 uniform float t;
 uniform vec3 ink;
+
+//_TUBE_
 
 const float WAVE = 22.0;
 // Font strokes are thinner than GLMatrix's glowing atlas, so they carry more light.
@@ -428,7 +445,7 @@ vec4 scene(vec2 p);
 // picture tears worst while `live` is 1, and which is itself lit as brightly as `beam`. `tearing`
 // is how much of the rest of the picture tears.
 vec4 crt(vec2 px, float line, float live, float beam, float tearing) {
-    float frame = floor(t / 0.04);
+    float frame = floor(t / TUBE_FRAME);
     // Torn bands: some slices of the picture jump sideways for a frame or two, and always around
     // the line.
     float band = floor(px.y / (cell.y * 0.6));
@@ -437,7 +454,7 @@ vec4 crt(vec2 px, float line, float live, float beam, float tearing) {
     float shift = (torn * 5.0 + near * 2.5) * (hash(vec2(band + 3.0, frame)) - 0.5) * cell.x;
     vec2 p = vec2(px.x + shift, px.y);
     // Colour fringes, wider where the picture tears.
-    float split = 1.5 + 6.0 * max(torn, near);
+    float split = SPLIT + 6.0 * max(torn, near);
     vec4 mid = scene(p);
     vec4 color = vec4(
         scene(p + vec2(split, 0.0)).r,
@@ -448,8 +465,8 @@ vec4 crt(vec2 px, float line, float live, float beam, float tearing) {
     float jitter = (hash(vec2(frame, 4.0)) - 0.5) * 3.0;
     color.rgb += ink * (1.0 - clamp(abs(px.y - line - jitter) / 2.5, 0.0, 1.0)) * beam * 0.9;
     // Scanlines, every other screen row, and the tube's flicker.
-    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : 0.62;
-    float flicker = 0.88 + 0.12 * hash(vec2(frame, 1.0));
+    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : SCANLINE;
+    float flicker = FLICKER_FLOOR + FLICKER_RANGE * hash(vec2(frame, 1.0));
     color.rgb *= scan * flicker;
     return color;
 }
@@ -694,11 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tube_drawn_on_the_cpu_matches_the_shaders() {
-        assert!(HEAD.contains(&format!("floor(t / {TUBE_FRAME})")));
-        assert!(HEAD.contains(&format!("? 1.0 : {SCANLINE}")));
-        assert!(HEAD.contains(&format!("{} + {} * hash", FLICKER.0, FLICKER.1)));
-        assert!(HEAD.contains(&format!("float split = {SPLIT} +")));
+    fn the_tube_flickers_within_its_range_and_tears_now_and_then() {
         let frames: Vec<_> = (0..2000)
             .map(|n| tube(n as f64 * TUBE_FRAME, 0.06))
             .collect();

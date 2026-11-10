@@ -7,12 +7,12 @@
 //! to the card while it is up, and no app has the keyboard.
 
 use crate::motion::REDUCED_FADE;
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::{
     backend::renderer::{
-        Color32F, ImportMem, Renderer,
+        Color32F,
         element::{
             Kind,
-            memory::MemoryRenderBufferRenderElement,
             solid::{SolidColorBuffer, SolidColorRenderElement},
         },
     },
@@ -354,21 +354,21 @@ impl Prompt {
         }
     }
 
-    /// The card, in the middle of the screen it is asked on.
-    pub fn element<R>(
+    /// The card, in the middle of the screen it is asked on, coming out of its slot.
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let card = self.card(ring);
-        let now = frame.time;
-        let (alpha, rise) = self.arrival(now);
-        self.on_screen.element(renderer, card, frame, (alpha, rise))
+        self.on_screen.pour(renderer, card, frame, out)
+    }
+
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close_into_bar(&mut self) -> crate::panel::Drawer {
+        std::mem::take(&mut self.on_screen).close_into_bar()
     }
 
     /// The shade over the whole of the screen called `output`: every screen is shaded, not only

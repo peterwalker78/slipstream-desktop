@@ -37,21 +37,18 @@ impl Explorer {
     /// The explorer's elements, front first (the caret, then the painted explorer), for a screen
     /// `width` logical pixels wide at `scale`, repainted only when what it shows changes.
     /// `running` holds the app IDs and X11 classes of open windows, lowercased.
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         running: Vec<String>,
         ring: u32,
         keys: Keys,
-    ) -> Vec<crate::flow::FlowElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let (width, scale, now) = (frame.size.w, frame.scale, frame.time);
         if !self.open {
-            return Vec::new();
+            return None;
         }
         self.warm_icons(scale);
         let since = now - self.opened_at;
@@ -89,33 +86,23 @@ impl Explorer {
             }
         };
         if self.shown.as_ref() != Some(&look) {
-            if self.repaint(&look).is_none() {
-                return Vec::new();
-            }
+            self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let Some(painted) = self.buffer.as_ref() else {
-            return Vec::new();
-        };
+        let painted = self.buffer.as_ref()?;
         let card = crate::flow::card_in(self.origin, painted.logical, MARGIN, BELOW);
-        let mut elements = Vec::new();
-        let reveal = self.fade.show(
-            renderer,
-            frame,
-            since,
-            self.reduced_motion,
-            card,
-            &[(painted, self.origin, 1.0)],
-            &mut elements,
-        );
+        let shown = [crate::flow::Shown::new(painted, self.origin)];
+        let mut reveal = self.drawer.reveal(frame, card, &shown);
         // The caret blinks, half a second on and half off, unless motion is reduced: then it
         // stays on. It shows once the explorer is whole.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
         if caret_on && reveal.whole() {
             let caret = self.caret_element(renderer, frame, reveal.alpha);
-            elements.splice(0..0, caret.map(crate::flow::FlowElement::from));
+            out.extend(caret.map(crate::flow::FlowElement::from));
         }
-        elements
+        let shown = [crate::flow::Shown::new(self.buffer.as_ref()?, self.origin)];
+        self.drawer.draw(renderer, frame, &mut reveal, &shown, out);
+        Some(reveal)
     }
 
     /// The caret, where the text typed ends.

@@ -9,7 +9,7 @@
 
 use resvg::tiny_skia::Pixmap;
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -95,6 +95,8 @@ pub struct Facts {
     pub attention: u32,
     /// The apps keeping the screen awake.
     pub awake: Vec<crate::kept_awake::Holder>,
+    /// The apps running in the background, as chips.
+    pub chips: Vec<Chip>,
 }
 
 /// Everything the painted panel depends on.
@@ -128,7 +130,7 @@ pub struct Centre {
     /// When it opened, on the animation clock.
     opened_at: f64,
     /// Its way in and out.
-    pub(crate) fade: panel::Fade,
+    pub(crate) drawer: panel::Drawer,
     /// Months from this one.
     month: i32,
     selected: Item,
@@ -169,7 +171,7 @@ impl Default for Centre {
         Self {
             open: false,
             opened_at: 0.0,
-            fade: panel::Fade::default(),
+            drawer: Default::default(),
             breath: 1.0,
             month: 0,
             selected: Item::DoNotDisturb,
@@ -215,10 +217,10 @@ impl Centre {
     }
 
     /// Opens on this month, with the newest notification chosen.
-    pub fn open(&mut self, now: f64, ids: &[u32]) {
+    pub fn open(&mut self, now: f64, ids: &[u32], hang: panel::Hang) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(now, hang);
         self.month = 0;
         self.scroll = 0;
         self.selected = ids
@@ -231,11 +233,17 @@ impl Centre {
         self.open = false;
         self.shown = None;
         let (origin, breath) = (self.origin, self.breath);
-        let picture = self.painted.take().map(|painted| {
-            let glow = self.glow.take().map(|glow| (glow, origin, breath));
-            glow.into_iter().chain([(painted, origin, 1.0)]).collect()
+        let glow = self.glow.take().map(|painted| crate::flow::Layer {
+            painted,
+            at: origin,
+            share: breath,
         });
-        self.fade.close(picture);
+        let picture = self
+            .painted
+            .take()
+            .map(|painted| crate::flow::Layer::new(painted, origin));
+        self.drawer
+            .close_into_bar(glow.into_iter().chain(picture).collect());
         self.glow = None;
         self.targets.clear();
         self.launch = None;
@@ -484,24 +492,21 @@ impl Centre {
     }
 
     /// The panel, and any tray menu over it, for a screen `size` logical pixels big at `scale`,
-    /// front to back, repainted when what they show changes. `icons` finds a menu entry's icon, and the icons of
-    /// the apps keeping the screen awake when it repaints.
-    pub fn elements<R>(
+    /// front to back, repainted when what they show changes. `icons` finds a menu entry's icon, and
+    /// the icons of the apps keeping the screen awake when it repaints.
+    pub fn elements(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
-        facts: Facts,
+        mut facts: Facts,
         notices: &Notices,
-        chips: Vec<Chip>,
         icons: &mut crate::explorer::Explorer,
-    ) -> Vec<crate::flow::FlowElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        let chips = std::mem::take(&mut facts.chips);
         let (size, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
-            return Vec::new();
+            return None;
         }
         // An app may have taken the chosen notification back, or gone from the row.
         let ids = notices.ids();
@@ -547,26 +552,17 @@ impl Centre {
             launch_frac,
         };
         if self.shown.as_ref() != Some(&look) {
-            if self
-                .repaint(&look, notices, &mut |id, px| icons.app_icon(id, px))
-                .is_none()
-            {
-                return Vec::new();
-            }
+            self.repaint(&look, notices, &mut |id, px| icons.app_icon(id, px))?;
             self.shown = Some(Look {
                 scroll: self.scroll,
                 ..look
             });
         }
-        let Some(card) = self.painted.as_ref().map(|painted| {
-            crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW)
-        }) else {
-            return Vec::new();
-        };
+        let painted = self.painted.as_ref()?;
+        let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
         let at = self.origin;
-        let mut elements = Vec::new();
         if let Some(menu) = self.menu.as_mut() {
-            elements.extend(
+            out.extend(
                 menu.elements(
                     renderer,
                     frame,
@@ -579,7 +575,7 @@ impl Centre {
             );
         }
         self.ghosts.retain(|ghost| !ghost.faded(now));
-        elements.extend(
+        out.extend(
             self.ghosts
                 .iter()
                 .filter_map(|ghost| ghost.element(renderer, now, facts.reduced_motion))
@@ -587,29 +583,25 @@ impl Centre {
         );
         let breath = chips::breath(now - self.opened_at, facts.reduced_motion);
         self.breath = breath;
-        let Some(painted) = self.painted.as_ref() else {
-            return elements;
-        };
+        let painted = self.painted.as_ref()?;
         // The chips' glow rides along in front of the picture.
-        let main = (painted, at, 1.0);
+        let main = crate::flow::Shown::new(painted, at);
         let both;
         let shown: &[crate::flow::Shown<'_>] = match self.glow.as_ref() {
             Some(glow) => {
-                both = [(glow, at, breath), main];
+                both = [
+                    crate::flow::Shown {
+                        painted: glow,
+                        at,
+                        share: breath,
+                    },
+                    main,
+                ];
                 &both
             }
             None => std::slice::from_ref(&main),
         };
-        self.fade.show(
-            renderer,
-            frame,
-            now - self.opened_at,
-            facts.reduced_motion,
-            card,
-            shown,
-            &mut elements,
-        );
-        elements
+        Some(self.drawer.show(renderer, frame, card, shown, out))
     }
 
     fn repaint(
@@ -1028,9 +1020,8 @@ impl Slipstream {
         self.close_panels();
         let now = self.clock.tick();
         let ids = self.notices.ids();
-        self.centre.open(now, &ids);
-        let bell = self.button_middle(crate::bar::Target::Bell);
-        self.centre.fade.hang_from(bell);
+        let button = self.button_middle(crate::bar::Target::Bell);
+        self.centre.open(now, &ids, panel::Hang::Bar { button });
         self.notices.mark_read();
         // The pop-ups would sit on top of it; their notifications are all in it.
         let gone = self.notices.hide_popups();
@@ -1046,6 +1037,7 @@ impl Slipstream {
             accent: self.panel_accent(),
             attention: self.panel_attention(),
             awake: self.idle.holders.clone(),
+            chips: Vec::new(),
         }
     }
 
@@ -1221,7 +1213,7 @@ mod tests {
     #[test]
     fn keys_move_through_the_stops_and_change_the_month() {
         let mut centre = Centre::default();
-        centre.open(0.0, &[7, 5]);
+        centre.open(0.0, &[7, 5], panel::Hang::Own);
         assert_eq!(centre.selected, Item::Notice(7), "the newest first");
         assert_eq!(centre.key(Keysym::Return, false, &[7, 5]), Request::Open(7));
         centre.key(Keysym::Down, false, &[7, 5]);
@@ -1282,7 +1274,7 @@ mod tests {
                 reduced_motion,
                 ..Centre::default()
             };
-            centre.open(0.0, &[]);
+            centre.open(0.0, &[], panel::Hang::Own);
             centre.chips = vec![chip("Sync", Some("item"))];
             let look = look(&centre, &notices);
             centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
@@ -1308,7 +1300,7 @@ mod tests {
     fn right_and_middle_clicks_on_a_chip_ask_for_its_menu_and_its_second_action() {
         let notices = Notices::default();
         let mut centre = Centre::default();
-        centre.open(0.0, &[]);
+        centre.open(0.0, &[], panel::Hang::Own);
         centre.chips = vec![
             chip("Sync", Some(":1.5/StatusNotifierItem")),
             chip("Editor", None),
@@ -1335,7 +1327,7 @@ mod tests {
     fn with_a_menu_open_the_keys_and_a_click_outside_go_to_it() {
         let notices = Notices::default();
         let mut centre = Centre::default();
-        centre.open(0.0, &[]);
+        centre.open(0.0, &[], panel::Hang::Own);
         centre.chips = vec![chip("Sync", Some(":1.5/StatusNotifierItem"))];
         let look = look(&centre, &notices);
         centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
@@ -1366,7 +1358,7 @@ mod tests {
     #[test]
     fn a_dismissed_notification_hands_the_keyboard_on() {
         let mut centre = Centre::default();
-        centre.open(0.0, &[3, 2, 1]);
+        centre.open(0.0, &[3, 2, 1], panel::Hang::Own);
         centre.selected = Item::Notice(2);
         centre.forget(2, &[3, 2, 1]);
         assert_eq!(centre.selected, Item::Notice(1), "the one after");
@@ -1382,7 +1374,7 @@ mod tests {
         notices.add(notice(1, "First"), 0.0, None, true);
         notices.add(notice(2, "Second"), 0.0, None, true);
         let mut centre = Centre::default();
-        centre.open(0.0, &notices.ids());
+        centre.open(0.0, &notices.ids(), panel::Hang::Own);
         let look = look(&centre, &notices);
         centre.repaint(&look, &notices, &mut |_, _| None).unwrap();
         let right = centre.frame.loc.x + centre.frame.size.w;
@@ -1434,7 +1426,7 @@ mod tests {
             notices.add(notice(id, &body), 0.0, None, true);
         }
         let mut centre = Centre::default();
-        centre.open(0.0, &notices.ids());
+        centre.open(0.0, &notices.ids(), panel::Hang::Own);
         for _ in 0..19 {
             centre.key(Keysym::Down, false, &notices.ids());
         }

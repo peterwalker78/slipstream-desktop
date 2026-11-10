@@ -20,7 +20,7 @@ use std::{
 
 use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     reexports::calloop::channel::Sender,
     utils::{Logical, Point, Rectangle, Size},
@@ -270,7 +270,7 @@ pub struct History {
     open: bool,
     opened_at: f64,
     /// Its way in and out.
-    pub(crate) fade: panel::Fade,
+    pub(crate) drawer: panel::Drawer,
     selected: usize,
     /// The first row shown.
     scroll: usize,
@@ -307,7 +307,7 @@ impl History {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(now, panel::Hang::Own);
         self.selected = 0;
         self.scroll = 0;
         self.chosen_at = now;
@@ -319,11 +319,11 @@ impl History {
         // Where the painted card settles: its corner, outside the margin round the card.
         let m = (MARGIN * DESIGN_PX) as f64;
         let at = self.frame.loc - Point::from((m, m));
-        self.fade.close(
-            self.painted
-                .take()
-                .map(|(_, painted)| vec![(painted, at, 1.0)]),
-        );
+        let picture = self
+            .painted
+            .take()
+            .map(|(_, painted)| crate::flow::Layer::new(painted, at));
+        self.drawer.close_into_bar(picture.into_iter().collect());
     }
 
     /// Paints its text again next frame: a face for characters it lacked has landed.
@@ -410,31 +410,25 @@ impl History {
         self.frame.contains(pos)
     }
 
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
         key: String,
-    ) -> panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        self.drawn(renderer, frame, ring, key).unwrap_or_default()
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        self.drawn(renderer, frame, ring, key, out)
     }
 
-    fn drawn<R>(
+    fn drawn(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
         key: String,
-    ) -> Option<panel::Pair<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
             return None;
@@ -489,17 +483,8 @@ impl History {
             .iter()
             .map(|(index, rect)| (*index, Rectangle::new(rect.loc + at, rect.size)))
             .collect();
-        let mut drawn = panel::Pair::default();
-        self.fade.show(
-            renderer,
-            frame,
-            now - self.opened_at,
-            self.reduced_motion,
-            self.frame,
-            &[(painted, at, 1.0)],
-            &mut drawn,
-        );
-        Some(drawn)
+        let shown = [crate::flow::Shown::new(painted, at)];
+        Some(self.drawer.show(renderer, frame, self.frame, &shown, out))
     }
 
     fn rows_that_fit(&self, screen: Size<i32, Logical>) -> usize {
@@ -899,7 +884,7 @@ mod tests {
     fn closing_lets_go_at_once_and_only_its_picture_drains() {
         let mut history = History::default();
         history.open(0.0);
-        history.fade.drawn_at(1.0, false);
+        history.drawer.drawn_at(1.0, false);
         let painted = Painted::new((1, 1).into(), 1.0, |_| {}).unwrap();
         history.painted = Some((Look::default(), painted));
         history.close();
@@ -907,9 +892,9 @@ mod tests {
             !history.is_open(),
             "keys and clicks go to what's underneath now"
         );
-        assert!(history.fade.is_closing());
+        assert!(history.drawer.closing());
         history.open(1.0);
-        assert!(!history.fade.is_closing());
+        assert!(!history.drawer.closing());
     }
 
     #[test]

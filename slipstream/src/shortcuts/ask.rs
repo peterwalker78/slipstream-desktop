@@ -6,10 +6,7 @@
 //!
 //! It appears by itself, often while someone is typing, so it ignores keys for its first moment.
 
-use smithay::{
-    backend::renderer::{ImportMem, Renderer},
-    input::keyboard::Keysym,
-};
+use smithay::{backend::renderer::gles::GlesRenderer, input::keyboard::Keysym};
 
 use crate::{
     card::{self, Btn, Button, Card},
@@ -203,25 +200,21 @@ impl Ask {
     }
 
     /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn fade_out(self) -> crate::panel::Fade {
-        self.on_screen.fade_out()
+    pub fn close_into_bar(self) -> crate::panel::Drawer {
+        self.on_screen.close_into_bar()
     }
 
     /// The card on a screen `screen` logical pixels big.
-    pub fn element<R>(
+    /// The card, coming out of its slot, into `out`.
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
-    ) -> crate::panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let card = self.card((ring, frame.accent));
-        self.on_screen
-            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
+        self.on_screen.pour(renderer, card, frame, out)
     }
 }
 

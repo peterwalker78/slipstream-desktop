@@ -12,7 +12,6 @@
 //! fallbacks either fail here (`slurp` needs a layer shell) or share a screen without asking, so
 //! the config `scripts/update-session` writes always names this chooser.
 
-use crate::motion::REDUCED_FADE;
 use std::{
     cell::RefCell,
     io::{ErrorKind, Read, Write},
@@ -23,7 +22,7 @@ use std::{
 };
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     reexports::calloop::{
         Interest, LoopHandle, Mode, PostAction,
@@ -35,10 +34,8 @@ use smithay::{
 use crate::{
     Slipstream,
     card::{self, Btn, Button, Card, Row},
-    motion::HYPR,
 };
 
-const OPEN: f64 = 0.18;
 /// Rows shown at once; the list scrolls with the selection past that.
 const VISIBLE: usize = 9;
 /// How long a chooser gets to send its whole list, counted from when it connects. It sends it all
@@ -134,7 +131,6 @@ pub struct Picker {
     top: usize,
     /// The chooser waiting on the other end, which the answer goes back down.
     reply: Option<UnixStream>,
-    since: f64,
     pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
@@ -160,9 +156,8 @@ impl Picker {
             selected: 0,
             top: 0,
             reply,
-            since: now,
             reduced_motion,
-            on_screen: Default::default(),
+            on_screen: card::OnScreen::opened_at(now),
         }
     }
 
@@ -362,26 +357,21 @@ impl Picker {
         }
     }
 
-    pub fn element<R>(
+    /// The picker, coming out of its slot, into `out`.
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let card = self.card(ring);
-        let since = now - self.since;
-        let (alpha, rise) = if self.reduced_motion {
-            ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
-        } else {
-            let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-            (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
-        };
-        self.on_screen.element(renderer, card, frame, (alpha, rise))
+        self.on_screen.pour(renderer, card, frame, out)
+    }
+
+    /// Lets the picker go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close_into_bar(&mut self) -> crate::panel::Drawer {
+        std::mem::take(&mut self.on_screen).close_into_bar()
     }
 }
 
@@ -595,6 +585,7 @@ mod tests {
             attention: crate::panel::AMBER,
             ring: crate::panel::FOCUS,
             bar: crate::bar::Place::default(),
+            reduced_motion: false,
         };
         picker.on_screen.paint(picker.card(0), frame, card::paint);
         let px = crate::panel::DESIGN_PX as f64;

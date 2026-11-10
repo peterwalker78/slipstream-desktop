@@ -1154,6 +1154,11 @@ fn keep_in_view(scroll: usize, chosen: Option<usize>, count: usize, fit: usize) 
 
 /// A card `since` seconds after it opened: its opacity, and how far short of its place it is,
 /// in design pixels.
+///
+/// The one card that doesn't come out of a drawer (`flow::Drawer`): a tray menu is a pop-up at
+/// the pointer whose submenus cascade sideways from the row that opened them, often several deep
+/// in a second of browsing, so each level slides a few pixels out of its parent's side and is
+/// there in a moment, as a menu should be, rather than dropping from a slot in the bar.
 fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
     if reduced_motion {
         ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)

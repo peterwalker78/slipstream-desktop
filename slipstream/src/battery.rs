@@ -12,7 +12,7 @@
 //! key already on its way when it appears can't answer it.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point},
 };
@@ -164,27 +164,29 @@ impl LowCard {
     }
 
     /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn fade_out(self) -> crate::panel::Fade {
-        self.on_screen.fade_out()
+    pub fn close_into_bar(self) -> crate::panel::Drawer {
+        self.on_screen.close_into_bar()
     }
 
-    pub fn element<R>(
+    /// The card, coming out of its slot, into `out`.
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
-    ) -> crate::panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
-        let card = self.card(now);
-        self.on_screen
-            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        let card = self.card(frame.time);
+        self.on_screen.pour(renderer, card, frame, out)
     }
 }
 
 impl Slipstream {
+    /// Takes the low battery card down, back into its slot.
+    fn put_low_card_away(&mut self) {
+        let card = self.battery.card.take().map(LowCard::close_into_bar);
+        self.close_card(card);
+    }
+
     /// Once a pass of the event loop: the battery's reading decides the wallpaper's pace, the
     /// warnings, and the card.
     pub fn tick_battery(&mut self) {
@@ -246,8 +248,7 @@ impl Slipstream {
         }
 
         if stage < Stage::Critical {
-            self.fading
-                .extend(self.battery.card.take().map(LowCard::fade_out));
+            self.put_low_card_away();
             self.battery.slept_at = None;
             if stage == Stage::Fine {
                 self.battery.held_off_until = None;
@@ -260,8 +261,7 @@ impl Slipstream {
             .is_some_and(|until| percent > until);
         if self.lock.is_some() {
             // Nobody to ask: sleep, once for this charge.
-            self.fading
-                .extend(self.battery.card.take().map(LowCard::fade_out));
+            self.put_low_card_away();
             if !held_off && self.battery.slept_at != Some(percent) {
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "battery critical while locked: sleeping");
@@ -280,8 +280,7 @@ impl Slipstream {
                     Some(LowCard::new(percent, left, now, self.clock.reduced_motion));
             }
             Some(card) if card.due(now) => {
-                self.fading
-                    .extend(self.battery.card.take().map(LowCard::fade_out));
+                self.put_low_card_away();
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "battery critical: sleeping");
                 self.request_power(crate::power::Power::Sleep);
@@ -327,15 +326,13 @@ impl Slipstream {
         match act {
             Act::Nothing => {}
             Act::SleepNow => {
-                self.fading
-                    .extend(self.battery.card.take().map(LowCard::fade_out));
+                self.put_low_card_away();
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "sleeping now, from the battery card");
                 self.request_power(crate::power::Power::Sleep);
             }
             Act::NotYet => {
-                self.fading
-                    .extend(self.battery.card.take().map(LowCard::fade_out));
+                self.put_low_card_away();
                 self.battery.held_off_until = Some(percent.saturating_sub(HOLD_OFF));
                 tracing::info!(percent, "the battery card was held off");
             }

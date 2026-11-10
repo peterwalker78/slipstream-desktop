@@ -5,7 +5,7 @@
 //! key added or changed shows up here without anyone remembering to list it.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -383,7 +383,7 @@ pub struct Sheet {
     open: bool,
     opened_at: f64,
     /// Its way in and out.
-    pub(crate) fade: crate::panel::Fade,
+    pub(crate) drawer: crate::panel::Drawer,
     /// Where the card's corner settles, and the miniature's while the tour shows it.
     at: (Point<f64, Logical>, Option<Point<f64, Logical>>),
     /// The tour's lesson, or `None` for the key list.
@@ -434,7 +434,7 @@ impl Sheet {
     pub fn open(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(now, crate::panel::Hang::Own);
         self.tour = None;
         self.query.clear();
         self.shown = None;
@@ -444,7 +444,7 @@ impl Sheet {
     pub fn start_tour(&mut self, now: f64) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(now, crate::panel::Hang::Own);
         self.tour = Some(Touring::at(0, now));
         self.query.clear();
         self.shown = None;
@@ -499,12 +499,13 @@ impl Sheet {
             .stage
             .take()
             .zip(stage_at)
-            .map(|(stage, at)| (stage, at, 1.0));
+            .map(|(stage, at)| crate::flow::Layer::new(stage, at));
         let picture = self
             .painted
             .take()
-            .map(|painted| stage.into_iter().chain([(painted, at, 1.0)]).collect());
-        self.fade.close(picture);
+            .map(|painted| crate::flow::Layer::new(painted, at));
+        self.drawer
+            .close_into_bar(stage.into_iter().chain(picture).collect());
         self.stage_shown = None;
     }
 
@@ -571,18 +572,15 @@ impl Sheet {
         self.frame.contains(pos)
     }
 
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         listing: Listing,
         (ring, bullet): (u32, u32),
         effects: Effects,
-    ) -> Vec<crate::flow::FlowElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let Listing {
             bindings,
             style,
@@ -591,7 +589,7 @@ impl Sheet {
         } = listing;
         let (screen, scale, now) = (frame.size, frame.scale, frame.time);
         if !self.open {
-            return Vec::new();
+            return None;
         }
         if self.names.style() != style {
             self.names = KeyNames::new(style);
@@ -655,9 +653,7 @@ impl Sheet {
                 .and_then(|look| paint_stage(look, names));
             self.stage_shown = stage_look;
         }
-        let Some(painted) = self.painted.as_ref() else {
-            return Vec::new();
-        };
+        let painted = self.painted.as_ref()?;
         let at = Point::<f64, Logical>::from((
             ((screen.w - painted.logical.w) / 2) as f64,
             ((TOP - MARGIN) * DESIGN_PX) as f64,
@@ -676,7 +672,7 @@ impl Sheet {
         );
         self.at = (at, None);
         // The miniature rides in front of the card, in the place the card leaves for it.
-        let main = (painted, at, 1.0);
+        let main = crate::flow::Shown::new(painted, at);
         let both;
         let shown: &[crate::flow::Shown<'_>] =
             match self.stage.as_ref().filter(|_| self.tour.is_some()) {
@@ -688,22 +684,12 @@ impl Sheet {
                         (((MARGIN + sy) * DESIGN_PX) as f64).round(),
                     ));
                     self.at.1 = Some(at + offset);
-                    both = [(stage, at + offset, 1.0), main];
+                    both = [crate::flow::Shown::new(stage, at + offset), main];
                     &both
                 }
                 None => std::slice::from_ref(&main),
             };
-        let mut elements = Vec::new();
-        self.fade.show(
-            renderer,
-            frame,
-            now - self.opened_at,
-            self.reduced_motion,
-            self.frame,
-            shown,
-            &mut elements,
-        );
-        elements
+        Some(self.drawer.show(renderer, frame, self.frame, shown, out))
     }
 }
 

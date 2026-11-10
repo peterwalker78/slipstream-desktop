@@ -14,7 +14,7 @@
 
 use slipstream_config::plugins::Card;
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -134,7 +134,7 @@ pub struct PluginPanel {
     /// When it opened, on the animation clock.
     opened_at: f64,
     /// Its way in and out.
-    pub(crate) fade: panel::Fade,
+    pub(crate) drawer: panel::Drawer,
     selected: Option<Item>,
     /// The middle of the chip it hangs from, in logical pixels from the screen's left.
     under: f64,
@@ -191,7 +191,12 @@ impl PluginPanel {
     pub fn open(&mut self, now: f64, under: f64) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(
+            now,
+            panel::Hang::Bar {
+                button: Some(under),
+            },
+        );
         self.under = under;
         self.selected = None;
         self.turn = None;
@@ -203,11 +208,11 @@ impl PluginPanel {
         self.turn = None;
         self.shown = None;
         let origin = self.origin;
-        self.fade.close(
-            self.painted
-                .take()
-                .map(|painted| vec![(painted, origin, 1.0)]),
-        );
+        let picture = self
+            .painted
+            .take()
+            .map(|painted| crate::flow::Layer::new(painted, origin));
+        self.drawer.close_into_bar(picture.into_iter().collect());
         self.targets.clear();
     }
 
@@ -313,29 +318,23 @@ impl PluginPanel {
 
     /// The panel for a screen `width` logical pixels wide at `scale`, repainted when what it
     /// shows changes.
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: panel::Frame,
         facts: Facts,
-    ) -> panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        self.drawn(renderer, frame, facts).unwrap_or_default()
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        self.drawn(renderer, frame, facts, out)
     }
 
-    fn drawn<R>(
+    fn drawn(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: panel::Frame,
         facts: Facts,
-    ) -> Option<panel::Pair<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         if !self.open {
             return None;
         }
@@ -370,17 +369,8 @@ impl PluginPanel {
         }
         let painted = self.painted.as_ref()?;
         let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
-        let mut drawn = panel::Pair::default();
-        self.fade.show(
-            renderer,
-            frame,
-            now - self.opened_at,
-            reduced_motion,
-            card,
-            &[(painted, self.origin, 1.0)],
-            &mut drawn,
-        );
-        Some(drawn)
+        let shown = [crate::flow::Shown::new(painted, self.origin)];
+        Some(self.drawer.show(renderer, frame, card, &shown, out))
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
@@ -971,7 +961,6 @@ impl Slipstream {
             self.close_panels();
             let now = self.clock.tick();
             self.plugin_panel.open(now, under);
-            self.plugin_panel.fade.hang_from(Some(under));
             // A plugin's folder can change without anything to say so: look again.
             self.plugins.rescan();
         }

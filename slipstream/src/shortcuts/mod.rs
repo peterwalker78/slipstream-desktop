@@ -82,8 +82,9 @@ pub struct Shortcuts {
     held: Vec<Held>,
     /// The card on screen, and the request it answers.
     asking: Option<(Pending, Ask)>,
-    /// The last card, going back into the bar after it went.
-    pub fading: Option<crate::panel::Fade>,
+    /// The last card, on its way back into its slot after it went, until the desktop takes it
+    /// to draw with the other cards going.
+    gone: Option<crate::panel::Drawer>,
     waiting: VecDeque<Pending>,
     /// The person's own shortcuts that work, which no app can be given.
     own: Vec<own::OwnKey>,
@@ -119,6 +120,11 @@ impl Shortcuts {
 
     pub fn ask(&self) -> Option<&Ask> {
         self.asking.as_ref().map(|(_, ask)| ask)
+    }
+
+    /// The card that last went, to draw on its way back into its slot.
+    pub fn take_gone(&mut self) -> Option<crate::panel::Drawer> {
+        self.gone.take()
     }
 
     pub fn ask_mut(&mut self) -> Option<&mut Ask> {
@@ -339,7 +345,7 @@ impl Shortcuts {
     /// Takes the card down: the request it answered comes back, and the card fades out.
     fn let_go(&mut self) -> Option<Pending> {
         let (pending, ask) = self.asking.take()?;
-        self.fading = Some(ask.fade_out());
+        self.gone = Some(ask.close_into_bar());
         Some(pending)
     }
 
@@ -350,7 +356,7 @@ impl Shortcuts {
             return false;
         };
         let rows = std::mem::take(&mut ask.rows);
-        self.fading = Some(ask.fade_out());
+        self.gone = Some(ask.close_into_bar());
         let bound: Vec<Bound> = rows
             .iter()
             .filter_map(|row| {

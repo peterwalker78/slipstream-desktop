@@ -6,7 +6,7 @@
 //! carry a chevron that opens the system's own settings page for them.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point, Rectangle, Size},
 };
@@ -196,7 +196,7 @@ pub struct QuickSettings {
     /// When it opened, on the animation clock.
     opened_at: f64,
     /// Its way in and out.
-    pub(crate) fade: panel::Fade,
+    pub(crate) drawer: panel::Drawer,
     selected: Control,
     power_menu: bool,
     shown: Option<Look>,
@@ -218,7 +218,7 @@ impl Default for QuickSettings {
         Self {
             open: false,
             opened_at: 0.0,
-            fade: panel::Fade::default(),
+            drawer: Default::default(),
             selected: Control::default(),
             power_menu: false,
             shown: None,
@@ -243,10 +243,11 @@ impl QuickSettings {
         self.open
     }
 
-    pub fn open(&mut self, now: f64) {
+    /// Opens at `now`, coming out of the bar under `hang`.
+    pub fn open(&mut self, now: f64, hang: panel::Hang) {
         self.open = true;
         self.opened_at = now;
-        self.fade.open();
+        self.drawer.open(now, hang);
         self.selected = Control::default();
         self.power_menu = false;
         self.shown = None;
@@ -257,11 +258,11 @@ impl QuickSettings {
         self.power_menu = false;
         self.shown = None;
         let origin = self.origin;
-        self.fade.close(
-            self.painted
-                .take()
-                .map(|painted| vec![(painted, origin, 1.0)]),
-        );
+        let picture = self
+            .painted
+            .take()
+            .map(|painted| crate::flow::Layer::new(painted, origin));
+        self.drawer.close_into_bar(picture.into_iter().collect());
         self.targets.clear();
         self.tracks.clear();
         self.dragging = None;
@@ -440,21 +441,17 @@ impl QuickSettings {
 
     /// The panel for a screen `width` logical pixels wide at `scale`, repainted when what it
     /// shows changes.
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         facts: Facts,
-    ) -> panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (width, scale, now) = (frame.size.w, frame.scale, frame.time);
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        let (width, scale) = (frame.size.w, frame.scale);
         if !self.open {
-            return Default::default();
+            return None;
         }
-        let reduced_motion = facts.reduced_motion;
         let look = Look {
             facts,
             selected: self.selected,
@@ -464,26 +461,13 @@ impl QuickSettings {
             bar: frame.bar,
         };
         if self.shown.as_ref() != Some(&look) {
-            if self.repaint(&look).is_none() {
-                return Default::default();
-            }
+            self.repaint(&look)?;
             self.shown = Some(look);
         }
-        let Some(painted) = self.painted.as_ref() else {
-            return Default::default();
-        };
+        let painted = self.painted.as_ref()?;
         let card = crate::flow::card_in(self.origin, painted.logical, panel::MARGIN, panel::BELOW);
-        let mut drawn = panel::Pair::default();
-        self.fade.show(
-            renderer,
-            frame,
-            now - self.opened_at,
-            reduced_motion,
-            card,
-            &[(painted, self.origin, 1.0)],
-            &mut drawn,
-        );
-        drawn
+        let shown = [crate::flow::Shown::new(painted, self.origin)];
+        Some(self.drawer.show(renderer, frame, card, &shown, out))
     }
 
     fn repaint(&mut self, look: &Look) -> Option<()> {
@@ -879,9 +863,8 @@ impl Slipstream {
         } else {
             self.close_panels();
             let now = self.clock.tick();
-            self.quick.open(now);
-            let tray = self.button_middle(crate::bar::Target::Tray);
-            self.quick.fade.hang_from(tray);
+            let button = self.button_middle(crate::bar::Target::Tray);
+            self.quick.open(now, panel::Hang::Bar { button });
             // Its sliders show the volume and the brightness, so the keys' display would be a
             // second answer to the same question.
             self.osd.hide();
@@ -1124,7 +1107,7 @@ mod tests {
     fn arrows_move_between_rows_and_escape_backs_out() {
         let facts = facts();
         let mut quick = QuickSettings::default();
-        quick.open(0.0);
+        quick.open(0.0, panel::Hang::Own);
         assert_eq!(quick.selected, Control::WiFi, "it opens on the first tile");
         quick.key(Keysym::Right, false, &facts);
         assert_eq!(
@@ -1197,7 +1180,7 @@ mod tests {
     fn home_and_end_jump_to_the_first_and_last_control() {
         let facts = facts();
         let mut quick = QuickSettings::default();
-        quick.open(0.0);
+        quick.open(0.0, panel::Hang::Own);
         quick.key(Keysym::End, false, &facts);
         assert_eq!(quick.selected, Control::AllSettings);
         quick.key(Keysym::Home, false, &facts);
@@ -1214,7 +1197,7 @@ mod tests {
             ..facts()
         };
         let mut quick = QuickSettings::default();
-        quick.open(0.0);
+        quick.open(0.0, panel::Hang::Own);
         quick.key(Keysym::Tab, true, &facts);
         assert_eq!(quick.selected, Control::Power);
         quick.key(Keysym::Tab, true, &facts);
@@ -1242,7 +1225,7 @@ mod tests {
     #[test]
     fn clicks_find_tiles_and_slider_levels_and_outside_closes() {
         let mut quick = QuickSettings::default();
-        quick.open(0.0);
+        quick.open(0.0, panel::Hang::Own);
         let look = Look {
             facts: facts(),
             selected: quick.selected,
@@ -1329,7 +1312,7 @@ mod tests {
     #[test]
     fn plugin_tiles_follow_slipstream_s_own_and_the_keyboard_reaches_them() {
         let mut quick = QuickSettings::default();
-        quick.open(0.0);
+        quick.open(0.0, panel::Hang::Own);
         let mut facts = facts();
         facts.tiles = (0..MOST_PLUGIN_TILES + 2)
             .map(|n| plugin_tile(&format!("p{n}"), "Keep awake", n == 0))

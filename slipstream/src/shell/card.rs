@@ -6,7 +6,7 @@
 //! and each returns where it was drawn, so a click can find it again.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::gles::GlesRenderer,
     utils::{Logical, Point, Size},
 };
 
@@ -423,12 +423,21 @@ pub struct OnScreen<K = Card> {
     shown: Option<Shown<K>>,
     painted: Option<Painted>,
     /// Its way in and out.
-    pub fade: crate::panel::Fade,
+    pub drawer: crate::panel::Drawer,
 }
 
 /// What a card was last painted as: what it showed, the screen, the scale, and its accent and
 /// secondary colour.
 type Shown<K> = (K, Size<i32, Logical>, f64, (u32, u32));
+
+impl<K> OnScreen<K> {
+    /// A card that appeared at `now`, on the clock it is drawn by.
+    pub fn opened_at(now: f64) -> Self {
+        let mut card = Self::default();
+        card.drawer.open(now, crate::panel::Hang::Own);
+        card
+    }
+}
 
 impl<K> Default for OnScreen<K> {
     fn default() -> Self {
@@ -438,7 +447,7 @@ impl<K> Default for OnScreen<K> {
             hits: Vec::new(),
             shown: None,
             painted: None,
-            fade: Default::default(),
+            drawer: Default::default(),
         }
     }
 }
@@ -457,11 +466,13 @@ impl<K: PartialEq> OnScreen<K> {
     }
 
     /// Lets the card go: nothing on it can be clicked any more, and its last paint goes back into the bar.
-    pub fn fade_out(mut self) -> crate::panel::Fade {
-        let at = self.at;
-        self.fade
-            .close(self.painted.take().map(|painted| vec![(painted, at, 1.0)]));
-        self.fade
+    pub fn close_into_bar(mut self) -> crate::panel::Drawer {
+        let picture = self
+            .painted
+            .take()
+            .map(|painted| crate::flow::Layer::new(painted, self.at));
+        self.drawer.close_into_bar(picture.into_iter().collect());
+        self.drawer
     }
 
     /// What is under (`x`, `y`), in logical pixels from the screen's corner.
@@ -509,78 +520,33 @@ impl<K: PartialEq> OnScreen<K> {
         self.painted.as_ref().map(|painted| painted.logical)
     }
 
-    /// The paint with its corner settling at `at`, and `rise` design pixels above it at `alpha`
-    /// while it comes in.
-    pub fn place<R>(
+    /// The paint with its corner settling at `at`, coming out of its slot as the panels do.
+    pub fn show(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
+        frame: crate::panel::Frame,
         at: Point<f64, Logical>,
-        (alpha, rise): (f32, f64),
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         self.at = at;
-        let shown = at + Point::from((0.0, rise * DESIGN_PX as f64));
-        self.painted.as_ref()?.element(renderer, shown, alpha)
-    }
-}
-
-impl OnScreen<Card> {
-    /// `card` in the middle of the screen in `frame`, coming in as `opening` says (its opacity,
-    /// and how far above its place it is, in design pixels).
-    pub fn element<R>(
-        &mut self,
-        renderer: &mut R,
-        card: Card,
-        frame: crate::panel::Frame,
-        opening: (f32, f64),
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let size = self.paint(card, frame, paint)?;
-        self.place(renderer, centred(frame.size, size), opening)
-    }
-}
-
-impl OnScreen<Card> {
-    /// `card` in the middle of the screen in `frame`, `since` seconds after it appeared, coming
-    /// out of the bar as the panels do.
-    pub fn pour<R>(
-        &mut self,
-        renderer: &mut R,
-        card: Card,
-        frame: crate::panel::Frame,
-        since: f64,
-        reduced_motion: bool,
-    ) -> panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let Some(size) = self.paint(card, frame, paint) else {
-            return Default::default();
-        };
-        self.at = centred(frame.size, size);
-        let Some(painted) = self.painted.as_ref() else {
-            return Default::default();
-        };
-        let at = self.at;
+        let painted = self.painted.as_ref()?;
         let card = crate::flow::card_in(at, painted.logical, MARGIN, BELOW);
-        let mut drawn = panel::Pair::default();
-        self.fade.show(
-            renderer,
-            frame,
-            since,
-            reduced_motion,
-            card,
-            &[(painted, at, 1.0)],
-            &mut drawn,
-        );
-        drawn
+        let shown = [crate::flow::Shown::new(painted, at)];
+        Some(self.drawer.show(renderer, frame, card, &shown, out))
+    }
+}
+
+impl OnScreen<Card> {
+    /// `card` in the middle of the screen in `frame`, coming out of its slot as the panels do.
+    pub fn pour(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        card: Card,
+        frame: crate::panel::Frame,
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        let size = self.paint(card, frame, paint)?;
+        self.show(renderer, frame, centred(frame.size, size), out)
     }
 }
 

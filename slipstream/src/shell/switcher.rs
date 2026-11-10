@@ -405,6 +405,7 @@ impl Slipstream {
                 attention,
                 ring,
                 bar,
+                reduced_motion: false,
             };
             switcher.element(renderer, frame, ring, tiles, &mut |id, px| {
                 explorer.app_icon(id, px)

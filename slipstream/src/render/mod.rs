@@ -95,7 +95,7 @@ smithay::backend::renderer::element::render_elements! {
     Rescaled=RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
     Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
     /// A panel or card on its way in or out of the bar, or settled.
-    Flow=crate::flow::FlowElement<GlesRenderer>,
+    Flow=crate::flow::FlowElement,
     Solid=SolidColorRenderElement,
     /// A texture shown through one of Slipstream's shaders: bullet time's tilted overview, or the
     /// UI's glass fade.
@@ -214,25 +214,31 @@ fn bar_content(
     }
 }
 
-/// The panels and cards, on the screen the keyboard is on, front to back: the explorer, quick
-/// settings, notifications, clipboard history, the key list, Alt+Tab's flat switcher (when the deck
-/// isn't drawn), gravity's arrangements, the low battery card, the new screen card, the offer at
-/// login, the share picker and the way out.
+/// The panels and cards, on the screen the keyboard is on, front to back, into `elements`: the
+/// explorer, quick settings, notifications, clipboard history, the key list, Alt+Tab's flat
+/// switcher (when the deck isn't drawn), gravity's arrangements, the low battery card, the new
+/// screen card, the offer at login, the share picker and the way out, then whatever is still going
+/// back into its slot. Returns the slot in the bar the strongest drawer moving asks for.
 fn card_elements(
     state: &mut Slipstream,
     renderer: &mut GlesRenderer,
-    size: Size<i32, Logical>,
-    scale: f64,
-    now: f64,
-    wall: f64,
-    deck_shown: bool,
-) -> Vec<OutputElement> {
+    screen: CardScreen,
+    elements: &mut Vec<OutputElement>,
+) -> Option<crate::flow::BarSlot> {
+    let CardScreen {
+        size,
+        scale,
+        now,
+        wall,
+        deck_shown,
+    } = screen;
     let (accent, attention, ring, bar) = (
         state.panel_accent(),
         state.panel_attention(),
         state.panel_ring(),
         state.bar_place(),
     );
+    let reduced_motion = state.motion.reduced_motion;
     let frame = |time| crate::panel::Frame {
         size,
         scale,
@@ -241,92 +247,64 @@ fn card_elements(
         attention,
         ring,
         bar,
+        reduced_motion,
     };
-    let mut elements = Vec::new();
+    let mut slot = None;
+    let mut lit = |reveal: Option<crate::flow::Reveal>| {
+        slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|reveal| reveal.bar_slot));
+    };
     if state.explorer.is_open() {
         state.ask_plugins();
         let running = state.running_apps();
         let keys = crate::explorer::Keys::new(|action| state.key_label(action));
-        elements.extend(
-            state
-                .explorer
-                .element(renderer, frame(now), running, ring, keys)
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(state
+            .explorer
+            .element(renderer, frame(now), running, ring, keys, elements));
     }
     if state.plugin_panel.is_open() {
         let facts = state.plugin_facts();
-        elements.extend(
-            state
-                .plugin_panel
-                .element(renderer, frame(now), facts)
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(state
+            .plugin_panel
+            .element(renderer, frame(now), facts, elements));
     }
     if state.quick.is_open() {
         let facts = state.quick_facts();
-        elements.extend(
-            state
-                .quick
-                .element(renderer, frame(now), facts)
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(state.quick.element(renderer, frame(now), facts, elements));
     }
     if state.centre.is_open() {
         let chips = state.background_chips(scale);
-        let facts = state.centre_facts();
-        elements.extend(
-            state
-                .centre
-                .elements(
-                    renderer,
-                    frame(now),
-                    facts,
-                    &state.notices,
-                    chips,
-                    &mut state.explorer,
-                )
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        let mut facts = state.centre_facts();
+        facts.chips = chips;
+        lit(state.centre.elements(
+            renderer,
+            frame(now),
+            facts,
+            &state.notices,
+            &mut state.explorer,
+            elements,
+        ));
         state.finish_chip_launch(now);
         state.centre.finish_menu_choice(now);
     }
     if state.history.is_open() {
         let now = state.wall();
         let key = state.key_label(crate::keys::Action::ClipboardHistory);
-        elements.extend(
-            state
-                .history
-                .element(renderer, frame(now), ring, key)
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(state
+            .history
+            .element(renderer, frame(now), ring, key, elements));
     }
     if state.sheet.is_open() {
         let colours = (ring, crate::panel::opaque(state.bullet_rgb));
         let effects = state.settings.motion.effects;
-        elements.extend(
-            state
-                .sheet
-                .element(
-                    renderer,
-                    frame(now),
-                    crate::sheet::Listing {
-                        bindings: &state.bindings,
-                        style: state.settings.keys.style,
-                        screens: state.space.outputs().count(),
-                        own: state.shortcuts.own(),
-                    },
-                    colours,
-                    effects,
-                )
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        let listing = crate::sheet::Listing {
+            bindings: &state.bindings,
+            style: state.settings.keys.style,
+            screens: state.space.outputs().count(),
+            own: state.shortcuts.own(),
+        };
+        lit(state
+            .sheet
+            .element(renderer, frame(now), listing, colours, effects, elements));
     }
     // Alt+Tab's switcher, on the screen the keyboard is on.
     if state.switcher.is_some() && !deck_shown {
@@ -346,74 +324,53 @@ fn card_elements(
     }
     // The low battery card, above everything but the lock.
     if let Some(card) = state.battery.card.as_mut() {
-        elements.extend(
-            card.element(renderer, frame(wall))
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(card.element(renderer, frame(wall), elements));
     }
     // The card asking what a screen never seen here should show. Drawn where the keyboard is, as
     // the other cards are: that is the screen being looked at when the lead goes in.
     if let Some(connect) = state.connect.as_mut() {
-        elements.extend(
-            connect
-                .element(renderer, frame(wall))
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(connect.element(renderer, frame(wall), elements));
     }
     // The offer at login, above everything else it is asking about.
     if let Some(offer) = state.offer.as_mut() {
-        elements.extend(
-            offer
-                .element(renderer, frame(wall))
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(offer.element(renderer, frame(wall), elements));
     }
     // The share picker, on the screen the keyboard is on: the app waiting for it is usually the
     // one being looked at.
-    let ring = crate::panel::opaque(state.ring_rgb);
+    let opaque_ring = crate::panel::opaque(state.ring_rgb);
     if let Some(share) = state.share.as_mut() {
-        elements.extend(
-            share
-                .element(renderer, frame(wall), ring)
-                .map(OutputElement::Memory),
-        );
+        lit(share.element(renderer, frame(wall), opaque_ring, elements));
     }
     // The card asking about an app's shortcuts, where the keyboard is.
     if let Some(ask) = state.shortcuts.ask_mut() {
-        elements.extend(
-            ask.element(renderer, frame(wall), ring)
-                .into_iter()
-                .map(OutputElement::Flow),
-        );
+        lit(ask.element(renderer, frame(wall), opaque_ring, elements));
     }
     // The way out: the ask card in the middle of the screen, or the slim one while the apps are
     // closing. It draws whatever else is up, and the fade to black goes over everything below.
     if let Some(exit) = state.exit.as_mut() {
-        elements.extend(
-            exit.element(renderer, frame(wall), ring)
-                .map(OutputElement::Memory),
-        );
+        lit(exit.element(renderer, frame(wall), ring, elements));
     }
-    // Panels and cards going back into the bar after they closed, behind whatever is open: only
-    // their last picture, which takes no input.
-    let reduced_motion = state.motion.reduced_motion;
-    let mut gone = Flows(&mut elements);
-    for fade in state.fades_mut() {
-        fade.draw_closing(renderer, now, ring, reduced_motion, &mut gone);
-    }
-    state.fading.retain(crate::panel::Fade::is_closing);
-    elements
+    // Panels and cards going back into their slots after they closed, behind whatever is open.
+    let closing = state.draw_closing_drawers(renderer, frame(now), elements);
+    crate::flow::BarSlot::strongest(slot, closing)
 }
 
-/// Panels' elements, added to a frame's.
-struct Flows<'a>(&'a mut Vec<OutputElement>);
+/// The screen the cards are drawn on: its logical size and scale, the time by the animation
+/// clock and by the wall, and whether Alt+Tab's deck is drawn there, which the flat switcher then
+/// isn't.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CardScreen {
+    pub size: Size<i32, Logical>,
+    pub scale: f64,
+    pub now: f64,
+    pub wall: f64,
+    pub deck_shown: bool,
+}
 
-impl Extend<crate::flow::FlowElement<GlesRenderer>> for Flows<'_> {
-    fn extend<I: IntoIterator<Item = crate::flow::FlowElement<GlesRenderer>>>(&mut self, iter: I) {
-        self.0.extend(iter.into_iter().map(OutputElement::Flow));
+/// A panel's elements go straight into a frame's.
+impl Extend<crate::flow::FlowElement> for Vec<OutputElement> {
+    fn extend<I: IntoIterator<Item = crate::flow::FlowElement>>(&mut self, iter: I) {
+        Extend::extend(self, iter.into_iter().map(OutputElement::Flow));
     }
 }
 

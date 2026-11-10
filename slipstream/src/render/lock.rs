@@ -94,6 +94,7 @@ pub(super) fn lock_elements(
                         attention: state.panel_attention(),
                         ring: state.panel_ring(),
                         bar: state.bar_place(),
+                        reduced_motion: false,
                     },
                     crate::lock::WALLPAPER_GLOW,
                     false,

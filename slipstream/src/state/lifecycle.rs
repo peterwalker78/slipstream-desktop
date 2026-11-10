@@ -635,15 +635,15 @@ impl Slipstream {
         match act {
             offer::Act::Nothing => {}
             offer::Act::Reopen => {
-                self.fading
-                    .extend(self.offer.take().map(|card| card.fade_out()));
+                let card = self.offer.take().map(|card| card.close_into_bar());
+                self.close_card(card);
                 if let Some(plan) = self.restoring.take() {
                     self.start_restore(plan);
                 }
             }
             offer::Act::Clean => {
-                self.fading
-                    .extend(self.offer.take().map(|card| card.fade_out()));
+                let card = self.offer.take().map(|card| card.close_into_bar());
+                self.close_card(card);
                 self.restoring = None;
                 tracing::info!("starting clean; the recorded layout is left alone");
             }
@@ -806,9 +806,10 @@ impl Slipstream {
             share::Act::Share => true,
             share::Act::Cancel => false,
         };
-        let Some(picker) = self.share.take() else {
+        let Some(mut picker) = self.share.take() else {
             return;
         };
+        self.close_card(Some(picker.close_into_bar()));
         match picker.asking.clone() {
             // A program asked to record the screen itself. Its frames have been waiting on this.
             share::Asking::Capture { exe, .. } => {
@@ -902,7 +903,8 @@ impl Slipstream {
             }
             // Nothing was lost: the desktop is as it was, minus whatever already closed.
             Act::Cancel => {
-                self.exit = None;
+                let card = self.exit.take().map(|mut exit| exit.close_into_bar());
+                self.close_card(card);
                 self.record.exit_record = None;
             }
             // The one answer that keeps the session: the card goes and the lock comes up.

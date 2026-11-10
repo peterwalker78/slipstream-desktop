@@ -7,10 +7,7 @@
 //!
 //! Wall time, like the way out: this is drawn while the desktop is still filling up.
 
-use smithay::{
-    backend::renderer::{ImportMem, Renderer},
-    input::keyboard::Keysym,
-};
+use smithay::{backend::renderer::gles::GlesRenderer, input::keyboard::Keysym};
 
 use crate::{
     card::{self, Btn, Button, Card, Row},
@@ -37,7 +34,6 @@ pub struct Offer {
     apps: Vec<String>,
     /// Apps in the record with no desktop entry here.
     lost: Vec<String>,
-    since: f64,
     pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
@@ -59,9 +55,8 @@ impl Offer {
             windows,
             apps,
             lost,
-            since: now,
             reduced_motion,
-            on_screen: Default::default(),
+            on_screen: card::OnScreen::opened_at(now),
         }
     }
 
@@ -140,24 +135,20 @@ impl Offer {
     }
 
     /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn fade_out(self) -> crate::panel::Fade {
-        self.on_screen.fade_out()
+    pub fn close_into_bar(self) -> crate::panel::Drawer {
+        self.on_screen.close_into_bar()
     }
 
     /// The card on a screen `screen` logical pixels big.
-    pub fn element<R>(
+    /// The card, coming out of its slot, into `out`.
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
-    ) -> crate::panel::Pair<R>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (_screen, _scale, now) = (frame.size, frame.scale, frame.time);
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
         let card = self.card();
-        self.on_screen
-            .pour(renderer, card, frame, now - self.since, self.reduced_motion)
+        self.on_screen.pour(renderer, card, frame, out)
     }
 }
 

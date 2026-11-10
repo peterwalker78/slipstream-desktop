@@ -15,14 +15,13 @@
 //! Wall time throughout: bullet time must never stretch a logout.
 
 use smithay::{
-    backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
+    backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
     utils::{Logical, Point, Size},
 };
 
 use crate::{
     card::{self, Btn, Button, Card, Row},
-    motion::{HYPR, REDUCED_FADE},
     paint::Painted,
     panel::{self, BELOW, DESIGN_PX, MARGIN},
 };
@@ -31,8 +30,6 @@ use crate::{
 const GRACE: f64 = 4.0;
 /// What `W` adds, as often as it's pressed.
 const WAIT: f64 = 10.0;
-/// The card opens as the explorer does.
-const OPEN: f64 = 0.18;
 /// The screen fades to black before the session ends.
 const FADE_OUT: f64 = 0.35;
 
@@ -634,17 +631,14 @@ impl<W: Clone + PartialEq> Exit<W> {
     }
 
     /// The overlay for a screen `screen` logical pixels big, while one is showing.
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         ring: u32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let (screen, _scale, now) = (frame.size, frame.scale, frame.time);
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::Reveal> {
+        let (screen, now) = (frame.size, frame.time);
         let shape = self.shape(now, (ring, frame.attention));
         if shape == Shape::Blank {
             self.on_screen.clear();
@@ -658,8 +652,12 @@ impl<W: Clone + PartialEq> Exit<W> {
                 Shape::Blank => (None, Vec::new()),
             })?;
         let at = self.origin(screen, size, crate::panel::top(frame.bar));
-        let opening = opening(now - self.since, self.reduced_motion);
-        self.on_screen.place(renderer, at, opening)
+        self.on_screen.show(renderer, frame, at, out)
+    }
+
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close_into_bar(&mut self) -> crate::panel::Drawer {
+        std::mem::take(&mut self.on_screen).close_into_bar()
     }
 
     /// Where the painted surface goes: the ask card is centred, the slim one sits where a toast
@@ -677,17 +675,6 @@ impl<W: Clone + PartialEq> Exit<W> {
             }
             _ => Point::from((x, ((screen.h - painted.h) / 2).max(0) as f64)),
         }
-    }
-}
-
-/// A card `since` seconds after it appeared: its opacity, and how far above its place it is, in
-/// design pixels. The explorer's opening, so the cards and the explorer feel like one desktop.
-pub fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
-    if reduced_motion {
-        ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
-    } else {
-        let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-        (eased.clamp(0.0, 1.0) as f32, -10.0 * (1.0 - eased))
     }
 }
 
@@ -878,6 +865,7 @@ mod tests {
             attention: panel::AMBER,
             ring: panel::FOCUS,
             bar: crate::bar::Place::default(),
+            reduced_motion: false,
         };
         let size = exit
             .on_screen

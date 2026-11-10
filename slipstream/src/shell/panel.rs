@@ -22,6 +22,8 @@ pub struct Frame {
     pub ring: u32,
     /// Where the bar sits, which the cards dropping from under it hang from.
     pub bar: crate::bar::Place,
+    /// Whether motion is reduced right now: cards only fade, and follow a change mid-way.
+    pub reduced_motion: bool,
 }
 
 /// Where a card dropping from under the bar at `bar` starts, in design pixels from the screen's
@@ -317,7 +319,7 @@ pub fn focus_ring(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, radius: f32, 
     );
 }
 
-pub use crate::flow::{Fade, Pair};
+pub use crate::flow::{Drawer, Hang};
 
 /// A panel that drops over the desktop: the explorer, quick settings, the plugin panel, the
 /// notification centre, the shortcut sheet and clipboard history. One is open at a time.
@@ -331,6 +333,8 @@ pub trait Panel {
     /// Whether volume, brightness and media keys leave it open, showing the change there or
     /// keeping a half-typed query.
     fn stays_for_media(&self) -> bool;
+    /// Its drawer, which keeps going back in after it closes, and can be opened again mid-way.
+    fn drawer_mut(&mut self) -> &mut Drawer;
 }
 
 macro_rules! panel {
@@ -350,6 +354,9 @@ macro_rules! panel {
             }
             fn stays_for_media(&self) -> bool {
                 $stays
+            }
+            fn drawer_mut(&mut self) -> &mut Drawer {
+                &mut self.drawer
             }
         }
     };
@@ -401,20 +408,31 @@ impl Slipstream {
         self.panels().iter().any(|panel| panel.is_open())
     }
 
-    /// Every panel and card going back into the bar after it closed.
-    pub fn fades_mut(&mut self) -> impl Iterator<Item = &mut Fade> {
-        [
-            &mut self.explorer.fade,
-            &mut self.quick.fade,
-            &mut self.plugin_panel.fade,
-            &mut self.centre.fade,
-            &mut self.sheet.fade,
-            &mut self.history.fade,
-        ]
-        .into_iter()
-        .chain(self.shortcuts.fading.as_mut())
-        .chain(self.fading.iter_mut())
-        .filter(|fade| fade.is_closing())
+    /// Every panel and card going back into its slot after it closed, drawn into `out` at
+    /// `frame`'s time, behind whatever is open: only its last picture, which takes no input.
+    /// Returns the slot the strongest of them asks the bar for.
+    pub fn draw_closing_drawers(
+        &mut self,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        frame: Frame,
+        out: &mut impl Extend<crate::flow::FlowElement>,
+    ) -> Option<crate::flow::BarSlot> {
+        let mut slot = None;
+        for panel in self.panels_mut() {
+            let reveal = panel.drawer_mut().draw_closing(renderer, frame, out);
+            slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
+        }
+        for drawer in &mut self.closing_cards {
+            let reveal = drawer.draw_closing(renderer, frame, out);
+            slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
+        }
+        slot
+    }
+
+    /// Sends a card that has gone on its way back into its slot, with any others still going.
+    pub fn close_card(&mut self, drawer: Option<Drawer>) {
+        self.closing_cards.retain(Drawer::closing);
+        self.closing_cards.extend(drawer.filter(Drawer::closing));
     }
 
     /// Closes every panel, before another opens or something else takes the screen.

@@ -161,7 +161,7 @@ pub struct Painter {
     pub cache_layers: bool,
     /// The parts a panel comes in as, in device pixels, and its glass card: see `Pieces`.
     pieces: Vec<[f32; 4]>,
-    glass: Option<[f32; 5]>,
+    glass: Option<Glass>,
 }
 
 impl Painter {
@@ -185,7 +185,13 @@ impl Painter {
     /// Notes the panel's glass card, `w` × `h` at (`x`, `y`), so its bare card can be painted
     /// again on its own. The first one painted is the panel's.
     pub fn note_glass(&mut self, x: f32, y: f32, w: f32, h: f32) {
-        self.glass.get_or_insert([x, y, w, h, self.f]);
+        self.glass.get_or_insert(Glass {
+            x,
+            y,
+            w,
+            h,
+            f: self.f,
+        });
     }
 
     fn transform(&self) -> Transform {
@@ -635,11 +641,70 @@ pub struct Painted {
 /// pixels from the picture's corner, on whole device pixels. None means the picture comes in
 /// whole. Also the glass card the parts sit on, in layout units with its `f`, and a number told
 /// to no other picture, which tells a repaint from the picture it replaced.
+/// A panel's glass card as painted: its corner and size in layout units, and the painter's
+/// layout units to device pixels then.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Glass {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub f: f32,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Pieces {
     pub rects: Vec<Rectangle<f64, Logical>>,
-    pub glass: Option<[f32; 5]>,
+    pub glass: Option<Glass>,
     pub serial: u64,
+    /// The picture's red and blue, for the split of a piece powering up or down; only for a
+    /// picture that comes in piece by piece.
+    pub split: Option<Split>,
+}
+
+/// A picture's red and its blue, each as light added to what's behind, made from its pixels as
+/// it is painted. They are faint and only show for a moment, so they are made at a fraction of
+/// its size each way: `scale` of their pixels to a logical one.
+#[derive(Debug, Clone)]
+pub struct Split {
+    pub red: MemoryRenderBuffer,
+    pub blue: MemoryRenderBuffer,
+    pub scale: f64,
+}
+
+/// The split colours are made at one in `SPLIT_STEP` of a picture's pixels each way.
+const SPLIT_STEP: usize = 2;
+
+impl Split {
+    fn of(pixmap: &Pixmap, scale: f64) -> Self {
+        let (wide, tall) = (pixmap.width() as usize, pixmap.height() as usize);
+        let small = (wide.div_ceil(SPLIT_STEP), tall.div_ceil(SPLIT_STEP));
+        let mut red = Vec::with_capacity(small.0 * small.1 * 4);
+        let mut blue = Vec::with_capacity(small.0 * small.1 * 4);
+        let pixels = pixmap.data();
+        for y in (0..tall).step_by(SPLIT_STEP) {
+            for x in (0..wide).step_by(SPLIT_STEP) {
+                let pixel = &pixels[(y * wide + x) * 4..][..4];
+                red.extend_from_slice(&[pixel[0], 0, 0, 0]);
+                blue.extend_from_slice(&[0, 0, pixel[2], 0]);
+            }
+        }
+        let made = |pixels: &[u8]| {
+            MemoryRenderBuffer::from_slice(
+                pixels,
+                Fourcc::Abgr8888,
+                (small.0 as i32, small.1 as i32),
+                1,
+                OutputTransform::Normal,
+                None,
+            )
+        };
+        Self {
+            red: made(&red),
+            blue: made(&blue),
+            scale: scale / SPLIT_STEP as f64,
+        }
+    }
 }
 
 impl Pieces {
@@ -656,11 +721,14 @@ impl Pieces {
                     ((right - left) / scale, (bottom - top) / scale).into(),
                 )
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let split = (!rects.is_empty() && rects.len() <= crate::flow::MOST_PIECES)
+            .then(|| Split::of(&painter.pixmap, scale));
         Self {
             rects,
             glass: painter.glass,
             serial: SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            split,
         }
     }
 }

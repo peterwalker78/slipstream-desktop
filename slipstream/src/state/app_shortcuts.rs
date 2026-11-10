@@ -48,6 +48,8 @@ impl Slipstream {
             }
             Event::Closed { session } => {
                 self.shortcuts.closed(&session);
+                let gone = self.shortcuts.take_gone();
+                self.close_card(gone);
             }
         }
     }
@@ -78,6 +80,8 @@ impl Slipstream {
     }
 
     fn shortcuts_answered(&mut self, answer: Answer) {
+        let gone = self.shortcuts.take_gone();
+        self.close_card(gone);
         if answer == (Answer::Answered { written: true })
             && let Err(err) = file::write(&file::path(), self.shortcuts.granted())
         {
