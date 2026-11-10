@@ -8,15 +8,16 @@
 
 use smithay::{
     backend::renderer::{
-        Renderer,
+        Renderer, Texture,
         element::{AsRenderElements, Id, Kind, texture::TextureRenderElement},
         gles::{
             GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType, UniformValue,
             element::TextureShaderElement,
         },
+        utils::DamageBag,
     },
     desktop::Window,
-    utils::{IsAlive, Logical, Physical, Point, Rectangle, Size, Transform},
+    utils::{Buffer, IsAlive, Logical, Physical, Point, Rectangle, Size, Transform},
 };
 
 use crate::{
@@ -255,10 +256,15 @@ impl Axis {
     }
 }
 
-/// A window's picture for its pane, and whether it was drawn this frame.
+/// A window's picture for its pane, and whether it was drawn this frame. The pane keeps one
+/// element id for as long as it is drawn, so the damage tracker sees the same element move rather
+/// than a new one turning up each frame, and its damage records each time the picture is drawn
+/// again.
 struct Kept {
     window: Window,
     texture: Option<crate::tilt::Canvas>,
+    id: Id,
+    damage: DamageBag<i32, Buffer>,
     used: bool,
 }
 
@@ -359,6 +365,8 @@ impl Panes {
                 self.textures.push(Kept {
                     window: window.clone(),
                     texture: None,
+                    id: Id::new(),
+                    damage: DamageBag::new(4),
                     used: true,
                 });
                 self.textures.len() - 1
@@ -380,6 +388,9 @@ impl Panes {
             "a glass pane",
         )?;
         let texture = &texture.as_ref()?.texture;
+        // Redrawn every frame it is shown, and seen through a shader whose look moves on with it.
+        kept.damage.add([Rectangle::from_size(texture.size())]);
+        let (id, damage) = (kept.id.clone(), kept.damage.snapshot());
         // The picture is laid out in the window's own logical pixels, which the pose may show
         // bigger or smaller: from those to the pose's, then on to the screen.
         let stretch = [
@@ -411,8 +422,8 @@ impl Panes {
             place.size.w.round().max(1.0) as i32,
             place.size.h.round().max(1.0) as i32,
         ));
-        let inner = TextureRenderElement::from_static_texture(
-            Id::new(),
+        let inner = TextureRenderElement::from_texture_with_damage(
+            id,
             renderer.context_id(),
             corner.to_f64(),
             texture.clone(),
@@ -424,6 +435,7 @@ impl Panes {
             )),
             Some(size),
             None,
+            damage,
             Kind::Unspecified,
         );
         let ring = look.ring.map_or([0.0; 4], |([r, g, b], a)| [r, g, b, a]);
