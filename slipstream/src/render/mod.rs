@@ -475,9 +475,6 @@ pub struct Frames {
     /// it is for, so sharing one between two screens of different sizes would repaint it twice a
     /// frame and, in the wallpaper's case, restart the animation.
     pub chromes: HashMap<String, Chrome>,
-    /// The lit edge's pulses and gusts, one for every screen: only the one with the keyboard
-    /// moves.
-    pub edge: crate::bar::light::Charge,
 }
 
 #[cfg(test)]

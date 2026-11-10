@@ -227,8 +227,8 @@ pub struct BarDraw {
     /// The desktop is fully shown rather than fading to the wallpaper: only then does the lit
     /// edge move.
     pub shown: bool,
-    /// The machine is running on its battery, so the lit edge holds still.
-    pub on_battery: bool,
+    /// The power mode is set to save power, so the lit edge holds still.
+    pub power_saver: bool,
     /// The slot of a panel coming out of the bar, lit in its foot line.
     pub slot: Option<BarSlot>,
 }
@@ -265,6 +265,8 @@ pub struct Bar {
     attention: Vec<(f64, f64)>,
     breath: breath::Breath,
     light: light::Light,
+    /// The lit edge's pulses and gusts on this screen, its own.
+    charge: light::Charge,
 }
 
 impl Bar {
@@ -273,8 +275,8 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar showing `content` as `draw` says, with the lit edge moving on `charge` when it
-    /// moves: its picture, after handing `over` what goes over it, front to back. A new current
+    /// The bar showing `content` as `draw` says, with the lit edge moving when it moves: its
+    /// picture, after handing `over` what goes over it, front to back. A new current
     /// workspace sends the marker sliding over to it from where it's drawn, unless motion is
     /// reduced; the slide moves the marker alone, never the picture.
     pub fn draw(
@@ -282,7 +284,6 @@ impl Bar {
         renderer: &mut GlesRenderer,
         content: Content,
         draw: &BarDraw,
-        charge: &mut light::Charge,
         mut over: impl FnMut(Over),
     ) -> Option<MemoryRenderBufferRenderElement<GlesRenderer>> {
         let rect = Place::of(draw.style).rect(draw.width);
@@ -317,7 +318,8 @@ impl Bar {
         .ok();
 
         if let Some(edge) = self.edge(draw) {
-            let charge = self.moves(draw).then_some(charge);
+            let cadence = self.cadence();
+            let charge = self.moves(draw).then_some((&mut self.charge, cadence));
             if let Some(strip) = self.light.element(renderer, &edge, charge, draw.now) {
                 over(Over::Shaded(strip));
             }
@@ -421,18 +423,29 @@ impl Bar {
         })
     }
 
-    /// Whether the lit edge moves as `draw` says: on the screen with the keyboard alone, while
-    /// the desktop is fully shown, and never with reduced motion or on battery. Otherwise it
-    /// stands still.
+    /// Whether the lit edge moves as `draw` says: while the desktop is fully shown, and never
+    /// with reduced motion or while the power mode is set to save power. Otherwise it stands
+    /// still.
     fn moves(&self, draw: &BarDraw) -> bool {
-        draw.style == BarStyle::LitEdge
-            && draw.shown
-            && !draw.reduced_motion
-            && !draw.on_battery
-            && self
-                .shown
-                .as_ref()
-                .is_some_and(|shown| shown.content.keyboard_here)
+        draw.style == BarStyle::LitEdge && draw.shown && !draw.reduced_motion && !draw.power_saver
+    }
+
+    /// How the lit edge moves here: in full on the screen with the keyboard, calmly elsewhere.
+    fn cadence(&self) -> light::Cadence {
+        if self
+            .shown
+            .as_ref()
+            .is_some_and(|shown| shown.content.keyboard_here)
+        {
+            light::Cadence::Full
+        } else {
+            light::Cadence::Calm
+        }
+    }
+
+    /// Sends a gust along the lit edge on the next frame it moves in full.
+    pub fn gust_now(&mut self) {
+        self.charge.gust_now();
     }
 
     /// Sends the marker towards the current workspace when that changes.
@@ -519,10 +532,10 @@ struct Painted {
     unit: f64,
 }
 
-/// Whether a battery reading (its charge, and whether a charger is attached) means the machine is
-/// running on its battery.
-pub fn on_battery(battery: Option<(u8, bool)>) -> bool {
-    battery.is_some_and(|(_, plugged_in)| !plugged_in)
+/// Whether a power mode, power-profiles-daemon's profile, is set to save power. An unknown mode,
+/// or none at all, isn't.
+pub fn power_saver(profile: Option<&str>) -> bool {
+    profile == Some("power-saver")
 }
 
 /// The targets of a bar painted at `rect` on a screen `width` wide, moved from the bar's own
@@ -1271,7 +1284,7 @@ mod tests {
             reduced_motion: false,
             typing: false,
             shown: true,
-            on_battery: false,
+            power_saver: false,
             slot: None,
         }
     }
@@ -1334,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn the_lit_edge_moves_only_on_the_screen_with_the_keyboard() {
+    fn the_lit_edge_moves_on_every_screen_in_full_where_the_keyboard_is() {
         let mut here = Bar::default();
         let mut elsewhere = Bar::default();
         let lit = draw(1536, BarStyle::LitEdge);
@@ -1346,8 +1359,9 @@ mod tests {
             },
             &lit,
         );
-        assert!(here.moves(&lit));
-        assert!(!elsewhere.moves(&lit));
+        assert!(here.moves(&lit) && elsewhere.moves(&lit));
+        assert_eq!(here.cadence(), light::Cadence::Full);
+        assert_eq!(elsewhere.cadence(), light::Cadence::Calm);
         // Fading to the wallpaper, it stands still too.
         assert!(!here.moves(&BarDraw {
             shown: false,
@@ -1356,18 +1370,22 @@ mod tests {
     }
 
     #[test]
-    fn on_battery_the_lit_edge_stands_still_and_moves_again_on_the_charger() {
+    fn in_power_saver_the_lit_edge_stands_still_and_moves_again_when_the_mode_changes() {
         let lit = draw(1536, BarStyle::LitEdge);
         let mut bar = Bar::default();
         bar.lay_out(content(), &lit);
-        assert!(bar.moves(&lit));
-        assert!(!bar.moves(&BarDraw {
-            on_battery: true,
+        let saving = BarDraw {
+            power_saver: power_saver(Some("power-saver")),
             ..lit
-        }));
-        assert!(on_battery(Some((80, false))), "on battery");
-        assert!(!on_battery(Some((80, true))), "on the charger");
-        assert!(!on_battery(None), "with no battery at all");
+        };
+        assert!(!bar.moves(&saving));
+        for profile in [Some("balanced"), Some("performance"), Some("unknown"), None] {
+            let draw = BarDraw {
+                power_saver: power_saver(profile),
+                ..lit
+            };
+            assert!(bar.moves(&draw), "it moves with {profile:?}");
+        }
     }
 
     #[test]

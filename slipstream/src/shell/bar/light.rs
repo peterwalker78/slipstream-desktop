@@ -10,20 +10,25 @@
 //! off, so the processor does nothing per curl and nothing in it steps or comes in blocks. The
 //! bar's own picture leaves its foot line out in this style, so the line has one owner.
 //!
-//! Only the screen with the keyboard moves; the others show the still edge. The pulses move in
-//! steps of a thirtieth of a second and a gust's head at the display's own rate. With neither
-//! out the strip's numbers stay as they are and the screen isn't redrawn for it, but a pulse
-//! leaves every few seconds and takes longer than that to run out, so while the desktop is shown
-//! there is nearly always one out, and the screen with the keyboard is woken about 30 times a
-//! second for the edge (more while a gust's head runs).
+//! Every screen keeps its own charge, so each one's pulses leave its own marker. The pulses move
+//! in steps of a thirtieth of a second and a gust's head at the display's own rate. With neither
+//! out the strip's numbers stay as they are and the screen isn't redrawn for it. On the screen
+//! with the keyboard a pulse leaves every few seconds and takes longer than that to run out, so
+//! while the desktop is shown there is nearly always one out, and that screen is woken about 30
+//! times a second for the edge (more while a gust's head runs). Every other screen is calmer: a
+//! pulse every 15 to 20 seconds that fades out within six, and no gusts, so it rests most of the
+//! time. A screen the keyboard comes to picks up the full cadence from its last pulse, and one it
+//! leaves lets what is out run its course and settles into the calm one.
 //!
-//! On battery the edge holds still everywhere, the line and the marker's glow alone, so it never
-//! wakes the screen: what only moves for looks waits for the charger.
+//! While the power mode is set to save power the edge holds still everywhere, the line and the
+//! marker's glow alone, so it never wakes the screen.
 
 use smithay::{
     backend::renderer::gles::{GlesPixelProgram, GlesRenderer},
     utils::{Logical, Physical, Rectangle},
 };
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{BarSlot, HEIGHT, TALL};
 use crate::effects::{
@@ -69,6 +74,11 @@ const PULSE_TAIL: f64 = 200.0;
 const PULSE_LONGEST: f64 = 2950.0;
 /// The most pulses out at once: they leave at least 4.5 s apart and none lasts 27 s.
 const PULSES: usize = 8;
+/// Seconds between pulses on a screen without the keyboard, which rests in between.
+const CALM_EVERY: Range = Range::new(15.0, 20.0);
+/// How far a pulse on such a screen runs: it looks like any other pulse until it fades out over
+/// the last stretch, and the slowest has gone in under six seconds.
+const CALM_REACH: f64 = 640.0;
 
 /// Seconds between one gust and the next.
 const GUST_EVERY: Range = Range::new(6.0, 10.0);
@@ -118,9 +128,9 @@ uniform vec4 pulses_more;
 uniform vec4 gust;
 // The gust's seed, and the side its first curl is on: 1 below the line, -1 above.
 uniform vec2 wake;
-// The gap where a docked pane's frame carries the bar on down, and how far it is from the
-// marker to the bar's further end.
-uniform vec3 bar;
+// The gap where a docked pane's frame carries the bar on down, how far it is from the marker to
+// the bar's further end, and which pulses are short ones, a bit each, the first pulse lowest.
+uniform vec4 bar;
 // The slot a panel is coming out of: its left and right ends, how strongly it is lit, and how far
 // its ends taper, as a lit line's do.
 uniform vec4 slot;
@@ -167,12 +177,14 @@ float hash(float n) {
     return fract(sin(n) * 43758.5453);
 }
 
-// What a pulse `run` units out adds at `d` units from the marker: its charge and its white core.
-vec2 pulse(float run, float d) {
+// What pulse `n`, `run` units out, adds at `d` units from the marker: its charge and its white
+// core. It fades out over the last stretch of its run, a short one's or the longest.
+vec2 pulse(float run, float n, float d) {
     if (run < 0.0) return vec2(0.0);
+    float end = mod(floor(bar.w / exp2(n)), 2.0) > 0.5 ? CALM_REACH : LONGEST;
     float wide = 26.0 + 0.06 * min(run, 1400.0);
     float fade = mix(1.0, FAR, pow(clamp(run / max(bar.z, 1.0), 0.0, 1.0), 0.85))
-        * smoothstep(0.0, 30.0, run) * (1.0 - smoothstep(LONGEST - 250.0, LONGEST, run));
+        * smoothstep(0.0, 30.0, run) * (1.0 - smoothstep(end - 250.0, end, run));
     float g = exp(-sq((d - run) / wide));
     return vec2(PULSE * look.y * g * fade, pow(g, 8.0) * fade);
 }
@@ -279,9 +291,9 @@ void main() {
 
     float d = abs(x - look.x);
     float charge = look.w * (BASE + MARKER * look.y * exp(-sq(d / SPREAD)));
-    vec2 runs = pulse(pulses.x, d) + pulse(pulses.y, d) + pulse(pulses.z, d)
-        + pulse(pulses.w, d) + pulse(pulses_more.x, d) + pulse(pulses_more.y, d)
-        + pulse(pulses_more.z, d) + pulse(pulses_more.w, d) + gust_line(x);
+    vec2 runs = pulse(pulses.x, 0.0, d) + pulse(pulses.y, 1.0, d) + pulse(pulses.z, 2.0, d)
+        + pulse(pulses.w, 3.0, d) + pulse(pulses_more.x, 4.0, d) + pulse(pulses_more.y, 5.0, d)
+        + pulse(pulses_more.z, 6.0, d) + pulse(pulses_more.w, 7.0, d) + gust_line(x);
     charge += runs.x;
     float core = runs.y;
     if (charge > KNEE) {
@@ -325,6 +337,7 @@ fn shader() -> String {
         SHADER,
         &[
             ("LONGEST", &PULSE_LONGEST),
+            ("CALM_REACH", &CALM_REACH),
             ("CURL_EVERY", &CURL_EVERY),
             ("CURL_BEHIND", &CURL_BEHIND),
             ("CURL_LIFE_LOW", &CURL_LIFE.low),
@@ -382,7 +395,7 @@ struct Uniforms {
     pulses_more: [f32; 4],
     gust: [f32; 4],
     wake: [f32; 2],
-    bar: [f32; 3],
+    bar: [f32; 4],
     slot: [f32; 4],
 }
 
@@ -469,46 +482,140 @@ impl Picker {
     }
 }
 
-/// The edge's timing, shared by every screen, since only the one with the keyboard moves: the
-/// pulses out, the next to leave, and the gust.
-#[derive(Debug, Default)]
+/// How a screen's edge moves: in full on the screen with the keyboard, calmly on every other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cadence {
+    /// A pulse every few seconds, running the bar's length, and the gusts.
+    Full,
+    /// A short pulse now and then and no gusts, so the screen rests most of the time.
+    Calm,
+}
+
+impl Cadence {
+    /// Seconds between one pulse leaving and the next.
+    fn every(self) -> Range {
+        match self {
+            Self::Full => PULSE_EVERY,
+            Self::Calm => CALM_EVERY,
+        }
+    }
+
+    /// The furthest a pulse runs, fading out over the last stretch of it.
+    fn end(self) -> f64 {
+        match self {
+            Self::Full => PULSE_LONGEST,
+            Self::Calm => CALM_REACH,
+        }
+    }
+}
+
+/// One pulse out: when it left the marker, how fast it runs, and the furthest it runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pulse {
+    left: f64,
+    speed: f64,
+    end: f64,
+}
+
+impl Pulse {
+    /// How far it has run at `at`, while it is out on a bar it leaves `done` units out.
+    fn run(&self, at: f64, done: f64) -> Option<f64> {
+        let run = (at - self.left) * self.speed;
+        (at >= self.left && run <= done.min(self.end)).then_some(run)
+    }
+}
+
+/// Counts the charges made, so each screen's picks differ from every other's.
+static CHARGES: AtomicU64 = AtomicU64::new(0);
+
+/// One screen's edge timing: the pulses out, the next to leave, and the gust.
+#[derive(Debug)]
 pub struct Charge {
-    /// When each pulse out left the marker and how fast it runs; `None` for none.
-    pulses: [Option<(f64, f64)>; PULSES],
+    /// The pulses out, and those run out that have yet to make room for another.
+    pulses: [Option<Pulse>; PULSES],
     next_pulse: Option<f64>,
+    /// When the last pulse left, so a change of cadence spaces the next from it.
+    last_pulse: Option<f64>,
     pulse_count: u64,
     gust: Option<Gust>,
     next_gust: Option<f64>,
     gust_count: u64,
     /// A gust asked for now, by a debug step.
     gust_now: bool,
+    /// The cadence it last moved at.
+    cadence: Option<Cadence>,
+    /// Added to every number its picks start from.
+    seed: u64,
+}
+
+impl Default for Charge {
+    fn default() -> Self {
+        Self {
+            pulses: [None; PULSES],
+            next_pulse: None,
+            last_pulse: None,
+            pulse_count: 0,
+            gust: None,
+            next_gust: None,
+            gust_count: 0,
+            gust_now: false,
+            cadence: None,
+            seed: CHARGES
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15),
+        }
+    }
 }
 
 impl Charge {
-    /// Sends a gust off on the next frame that moves, so it can be looked at without waiting.
+    /// A charge whose picks start from `seed`, the same every time.
+    #[cfg(test)]
+    fn seeded(seed: u64) -> Self {
+        Self {
+            seed,
+            ..Self::default()
+        }
+    }
+
+    /// Sends a gust off on the next frame that moves in full, so it can be looked at without
+    /// waiting.
     pub fn gust_now(&mut self) {
         self.gust_now = true;
     }
 
-    /// Moves on to `now`, with the marker at `marker` on a bar `wide` units long, and says which
-    /// time the edge is drawn at: `now` itself while a gust's head is running, so it runs at the
-    /// display's rate, and otherwise `now` held to the last thirtieth of a second.
-    fn advance(&mut self, now: f64, marker: f64, wide: f64) -> f64 {
+    /// Picks from the numbers for `n`, this charge's own.
+    fn pick(&self, n: u64) -> Picker {
+        Picker::new(n.wrapping_add(self.seed))
+    }
+
+    /// Moves on to `now` at `cadence`, with the marker at `marker` on a bar `wide` units long,
+    /// and says which time the edge is drawn at: `now` itself while a gust's head is running, so
+    /// it runs at the display's rate, and otherwise `now` held to the last thirtieth of a second.
+    fn advance(&mut self, now: f64, marker: f64, wide: f64, cadence: Cadence) -> f64 {
         let done = done_at(marker, wide);
-        if std::mem::take(&mut self.gust_now) {
-            self.next_gust = Some(now);
-        }
-        let next_gust = *self
-            .next_gust
-            .get_or_insert_with(|| now + Picker::new(self.gust_count).within(GUST_EVERY));
-        if now >= next_gust {
-            // One missed by much, while the edge was still, is skipped rather than sent late.
-            if now - next_gust < 0.25 {
-                self.gust = Some(Gust::new(self.gust_count, next_gust, marker, wide));
+        let asked = std::mem::take(&mut self.gust_now);
+        if cadence == Cadence::Full {
+            if asked {
+                self.next_gust = Some(now);
             }
-            self.gust_count += 1;
-            let after = Picker::new(self.gust_count ^ 0x51ed).within(GUST_EVERY);
-            self.next_gust = Some(next_gust.max(now - 0.25) + after);
+            if self.next_gust.is_none() {
+                self.next_gust = Some(now + self.pick(self.gust_count).within(GUST_EVERY));
+            }
+            let next_gust = self.next_gust.unwrap_or(now);
+            if now >= next_gust {
+                // One missed by much, while the edge was still, is skipped rather than sent late.
+                if now - next_gust < 0.25 {
+                    let n = self.gust_count.wrapping_add(self.seed);
+                    self.gust = Some(Gust::new(n, next_gust, marker, wide));
+                }
+                self.gust_count += 1;
+                let after = self.pick(self.gust_count ^ 0x51ed).within(GUST_EVERY);
+                self.next_gust = Some(next_gust.max(now - 0.25) + after);
+            }
+        } else {
+            // A calm edge sends none; one out runs its course, and the next is picked afresh
+            // once the keyboard is back.
+            self.next_gust = None;
         }
         if self.gust.is_some_and(|gust| now >= gust.over()) {
             self.gust = None;
@@ -521,47 +628,66 @@ impl Charge {
             (now * STEPS).floor() / STEPS
         };
 
+        if self
+            .cadence
+            .replace(cadence)
+            .is_some_and(|was| was != cadence)
+        {
+            // The next pulse leaves the new cadence's spacing after the last, or now if that has
+            // gone by; those out run on as they set off, so nothing jumps.
+            let gap = self
+                .pick(self.pulse_count ^ 0x2545_f491)
+                .within(cadence.every());
+            self.next_pulse = self.last_pulse.map(|last| (last + gap).max(at));
+        }
         let next_pulse = *self.next_pulse.get_or_insert(at + 0.5);
         if at >= next_pulse {
-            let mut pick = Picker::new(self.pulse_count ^ 0x7f4a_0001);
+            let mut pick = self.pick(self.pulse_count ^ 0x7f4a_0001);
             let speed = pick.within(PULSE_SPEED);
-            let gap = pick.within(PULSE_EVERY);
+            let gap = pick.within(cadence.every());
             self.pulse_count += 1;
             // Any that has run its course makes room; the oldest goes if none has.
             let slot = self
                 .pulses
                 .iter()
-                .position(|pulse| pulse.is_none_or(|(left, speed)| (at - left) * speed > done))
+                .position(|pulse| pulse.is_none_or(|pulse| pulse.run(at, done).is_none()))
                 .unwrap_or_else(|| {
                     (0..PULSES)
                         .min_by(|&a, &b| {
-                            let left = |n: usize| self.pulses[n].map_or(f64::MIN, |(left, _)| left);
+                            let left = |n: usize| self.pulses[n].map_or(f64::MIN, |p| p.left);
                             left(a).total_cmp(&left(b))
                         })
                         .unwrap_or(0)
                 });
             // One that should have left while the edge was still leaves now instead.
-            let left = if at - next_pulse < PULSE_EVERY.high {
+            let left = if at - next_pulse < cadence.every().high {
                 next_pulse
             } else {
                 at
             };
-            self.pulses[slot] = Some((left, speed));
+            self.pulses[slot] = Some(Pulse {
+                left,
+                speed,
+                end: cadence.end(),
+            });
+            self.last_pulse = Some(left);
             self.next_pulse = Some(left + gap);
         }
         at
     }
 
     /// How far each pulse has run at `at`, with the marker at `marker` on a bar `wide` units
-    /// long, in the bar's units; -1 for none.
-    fn runs(&self, at: f64, marker: f64, wide: f64) -> [f32; PULSES] {
+    /// long, in the bar's units, -1 for none; and which are short ones, a bit each.
+    fn runs(&self, at: f64, marker: f64, wide: f64) -> ([f32; PULSES], f32) {
         let done = done_at(marker, wide);
-        std::array::from_fn(|n| match self.pulses[n] {
-            Some((left, speed)) if at >= left && (at - left) * speed <= done => {
-                ((at - left) * speed) as f32
-            }
-            _ => -1.0,
-        })
+        let run = |n: usize| self.pulses[n].and_then(|pulse| pulse.run(at, done));
+        let short = (0..PULSES)
+            .filter(|&n| self.pulses[n].is_some_and(|pulse| pulse.end < PULSE_LONGEST))
+            .fold(0, |bits, n| bits | 1 << n);
+        (
+            std::array::from_fn(|n| run(n).map_or(-1.0, |run| run as f32)),
+            short as f32,
+        )
     }
 }
 
@@ -580,14 +706,14 @@ fn done_at(marker: f64, wide: f64) -> f64 {
 pub struct Light(shader::Kept);
 
 impl Light {
-    /// The strip along the bar's foot at `now` seconds, moving on `charge` when it is given and
-    /// otherwise the still edge, the line and the marker's glow alone. `None` if the shader
-    /// didn't compile.
+    /// The strip along the bar's foot at `now` seconds, moving on `charge` at its cadence when it
+    /// is given and otherwise the still edge, the line and the marker's glow alone. `None` if
+    /// the shader didn't compile.
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         edge: &Edge,
-        charge: Option<&mut Charge>,
+        charge: Option<(&mut Charge, Cadence)>,
         now: f64,
     ) -> Option<shader::Shaded> {
         let program = program(renderer)?;
@@ -599,7 +725,7 @@ impl Light {
 /// The strip's place and its shader's numbers for `edge` at `now`, moving on `charge` if given.
 fn uniforms(
     edge: &Edge,
-    charge: Option<&mut Charge>,
+    charge: Option<(&mut Charge, Cadence)>,
     now: f64,
 ) -> (Rectangle<i32, Logical>, Uniforms) {
     let (bar, scale) = (edge.bar, edge.scale);
@@ -650,7 +776,7 @@ fn uniforms(
         pulses_more: [-1.0; 4],
         gust: [0.0, 0.0, 0.0, -1.0],
         wake: [0.0; 2],
-        bar: [gap_left, gap_right, reach(marker as f64, wide) as f32],
+        bar: [gap_left, gap_right, reach(marker as f64, wide) as f32, 0.0],
         slot: edge.slot.map_or([0.0; 4], |slot| {
             let (left, right) = (units(slot.left), units(slot.right));
             // Tapered as a lit line is, at least a unit long so its ends never meet.
@@ -659,13 +785,14 @@ fn uniforms(
             [left, right, slot.strength, taper as f32]
         }),
     };
-    let Some(charge) = charge.filter(|_| edge.charged) else {
+    let Some((charge, cadence)) = charge.filter(|_| edge.charged) else {
         return (area, uniforms);
     };
-    let at = charge.advance(now, marker as f64, wide);
-    let runs = charge.runs(at, marker as f64, wide);
+    let at = charge.advance(now, marker as f64, wide, cadence);
+    let (runs, short) = charge.runs(at, marker as f64, wide);
     uniforms.pulses = [runs[0], runs[1], runs[2], runs[3]];
     uniforms.pulses_more = [runs[4], runs[5], runs[6], runs[7]];
+    uniforms.bar[3] = short;
     if let Some(gust) = charge.gust {
         let signed = (gust.way * gust.speed) as f32;
         let age = (at - gust.start).max(0.0) as f32;
@@ -694,11 +821,12 @@ mod tests {
         }
     }
 
-    /// Steps the strip at 60 frames a second from `from` for `secs`, moving on `charge` if there
-    /// is one, and gives the frames whose numbers changed, each with whether a gust's head was
-    /// running then.
+    /// Steps the strip at 60 frames a second from `from` for `secs`, moving on `charge` at
+    /// `cadence` if there is one, and gives the frames whose numbers changed, each with whether
+    /// a gust's head was running then.
     fn changed_frames(
         charge: &mut Option<Charge>,
+        cadence: Cadence,
         edge: &Edge,
         from: f64,
         secs: f64,
@@ -708,7 +836,8 @@ mod tests {
         let mut changed = Vec::new();
         for frame in 0..(secs * 60.0) as usize {
             let now = from + frame as f64 / 60.0;
-            let (area, uniforms) = uniforms(edge, charge.as_mut(), now);
+            let (area, uniforms) =
+                uniforms(edge, charge.as_mut().map(|charge| (charge, cadence)), now);
             kept.note(area, &uniforms);
             if kept.commit() != last {
                 last = kept.commit();
@@ -724,13 +853,13 @@ mod tests {
 
     #[test]
     fn gusts_leave_every_six_to_ten_seconds_towards_the_side_with_room() {
-        let mut charge = Charge::default();
+        let mut charge = Charge::seeded(0);
         let mut gusts: Vec<Gust> = Vec::new();
         let mut now = 0.0;
         while now < 600.0 {
             // The marker near the left end, then near the right.
             let marker = if now < 300.0 { 200.0 } else { 1700.0 };
-            charge.advance(now, marker, 1900.0);
+            charge.advance(now, marker, 1900.0, Cadence::Full);
             if let Some(gust) = charge.gust
                 && gusts.last().is_none_or(|last| last.start != gust.start)
             {
@@ -752,11 +881,11 @@ mod tests {
 
     #[test]
     fn a_gusts_head_runs_at_the_displays_rate_and_the_rest_steps() {
-        let mut charge = Charge::default();
+        let mut charge = Charge::seeded(0);
         let (mut stepped, mut smooth) = (0, 0);
         let mut now = 0.0;
         while now < 120.0 {
-            let at = charge.advance(now, 400.0, 1900.0);
+            let at = charge.advance(now, 400.0, 1900.0, Cadence::Full);
             if charge.gust.is_some_and(|gust| now < gust.head_gone()) {
                 assert_eq!(at, now);
                 smooth += 1;
@@ -774,14 +903,14 @@ mod tests {
 
     #[test]
     fn pulses_leave_every_few_seconds_and_run_out_slowly() {
-        let mut charge = Charge::default();
+        let mut charge = Charge::seeded(0);
         let mut leaving = Vec::new();
         let mut now = 0.0;
         while now < 300.0 {
-            charge.advance(now, 400.0, 1900.0);
-            for (left, speed) in charge.pulses.iter().flatten() {
-                if !leaving.iter().any(|(l, _)| l == left) {
-                    leaving.push((*left, *speed));
+            charge.advance(now, 400.0, 1900.0, Cadence::Full);
+            for pulse in charge.pulses.iter().flatten() {
+                if !leaving.iter().any(|(left, _)| *left == pulse.left) {
+                    leaving.push((pulse.left, pulse.speed));
                 }
             }
             now += 1.0 / 60.0;
@@ -801,12 +930,12 @@ mod tests {
     fn pulses_run_to_the_far_end_of_a_wide_bar_with_several_out_at_once() {
         // A 2560-pixel screen at 1.25 with the marker on the first workspace.
         let (marker, wide) = (60.0, 2560.0);
-        let mut charge = Charge::default();
+        let mut charge = Charge::seeded(0);
         let (mut furthest, mut most_out) = (0.0_f32, 0);
         let mut now = 0.0;
         while now < 120.0 {
-            let at = charge.advance(now, marker, wide);
-            let runs = charge.runs(at, marker, wide);
+            let at = charge.advance(now, marker, wide, Cadence::Full);
+            let (runs, _) = charge.runs(at, marker, wide);
             furthest = runs.iter().fold(furthest, |far, &run| far.max(run));
             most_out = most_out.max(runs.iter().filter(|&&run| run >= 0.0).count());
             now += 1.0 / 60.0;
@@ -826,9 +955,9 @@ mod tests {
         let mut edge = edge();
         edge.bar.size.w = 2048.0;
         edge.scale = 1.25;
-        let mut charge = Some(Charge::default());
-        changed_frames(&mut charge, &edge, 0.0, 60.0);
-        let changed = changed_frames(&mut charge, &edge, 60.0, 60.0);
+        let mut charge = Some(Charge::seeded(0));
+        changed_frames(&mut charge, Cadence::Full, &edge, 0.0, 60.0);
+        let changed = changed_frames(&mut charge, Cadence::Full, &edge, 60.0, 60.0);
         // It never rests: no step of the pulses goes by without a change.
         for pair in changed.windows(2) {
             let apart = pair[1].0 - pair[0].0;
@@ -844,10 +973,158 @@ mod tests {
         );
     }
 
+    /// When each pulse `charge` sends left, how fast it runs and how far, over `secs` at 60
+    /// frames a second from `from` at `cadence`.
+    fn pulses_sent(charge: &mut Charge, cadence: Cadence, from: f64, secs: f64) -> Vec<Pulse> {
+        let mut sent: Vec<Pulse> = Vec::new();
+        for frame in 0..(secs * 60.0) as usize {
+            charge.advance(from + frame as f64 / 60.0, 400.0, 1900.0, cadence);
+            for pulse in charge.pulses.iter().flatten() {
+                if !sent.contains(pulse) {
+                    sent.push(*pulse);
+                }
+            }
+        }
+        sent
+    }
+
+    #[test]
+    fn every_screen_keeps_its_own_charge_and_a_new_one_starts_fresh() {
+        let (mut one, mut two) = (Charge::default(), Charge::default());
+        one.gust_now();
+        let first = pulses_sent(&mut one, Cadence::Full, 0.0, 60.0);
+        let second = pulses_sent(&mut two, Cadence::Full, 0.0, 60.0);
+        assert!(one.gust.is_some() || one.gust_count > 0);
+        // Both start from their own marker half a second in, and go their own ways after.
+        assert_eq!((first[0].left, second[0].left), (0.5, 0.5));
+        let lefts = |sent: &[Pulse]| sent.iter().map(|p| p.left).collect::<Vec<_>>();
+        assert_ne!(
+            lefts(&first),
+            lefts(&second),
+            "one screen never mirrors another"
+        );
+        // A screen that comes later starts from nothing at its own time.
+        let mut late = Charge::default();
+        let third = pulses_sent(&mut late, Cadence::Calm, 30.0, 10.0);
+        assert_eq!(third[0].left, 30.5);
+        assert_eq!(late.pulse_count, 1);
+    }
+
+    #[test]
+    fn away_from_the_keyboard_a_short_pulse_leaves_every_fifteen_to_twenty_seconds_and_no_gusts() {
+        let mut charge = Charge::seeded(0);
+        charge.gust_now();
+        let mut sent: Vec<Pulse> = Vec::new();
+        for frame in 0..(600.0 * 60.0) as usize {
+            charge.advance(frame as f64 / 60.0, 400.0, 1900.0, Cadence::Calm);
+            assert!(charge.gust.is_none(), "no gusts");
+            for pulse in charge.pulses.iter().flatten() {
+                if !sent.contains(pulse) {
+                    sent.push(*pulse);
+                }
+            }
+        }
+        assert!(sent.len() >= 30, "{} pulses", sent.len());
+        for pair in sent.windows(2) {
+            let apart = pair[1].left - pair[0].left;
+            assert!((14.99..=20.01).contains(&apart), "{apart} s between pulses");
+        }
+        for pulse in &sent {
+            assert_eq!(pulse.end, CALM_REACH);
+            let life = pulse.end / pulse.speed;
+            assert!(life < 6.0, "it fades out within {life} s");
+        }
+    }
+
+    #[test]
+    fn a_screen_without_the_keyboard_rests_most_of_the_time() {
+        // A 2560-pixel screen at 1.25, a minute in, measured for four.
+        let mut edge = edge();
+        edge.bar.size.w = 2048.0;
+        edge.scale = 1.25;
+        edge.strength = 0.5;
+        let mut charge = Some(Charge::seeded(0));
+        changed_frames(&mut charge, Cadence::Calm, &edge, 0.0, 60.0);
+        let changed = changed_frames(&mut charge, Cadence::Calm, &edge, 60.0, 240.0);
+        assert!(changed.iter().all(|(_, head)| !head), "no gusts");
+        // A gap longer than a step of the pulses is a rest; the rest of the time is a pulse out.
+        let step = 1.0 / STEPS + 1.0 / 60.0 + 1e-9;
+        let (mut resting, mut busy, mut longest) = (0.0, 0.0, 0.0_f64);
+        for pair in changed.windows(2) {
+            let apart = pair[1].0 - pair[0].0;
+            if apart > step {
+                resting += apart;
+                longest = longest.max(busy);
+                busy = 0.0;
+            } else {
+                busy += apart;
+            }
+        }
+        longest = longest.max(busy);
+        let share = resting / 240.0;
+        println!(
+            "rests {:.1}% of the time, busy {longest:.2} s at most",
+            share * 100.0
+        );
+        assert!(share >= 0.6, "rests {:.0}% of the time", share * 100.0);
+        assert!(longest < 6.0, "redrawn for {longest} s at a stretch");
+    }
+
+    #[test]
+    fn the_screen_the_keyboard_comes_to_picks_up_the_full_cadence_without_a_jump() {
+        let mut edge = edge();
+        edge.bar.size.w = 1900.0;
+        let mut charge = Charge::seeded(0);
+        let runs_at = |charge: &mut Charge, now: f64, cadence| {
+            uniforms(&edge, Some((charge, cadence)), now).1
+        };
+        let mut now = 0.0;
+        while now < 40.0 {
+            runs_at(&mut charge, now, Cadence::Calm);
+            now += 1.0 / 60.0;
+        }
+        let calm_last = charge.last_pulse.expect("calm pulses went out");
+        // The keyboard arrives: what is out runs on as it was, a step further along.
+        let before = runs_at(&mut charge, now, Cadence::Calm);
+        let after = runs_at(&mut charge, now + 1.0 / 60.0, Cadence::Full);
+        for (a, b) in before.pulses.iter().zip(after.pulses.iter()) {
+            assert!(*a < 0.0 && *b < 0.0 || (b - a).abs() <= 135.0 / STEPS as f32 + 0.01);
+        }
+        assert_eq!(before.bar[3], after.bar[3], "no pulse's reach changes");
+        // The next pulse follows the last calm one at the full spacing, or leaves now.
+        let switched = now + 1.0 / 60.0;
+        let full = pulses_sent(&mut charge, Cadence::Full, switched, 60.0);
+        let next = full
+            .iter()
+            .find(|p| p.left > calm_last)
+            .expect("a full pulse");
+        assert!(next.left <= (calm_last + PULSE_EVERY.high).max(switched + 1.0 / 30.0));
+        assert!(
+            full.iter()
+                .filter(|p| p.left > calm_last)
+                .all(|p| p.end == PULSE_LONGEST)
+        );
+        assert!(charge.gust_count > 0, "gusts come back");
+        // It leaves: the pulses out run their course and the next follows at the calm spacing.
+        let full_last = charge.last_pulse.unwrap();
+        let left_at = switched + 60.0;
+        let calm = pulses_sent(&mut charge, Cadence::Calm, left_at, 60.0);
+        let next = calm
+            .iter()
+            .find(|p| p.left > full_last)
+            .expect("a calm pulse");
+        assert!(next.left - full_last >= CALM_EVERY.low - 0.01 || next.left <= left_at + 0.04);
+        assert_eq!(next.end, CALM_REACH);
+        let gusts = charge.gust_count;
+        pulses_sent(&mut charge, Cadence::Calm, left_at + 60.0, 30.0);
+        assert_eq!(charge.gust_count, gusts, "no new gusts once it has gone");
+        assert!(charge.gust.is_none());
+    }
+
     #[test]
     fn the_still_edge_never_changes_and_has_no_pulses_or_gusts() {
         assert_eq!(
-            changed_frames(&mut None, &edge(), 5.0, 10.0).len(),
+            changed_frames(&mut None, Cadence::Full, &edge(), 5.0, 10.0).len(),
             1,
             "the still edge never changes"
         );
@@ -864,14 +1141,18 @@ mod tests {
 
     #[test]
     fn a_gust_asked_for_leaves_now_and_its_wake_is_gone_when_it_is_over() {
-        let mut charge = Charge::default();
+        let mut charge = Charge::seeded(0);
         charge.gust_now();
-        let (_, sent) = uniforms(&edge(), Some(&mut charge), 3.0);
+        let (_, sent) = uniforms(&edge(), Some((&mut charge, Cadence::Full)), 3.0);
         let gust = charge.gust.expect("a gust");
         assert_eq!(sent.gust[3], 0.0, "it sets off now");
         assert_eq!(sent.gust[1].signum(), 1.0, "towards the room on the right");
         assert_eq!(sent.gust[0], 80.0 + GUST_FROM as f32);
-        let (_, after) = uniforms(&edge(), Some(&mut charge), gust.over() + 0.01);
+        let (_, after) = uniforms(
+            &edge(),
+            Some((&mut charge, Cadence::Full)),
+            gust.over() + 0.01,
+        );
         assert!(after.gust[3] < 0.0, "nothing left of it");
     }
 
@@ -891,7 +1172,7 @@ mod tests {
             [125.0, 525.0, 1.0, taper]
         );
         edge.charged = false;
-        let (_, alone) = uniforms(&edge, Some(&mut Charge::default()), 1.0);
+        let (_, alone) = uniforms(&edge, Some((&mut Charge::seeded(0), Cadence::Full)), 1.0);
         assert_eq!(alone.slot, [125.0, 525.0, 1.0, taper]);
         assert_eq!(alone.look[3], 0.0, "the line itself isn't charged");
         assert_eq!(alone.pulses, [-1.0; 4], "and carries nothing");
