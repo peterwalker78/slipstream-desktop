@@ -505,7 +505,7 @@ impl Sheet {
             .take()
             .map(|painted| crate::flow::Layer::new(painted, at));
         self.drawer
-            .close_into_bar(stage.into_iter().chain(picture).collect());
+            .close(stage.into_iter().chain(picture).collect());
         self.stage_shown = None;
     }
 
@@ -658,38 +658,29 @@ impl Sheet {
             ((screen.w - painted.logical.w) / 2) as f64,
             ((TOP - MARGIN) * DESIGN_PX) as f64,
         ));
-        self.frame = Rectangle::new(
-            (
-                at.x + (MARGIN * DESIGN_PX) as f64,
-                at.y + (MARGIN * DESIGN_PX) as f64,
-            )
-                .into(),
-            (
-                painted.logical.w as f64 - (2.0 * MARGIN * DESIGN_PX) as f64,
-                painted.logical.h as f64 - (2.0 * MARGIN * DESIGN_PX) as f64,
-            )
-                .into(),
-        );
-        self.at = (at, None);
+        self.frame = crate::flow::card_in(at, painted.logical, MARGIN, 0.0);
         // The miniature rides in front of the card, in the place the card leaves for it.
-        let main = crate::flow::Shown::new(painted, at);
-        let both;
-        let shown: &[crate::flow::Shown<'_>] =
-            match self.stage.as_ref().filter(|_| self.tour.is_some()) {
-                Some(stage) => {
-                    let layout = tour_layout(screen);
-                    let (sx, sy, ..) = layout.stage;
-                    let offset = Point::<f64, Logical>::from((
-                        (((MARGIN + sx) * DESIGN_PX) as f64).round(),
-                        (((MARGIN + sy) * DESIGN_PX) as f64).round(),
-                    ));
-                    self.at.1 = Some(at + offset);
-                    both = [crate::flow::Shown::new(stage, at + offset), main];
-                    &both
-                }
-                None => std::slice::from_ref(&main),
-            };
-        Some(self.drawer.show(renderer, frame, self.frame, shown, out))
+        let stage_at = self
+            .stage
+            .as_ref()
+            .filter(|_| self.tour.is_some())
+            .map(|_| {
+                let (sx, sy, ..) = tour_layout(screen).stage;
+                at + Point::<f64, Logical>::from((
+                    (((MARGIN + sx) * DESIGN_PX) as f64).round(),
+                    (((MARGIN + sy) * DESIGN_PX) as f64).round(),
+                ))
+            });
+        self.at = (at, stage_at);
+        let stage = self.stage.as_ref().zip(stage_at);
+        let shown = crate::flow::Layers::new(
+            crate::flow::Shown::new(painted, at),
+            stage.map(|(stage, at)| crate::flow::Shown::new(stage, at)),
+        );
+        Some(
+            self.drawer
+                .show(renderer, frame, self.frame, shown.as_slice(), out),
+        )
     }
 }
 

@@ -278,6 +278,8 @@ pub struct History {
     chosen_at: f64,
     pub reduced_motion: bool,
     painted: Option<(Look, Painted)>,
+    /// Where the painted card's corner settles, outside the margin round the card.
+    at: Point<f64, Logical>,
     /// The card, and each row, in logical pixels on the screen.
     frame: Rectangle<f64, Logical>,
     rows: Rows,
@@ -316,14 +318,12 @@ impl History {
 
     pub fn close(&mut self) {
         self.open = false;
-        // Where the painted card settles: its corner, outside the margin round the card.
-        let m = (MARGIN * DESIGN_PX) as f64;
-        let at = self.frame.loc - Point::from((m, m));
+        let at = self.at;
         let picture = self
             .painted
             .take()
             .map(|(_, painted)| crate::flow::Layer::new(painted, at));
-        self.drawer.close_into_bar(picture.into_iter().collect());
+        self.drawer.close(picture.into_iter().collect());
     }
 
     /// Paints its text again next frame: a face for characters it lacked has landed.
@@ -469,15 +469,8 @@ impl History {
             ((screen.w - painted.logical.w) / 2) as f64,
             ((TOP - MARGIN) * DESIGN_PX) as f64,
         ));
-        let m = (MARGIN * DESIGN_PX) as f64;
-        self.frame = Rectangle::new(
-            (at.x + m, at.y + m).into(),
-            (
-                painted.logical.w as f64 - 2.0 * m,
-                painted.logical.h as f64 - 2.0 * m,
-            )
-                .into(),
-        );
+        self.at = at;
+        self.frame = crate::flow::card_in(at, painted.logical, MARGIN, 0.0);
         self.rows = self
             .card_rows
             .iter()
@@ -881,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    fn closing_lets_go_at_once_and_only_its_picture_drains() {
+    fn closing_lets_go_at_once_and_only_its_picture_goes_back_in() {
         let mut history = History::default();
         history.open(0.0);
         history.drawer.drawn_at(1.0, false);

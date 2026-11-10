@@ -320,10 +320,9 @@ fn through_xdg_desktop_portal() {
                 } => {
                     assert!(
                         desk.shortcuts
-                            .bind(Pending::new(session, wanted, reply), 0.0, true)
+                            .bind(Pending::new(session, wanted, reply), 0.0)
                     );
-                    desk.shortcuts
-                        .key(Keysym::Return, Mods::default(), 5.0, true);
+                    desk.shortcuts.key(Keysym::Return, Mods::default(), 5.0);
                     desk.allowed = Some(Instant::now());
                 }
                 Event::List { session, reply } => {

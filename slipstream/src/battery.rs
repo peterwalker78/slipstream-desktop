@@ -81,17 +81,15 @@ pub struct LowCard {
     since: f64,
     percent: u8,
     left: Option<String>,
-    pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
 
 impl LowCard {
-    fn new(percent: u8, left: Option<String>, now: f64, reduced_motion: bool) -> Self {
+    fn new(percent: u8, left: Option<String>, now: f64) -> Self {
         Self {
             since: now,
             percent,
             left,
-            reduced_motion,
             on_screen: Default::default(),
         }
     }
@@ -163,9 +161,9 @@ impl LowCard {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn close_into_bar(self) -> crate::panel::Drawer {
-        self.on_screen.close_into_bar()
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close(self) -> crate::panel::Drawer {
+        self.on_screen.close()
     }
 
     /// The card, coming out of its slot, into `out`.
@@ -183,7 +181,7 @@ impl LowCard {
 impl Slipstream {
     /// Takes the low battery card down, back into its slot.
     fn put_low_card_away(&mut self) {
-        let card = self.battery.card.take().map(LowCard::close_into_bar);
+        let card = self.battery.card.take().map(LowCard::close);
         self.close_card(card);
     }
 
@@ -276,8 +274,7 @@ impl Slipstream {
             None if self.battery.slept_at != Some(percent) => {
                 tracing::info!(percent, "battery critical: counting down to sleep");
                 self.close_panels();
-                self.battery.card =
-                    Some(LowCard::new(percent, left, now, self.clock.reduced_motion));
+                self.battery.card = Some(LowCard::new(percent, left, now));
             }
             Some(card) if card.due(now) => {
                 self.put_low_card_away();
@@ -360,7 +357,7 @@ mod tests {
 
     #[test]
     fn a_key_already_on_its_way_cannot_answer_the_card() {
-        let card = LowCard::new(5, None, 100.0, false);
+        let card = LowCard::new(5, None, 100.0);
         assert_eq!(card.key(Keysym::Return, 100.2), Act::Nothing);
         assert_eq!(card.key(Keysym::Return, 102.0), Act::SleepNow);
         assert_eq!(card.key(Keysym::Escape, 102.0), Act::NotYet);
@@ -369,7 +366,7 @@ mod tests {
 
     #[test]
     fn the_countdown_runs_a_minute() {
-        let card = LowCard::new(5, None, 10.0, false);
+        let card = LowCard::new(5, None, 10.0);
         assert_eq!(card.seconds_left(10.0), 60);
         assert_eq!(card.seconds_left(40.5), 30);
         assert!(!card.due(69.0));

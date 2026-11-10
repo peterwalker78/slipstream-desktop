@@ -298,7 +298,7 @@ pub struct Slipstream {
     pub offer: Option<Offer>,
     /// The card asking what a screen Slipstream has never seen should show.
     pub connect: Option<Connect>,
-    /// Cards draining away after they went, which take no input.
+    /// Cards going back into their slots after they went, which take no input.
     pub closing_cards: Vec<crate::panel::Drawer>,
     /// Shortcuts apps keep while another app has the keyboard, and the card that asks about
     /// them.
@@ -715,18 +715,6 @@ impl Slipstream {
         if let Some(exit) = self.exit.as_mut() {
             exit.reduced_motion = on;
         }
-        if let Some(offer) = self.offer.as_mut() {
-            offer.reduced_motion = on;
-        }
-        if let Some(connect) = self.connect.as_mut() {
-            connect.reduced_motion = on;
-        }
-        if let Some(ask) = self.shortcuts.ask_mut() {
-            ask.reduced_motion = on;
-        }
-        if let Some(share) = self.share.as_mut() {
-            share.reduced_motion = on;
-        }
         if let Some(prompt) = self.polkit.prompt.as_mut() {
             prompt.reduced_motion = on;
         }
@@ -760,8 +748,6 @@ impl Slipstream {
             quick = self.quick.reduced_motion,
             centre = self.centre.reduced_motion,
             exit = card(self.exit.as_ref().map(|exit| exit.reduced_motion)),
-            offer = card(self.offer.as_ref().map(|offer| offer.reduced_motion)),
-            share = card(self.share.as_ref().map(|share| share.reduced_motion)),
             lock = card(self.lock.as_ref().map(|lock| lock.reduced_motion)),
             "reduced motion"
         );

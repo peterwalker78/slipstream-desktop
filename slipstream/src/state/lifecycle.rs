@@ -366,7 +366,6 @@ impl Slipstream {
             plan.app_names(),
             plan.lost().to_vec(),
             wall,
-            self.clock.reduced_motion,
         ));
         // Held until it's answered, so the plan's expiry starts when the apps are launched.
         self.restoring = Some(plan);
@@ -635,14 +634,14 @@ impl Slipstream {
         match act {
             offer::Act::Nothing => {}
             offer::Act::Reopen => {
-                let card = self.offer.take().map(|card| card.close_into_bar());
+                let card = self.offer.take().map(|card| card.close());
                 self.close_card(card);
                 if let Some(plan) = self.restoring.take() {
                     self.start_restore(plan);
                 }
             }
             offer::Act::Clean => {
-                let card = self.offer.take().map(|card| card.close_into_bar());
+                let card = self.offer.take().map(|card| card.close());
                 self.close_card(card);
                 self.restoring = None;
                 tracing::info!("starting clean; the recorded layout is left alone");
@@ -720,13 +719,7 @@ impl Slipstream {
         tracing::info!(choices = choices.len(), "an app asked to share the screen");
         let now = self.wall();
         self.close_panels();
-        self.share = Some(Picker::new(
-            choices,
-            rows,
-            reply,
-            now,
-            self.clock.reduced_motion,
-        ));
+        self.share = Some(Picker::new(choices, rows, reply, now));
         self.wake_ui();
     }
 
@@ -809,7 +802,7 @@ impl Slipstream {
         let Some(mut picker) = self.share.take() else {
             return;
         };
-        self.close_card(Some(picker.close_into_bar()));
+        self.close_card(Some(picker.close()));
         match picker.asking.clone() {
             // A program asked to record the screen itself. Its frames have been waiting on this.
             share::Asking::Capture { exe, .. } => {
@@ -903,7 +896,7 @@ impl Slipstream {
             }
             // Nothing was lost: the desktop is as it was, minus whatever already closed.
             Act::Cancel => {
-                let card = self.exit.take().map(|mut exit| exit.close_into_bar());
+                let card = self.exit.take().map(|mut exit| exit.close());
                 self.close_card(card);
                 self.record.exit_record = None;
             }

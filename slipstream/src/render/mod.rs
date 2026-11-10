@@ -224,7 +224,7 @@ fn card_elements(
     renderer: &mut GlesRenderer,
     screen: CardScreen,
     elements: &mut Vec<OutputElement>,
-) -> Option<crate::flow::BarSlot> {
+) -> Option<crate::bar::BarSlot> {
     let CardScreen {
         size,
         scale,
@@ -251,7 +251,7 @@ fn card_elements(
     };
     let mut slot = None;
     let mut lit = |reveal: Option<crate::flow::Reveal>| {
-        slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|reveal| reveal.bar_slot));
+        slot = crate::bar::BarSlot::strongest(slot, reveal.and_then(|reveal| reveal.bar_slot));
     };
     if state.explorer.is_open() {
         state.ask_plugins();
@@ -351,8 +351,8 @@ fn card_elements(
         lit(exit.element(renderer, frame(wall), ring, elements));
     }
     // Panels and cards going back into their slots after they closed, behind whatever is open.
-    let closing = state.draw_closing_drawers(renderer, frame(now), elements);
-    crate::flow::BarSlot::strongest(slot, closing)
+    let closing = state.draw_closing_drawers(renderer, frame(now), frame(wall), elements);
+    crate::bar::BarSlot::strongest(slot, closing)
 }
 
 /// The screen the cards are drawn on: its logical size and scale, the time by the animation

@@ -47,12 +47,11 @@ pub struct Ask {
     /// Why the keys last pressed can't be used, until other keys are.
     refusal: Option<String>,
     since: f64,
-    pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
 
 impl Ask {
-    pub fn new(app: String, rows: Vec<Row>, now: f64, reduced_motion: bool) -> Self {
+    pub fn new(app: String, rows: Vec<Row>, now: f64) -> Self {
         Self {
             app,
             rows,
@@ -60,7 +59,6 @@ impl Ask {
             top: 0,
             refusal: None,
             since: now,
-            reduced_motion,
             on_screen: Default::default(),
         }
     }
@@ -199,9 +197,9 @@ impl Ask {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn close_into_bar(self) -> crate::panel::Drawer {
-        self.on_screen.close_into_bar()
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close(self) -> crate::panel::Drawer {
+        self.on_screen.close()
     }
 
     /// The card on a screen `screen` logical pixels big.
@@ -239,7 +237,6 @@ mod tests {
             "Talk".into(),
             vec![row("talk", Some("CTRL+ALT+t")), row("mute", None)],
             0.0,
-            false,
         )
     }
 

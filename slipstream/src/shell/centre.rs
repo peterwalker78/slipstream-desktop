@@ -242,8 +242,7 @@ impl Centre {
             .painted
             .take()
             .map(|painted| crate::flow::Layer::new(painted, origin));
-        self.drawer
-            .close_into_bar(glow.into_iter().chain(picture).collect());
+        self.drawer.close(glow.into_iter().chain(picture).collect());
         self.glow = None;
         self.targets.clear();
         self.launch = None;
@@ -585,23 +584,16 @@ impl Centre {
         self.breath = breath;
         let painted = self.painted.as_ref()?;
         // The chips' glow rides along in front of the picture.
-        let main = crate::flow::Shown::new(painted, at);
-        let both;
-        let shown: &[crate::flow::Shown<'_>] = match self.glow.as_ref() {
-            Some(glow) => {
-                both = [
-                    crate::flow::Shown {
-                        painted: glow,
-                        at,
-                        share: breath,
-                    },
-                    main,
-                ];
-                &both
-            }
-            None => std::slice::from_ref(&main),
-        };
-        Some(self.drawer.show(renderer, frame, card, shown, out))
+        let glow = self.glow.as_ref().map(|glow| crate::flow::Shown {
+            painted: glow,
+            at,
+            share: breath,
+        });
+        let shown = crate::flow::Layers::new(crate::flow::Shown::new(painted, at), glow);
+        Some(
+            self.drawer
+                .show(renderer, frame, card, shown.as_slice(), out),
+        )
     }
 
     fn repaint(

@@ -97,7 +97,6 @@ impl Slipstream {
             self.workspace_prose(workspace),
             share,
             now,
-            self.settings.motion.reduced,
         ));
         tracing::info!(
             screen = output.name(),
@@ -189,7 +188,7 @@ impl Slipstream {
             .iter()
             .find(|screen| screen.output.name() == connector)
             .map(|screen| (screen.output.clone(), screen.workspace));
-        let card = self.connect.take().map(|card| card.close_into_bar());
+        let card = self.connect.take().map(|card| card.close());
         self.close_card(card);
         if let Some((output, workspace)) = screen {
             self.remember_screen(&output, workspace);
@@ -332,7 +331,7 @@ impl Slipstream {
             .as_ref()
             .is_some_and(|card| card.connector == output.name())
         {
-            let card = self.connect.take().map(|card| card.close_into_bar());
+            let card = self.connect.take().map(|card| card.close());
             self.close_card(card);
         }
         // Its own workspace goes with it, unless something is still open there: an empty one is

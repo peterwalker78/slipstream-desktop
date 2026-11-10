@@ -212,7 +212,7 @@ impl PluginPanel {
             .painted
             .take()
             .map(|painted| crate::flow::Layer::new(painted, origin));
-        self.drawer.close_into_bar(picture.into_iter().collect());
+        self.drawer.close(picture.into_iter().collect());
         self.targets.clear();
     }
 

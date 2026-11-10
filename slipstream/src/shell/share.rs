@@ -131,7 +131,6 @@ pub struct Picker {
     top: usize,
     /// The chooser waiting on the other end, which the answer goes back down.
     reply: Option<UnixStream>,
-    pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
 
@@ -141,13 +140,7 @@ impl Picker {
         self.on_screen.forget();
     }
 
-    pub fn new(
-        choices: Vec<Choice>,
-        rows: Vec<Row>,
-        reply: Option<UnixStream>,
-        now: f64,
-        reduced_motion: bool,
-    ) -> Self {
+    pub fn new(choices: Vec<Choice>, rows: Vec<Row>, reply: Option<UnixStream>, now: f64) -> Self {
         Self {
             asking: Asking::Portal,
             deaf_until: now + DEAF,
@@ -156,14 +149,13 @@ impl Picker {
             selected: 0,
             top: 0,
             reply,
-            reduced_motion,
             on_screen: card::OnScreen::opened_at(now),
         }
     }
 
     /// The card a program gets when it asks to record the screen: the same shape as the portal's,
     /// so the two questions about the screen look like each other.
-    pub fn for_capture(program: String, exe: PathBuf, now: f64, reduced_motion: bool) -> Self {
+    pub fn for_capture(program: String, exe: PathBuf, now: f64) -> Self {
         let rows = vec![
             Row {
                 name: "Just this once".to_string(),
@@ -178,7 +170,7 @@ impl Picker {
         ];
         Self {
             asking: Asking::Capture { program, exe },
-            ..Self::new(Vec::new(), rows, None, now, reduced_motion)
+            ..Self::new(Vec::new(), rows, None, now)
         }
     }
 
@@ -370,8 +362,8 @@ impl Picker {
     }
 
     /// Lets the picker go: input leaves it now, and what it last showed goes back into its slot.
-    pub fn close_into_bar(&mut self) -> crate::panel::Drawer {
-        std::mem::take(&mut self.on_screen).close_into_bar()
+    pub fn close(&mut self) -> crate::panel::Drawer {
+        std::mem::take(&mut self.on_screen).close()
     }
 }
 
@@ -556,7 +548,7 @@ mod tests {
     /// can ask to record — so a key or a click already on its way must not answer it.
     #[test]
     fn a_card_nobody_asked_for_is_deaf_at_first() {
-        let mut capture = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 100.0, false);
+        let mut capture = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 100.0);
         assert_eq!(
             capture.key(Keysym::Return, false, 100.1),
             Act::Nothing,
@@ -596,7 +588,7 @@ mod tests {
 
     #[test]
     fn the_capture_card_moves_between_its_two_answers() {
-        let mut picker = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 0.0, false);
+        let mut picker = Picker::for_capture("grim".into(), "/usr/bin/grim".into(), 0.0);
         let now = DEAF + 1.0;
         // It starts on the answer that grants the least.
         assert!(!picker.remembers());
@@ -613,7 +605,7 @@ mod tests {
 
     #[test]
     fn the_capture_card_says_which_program_asked() {
-        let picker = Picker::for_capture("wf-recorder".into(), "/usr/bin/wf".into(), 0.0, false);
+        let picker = Picker::for_capture("wf-recorder".into(), "/usr/bin/wf".into(), 0.0);
         let card = picker.card(0x7fe3ffcc);
         assert_eq!(card.title, "Record your screen?");
         assert!(card.note.contains("wf-recorder"), "{}", card.note);
@@ -640,7 +632,7 @@ mod tests {
                 note: None,
             })
             .collect();
-        Picker::new(choices, rows, None, 0.0, false)
+        Picker::new(choices, rows, None, 0.0)
     }
 
     #[test]

@@ -34,7 +34,6 @@ pub struct Offer {
     apps: Vec<String>,
     /// Apps in the record with no desktop entry here.
     lost: Vec<String>,
-    pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
 
@@ -44,18 +43,11 @@ impl Offer {
         self.on_screen.forget();
     }
 
-    pub fn new(
-        windows: usize,
-        apps: Vec<String>,
-        lost: Vec<String>,
-        now: f64,
-        reduced_motion: bool,
-    ) -> Self {
+    pub fn new(windows: usize, apps: Vec<String>, lost: Vec<String>, now: f64) -> Self {
         Self {
             windows,
             apps,
             lost,
-            reduced_motion,
             on_screen: card::OnScreen::opened_at(now),
         }
     }
@@ -134,9 +126,9 @@ impl Offer {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn close_into_bar(self) -> crate::panel::Drawer {
-        self.on_screen.close_into_bar()
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close(self) -> crate::panel::Drawer {
+        self.on_screen.close()
     }
 
     /// The card on a screen `screen` logical pixels big.
@@ -162,7 +154,6 @@ mod tests {
             vec!["Konsole".into(), "Firefox".into()],
             vec!["some-run-box-command".into()],
             0.0,
-            false,
         )
     }
 
@@ -191,14 +182,14 @@ mod tests {
 
     #[test]
     fn one_window_is_not_windows() {
-        let offer = Offer::new(1, vec!["Konsole".into()], vec![], 0.0, false);
+        let offer = Offer::new(1, vec!["Konsole".into()], vec![], 0.0);
         assert_eq!(offer.card().title, "Reopen 1 window?");
     }
 
     #[test]
     fn a_long_list_of_apps_stops_naming_them() {
         let apps: Vec<String> = (0..9).map(|n| format!("App {n}")).collect();
-        let offer = Offer::new(9, apps, vec![], 0.0, false);
+        let offer = Offer::new(9, apps, vec![], 0.0);
         assert!(
             offer
                 .card()

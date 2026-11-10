@@ -855,7 +855,7 @@ impl Slipstream {
         let Some(mut prompt) = self.polkit.prompt.take() else {
             return;
         };
-        self.close_card(Some(prompt.close_into_bar()));
+        self.close_card(Some(prompt.close()));
         // The password the card held is wiped as it drops.
         prompt.request.answer(answer);
         if self.lock.is_none() {

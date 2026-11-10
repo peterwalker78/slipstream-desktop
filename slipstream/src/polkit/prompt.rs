@@ -367,8 +367,8 @@ impl Prompt {
     }
 
     /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
-    pub fn close_into_bar(&mut self) -> crate::panel::Drawer {
-        std::mem::take(&mut self.on_screen).close_into_bar()
+    pub fn close(&mut self) -> crate::panel::Drawer {
+        std::mem::take(&mut self.on_screen).close()
     }
 
     /// The shade over the whole of the screen called `output`: every screen is shaded, not only

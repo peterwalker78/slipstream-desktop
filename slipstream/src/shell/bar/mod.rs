@@ -13,8 +13,10 @@ pub mod breath;
 pub mod light;
 mod marker;
 pub mod place;
+mod slot;
 
 pub use place::Place;
+pub use slot::BarSlot;
 
 use resvg::tiny_skia::Pixmap;
 use slipstream_config::BarStyle;
@@ -33,7 +35,6 @@ use smithay::{
 use crate::{
     anim::{Easing, Tween},
     effects::shader::Shaded,
-    flow::BarSlot,
     icons,
     paint::{self, Painter},
     panel::{self, ink_on},

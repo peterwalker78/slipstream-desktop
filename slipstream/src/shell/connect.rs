@@ -39,7 +39,6 @@ pub struct Connect {
     pub share: Option<usize>,
     share_label: String,
     since: f64,
-    pub reduced_motion: bool,
     on_screen: card::OnScreen,
 }
 
@@ -50,7 +49,6 @@ impl Connect {
         own_label: String,
         share: Option<(usize, String)>,
         now: f64,
-        reduced_motion: bool,
     ) -> Self {
         let (share, share_label) = match share {
             Some((index, label)) => (Some(index), label),
@@ -63,7 +61,6 @@ impl Connect {
             share,
             share_label,
             since: now,
-            reduced_motion,
             on_screen: Default::default(),
         }
     }
@@ -152,9 +149,9 @@ impl Connect {
         }
     }
 
-    /// Lets the card go: input leaves it now, and what it last showed goes back into the bar.
-    pub fn close_into_bar(self) -> crate::panel::Drawer {
-        self.on_screen.close_into_bar()
+    /// Lets the card go: input leaves it now, and what it last showed goes back into its slot.
+    pub fn close(self) -> crate::panel::Drawer {
+        self.on_screen.close()
     }
 
     /// The card on a screen `screen` logical pixels big.
@@ -181,7 +178,6 @@ mod tests {
             "Workspace 6".into(),
             share,
             0.0,
-            true,
         )
     }
 

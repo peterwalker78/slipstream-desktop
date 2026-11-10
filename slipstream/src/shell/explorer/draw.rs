@@ -97,7 +97,7 @@ impl Explorer {
         // stays on. It shows once the explorer is whole.
         let caret_on = self.reduced_motion || (since * 2.0).rem_euclid(2.0) < 1.0;
         if caret_on && reveal.whole() {
-            let caret = self.caret_element(renderer, frame, reveal.alpha);
+            let caret = self.caret_element(renderer, frame, reveal.alpha());
             out.extend(caret.map(crate::flow::FlowElement::from));
         }
         let shown = [crate::flow::Shown::new(self.buffer.as_ref()?, self.origin)];

@@ -26,7 +26,7 @@ use smithay::input::keyboard::{Keycode, Keysym};
 
 use slipstream_config::shortcuts::{Granted, Shortcut};
 
-use crate::keys::Mods;
+use crate::{keys::Mods, panel::Drawer};
 
 use self::{
     ask::{Act, Ask, Row},
@@ -82,9 +82,6 @@ pub struct Shortcuts {
     held: Vec<Held>,
     /// The card on screen, and the request it answers.
     asking: Option<(Pending, Ask)>,
-    /// The last card, on its way back into its slot after it went, until the desktop takes it
-    /// to draw with the other cards going.
-    gone: Option<crate::panel::Drawer>,
     waiting: VecDeque<Pending>,
     /// The person's own shortcuts that work, which no app can be given.
     own: Vec<own::OwnKey>,
@@ -122,11 +119,6 @@ impl Shortcuts {
         self.asking.as_ref().map(|(_, ask)| ask)
     }
 
-    /// The card that last went, to draw on its way back into its slot.
-    pub fn take_gone(&mut self) -> Option<crate::panel::Drawer> {
-        self.gone.take()
-    }
-
     pub fn ask_mut(&mut self) -> Option<&mut Ask> {
         self.asking.as_mut().map(|(_, ask)| ask)
     }
@@ -145,8 +137,9 @@ impl Shortcuts {
     }
 
     /// The session ended. Its keys are let go of without telling it — it isn't listening — and
-    /// a card asking for it has nothing left to ask. Returns whether the card went.
-    pub fn closed(&mut self, session: &str) -> bool {
+    /// a card asking for it has nothing left to ask. Returns the card if it went, to draw on its
+    /// way back into its slot.
+    pub fn closed(&mut self, session: &str) -> Option<Drawer> {
         self.sessions.remove(session);
         self.held.retain(|held| held.session != session);
         self.waiting.retain(|pending| pending.session != session);
@@ -155,10 +148,9 @@ impl Shortcuts {
             .as_ref()
             .is_some_and(|(pending, _)| pending.session == session)
         {
-            self.let_go();
-            return true;
+            return self.let_go().map(|(_, gone)| gone);
         }
-        false
+        None
     }
 
     /// What the session has, or before it asked, what its app was given last time.
@@ -207,7 +199,7 @@ impl Shortcuts {
 
     /// An app asks for shortcuts. Ones it was given before are bound straight away; anything new
     /// waits for the person, on a card. Returns whether a card has come up.
-    pub fn bind(&mut self, pending: Pending, now: f64, reduced_motion: bool) -> bool {
+    pub fn bind(&mut self, pending: Pending, now: f64) -> bool {
         let Some(open) = self.sessions.get(&pending.session) else {
             let _ = pending.reply.try_send(None);
             return false;
@@ -246,11 +238,11 @@ impl Shortcuts {
             return false;
         }
         self.waiting.push_back(pending);
-        self.next(now, reduced_motion)
+        self.next(now)
     }
 
     /// Puts up the card for the next request, if none is up.
-    fn next(&mut self, now: f64, reduced_motion: bool) -> bool {
+    fn next(&mut self, now: f64) -> bool {
         if self.asking.is_some() {
             return false;
         }
@@ -284,32 +276,34 @@ impl Shortcuts {
                 shortcuts = rows.len(),
                 "asking about an app's shortcuts"
             );
-            self.asking = Some((pending, Ask::new(name, rows, now, reduced_motion)));
+            self.asking = Some((pending, Ask::new(name, rows, now)));
             return true;
         }
         false
     }
 
-    /// A key while the card is up.
-    pub fn key(&mut self, key: Keysym, mods: Mods, now: f64, reduced_motion: bool) -> Answer {
+    /// A key while the card is up. Returns what it came to, and the card if it went, to draw on
+    /// its way back into its slot.
+    pub fn key(&mut self, key: Keysym, mods: Mods, now: f64) -> (Answer, Option<Drawer>) {
         let Some((_, ask)) = self.asking.as_mut() else {
-            return Answer::Nothing;
+            return (Answer::Nothing, None);
         };
         let act = ask.key(key, mods, now);
-        self.act(act, now, reduced_motion)
+        self.act(act, now)
     }
 
-    pub fn click(&mut self, x: f64, y: f64, now: f64, reduced_motion: bool) -> Answer {
+    /// A click while the card is up, answered as `key` is.
+    pub fn click(&mut self, x: f64, y: f64, now: f64) -> (Answer, Option<Drawer>) {
         let Some((_, ask)) = self.asking.as_mut() else {
-            return Answer::Nothing;
+            return (Answer::Nothing, None);
         };
         let act = ask.click(x, y, now);
-        self.act(act, now, reduced_motion)
+        self.act(act, now)
     }
 
-    fn act(&mut self, act: Act, now: f64, reduced_motion: bool) -> Answer {
+    fn act(&mut self, act: Act, now: f64) -> (Answer, Option<Drawer>) {
         match act {
-            Act::Nothing => Answer::Nothing,
+            Act::Nothing => (Answer::Nothing, None),
             Act::Pick(trigger) => {
                 let app = self
                     .asking
@@ -324,39 +318,46 @@ impl Shortcuts {
                         None => ask.set(trigger),
                     }
                 }
-                Answer::Nothing
+                (Answer::Nothing, None)
             }
             Act::Allow => {
-                let written = self.allow();
-                self.next(now, reduced_motion);
-                Answer::Answered { written }
+                let (written, gone) = self.allow();
+                self.next(now);
+                (Answer::Answered { written }, gone)
             }
             Act::Deny => {
-                if let Some(pending) = self.let_go() {
+                let gone = self.let_go().map(|(pending, gone)| {
                     tracing::info!("an app's shortcuts were turned down");
                     let _ = pending.reply.try_send(None);
-                }
-                self.next(now, reduced_motion);
-                Answer::Answered { written: false }
+                    gone
+                });
+                self.next(now);
+                (Answer::Answered { written: false }, gone)
             }
         }
     }
 
-    /// Takes the card down: the request it answered comes back, and the card fades out.
-    fn let_go(&mut self) -> Option<Pending> {
+    /// Takes the card down: the request it answered comes back, with the card on its way back
+    /// into its slot.
+    fn let_go(&mut self) -> Option<(Pending, Drawer)> {
         let (pending, ask) = self.asking.take()?;
-        self.gone = Some(ask.close_into_bar());
-        Some(pending)
+        Some((pending, ask.close()))
     }
 
     /// Binds what the card shows, and writes it down. Returns whether there is something new to
-    /// write to the file.
-    fn allow(&mut self) -> bool {
+    /// write to the file, and the card on its way back into its slot.
+    fn allow(&mut self) -> (bool, Option<Drawer>) {
         let Some((pending, mut ask)) = self.asking.take() else {
-            return false;
+            return (false, None);
         };
         let rows = std::mem::take(&mut ask.rows);
-        self.gone = Some(ask.close_into_bar());
+        let gone = ask.close();
+        (self.grant(pending, &rows), Some(gone))
+    }
+
+    /// Binds `rows` for the app `pending` asked for, and writes them down. Returns whether there
+    /// is something new to write to the file.
+    fn grant(&mut self, pending: Pending, rows: &[Row]) -> bool {
         let bound: Vec<Bound> = rows
             .iter()
             .filter_map(|row| {
@@ -539,7 +540,7 @@ mod tests {
 
     fn ask_for(shortcuts: &mut Shortcuts, session: &str, wanted: Vec<Wanted>) -> (bool, Reply) {
         let (reply, answer) = async_channel::bounded(1);
-        let shown = shortcuts.bind(Pending::new(session.to_string(), wanted, reply), 0.0, true);
+        let shown = shortcuts.bind(Pending::new(session.to_string(), wanted, reply), 0.0);
         (shown, answer)
     }
 
@@ -550,7 +551,7 @@ mod tests {
     }
 
     fn enter(shortcuts: &mut Shortcuts) -> Answer {
-        shortcuts.key(Keysym::Return, Mods::default(), 5.0, true)
+        shortcuts.key(Keysym::Return, Mods::default(), 5.0).0
     }
 
     #[test]
@@ -587,8 +588,9 @@ mod tests {
             SESSION,
             vec![wanted("talk", Some("CTRL+ALT+t"))],
         );
-        let answered = shortcuts.key(Keysym::Escape, Mods::default(), 5.0, true);
+        let (answered, gone) = shortcuts.key(Keysym::Escape, Mods::default(), 5.0);
         assert_eq!(answered, Answer::Answered { written: false });
+        assert!(gone.is_some(), "the card goes back into its slot");
         assert_eq!(answer.try_recv().unwrap(), None);
         assert!(shortcuts.granted().apps.is_empty());
         assert!(
@@ -703,10 +705,9 @@ mod tests {
                 ..Mods::default()
             },
             5.0,
-            true,
         );
         assert_eq!(shortcuts.ask().unwrap().rows[0].trigger, None);
-        shortcuts.key(Keysym::p, CTRL_ALT, 5.0, true);
+        shortcuts.key(Keysym::p, CTRL_ALT, 5.0);
         assert_eq!(
             shortcuts.ask().unwrap().rows[0].trigger.unwrap().spec(),
             "CTRL+ALT+p"
@@ -733,7 +734,7 @@ mod tests {
             vec![wanted("record", Some("CTRL+ALT+t"))],
         );
         assert_eq!(shortcuts.ask().unwrap().rows[0].trigger, None);
-        shortcuts.key(Keysym::t, CTRL_ALT, 5.0, true);
+        shortcuts.key(Keysym::t, CTRL_ALT, 5.0);
         assert_eq!(shortcuts.ask().unwrap().rows[0].trigger, None);
     }
 
@@ -761,7 +762,7 @@ mod tests {
         // The next card ignores keys for its first moment too.
         enter(&mut shortcuts);
         assert!(answer.try_recv().is_err());
-        shortcuts.key(Keysym::Return, Mods::default(), 10.0, true);
+        shortcuts.key(Keysym::Return, Mods::default(), 10.0);
         assert!(answer.try_recv().unwrap().is_some());
         assert!(shortcuts.ask().is_none());
     }
@@ -774,7 +775,7 @@ mod tests {
             SESSION,
             vec![wanted("talk", Some("CTRL+ALT+t"))],
         );
-        assert!(shortcuts.closed(SESSION));
+        assert!(shortcuts.closed(SESSION).is_some());
         assert!(shortcuts.ask().is_none());
     }
 

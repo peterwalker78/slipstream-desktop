@@ -403,12 +403,7 @@ impl Slipstream {
     fn ask_about_capture(&mut self, program: String, exe: PathBuf) {
         let now = self.wall();
         self.close_panels();
-        self.share = Some(crate::share::Picker::for_capture(
-            program.clone(),
-            exe,
-            now,
-            self.clock.reduced_motion,
-        ));
+        self.share = Some(crate::share::Picker::for_capture(program.clone(), exe, now));
         self.wake_ui();
         tracing::info!(program, "asking whether this program may record the screen");
     }

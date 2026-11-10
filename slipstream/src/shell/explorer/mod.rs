@@ -241,7 +241,7 @@ impl Explorer {
     }
 
     /// Closes at once: keys and clicks go back to the windows now, and only the painted
-    /// explorer stays to drain away.
+    /// explorer stays, to go back into its slot.
     pub fn close(&mut self) {
         if !self.open {
             return;
@@ -251,15 +251,10 @@ impl Explorer {
             .buffer
             .take()
             .map(|painted| crate::flow::Layer::new(painted, origin));
-        self.drawer.close_into_bar(picture.into_iter().collect());
+        self.drawer.close(picture.into_iter().collect());
         self.open = false;
         self.shown = None;
         self.targets.clear();
-    }
-
-    /// Whether it's still going back into the bar after closing.
-    pub fn is_closing(&self) -> bool {
-        self.drawer.closing()
     }
 
     /// What is typed.
@@ -980,15 +975,15 @@ mod tests {
     }
 
     #[test]
-    fn closing_lets_go_at_once_and_only_the_paint_drains() {
+    fn closing_lets_go_at_once_and_only_the_paint_goes_back_in() {
         let mut explorer = Explorer::idle(false);
         explorer.open(0.0);
         explorer.drawer.drawn_at(1.0, false);
         explorer.buffer = crate::paint::Painted::new((1, 1).into(), 1.0, |_| {});
         explorer.close();
         assert!(!explorer.is_open(), "keys go back to the window now");
-        assert!(explorer.is_closing(), "its paint stays to go back in");
+        assert!(explorer.drawer.closing(), "its paint stays to go back in");
         explorer.open(1.0);
-        assert!(!explorer.is_closing());
+        assert!(!explorer.drawer.closing());
     }
 }

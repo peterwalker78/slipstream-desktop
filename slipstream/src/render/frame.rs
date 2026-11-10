@@ -721,7 +721,7 @@ fn bar_elements(
     v: &View,
     chrome: &mut Chrome,
     used: &[bool],
-    bar_slot: Option<crate::flow::BarSlot>,
+    bar_slot: Option<crate::bar::BarSlot>,
 ) -> Vec<OutputElement> {
     let content = bar_content(state, v.active, v.screen_index, v.first, used);
     let docked = content.dock.is_some();

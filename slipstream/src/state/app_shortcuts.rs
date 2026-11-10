@@ -39,7 +39,7 @@ impl Slipstream {
             } => {
                 let now = self.wall();
                 let pending = Pending::new(session, wanted, reply);
-                if self.shortcuts.bind(pending, now, self.clock.reduced_motion) {
+                if self.shortcuts.bind(pending, now) {
                     self.wake_ui();
                 }
             }
@@ -47,8 +47,7 @@ impl Slipstream {
                 let _ = reply.try_send(self.shortcuts.list(&session));
             }
             Event::Closed { session } => {
-                self.shortcuts.closed(&session);
-                let gone = self.shortcuts.take_gone();
+                let gone = self.shortcuts.closed(&session);
                 self.close_card(gone);
             }
         }
@@ -57,15 +56,13 @@ impl Slipstream {
     /// A key while the card asking about an app's shortcuts is up.
     pub fn shortcuts_key(&mut self, key: Keysym, mods: Mods) {
         let now = self.wall();
-        let answer = self
-            .shortcuts
-            .key(key, mods, now, self.clock.reduced_motion);
+        let answer = self.shortcuts.key(key, mods, now);
         self.shortcuts_answered(answer);
     }
 
     pub fn shortcuts_click(&mut self, x: f64, y: f64) {
         let now = self.wall();
-        let answer = self.shortcuts.click(x, y, now, self.clock.reduced_motion);
+        let answer = self.shortcuts.click(x, y, now);
         self.shortcuts_answered(answer);
     }
 
@@ -79,8 +76,7 @@ impl Slipstream {
         }
     }
 
-    fn shortcuts_answered(&mut self, answer: Answer) {
-        let gone = self.shortcuts.take_gone();
+    fn shortcuts_answered(&mut self, (answer, gone): (Answer, Option<crate::panel::Drawer>)) {
         self.close_card(gone);
         if answer == (Answer::Answered { written: true })
             && let Err(err) = file::write(&file::path(), self.shortcuts.granted())

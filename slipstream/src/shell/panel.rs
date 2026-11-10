@@ -335,10 +335,16 @@ pub trait Panel {
     fn stays_for_media(&self) -> bool;
     /// Its drawer, which keeps going back in after it closes, and can be opened again mid-way.
     fn drawer_mut(&mut self) -> &mut Drawer;
+    /// Whether it is drawn by the wall clock, which bullet time never slows, rather than the
+    /// animation clock; its drawer goes back in on the same clock it came out on.
+    fn on_wall_clock(&self) -> bool;
 }
 
 macro_rules! panel {
     ($panel:ty, $binding:expr, stays_for_media: $stays:expr) => {
+        panel!($panel, $binding, stays_for_media: $stays, wall_clock: false);
+    };
+    ($panel:ty, $binding:expr, stays_for_media: $stays:expr, wall_clock: $wall:expr) => {
         impl Panel for $panel {
             fn is_open(&self) -> bool {
                 <$panel>::is_open(self)
@@ -358,6 +364,9 @@ macro_rules! panel {
             fn drawer_mut(&mut self) -> &mut Drawer {
                 &mut self.drawer
             }
+            fn on_wall_clock(&self) -> bool {
+                $wall
+            }
         }
     };
 }
@@ -367,7 +376,7 @@ panel!(QuickSettings, Action::QuickSettings, stays_for_media: true);
 panel!(PluginPanel, Action::Plugins, stays_for_media: true);
 panel!(Centre, Action::NotificationCentre, stays_for_media: false);
 panel!(Sheet, Action::ShortcutSheet, stays_for_media: true);
-panel!(History, Action::ClipboardHistory, stays_for_media: true);
+panel!(History, Action::ClipboardHistory, stays_for_media: true, wall_clock: true);
 
 impl Slipstream {
     /// Every panel, open or not.
@@ -408,30 +417,33 @@ impl Slipstream {
         self.panels().iter().any(|panel| panel.is_open())
     }
 
-    /// Every panel and card going back into its slot after it closed, drawn into `out` at
-    /// `frame`'s time, behind whatever is open: only its last picture, which takes no input.
-    /// Returns the slot the strongest of them asks the bar for.
+    /// Every panel and card going back into its slot after it closed, drawn into `out` behind
+    /// whatever is open, each on the clock it came out on: `now` by the animation clock, `wall`
+    /// by the wall's, as cards are. Only its last picture is drawn, which takes no input, and a
+    /// card is let go once it is in. Returns the slot the strongest of them asks the bar for.
     pub fn draw_closing_drawers(
         &mut self,
         renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
-        frame: Frame,
+        now: Frame,
+        wall: Frame,
         out: &mut impl Extend<crate::flow::FlowElement>,
-    ) -> Option<crate::flow::BarSlot> {
+    ) -> Option<crate::bar::BarSlot> {
         let mut slot = None;
         for panel in self.panels_mut() {
+            let frame = if panel.on_wall_clock() { wall } else { now };
             let reveal = panel.drawer_mut().draw_closing(renderer, frame, out);
-            slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
+            slot = crate::bar::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
         }
         for drawer in &mut self.closing_cards {
-            let reveal = drawer.draw_closing(renderer, frame, out);
-            slot = crate::flow::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
+            let reveal = drawer.draw_closing(renderer, wall, out);
+            slot = crate::bar::BarSlot::strongest(slot, reveal.and_then(|r| r.bar_slot));
         }
+        self.closing_cards.retain(Drawer::closing);
         slot
     }
 
     /// Sends a card that has gone on its way back into its slot, with any others still going.
     pub fn close_card(&mut self, drawer: Option<Drawer>) {
-        self.closing_cards.retain(Drawer::closing);
         self.closing_cards.extend(drawer.filter(Drawer::closing));
     }
 

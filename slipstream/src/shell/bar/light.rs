@@ -25,13 +25,10 @@ use smithay::{
     utils::{Logical, Physical, Rectangle},
 };
 
-use super::{HEIGHT, TALL};
-use crate::{
-    effects::{
-        lit_line,
-        shader::{self, Values},
-    },
-    flow::BarSlot,
+use super::{BarSlot, HEIGHT, TALL};
+use crate::effects::{
+    lit_line,
+    shader::{self, Values},
 };
 
 /// How often the pulses move, a second, while no gust is out.

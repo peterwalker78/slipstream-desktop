@@ -465,13 +465,14 @@ impl<K: PartialEq> OnScreen<K> {
         self.hits.clear();
     }
 
-    /// Lets the card go: nothing on it can be clicked any more, and its last paint goes back into the bar.
-    pub fn close_into_bar(mut self) -> crate::panel::Drawer {
+    /// Lets the card go: nothing on it can be clicked any more, and its last paint goes back into
+    /// its slot.
+    pub fn close(mut self) -> crate::panel::Drawer {
         let picture = self
             .painted
             .take()
             .map(|painted| crate::flow::Layer::new(painted, self.at));
-        self.drawer.close_into_bar(picture.into_iter().collect());
+        self.drawer.close(picture.into_iter().collect());
         self.drawer
     }
 
