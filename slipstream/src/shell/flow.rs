@@ -41,8 +41,8 @@ use crate::{anim::Easing, effects::fx, motion::REDUCED_FADE, paint::Painted};
 const CARD: f64 = 0.3;
 /// The pieces start coming in this long after the panel opens, one after another in reading
 /// order, their starts spread across `CONTENT` so that each takes `SPAN` of it.
-const START: f64 = 0.17;
-const CONTENT: f64 = 0.36;
+const START: f64 = 0.05;
+const CONTENT: f64 = 0.3;
 const SPAN: f64 = 0.45;
 /// Everything has landed this long after opening.
 const LANDED: f64 = START + CONTENT;
@@ -80,9 +80,9 @@ const DIM: f32 = 0.72;
 const PIECE_TEAR_CHANCE: f32 = 0.2;
 const PIECE_TEAR: f64 = 3.0;
 /// A piece's colours split by up to this many logical pixels while it powers up or down.
-const SPLIT_PX: f64 = 3.5;
+const SPLIT_PX: f64 = 2.5;
 /// How strong each split colour is at its widest.
-const SPLIT_ALPHA: f32 = 0.5;
+const SPLIT_ALPHA: f32 = 0.22;
 /// The split colours are made at this fraction of the picture's size each way.
 const SPLIT_SCALE: usize = 2;
 /// The scanlines over the moving drawer: three quarters as dark as the edge's.
@@ -1501,13 +1501,13 @@ mod tests {
     #[test]
     fn pieces_start_after_the_card_and_spread_across_the_artifacts_timings() {
         let count = 12;
-        // The first starts 0.17 s in, the last with just its own span of the time left.
+        // The first starts as the card sets off, the last with just its own span of the time left.
         assert_eq!(way_in(0, count, START), 0.0);
         assert!(way_in(0, count, START + 0.01) > 0.0);
         let last = START + CONTENT * (1.0 - SPAN);
-        assert_eq!(way_in(count - 1, count, last), 0.0);
+        assert!(way_in(count - 1, count, last) < 1e-9);
         assert!(way_in(count - 1, count, last + 0.01) > 0.0);
-        // Each takes the same time, 45% of 0.36 s, and they start in order.
+        // Each takes the same time, `SPAN` of `CONTENT`, and they start in order.
         for order in 0..count {
             let start = START + CONTENT * piece_start(order, count);
             assert!(way_in(order, count, start + SPAN * CONTENT + 1e-9) > 1.0 - 1e-9);
@@ -1646,7 +1646,11 @@ mod tests {
         assert_eq!(opening(CARD).1, 1.0);
         assert!(opening(CARD + SLOT_OUT / 2.0).1 < 1.0);
         assert_eq!(opening(CARD + SLOT_OUT).1, 0.0, "out once landed");
-        assert_eq!(opening(LANDED).1, 0.0, "nothing at rest");
+        assert_eq!(
+            opening(LANDED.max(CARD + SLOT_OUT) + 0.01).1,
+            0.0,
+            "nothing at rest"
+        );
         let closing = |since| at(Way::Closing { since }).slot();
         assert_eq!(closing(0.0).1, 0.0);
         assert_eq!(

@@ -42,14 +42,14 @@ const PULSES: usize = 8;
 
 /// Seconds between one arc and the next.
 const ARC_EVERY: (f64, f64) = (3.0, 7.0);
-/// How long an arc lasts, in seconds, as a real one does.
-const ARC_LIFE: (f64, f64) = (0.11, 0.2);
+/// How long an arc lasts, in seconds: a little slower than a real one, so it can be followed.
+const ARC_LIFE: (f64, f64) = (0.18, 0.32);
 /// How long each strike lasts before the arc restrikes along a new path, in seconds.
-const RESTRIKE: (f64, f64) = (0.035, 0.055);
+const RESTRIKE: (f64, f64) = (0.055, 0.09);
 /// How many strikes an arc has.
 const STRIKES: (usize, usize) = (2, 4);
 /// How long a stretch of the edge an arc spans, in the bar's units.
-const ARC_STRETCH: (f64, f64) = (40.0, 280.0);
+const ARC_STRETCH: (f64, f64) = (40.0, 200.0);
 /// How long the stretch an arc spanned keeps glowing after it, in seconds.
 const AFTERGLOW: f64 = 0.4;
 /// The share of arcs that strike near the marker rather than anywhere along the bar, and how far
@@ -138,7 +138,7 @@ float noise(vec2 p) {
 }
 
 float bulge() {
-    return BULGE * clamp(arc.y / 120.0, 0.6, 1.4);
+    return BULGE * clamp(arc.y / 120.0, 0.6, 1.15);
 }
 
 // How far an arc may stray at `share` of the way along it: none at its ends.
@@ -728,7 +728,7 @@ mod tests {
             let last = bolt.strikes[bolt.count - 1];
             assert!(last < bolt.life, "a strike after the arc has gone");
             // Each strike takes its own path, and the arc goes out at the end of its life.
-            let seen: Vec<usize> = (0..200)
+            let seen: Vec<usize> = (0..=(ARC_LIFE.1 * 1000.0) as usize)
                 .filter_map(|ms| bolt.flash(ms as f64 / 1000.0).map(|(strike, _)| strike))
                 .collect();
             assert_eq!(seen.iter().max(), Some(&(bolt.count - 1)));
