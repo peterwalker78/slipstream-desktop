@@ -1208,12 +1208,14 @@ fn draw_window(
             .then(|| {
                 let (width, height) = (v.geo.size.w as f64, v.geo.size.h as f64);
                 let flat = [x + dx - v.geo.loc.x as f64, y - v.geo.loc.y as f64, w, h];
-                let pose = crate::pane::Pose::arriving(flat, frame.arrival, width);
-                let camera = crate::pane::Camera::for_screen(width, height);
+                let pose = crate::pane::Pose::arriving(flat, frame.arrival, (width, height));
+                let camera = crate::pane::Camera::for_arrival(flat, width);
                 crate::pane::bounds(&pose, &camera, 0.0).map(|bounds| (pose, camera, bounds))
             })
             .flatten();
-    let s = frame.scale();
+    // How big it looks about its centre: lifted by a drag, and for its depth while it opens.
+    let screen = (v.geo.size.w as f64, v.geo.size.h as f64);
+    let s = frame.held * crate::pane::arriving_scale([x, y, w, h], frame.arrival, screen);
     let shown = Rectangle::<f64, Logical>::new(
         (
             x + dx - v.geo.loc.x as f64 + w * (1.0 - s) / 2.0,

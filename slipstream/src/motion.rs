@@ -65,13 +65,6 @@ impl Frame {
             waiting: false,
         }
     }
-
-    /// How big the window looks about its centre: an opening window for its depth, for drawing it
-    /// flat where it can't be drawn as a pane, and a held tile lifted.
-    pub fn scale(&self) -> f64 {
-        self.held * crate::pane::EYE
-            / (crate::pane::EYE + crate::pane::ARRIVE_DEPTH * (1.0 - self.arrival))
-    }
 }
 
 #[derive(Debug)]
@@ -425,10 +418,6 @@ mod tests {
         motion.shown(&"a", 5.0);
         let start = motion.frame(&"a", 5.0).unwrap();
         assert_eq!((start.arrival, start.alpha), (0.0, 0.0));
-        assert!(
-            start.scale() < 0.9,
-            "far behind the screen, it looks smaller"
-        );
         let mid = motion.frame(&"a", 5.0 + OPEN / 2.0).unwrap();
         assert!(
             mid.arrival > 0.5 && mid.alpha == 1.0,
@@ -436,7 +425,6 @@ mod tests {
         );
         let end = motion.frame(&"a", 5.0 + OPEN).unwrap();
         assert_eq!((end.arrival, end.alpha, end.waiting), (1.0, 1.0, false));
-        assert_eq!(end.scale(), 1.0);
     }
 
     #[test]
@@ -577,23 +565,5 @@ mod tests {
         let mut motion = opened(false);
         motion.remove(&"a");
         assert_eq!(motion.frame(&"a", 0.0), None);
-    }
-}
-
-#[cfg(test)]
-mod glide_tests {
-    use crate::anim::Easing;
-
-    /// The open's curve lands exactly where it was going, after passing it by about 1%.
-    #[test]
-    fn glide_overshoots_a_little_and_lands() {
-        let at = |t: f64| Easing::Glide.at(t);
-        assert_eq!(at(0.0), 0.0);
-        assert!((at(1.0) - 1.0).abs() < 1e-9);
-        let peak = (0..=100)
-            .map(|i| at(f64::from(i) / 100.0))
-            .fold(0.0, f64::max);
-        assert!(peak > 1.005 && peak < 1.015, "{peak}");
-        assert!(at(0.1) < 0.15, "starts gently");
     }
 }

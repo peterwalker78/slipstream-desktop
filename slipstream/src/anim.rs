@@ -539,4 +539,17 @@ mod tests {
         assert_eq!(tween.value(0.5), [50.0, 0.0]);
         assert_eq!(tween.value(1.5), [0.0, 50.0]);
     }
+
+    /// The open's curve lands exactly where it was going, after passing it by about 1%.
+    #[test]
+    fn glide_overshoots_a_little_and_lands() {
+        let at = |t: f64| Easing::Glide.at(t);
+        assert_eq!(at(0.0), 0.0);
+        assert!((at(1.0) - 1.0).abs() < 1e-9);
+        let peak = (0..=100)
+            .map(|i| at(f64::from(i) / 100.0))
+            .fold(0.0, f64::max);
+        assert!(peak > 1.005 && peak < 1.015, "{peak}");
+        assert!(at(0.1) < 0.15, "starts gently");
+    }
 }

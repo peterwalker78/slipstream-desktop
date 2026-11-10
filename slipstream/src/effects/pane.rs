@@ -27,11 +27,14 @@ use crate::{
 
 /// How far the eye is from the screen, in screen widths.
 pub const EYE: f64 = 1.1;
-/// How far behind the screen an opening window sets off, in screen widths: 260 pixels of a
-/// 1280-wide screen.
-pub const ARRIVE_DEPTH: f64 = 260.0 / 1280.0;
+/// How far behind the screen an opening window of half the screen or more sets off, in screen
+/// widths: 260 pixels of a 1280-wide screen.
+const ARRIVE_DEPTH: f64 = 260.0 / 1280.0;
 /// How far back it leans about its bottom edge as it sets off, in radians: 9°.
 const ARRIVE_LEAN: f64 = 9.0 * std::f64::consts::PI / 180.0;
+/// The share of the screen's area from which an opening window gets the whole depth and lean: a
+/// tile of half the screen, less its gaps and the bar.
+const ARRIVE_FULL_FROM: f64 = 0.45;
 /// When, in its way forward, the band of light starts down an opening window; it reaches the foot
 /// as the window lands.
 const ARRIVE_BAND_FROM: f64 = 0.45;
@@ -69,20 +72,22 @@ impl Pose {
         }
     }
 
-    /// A window opening over `rect` on a screen `width` wide, `arrival` of its way forward: 0 is
-    /// `ARRIVE_DEPTH` behind the screen and leaning back about its bottom edge, so its top is
-    /// furthest away, and 1 is flat over `rect`. A little over 1 brings it a hair nearer than the
-    /// screen as it overshoots.
-    pub fn arriving(rect: [f64; 4], arrival: f64, width: f64) -> Self {
+    /// A window opening over `rect` on a `screen` (width, height), `arrival` of its way forward:
+    /// 0 is behind the screen and leaning back about its bottom edge, so its top is furthest
+    /// away, and 1 is flat over `rect`. A little over 1 brings it a hair nearer than the screen
+    /// as it overshoots. How far back and how far over it starts depends on the tile's size
+    /// (`arrival_reach`).
+    pub fn arriving(rect: [f64; 4], arrival: f64, screen: (f64, f64)) -> Self {
+        let reach = arrival_reach(rect, screen);
         let left = 1.0 - arrival;
-        let lean = ARRIVE_LEAN * left;
+        let lean = ARRIVE_LEAN * reach * left;
         let flat = Self::flat(rect);
         let half = flat.h / 2.0;
         // Leaning back is a negative pitch. The middle rises and goes back with it, so the
         // bottom edge stays at the pane's depth, under where the window's foot will be.
         Self {
             y: rect[1] + rect[3] - half * lean.cos(),
-            z: ARRIVE_DEPTH * width * left + half * lean.sin(),
+            z: ARRIVE_DEPTH * screen.0 * reach * left + half * lean.sin(),
             pitch: -lean,
             ..flat
         }
@@ -110,6 +115,23 @@ impl Pose {
     }
 }
 
+/// How much of the whole depth and lean a window opening over `rect` on a `screen` (width,
+/// height) sets off with: all of it for a tile of about half the screen or more, and less for a
+/// smaller one, in step with the tile's size, so a small tile comes forward as a half-screen one
+/// does scaled down to it, rather than being thrown back by a depth sized for the whole screen.
+fn arrival_reach(rect: [f64; 4], (width, height): (f64, f64)) -> f64 {
+    let share = (rect[2] * rect[3]).max(0.0) / (width * height).max(1.0);
+    (share / ARRIVE_FULL_FROM).sqrt().min(1.0)
+}
+
+/// How big a window opening over `rect` on a `screen` looks about its centre, `arrival` of its
+/// way forward (`Pose::arriving`), for drawing it flat where it can't be drawn as a pane: exactly
+/// 1 once it has landed.
+pub fn arriving_scale(rect: [f64; 4], arrival: f64, screen: (f64, f64)) -> f64 {
+    let depth = ARRIVE_DEPTH * arrival_reach(rect, screen) * (1.0 - arrival);
+    EYE / (EYE + depth)
+}
+
 /// The eye looking at the panes: straight at (`x`, `y`) on the screen, `distance` in front of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
@@ -126,6 +148,18 @@ impl Camera {
             x: w / 2.0,
             y: h / 2.0,
             distance: EYE * w,
+        }
+    }
+
+    /// Looking straight at the middle of a window opening over `rect`, from as far away as
+    /// `for_screen` on a screen `width` wide: every tile comes forward towards its own middle,
+    /// as a full-screen window does, rather than sliding in from the screen's middle and
+    /// skewing on the way.
+    pub fn for_arrival(rect: [f64; 4], width: f64) -> Self {
+        Self {
+            x: rect[0] + rect[2] / 2.0,
+            y: rect[1] + rect[3] / 2.0,
+            distance: EYE * width,
         }
     }
 }
@@ -672,6 +706,7 @@ void main() {
 mod tests {
     use super::*;
 
+    const SCREEN: (f64, f64) = (1536.0, 960.0);
     const CAMERA: Camera = Camera {
         x: 768.0,
         y: 480.0,
@@ -685,7 +720,7 @@ mod tests {
     #[test]
     fn an_opening_window_starts_behind_the_screen_leaning_back_and_lands_flat() {
         let rect = [200.0, 100.0, 600.0, 400.0];
-        let start = Pose::arriving(rect, 0.0, 1536.0);
+        let start = Pose::arriving(rect, 0.0, SCREEN);
         let top = project(&start, &CAMERA, (0.0, 0.0)).unwrap();
         let foot = project(&start, &CAMERA, (0.0, 1.0)).unwrap();
         let foot_right = project(&start, &CAMERA, (1.0, 1.0)).unwrap();
@@ -698,7 +733,52 @@ mod tests {
             top_right.0 - top.0 < foot_right.0 - foot.0,
             "the top is further away than the foot"
         );
-        assert_eq!(Pose::arriving(rect, 1.0, 1536.0), Pose::flat(rect));
+        assert_eq!(Pose::arriving(rect, 1.0, SCREEN), Pose::flat(rect));
+    }
+
+    /// How a window opening over `rect` sets off: how big its foot looks against its own width,
+    /// and how far it leans back.
+    fn setting_off(rect: [f64; 4]) -> (f64, f64) {
+        let start = Pose::arriving(rect, 0.0, SCREEN);
+        let foot = project(&start, &CAMERA, (0.0, 1.0)).unwrap();
+        let foot_right = project(&start, &CAMERA, (1.0, 1.0)).unwrap();
+        ((foot_right.0 - foot.0) / rect[2], -start.pitch)
+    }
+
+    #[test]
+    fn a_smaller_tile_opens_from_nearer_and_leans_less() {
+        let whole = setting_off([0.0, 0.0, 1536.0, 960.0]);
+        let half = setting_off([0.0, 0.0, 768.0, 960.0]);
+        let quarter = setting_off([768.0, 480.0, 768.0, 480.0]);
+        let eighth = setting_off([1152.0, 480.0, 384.0, 480.0]);
+        // From half the screen up, every tile sets off the same way.
+        assert!((whole.0 - half.0).abs() < 1e-9 && whole.1 == half.1);
+        // Below it, the smaller the tile the less far back it starts and the less it leans.
+        assert!(half.0 < quarter.0 && quarter.0 < eighth.0 && eighth.0 < 1.0);
+        assert!(half.1 > quarter.1 && quarter.1 > eighth.1 && eighth.1 > 0.0);
+    }
+
+    #[test]
+    fn a_tile_off_to_one_side_comes_forward_square_on_to_its_own_middle() {
+        let corner = [1152.0, 720.0, 384.0, 240.0];
+        let start = Pose::arriving(corner, 0.0, SCREEN);
+        let camera = Camera::for_arrival(corner, SCREEN.0);
+        let middle = corner[0] + corner[2] / 2.0;
+        for v in [0.0, 1.0] {
+            let (left, _) = project(&start, &camera, (0.0, v)).unwrap();
+            let (right, _) = project(&start, &camera, (1.0, v)).unwrap();
+            assert!(((middle - left) - (right - middle)).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn drawn_flat_a_smaller_tile_opens_closer_to_its_own_size_and_lands_exactly() {
+        let half = [0.0, 0.0, 768.0, 960.0];
+        let quarter = [768.0, 480.0, 768.0, 480.0];
+        assert!(arriving_scale(half, 0.0, SCREEN) < arriving_scale(quarter, 0.0, SCREEN));
+        assert!(arriving_scale(quarter, 0.0, SCREEN) < 1.0);
+        assert_eq!(arriving_scale(half, 1.0, SCREEN), 1.0);
+        assert_eq!(arriving_scale(quarter, 1.0, SCREEN), 1.0);
     }
 
     #[test]
