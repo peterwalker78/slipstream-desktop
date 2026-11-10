@@ -82,15 +82,31 @@ impl Place {
         }
     }
 
-    /// The bar's material, its fill and its edge, which the docked pane's frame carries on down.
-    /// A floating strip is the panels' glass.
-    pub fn material(self) -> (u32, u32) {
+    /// The bar's material, which the docked pane's frame carries on down. A floating strip is
+    /// the panels' glass.
+    pub fn material(self) -> Material {
         if self.floating {
-            (panel::GLASS, panel::GLASS_EDGE)
+            Material {
+                fill: panel::GLASS,
+                edge: panel::GLASS_EDGE,
+            }
         } else {
-            (panel::CHIP | 0xe6, panel::DIVIDER)
+            Material {
+                fill: EDGE_FILL,
+                edge: panel::DIVIDER,
+            }
         }
     }
+}
+
+/// The fill of the bar along the screen's edge: the dark chips' near-black, nearly opaque.
+const EDGE_FILL: u32 = panel::CHIP | 0xe6;
+
+/// What the bar is made of, as 0xRRGGBBAA colours: its fill, and its edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Material {
+    pub fill: u32,
+    pub edge: u32,
 }
 
 #[cfg(test)]

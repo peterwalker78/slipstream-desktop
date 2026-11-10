@@ -8,18 +8,19 @@
 //! glides rather than stepping a row at a time, and nothing is baked on the CPU's side.
 
 use smithay::{
-    backend::renderer::gles::{GlesRenderer, Uniform, UniformName, UniformType},
+    backend::renderer::gles::{GlesPixelProgram, GlesRenderer},
     utils::{Logical, Physical, Rectangle},
 };
 
-use super::shader::{self, Kept, Shared, Uniforms};
+use super::shader::{self, Kept, Shared, Uniforms, Values};
 
 /// The glow's strength where it leaves the line.
 pub const GLOW_PEAK: f32 = 0.55;
 /// The fringes' strength, as a share of the line's red and blue.
 pub const FRINGE: f32 = 0.3;
 /// A tapered line fades in and out over this share of its length at either end, and over no
-/// more than `TAPER_MOST` logical pixels.
+/// more than `TAPER_MOST` logical pixels. The bar's lit edge tapers the slot a panel comes out
+/// of the same way, so a slot looks alike in either.
 pub const TAPER_SHARE: f64 = 0.15;
 pub const TAPER_MOST: f64 = 40.0;
 
@@ -31,17 +32,18 @@ pub fn taper(length: f64, scale: f64) -> f64 {
 /// The shader. Its constants come from the Rust ones above and the tube's (`fx`), so the two
 /// sides can't drift apart.
 fn source() -> String {
-    format!(
-        "precision highp float;\n\
-         const float GLOW_PEAK = {GLOW_PEAK:?};\n\
-         const float FRINGE = {FRINGE:?};\n\
-         const float SCANLINE = {scanline:?};\n\
-         {BODY}",
-        scanline = super::fx::SCANLINE,
+    shader::with_constants(
+        BODY,
+        &[
+            ("GLOW_PEAK", &GLOW_PEAK),
+            ("FRINGE", &FRINGE),
+            ("SCANLINE", &super::fx::SCANLINE),
+        ],
     )
 }
 
-const BODY: &str = r#"
+const BODY: &str = r#"precision highp float;
+
 varying vec2 v_coords;
 uniform float alpha;
 #if defined(DEBUG_FLAGS)
@@ -98,17 +100,6 @@ void main() {
 }
 "#;
 
-fn uniform_names() -> [UniformName<'static>; 6] {
-    [
-        UniformName::new("frame", UniformType::_4f),
-        UniformName::new("ends", UniformType::_4f),
-        UniformName::new("shape", UniformType::_4f),
-        UniformName::new("core", UniformType::_4f),
-        UniformName::new("halo", UniformType::_3f),
-        UniformName::new("tube", UniformType::_2f),
-    ]
-}
-
 /// A line to light, in logical pixels on a screen at `scale`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Line {
@@ -149,15 +140,14 @@ struct LineUniforms {
 }
 
 impl Uniforms for LineUniforms {
-    fn list(&self) -> Vec<Uniform<'static>> {
-        vec![
-            Uniform::new("frame", self.frame),
-            Uniform::new("ends", self.ends),
-            Uniform::new("shape", self.shape),
-            Uniform::new("core", self.core),
-            Uniform::new("halo", self.halo),
-            Uniform::new("tube", self.tube),
-        ]
+    fn values(&self) -> Values {
+        Values::default()
+            .with("frame", self.frame)
+            .with("ends", self.ends)
+            .with("shape", self.shape)
+            .with("core", self.core)
+            .with("halo", self.halo)
+            .with("tube", self.tube)
     }
 }
 
@@ -275,21 +265,23 @@ impl Scanlines {
 /// The program's name in the GL context's keeping.
 struct Program;
 
-fn program(
-    renderer: &mut GlesRenderer,
-) -> Option<smithay::backend::renderer::gles::GlesPixelProgram> {
-    shader::program::<Program>(renderer, source, &uniform_names())
+fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
+    shader::program::<Program, _>(
+        renderer,
+        |renderer| renderer.compile_custom_pixel_shader(source(), &shader::names::<LineUniforms>()),
+        "a lit line's",
+    )
 }
 
 /// One lit line or set of scanlines, kept from frame to frame.
 #[derive(Debug, Default)]
-pub struct LitLine(Kept<LineUniforms>);
+pub struct LitLine(Kept);
 
 impl LitLine {
     /// `line` on a screen at `scale`; `None` when it doesn't show.
     pub fn line(&mut self, renderer: &mut GlesRenderer, line: &Line, scale: f64) -> Option<Shared> {
         let (area, uniforms) = line.uniforms(scale)?;
-        self.0.element(|| program(renderer), area, uniforms)
+        Some(self.0.pixel(program(renderer)?, area, &uniforms))
     }
 
     /// `scanlines` on a screen at `scale`; `None` when they don't show.
@@ -300,7 +292,7 @@ impl LitLine {
         scale: f64,
     ) -> Option<Shared> {
         let (area, uniforms) = scanlines.uniforms(scale)?;
-        self.0.element(|| program(renderer), area, uniforms)
+        Some(self.0.pixel(program(renderer)?, area, &uniforms))
     }
 }
 
@@ -322,16 +314,6 @@ mod tests {
             halo: 0x42d3ffff,
             strength: 1.0,
         }
-    }
-
-    #[test]
-    fn the_shaders_constants_are_the_ones_rust_uses() {
-        let source = source();
-        assert!(source.contains(&format!("const float GLOW_PEAK = {GLOW_PEAK:?};")));
-        assert!(source.contains(&format!(
-            "const float SCANLINE = {:?};",
-            super::super::fx::SCANLINE
-        )));
     }
 
     #[test]

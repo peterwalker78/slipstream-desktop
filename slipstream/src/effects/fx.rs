@@ -30,6 +30,7 @@ use smithay::utils::{Logical, Physical, Point, Rectangle, Size, Transform};
 
 use slipstream_config::Effects;
 
+use super::shader;
 use crate::{
     glmatrix::{Glyphs, TINT},
     render::OutputElement,
@@ -57,10 +58,11 @@ const WAKE_GO: f64 = 0.42;
 /// foot.
 const WAKE_DROP: f64 = 0.5;
 
-/// The failing tube, for something small drawn on the CPU's side in its look (the panels' lit
-/// edge): how long one of its frames of flicker and tearing lasts, in seconds, every other row's
-/// brightness, the flicker's floor and range, and how far its colours split, in pixels. `crt` in
-/// the shaders is given these numbers (`head`).
+/// The failing tube: how long one of its frames of flicker and tearing lasts, in seconds, every
+/// other row's brightness, the flicker's floor and range, and how far its colours split, in
+/// pixels. `crt` in the closing shaders and the lit line's shader are given these numbers, and a
+/// moving drawer's flicker and tears are picked from them on the CPU's side (`tube`), frame by
+/// frame, for its lit lines and pieces to draw.
 pub const TUBE_FRAME: f64 = 0.04;
 pub const SCANLINE: f32 = 0.62;
 pub const FLICKER: (f32, f32) = (0.88, 0.12);
@@ -329,24 +331,25 @@ impl Fx {
     }
 }
 
+/// The shaders' shared head, with the tube's numbers written in from the ones the CPU's side
+/// uses, so the two can't drift apart.
+fn head() -> String {
+    shader::with_constants(
+        HEAD,
+        &[
+            ("TUBE_FRAME", &TUBE_FRAME),
+            ("SCANLINE", &SCANLINE),
+            ("FLICKER_FLOOR", &FLICKER.0),
+            ("FLICKER_RANGE", &FLICKER.1),
+            ("SPLIT", &SPLIT),
+        ],
+    )
+}
+
 /// What the shader starts with: Smithay's texture shader's inputs, and the code rain's own look
 /// from GLMatrix — its glyphs, the brightness wave running down each column, each column's depth
 /// fog, and light added in the rain's tint — so a closing window's rain is the minimised rain's.
 /// Then the failing CRT that either effect's `scene` is shown through.
-/// The shaders' shared head, with the tube's numbers written in from the ones the CPU's side
-/// uses, so the two can't drift apart.
-fn head() -> String {
-    let tube = format!(
-        "const float TUBE_FRAME = {TUBE_FRAME:?};\n\
-         const float SCANLINE = {SCANLINE:?};\n\
-         const float FLICKER_FLOOR = {:?};\n\
-         const float FLICKER_RANGE = {:?};\n\
-         const float SPLIT = {SPLIT:?};\n",
-        FLICKER.0, FLICKER.1,
-    );
-    HEAD.replacen("//_TUBE_\n", &tube, 1)
-}
-
 const HEAD: &str = r#"#version 100
 
 //_DEFINES_
@@ -374,8 +377,6 @@ uniform vec2 content;
 uniform vec2 cell;
 uniform float t;
 uniform vec3 ink;
-
-//_TUBE_
 
 const float WAVE = 22.0;
 // Font strokes are thinner than GLMatrix's glowing atlas, so they carry more light.
@@ -708,6 +709,27 @@ mod tests {
             assert!(main.contains("finish(crt(px, "));
             assert_eq!(main.matches("finish(").count(), 1);
         }
+    }
+
+    #[test]
+    fn the_tubes_numbers_are_written_into_the_head_with_no_marker_left() {
+        let head = head();
+        let precision = head.find("precision highp float;").unwrap();
+        for name in [
+            "TUBE_FRAME",
+            "SCANLINE",
+            "FLICKER_FLOOR",
+            "FLICKER_RANGE",
+            "SPLIT",
+        ] {
+            let at = head.find(&format!("const float {name} = ")).unwrap();
+            assert!(at > precision, "{name} after the precision");
+        }
+        assert!(head.contains(&format!("const float SCANLINE = {SCANLINE:?};")));
+        assert!(!head.contains("//_TUBE_"));
+        // Smithay's own marker, which it fills in as it compiles, is the only one left.
+        assert_eq!(head.matches("//_").count(), 1);
+        assert!(head.contains("//_DEFINES_"));
     }
 
     #[test]

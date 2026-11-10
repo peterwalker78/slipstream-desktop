@@ -309,7 +309,8 @@ fn wallpaper(p: &mut Painter, w: f32, h: f32, secs: f32) {
 fn bar(p: &mut Painter, scene: &Scene, w: f32, look: &Look) {
     if look.strip {
         // Clear of the edges by the tiles' own gap, in the panels' glass.
-        let (fill, edge) = crate::bar::Place { floating: true }.material();
+        let crate::bar::place::Material { fill, edge } =
+            crate::bar::Place { floating: true }.material();
         p.fill(
             EDGE - 2.0,
             1.0,

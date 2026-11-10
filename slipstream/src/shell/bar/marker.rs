@@ -10,14 +10,13 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             ImportMem,
-            gles::{GlesRenderer, GlesTexture, Uniform, UniformName, UniformType},
-            utils::CommitCounter,
+            gles::{GlesRenderer, GlesTexture},
         },
     },
     utils::{Logical, Physical, Point, Rectangle},
 };
 
-use super::shaded::{self, Shaded};
+use crate::effects::shader::{self, Shaded, Values};
 
 /// Where the pill is drawn down the bar, and how tall, in the bar's units.
 pub const TOP: f32 = 7.0;
@@ -89,40 +88,25 @@ void main() {
 }
 "#;
 
-fn uniform_names() -> [UniformName<'static>; 4] {
-    [
-        UniformName::new("size", UniformType::_2f),
-        UniformName::new("pill", UniformType::_4f),
-        UniformName::new("look", UniformType::_4f),
-        UniformName::new("ring", UniformType::_3f),
-    ]
-}
-
 /// Marks the marker's program in a renderer's keeping.
 struct Program;
 
 /// The shader's numbers.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Uniforms {
+struct Uniforms {
     size: [f32; 2],
     pill: [f32; 4],
     look: [f32; 4],
     ring: [f32; 3],
 }
 
-impl Uniforms {
-    pub fn list(&self) -> [Uniform<'static>; 4] {
-        [
-            Uniform::new("size", self.size),
-            Uniform::new("pill", self.pill),
-            Uniform::new("look", self.look),
-            Uniform::new("ring", self.ring),
-        ]
-    }
-
-    /// The strip's size in screen pixels.
-    pub fn size(&self) -> [f32; 2] {
-        self.size
+impl shader::Uniforms for Uniforms {
+    fn values(&self) -> Values {
+        Values::default()
+            .with("size", self.size)
+            .with("pill", self.pill)
+            .with("look", self.look)
+            .with("ring", self.ring)
     }
 }
 
@@ -162,14 +146,13 @@ struct Place {
 #[derive(Default)]
 pub struct Marker {
     strip: Option<Strip>,
-    shown: Option<Uniforms>,
-    commit: CommitCounter,
-    id: shaded::Kept,
+    kept: shader::Kept,
 }
 
 impl Marker {
     /// Takes the lit numbers of a bar just painted at `bar` (its corner on the screen, logical
-    /// pixels) at `scale`, as a strip just big enough for the pill.
+    /// pixels) at `scale`, as a strip just big enough for the pill. New numbers are a change to
+    /// draw even where the pill's own numbers stay the same.
     pub fn repainted(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -178,6 +161,7 @@ impl Marker {
         scale: f64,
     ) {
         self.strip = strip(renderer, numbers, bar, scale);
+        self.kept.changed();
     }
 
     /// The marker with its edges at `edges` in the bar's units, at `alpha`. `None` without a
@@ -189,23 +173,16 @@ impl Marker {
         alpha: f32,
     ) -> Option<Shaded> {
         let strip = self.strip.as_ref()?;
-        let uniforms = uniforms(&strip.place, edges);
-        if self.shown != Some(uniforms) {
-            self.shown = Some(uniforms);
-            self.commit.increment();
-        }
-        let program = shaded::program::<Program, _>(
+        let program = shader::program::<Program, _>(
             renderer,
-            |renderer| renderer.compile_custom_texture_shader(SHADER, &uniform_names()),
+            |renderer| renderer.compile_custom_texture_shader(SHADER, &shader::names::<Uniforms>()),
             "the workspace marker's",
         )?;
-        Some(Shaded::marker(
+        Some(self.kept.texture(
             (program, strip.texture.clone()),
-            self.id.get(),
-            self.commit,
             strip.place.area,
             alpha,
-            uniforms,
+            &uniforms(&strip.place, edges),
         ))
     }
 }

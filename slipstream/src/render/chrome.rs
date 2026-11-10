@@ -2,6 +2,7 @@
 //! it paints: the arrangement tag, bullet time's key legend and the keyboard-tips prompt.
 
 use super::*;
+use crate::bar::place::Material;
 
 /// A painted surface: the scale it was painted at, its buffer, and its size in logical pixels.
 pub(super) type Painted = (f64, MemoryRenderBuffer, Size<i32, Logical>);
@@ -416,9 +417,14 @@ fn paint_window_shadow(scale: f64) -> Option<paint::Painted> {
     })
 }
 
-/// What a docked pane's frame was painted for: the pane's size, and the fill and edge of the bar
-/// it hangs from.
-type DockFrameKey = ((i32, i32), (u32, u32));
+/// What a docked pane's frame was painted for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DockFrameKey {
+    /// The pane's size, in logical pixels.
+    size: (i32, i32),
+    /// The material of the bar it hangs from.
+    material: Material,
+}
 
 /// Room around the docked pane for its frame and the shadow, in logical pixels.
 const DOCK_MARGIN: i32 = 64;
@@ -426,13 +432,13 @@ const DOCK_MARGIN: i32 = 64;
 const DOCK_RADIUS: f32 = 7.0;
 
 /// The frame of a docked pane `size` logical pixels big, with `DOCK_MARGIN` of room all round:
-/// the bar's own material round the pane, its `fill`, edged with the bar's `line` down its sides
-/// and under its foot, and the shadow the piece casts. Nothing is painted where the window goes,
-/// nor above the frame's top, which is the bar's lower edge.
+/// the bar's own material round the pane, its fill, edged with the bar's edge down its sides and
+/// under its foot, and the shadow the piece casts. Nothing is painted where the window goes, nor
+/// above the frame's top, which is the bar's lower edge.
 fn paint_dock_frame(
     size: (i32, i32),
     scale: f64,
-    (fill, line): (u32, u32),
+    Material { fill, edge: line }: Material,
 ) -> Option<paint::Painted> {
     let logical = Size::<i32, Logical>::from((size.0 + 2 * DOCK_MARGIN, size.1 + 2 * DOCK_MARGIN));
     paint::Painted::new(logical, scale, |p| {
@@ -551,7 +557,10 @@ impl Chrome {
         R::TextureId: Send + Clone + 'static,
     {
         // In the material of the bar it hangs from.
-        let key = (size, place.material());
+        let key = DockFrameKey {
+            size,
+            material: place.material(),
+        };
         let kept = self
             .dock_frames
             .iter()
@@ -564,7 +573,7 @@ impl Chrome {
                     self.dock_frames.remove(0);
                 }
                 self.dock_frames
-                    .push((key, paint_dock_frame(size, scale, key.1)?));
+                    .push((key, paint_dock_frame(size, scale, key.material)?));
                 self.dock_frames.len() - 1
             }
         };

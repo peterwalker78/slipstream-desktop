@@ -101,7 +101,7 @@ smithay::backend::renderer::element::render_elements! {
     /// UI's glass fade.
     Shaded=TextureShaderElement,
     /// The bar's own shader-drawn parts: the lit edge, a panel's slot, the workspace marker.
-    Bar=crate::bar::Shaded,
+    Bar=crate::effects::shader::Shaded,
     /// The desktop drawn into a texture, coming forward as the lock goes.
     Texture=TextureRenderElement<GlesTexture>,
 }
@@ -198,7 +198,7 @@ fn bar_content(
             .get_keyboard()
             .is_some_and(|keyboard| keyboard.modifier_state().caps_lock),
         awake: state.awake,
-        kept_awake: crate::kept_awake::pill_word(&state.idle.holders),
+        kept_awake: state.idle.pill.clone(),
         layout: state.layout_label(),
         plugins: state.plugins.chip(&state.plugins.shown()),
         plugins_open: state.plugin_panel.is_open(),

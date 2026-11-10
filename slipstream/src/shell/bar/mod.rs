@@ -13,10 +13,8 @@ pub mod breath;
 pub mod light;
 mod marker;
 pub mod place;
-mod shaded;
 
 pub use place::Place;
-pub use shaded::Shaded;
 
 use resvg::tiny_skia::Pixmap;
 use slipstream_config::BarStyle;
@@ -34,6 +32,7 @@ use smithay::{
 
 use crate::{
     anim::{Easing, Tween},
+    effects::shader::Shaded,
     flow::BarSlot,
     icons,
     paint::{self, Painter},
@@ -89,7 +88,7 @@ pub struct Content {
     pub awake: bool,
     /// What an app keeping the screen awake is called on its pill, empty when none is; a click
     /// on it opens the notification centre, which says more.
-    pub kept_awake: String,
+    pub kept_awake: std::rc::Rc<str>,
     /// The keyboard layout in use, such as `GB`, when there are others to switch to. A click on
     /// it switches to the next.
     pub layout: Option<String>,
@@ -227,23 +226,19 @@ pub struct BarDraw {
     /// The desktop is fully shown rather than fading to the wallpaper: only then does the lit
     /// edge move.
     pub shown: bool,
+    /// The machine is running on its battery, so the lit edge holds still.
+    pub on_battery: bool,
     /// The slot of a panel coming out of the bar, lit in its foot line.
     pub slot: Option<BarSlot>,
 }
 
-/// What the bar draws over its picture.
+/// What the bar draws over its picture, handed straight on to the frame, never kept.
+#[allow(clippy::large_enum_variant)]
 pub enum Over {
     /// The focus bar's breath: its contents dimmed while you type.
     Dim(SolidColorRenderElement),
     /// The lit edge, a panel's slot, or the workspace marker.
     Shaded(Shaded),
-}
-
-/// The bar as drawn this frame: its picture, and what goes over it, front to back.
-#[derive(Default)]
-pub struct Drawn {
-    pub over: Vec<Over>,
-    pub picture: Option<MemoryRenderBufferRenderElement<GlesRenderer>>,
 }
 
 /// What the bar's picture was painted for.
@@ -278,15 +273,17 @@ impl Bar {
     }
 
     /// The bar showing `content` as `draw` says, with the lit edge moving on `charge` when it
-    /// moves. A new current workspace sends the marker sliding over to it from where it's drawn,
-    /// unless motion is reduced; the slide moves the marker alone, never the picture.
+    /// moves: its picture, after handing `over` what goes over it, front to back. A new current
+    /// workspace sends the marker sliding over to it from where it's drawn, unless motion is
+    /// reduced; the slide moves the marker alone, never the picture.
     pub fn draw(
         &mut self,
         renderer: &mut GlesRenderer,
         content: Content,
         draw: &BarDraw,
         charge: &mut light::Charge,
-    ) -> Drawn {
+        mut over: impl FnMut(Over),
+    ) -> Option<MemoryRenderBufferRenderElement<GlesRenderer>> {
         let rect = Place::of(draw.style).rect(draw.width);
         if let Some(painted) = self.lay_out(content, draw) {
             let size = Size::from((
@@ -301,9 +298,7 @@ impl Bar {
                 draw.scale,
             );
         }
-        let Some((buffer, size)) = self.buffer.as_ref() else {
-            return Drawn::default();
-        };
+        let (buffer, size) = self.buffer.as_ref()?;
         // One buffer pixel per screen pixel, however fractional the scale.
         let corner = Point::<f64, Logical>::from((rect.x as f64, rect.y as f64))
             .to_physical(draw.scale)
@@ -320,28 +315,29 @@ impl Bar {
         )
         .ok();
 
-        let mut over = Vec::new();
         if let Some(edge) = self.edge(draw) {
             let charge = self.moves(draw).then_some(charge);
-            let strip = self.light.element(renderer, &edge, charge, draw.now);
-            over.extend(strip.map(Over::Shaded));
+            if let Some(strip) = self.light.element(renderer, &edge, charge, draw.now) {
+                over(Over::Shaded(strip));
+            }
         }
         if draw.style == BarStyle::Plain {
             let strength =
                 self.breath.step(draw.typing, draw.now, draw.reduced_motion) * draw.alpha;
-            let fill = Place::of(draw.style).material().0;
+            let fill = Place::of(draw.style).material().fill;
             let dim = self
                 .breath
                 .elements(self.at, &self.attention, draw.scale, strength, fill);
-            over.extend(dim.into_iter().map(Over::Dim));
+            dim.into_iter().map(Over::Dim).for_each(&mut over);
         }
-        if let Some(marker) = self.marker {
-            let pill = self
+        if let Some(marker) = self.marker
+            && let Some(pill) = self
                 .pill
-                .element(renderer, marker.edges(draw.wall), draw.alpha);
-            over.extend(pill.map(Over::Shaded));
+                .element(renderer, marker.edges(draw.wall), draw.alpha)
+        {
+            over(Over::Shaded(pill));
         }
-        Drawn { over, picture }
+        picture
     }
 
     /// Lays the bar out for `content` as `draw` says, and sends the marker after a new current
@@ -411,7 +407,7 @@ impl Bar {
             strength: if content.keyboard_here { 1.0 } else { 0.5 },
             ring: content.ring,
             line: if charged {
-                Place::of(BarStyle::LitEdge).material().1
+                Place::of(BarStyle::LitEdge).material().edge
             } else {
                 0
             },
@@ -425,11 +421,13 @@ impl Bar {
     }
 
     /// Whether the lit edge moves as `draw` says: on the screen with the keyboard alone, while
-    /// the desktop is fully shown, and never with reduced motion. Elsewhere it stands still.
+    /// the desktop is fully shown, and never with reduced motion or on battery. Otherwise it
+    /// stands still.
     fn moves(&self, draw: &BarDraw) -> bool {
         draw.style == BarStyle::LitEdge
             && draw.shown
             && !draw.reduced_motion
+            && !draw.on_battery
             && self
                 .shown
                 .as_ref()
@@ -518,6 +516,12 @@ struct Painted {
     attention: Vec<(f32, f32)>,
     /// Logical pixels to one of the bar's units.
     unit: f64,
+}
+
+/// Whether a battery reading (its charge, and whether a charger is attached) means the machine is
+/// running on its battery.
+pub fn on_battery(battery: Option<(u8, bool)>) -> bool {
+    battery.is_some_and(|(_, plugged_in)| !plugged_in)
 }
 
 /// The targets of a bar painted at `rect` on a screen `width` wide, moved from the bar's own
@@ -626,7 +630,7 @@ fn paint(content: &Content, width: i32, scale: f64, style: BarStyle) -> Option<P
 /// The bar along the screen's top edge: its fill, and with `foot` the line along its foot, broken
 /// over `span` where a docked pane's frame carries it on downwards.
 fn paint_band(bar: &mut Strip, place: Place, span: Option<(f32, f32)>, foot: bool) {
-    let (wide, (fill, edge)) = (bar.wide, place.material());
+    let (wide, place::Material { fill, edge }) = (bar.wide, place.material());
     bar.p.fill(0.0, 0.0, wide, TALL, 0.0, fill);
     if !foot {
         return;
@@ -645,7 +649,7 @@ fn paint_band(bar: &mut Strip, place: Place, span: Option<(f32, f32)>, foot: boo
 /// into a docked pane's frame, and a corner the frame reaches is squared off, its side running
 /// straight on down into the frame's.
 fn paint_strip(bar: &mut Strip, place: Place, span: Option<(f32, f32)>, (top, foot): (f32, f32)) {
-    let (wide, (fill, edge)) = (bar.wide, place.material());
+    let (wide, place::Material { fill, edge }) = (bar.wide, place.material());
     let radius = (place::STRIP_RADIUS as f64 / bar.unit) as f32;
     let tall = foot - top;
     let p = &mut bar.p;
@@ -1266,6 +1270,7 @@ mod tests {
             reduced_motion: false,
             typing: false,
             shown: true,
+            on_battery: false,
             slot: None,
         }
     }
@@ -1350,6 +1355,21 @@ mod tests {
     }
 
     #[test]
+    fn on_battery_the_lit_edge_stands_still_and_moves_again_on_the_charger() {
+        let lit = draw(1536, BarStyle::LitEdge);
+        let mut bar = Bar::default();
+        bar.lay_out(content(), &lit);
+        assert!(bar.moves(&lit));
+        assert!(!bar.moves(&BarDraw {
+            on_battery: true,
+            ..lit
+        }));
+        assert!(on_battery(Some((80, false))), "on battery");
+        assert!(!on_battery(Some((80, true))), "on the charger");
+        assert!(!on_battery(None), "with no battery at all");
+    }
+
+    #[test]
     fn with_reduced_motion_the_lit_edge_and_the_marker_stand_still() {
         let mut bar = Bar::default();
         let reduced = BarDraw {
@@ -1393,7 +1413,7 @@ mod tests {
             sharing: false,
             caps_lock: false,
             awake: false,
-            kept_awake: String::new(),
+            kept_awake: Default::default(),
             layout: None,
             plugins: None,
             plugins_open: false,

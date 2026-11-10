@@ -742,20 +742,25 @@ fn bar_elements(
         reduced_motion,
         typing: state.concentration.typing(state.clock.instant()),
         shown: v.ui >= 1.0,
+        // The battery as the rest of the desktop reads it, pinned by a debug step or the machine's.
+        on_battery: crate::bar::on_battery(
+            state
+                .battery
+                .pinned
+                .or(crate::status::held(&state.status).battery),
+        ),
         // The slot of a panel coming out of the bar, which the panels, drawn first, asked for.
         slot: bar_slot,
     };
-    let bar = chrome
+    let mut elements: Vec<OutputElement> = Vec::new();
+    let picture = chrome
         .bar
-        .draw(renderer, content, &draw, &mut state.drawn.edge);
-    let mut elements: Vec<OutputElement> = bar
-        .over
-        .into_iter()
-        .map(|over| match over {
-            crate::bar::Over::Dim(dim) => OutputElement::Solid(dim),
-            crate::bar::Over::Shaded(shaded) => OutputElement::Bar(shaded),
-        })
-        .collect();
+        .draw(renderer, content, &draw, &mut state.drawn.edge, |over| {
+            elements.push(match over {
+                crate::bar::Over::Dim(dim) => OutputElement::Solid(dim),
+                crate::bar::Over::Shaded(shaded) => OutputElement::Bar(shaded),
+            })
+        });
     // The slot opens, lights and flashes in step with its pane's flight (`dock::SlotLook`).
     let mut slot = None;
     if docked
@@ -820,7 +825,7 @@ fn bar_elements(
             elements.extend(element.map(OutputElement::Memory));
         }
     }
-    elements.extend(bar.picture.map(OutputElement::Memory));
+    elements.extend(picture.map(OutputElement::Memory));
     elements
 }
 
