@@ -73,20 +73,20 @@ const GROW_FROM: f64 = 0.82;
 const TUBE_HOLD: f64 = 0.55;
 const TUBE_CLEAN: f64 = 0.95;
 /// On about `DIM_CHANCE` of the tube's frames a piece dims to `DIM` of its brightness.
-const DIM_CHANCE: f32 = 0.4;
-const DIM: f32 = 0.62;
+const DIM_CHANCE: f32 = 0.3;
+const DIM: f32 = 0.72;
 /// About one of the tube's frames in `PIECE_TEAR_CHANCE` jerks a piece sideways by one to
 /// `PIECE_TEAR` logical pixels.
-const PIECE_TEAR_CHANCE: f32 = 0.3;
+const PIECE_TEAR_CHANCE: f32 = 0.2;
 const PIECE_TEAR: f64 = 3.0;
 /// A piece's colours split by up to this many logical pixels while it powers up or down.
-const SPLIT_PX: f64 = 4.5;
+const SPLIT_PX: f64 = 3.5;
 /// How strong each split colour is at its widest.
-const SPLIT_ALPHA: f32 = 0.6;
+const SPLIT_ALPHA: f32 = 0.5;
 /// The split colours are made at this fraction of the picture's size each way.
 const SPLIT_SCALE: usize = 2;
-/// The scanlines over the moving drawer: as dark as the edge's.
-const SCAN_DARK: f32 = 1.0 - fx::SCANLINE;
+/// The scanlines over the moving drawer: three quarters as dark as the edge's.
+const SCAN_DARK: f32 = (1.0 - fx::SCANLINE) * 0.75;
 /// The card's corner radius in logical pixels: the scanlines keep this far from its top and foot,
 /// so they never show past its rounded corners.
 const CORNER: f64 = 18.0 * crate::panel::DESIGN_PX as f64;
@@ -1755,12 +1755,12 @@ mod tests {
     }
 
     #[test]
-    fn the_scanlines_are_as_dark_as_the_edges_and_on_every_other_row() {
+    fn the_scanlines_are_three_quarters_as_dark_as_the_edges_and_on_every_other_row() {
         let pixels = scan_pixels();
         let row = |n: usize| &pixels[n * STRIP_W * 4..n * STRIP_W * 4 + 4];
         assert_eq!(row(1), [0; 4]);
         assert_eq!(&row(0)[..3], [0, 0, 0]);
         let dark = row(0)[3] as f32 / 255.0;
-        assert!((dark - (1.0 - fx::SCANLINE)).abs() < 0.01, "{dark}");
+        assert!((dark - SCAN_DARK).abs() < 0.01, "{dark}");
     }
 }

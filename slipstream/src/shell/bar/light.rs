@@ -43,24 +43,24 @@ const PULSES: usize = 8;
 /// Seconds between one arc and the next.
 const ARC_EVERY: (f64, f64) = (3.0, 7.0);
 /// How long an arc lasts, in seconds, as a real one does.
-const ARC_LIFE: (f64, f64) = (0.08, 0.15);
+const ARC_LIFE: (f64, f64) = (0.11, 0.2);
 /// How long each strike lasts before the arc restrikes along a new path, in seconds.
-const RESTRIKE: (f64, f64) = (0.025, 0.040);
+const RESTRIKE: (f64, f64) = (0.035, 0.055);
 /// How many strikes an arc has.
 const STRIKES: (usize, usize) = (2, 4);
 /// How long a stretch of the edge an arc spans, in the bar's units.
-const ARC_STRETCH: (f64, f64) = (60.0, 180.0);
+const ARC_STRETCH: (f64, f64) = (40.0, 280.0);
 /// How long the stretch an arc spanned keeps glowing after it, in seconds.
 const AFTERGLOW: f64 = 0.4;
 /// The share of arcs that strike near the marker rather than anywhere along the bar, and how far
 /// from it they reach, in the bar's units.
-const NEAR_MARKER: f64 = 0.7;
-const MARKER_REACH: f64 = 360.0;
+const NEAR_MARKER: f64 = 0.4;
+const MARKER_REACH: f64 = 600.0;
 
 /// How far the strip reaches above and below the line, in logical pixels: room for the glow
 /// either side and for an arc's bulge.
-const ABOVE: i32 = 13;
-const BELOW: i32 = 14;
+const ABOVE: i32 = 16;
+const BELOW: i32 = 17;
 
 /// The strip's shader, its numbers in the bar's units unless they say otherwise. The colours are
 /// light added to what's under the strip, apart from the line's own colour, which is laid over.
@@ -113,7 +113,8 @@ const float ARC_TAPER = 0.28;
 // What a lit slot adds to the line, and how far its ends taper, at most.
 const float SLOT = 0.8;
 const float SLOT_TAPER = 48.0;
-// How far an arc's path strays from the line, and its segments' length.
+// How far an arc's path strays from the line, and its segments' length. A longer arc strays
+// further, so arcs vary in size as well as length.
 const float BULGE = 6.0;
 const float SEGMENT = 12.0;
 
@@ -136,6 +137,10 @@ float noise(vec2 p) {
     return mix(a, b, u.y);
 }
 
+float bulge() {
+    return BULGE * clamp(arc.y / 120.0, 0.6, 1.4);
+}
+
 // How far an arc may stray at `share` of the way along it: none at its ends.
 float taper(float share) {
     return pow(max(sin(3.14159265 * clamp(share, 0.0, 1.0)), 0.0), 0.6);
@@ -144,7 +149,7 @@ float taper(float share) {
 // A corner of the arc's main path, `count` segments long.
 float corner(float i, float count) {
     if (i <= 0.0 || i >= count) return 0.0;
-    return (hash(arc.z * 1.37 + i * 7.13) * 2.0 - 1.0) * BULGE * taper(i / count);
+    return (hash(arc.z * 1.37 + i * 7.13) * 2.0 - 1.0) * bulge() * taper(i / count);
 }
 
 // The `j`th point of the path, which halves each main segment with a smaller kink.
@@ -152,7 +157,7 @@ vec2 point(float j, float count, float step) {
     float i = floor(j * 0.5);
     float y = corner(i, count);
     if (mod(j, 2.0) > 0.5) {
-        float kink = (hash(arc.z * 2.11 + i * 3.71 + 101.0) * 2.0 - 1.0) * BULGE * 0.5;
+        float kink = (hash(arc.z * 2.11 + i * 3.71 + 101.0) * 2.0 - 1.0) * bulge() * 0.5;
         y = 0.5 * (y + corner(i + 1.0, count)) + kink * taper(j / (2.0 * count));
     }
     return vec2(arc.x + j * step, y);
@@ -687,8 +692,12 @@ mod tests {
                 && starts.last() != Some(&bolt.start)
             {
                 starts.push(bolt.start);
-                assert!((0.08..=0.15).contains(&bolt.life), "life {}", bolt.life);
-                assert!((60.0..=180.0).contains(&bolt.stretch));
+                assert!(
+                    (ARC_LIFE.0..=ARC_LIFE.1).contains(&bolt.life),
+                    "life {}",
+                    bolt.life
+                );
+                assert!((ARC_STRETCH.0..=ARC_STRETCH.1).contains(&bolt.stretch));
                 assert!(bolt.left >= 0.0 && bolt.left + bolt.stretch <= 1900.0);
             }
             now += 1.0 / 60.0;
@@ -711,7 +720,10 @@ mod tests {
             );
             for pair in bolt.strikes[..bolt.count].windows(2) {
                 let apart = pair[1] - pair[0];
-                assert!((0.025..=0.040).contains(&apart), "restrike after {apart}");
+                assert!(
+                    (RESTRIKE.0..=RESTRIKE.1).contains(&apart),
+                    "restrike after {apart}"
+                );
             }
             let last = bolt.strikes[bolt.count - 1];
             assert!(last < bolt.life, "a strike after the arc has gone");
