@@ -1,0 +1,79 @@
+#!/bin/sh
+# Fills in the packaging for one release's source tarball (made by scripts/package-source and
+# attached to the release), ready to build or to hand to a build service:
+#
+#   packaging/prepare slipstream-desktop-VERSION.tar.xz OUT_DIR
+#
+#   OUT_DIR/rpm     the spec and the tarball: rpmbuild, or an SRPM for COPR
+#   OUT_DIR/debian  the debian/ folder, to copy into the unpacked tarball for dpkg-buildpackage
+#   OUT_DIR/obs     what the openSUSE Build Service builds every distribution from: the spec, a
+#                   .dsc and debian.* files for its Debian and Ubuntu builds, and the tarball
+#   OUT_DIR/aur     PKGBUILD, its .install and, where makepkg or podman is at hand, .SRCINFO
+set -eu
+umask 022
+here=$(cd "$(dirname "$0")" && pwd -P)
+tarball=${1:?usage: packaging/prepare TARBALL OUT_DIR}
+out=${2:?usage: packaging/prepare TARBALL OUT_DIR}
+
+file=${tarball##*/}
+version=${file#slipstream-desktop-}
+version=${version%.tar.xz}
+if [ "$version" = "$file" ] || ! [ -r "$tarball" ]; then
+    echo "prepare: $tarball isn't a readable slipstream-desktop-VERSION.tar.xz" >&2
+    exit 2
+fi
+# 1.0.0-rc.2 sorts after 1.0.0 everywhere unless it says otherwise: a tilde sorts first for RPM
+# and Debian, and pacman counts letters after the last number as a pre-release.
+rpm_version=$(printf '%s' "$version" | tr '-' '~')
+arch_version=$(printf '%s' "$version" | tr -d '-')
+sha256=$(sha256sum "$tarball" | cut -d' ' -f1)
+
+fill() {
+    sed -e "s|@VERSION@|$version|g" -e "s|@RPM_VERSION@|$rpm_version|g" \
+        -e "s|@DEB_VERSION@|$rpm_version|g" -e "s|@ARCH_VERSION@|$arch_version|g" \
+        -e "s|@SHA256@|$sha256|g" -e "s|@CHANGELOG_DATE@|$(LC_ALL=C date -u '+%a %b %d %Y')|g" \
+        -e "s|@DEB_DATE@|$(LC_ALL=C date -u -R)|g" "$1"
+}
+
+rm -rf "$out/rpm" "$out/debian" "$out/obs" "$out/aur"
+mkdir -p "$out/rpm" "$out/debian/source" "$out/obs" "$out/aur"
+
+fill "$here/slipstream-desktop.spec" >"$out/rpm/slipstream-desktop.spec"
+cp "$tarball" "$out/rpm/"
+
+for f in control rules changelog copyright postinst source/format; do
+    fill "$here/debian/$f" >"$out/debian/$f"
+done
+chmod 755 "$out/debian/rules"
+
+cp "$out/rpm/slipstream-desktop.spec" "$tarball" "$here/obs/_constraints" "$out/obs/"
+for f in control rules changelog copyright postinst; do
+    cp "$out/debian/$f" "$out/obs/debian.$f"
+done
+{
+    echo "Format: 1.0"
+    echo "Source: slipstream-desktop"
+    echo "Binary: slipstream-desktop"
+    echo "Architecture: amd64"
+    echo "Version: $rpm_version-1"
+    grep -E '^(Maintainer|Homepage|Standards-Version):' "$out/debian/control"
+    # Build-Depends, on one line.
+    sed -n '/^Build-Depends:/,/^[A-Z]/p' "$out/debian/control" | sed '$d' | tr -d '\n' \
+        | sed 's/  */ /g'
+    echo
+    echo "Debtransform-Tar: $file"
+    echo "Files:"
+    echo " 00000000000000000000000000000000 0 $file"
+} >"$out/obs/slipstream-desktop.dsc"
+
+fill "$here/arch/PKGBUILD" >"$out/aur/PKGBUILD"
+cp "$here/arch/slipstream-desktop.install" "$out/aur/"
+if command -v makepkg >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
+    (cd "$out/aur" && makepkg --printsrcinfo >.SRCINFO)
+elif command -v podman >/dev/null 2>&1; then
+    podman run --rm --memory=1g -v "$(cd "$out/aur" && pwd -P):/aur:Z" docker.io/library/archlinux:latest \
+        sh -c 'useradd -m packager && su packager -c "cd && cp /aur/* . && makepkg --printsrcinfo" >/aur/.SRCINFO'
+else
+    echo "prepare: no makepkg or podman here, so aur/.SRCINFO wasn't written." >&2
+fi
+echo "Prepared $version in $out"

@@ -1,0 +1,50 @@
+#!/bin/sh
+# Packs the source of the commit checked out, with every crate it builds from, for distribution
+# packages: slipstream-desktop-VERSION.tar.xz, with a .sha256 beside it. Build services such as
+# COPR, the openSUSE Build Service and an AUR helper's chroot may have no network while they
+# build, so the crates (Smithay among them, which comes from git) travel in vendor/, and the
+# tarball's .cargo/config.toml points cargo at them.
+#
+#   scripts/package-source [OUT_DIR]
+#
+# Needs git, cargo, tar and xz, and the network, to fetch the crates. CI runs it for every
+# version tag; packaging/ builds from what it makes.
+set -eu
+umask 022
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$repo/Cargo.toml" | head -n1)
+[ -n "$version" ] || { echo "package-source: no version in Cargo.toml" >&2; exit 1; }
+out=${1:-$repo/target/dist}
+name=slipstream-desktop-$version
+
+for tool in git cargo tar xz; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "package-source: $tool isn't installed." >&2; exit 1; }
+done
+
+mkdir -p "$out"
+out=$(cd "$out" && pwd -P)
+stage=$out/.source-stage
+rm -rf "$stage"
+trap 'rm -rf "$stage"' EXIT
+mkdir -p "$stage"
+
+# What is committed, not whatever happens to be lying in the working tree.
+git -C "$repo" archive --format=tar --prefix="$name/" HEAD | tar -C "$stage" -xf -
+(
+    cd "$stage/$name"
+    cargo vendor --locked --quiet vendor >"$stage/vendor.toml"
+    {
+        echo
+        echo "# Added by scripts/package-source: build from the crates in vendor/, offline."
+        cat "$stage/vendor.toml"
+    } >>.cargo/config.toml
+)
+# The licence of every crate built in, which packages install beside Slipstream's own.
+"$repo/scripts/crate-licences" "$stage/$name/licences/rust-crates.txt"
+
+# The same bytes from the same commit: files in name order, owned by root, dated by the commit.
+mtime=$(git -C "$repo" log -1 --format=%ct HEAD)
+tar -C "$stage" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$mtime" \
+    -cf - "$name" | xz -6 >"$out/$name.tar.xz"
+(cd "$out" && sha256sum "$name.tar.xz" >"$name.tar.xz.sha256")
+echo "$out/$name.tar.xz"

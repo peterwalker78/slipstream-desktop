@@ -1,0 +1,165 @@
+#!/bin/sh
+# Builds Slipstream's distribution package from a source tarball (scripts/package-source) inside a
+# container of that distribution, installs it with the system's own package manager, checks that
+# what it installed runs, and removes it again. Fedora and openSUSE build the RPM, Debian and
+# Ubuntu the .deb, Arch the PKGBUILD, as their build services would.
+#
+#   scripts/test-package-on-distro slipstream-desktop-VERSION.tar.xz
+#
+# It writes to the system it runs on, so run it in a container, never on a desktop.
+set -eu
+
+tarball=${1:?usage: test-package-on-distro slipstream-desktop-VERSION.tar.xz}
+[ -r "$tarball" ] || { echo "test-package-on-distro: $tarball isn't there." >&2; exit 2; }
+tarball=$(cd "$(dirname "$tarball")" && pwd -P)/$(basename "$tarball")
+version=${tarball##*/slipstream-desktop-}
+version=${version%.tar.xz}
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "test-package-on-distro: this has to run as root, in a container." >&2
+    exit 2
+fi
+if [ -z "${SLIPSTREAM_TEST_ON_DISTRO:-}" ] && [ ! -e /run/.containerenv ] && [ ! -e /.dockerenv ] \
+    && [ -z "${GITHUB_ACTIONS:-}" ]; then
+    echo "test-package-on-distro: this doesn't look like a container, and it installs packages." >&2
+    echo "Set SLIPSTREAM_TEST_ON_DISTRO=1 if you really mean it." >&2
+    exit 2
+fi
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+have() { command -v "$1" >/dev/null 2>&1; }
+say() { printf '\n== %s\n' "$*"; }
+# On disk, not in a tmpfs: a release build of everything takes a few gigabytes.
+work=/var/tmp/slipstream-package
+rm -rf "$work"
+mkdir -p "$work"
+
+say "Building slipstream-desktop $version on $( (sed -n 's/^PRETTY_NAME=//p' /etc/os-release || true) | tr -d '"')"
+if have apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends dpkg-dev debhelper xz-utils >/dev/null
+    sh "$repo/packaging/prepare" "$tarball" "$work/out"
+    tar -C "$work" -xf "$tarball"
+    src=$work/slipstream-desktop-$version
+    cp -R "$work/out/debian" "$src/debian"
+    apt-get build-dep -y -qq "$src" >/dev/null
+    (cd "$src" && dpkg-buildpackage -b -uc -us)
+    package=$(ls "$work"/slipstream-desktop_*.deb)
+    say "Installing $package"
+    apt-get install -y "$package"
+    remove() { apt-get purge -y slipstream-desktop; }
+elif have dnf || have zypper; then
+    if have dnf; then
+        dnf install -y -q rpm-build xz 'dnf-command(builddep)' >/dev/null
+    else
+        zypper --non-interactive --quiet install rpm-build xz >/dev/null
+    fi
+    sh "$repo/packaging/prepare" "$tarball" "$work/out"
+    spec=$work/out/rpm/slipstream-desktop.spec
+    mkdir -p "$work/rpmbuild/SOURCES"
+    cp "$tarball" "$work/rpmbuild/SOURCES/"
+    if have dnf; then
+        dnf builddep -y -q "$spec" >/dev/null
+    else
+        # shellcheck disable=SC2046 # one word per requirement
+        zypper --non-interactive --quiet install $(rpmspec -q --buildrequires "$spec" | tr -d ' ') \
+            >/dev/null
+    fi
+    rpmbuild -bb --define "_topdir $work/rpmbuild" "$spec"
+    package=$(ls "$work"/rpmbuild/RPMS/x86_64/slipstream-desktop-*.rpm)
+    say "Installing $package"
+    if have dnf; then
+        dnf install -y "$package"
+        remove() { dnf remove -y slipstream-desktop; }
+    else
+        zypper --non-interactive install --allow-unsigned-rpm "$package"
+        remove() { zypper --non-interactive remove slipstream-desktop; }
+    fi
+elif have pacman; then
+    pacman -Syu --noconfirm --needed --quiet base-devel >/dev/null
+    sh "$repo/packaging/prepare" "$tarball" "$work/out"
+    aur=$work/out/aur
+    cp "$tarball" "$aur/"
+    # shellcheck disable=SC2016 # expanded by bash, from the PKGBUILD
+    deps=$(cd "$aur" && bash -c '. ./PKGBUILD && echo "${depends[@]} ${makedepends[@]}"')
+    # shellcheck disable=SC2086 # one word per package
+    pacman -S --noconfirm --needed --quiet $deps >/dev/null
+    if ! id packager >/dev/null 2>&1; then
+        useradd --create-home packager
+    fi
+    chown -R packager "$work"
+    # What the AUR shows comes from .SRCINFO, which has to agree with the PKGBUILD.
+    su packager -c "cd '$aur' && makepkg --printsrcinfo >.SRCINFO.check"
+    if ! [ -e "$aur/.SRCINFO" ]; then
+        mv "$aur/.SRCINFO.check" "$aur/.SRCINFO"
+    elif ! cmp -s "$aur/.SRCINFO.check" "$aur/.SRCINFO"; then
+        echo "FAIL: packaging/prepare wrote a .SRCINFO that doesn't match the PKGBUILD" >&2
+        exit 1
+    fi
+    su packager -c "cd '$aur' && makepkg --nodeps"
+    package=$(ls "$aur"/slipstream-desktop-*.pkg.tar.zst)
+    say "Installing $package"
+    pacman -U --noconfirm "$package"
+    remove() { pacman -R --noconfirm slipstream-desktop; }
+else
+    echo "test-package-on-distro: no package manager this script knows." >&2
+    exit 1
+fi
+
+failures=0
+fail() {
+    echo "FAIL: $*" >&2
+    failures=$((failures + 1))
+}
+
+say "Checking"
+for path in /usr/bin/slipstream /usr/bin/slipstream-settings /usr/bin/slipstream-session \
+    /usr/share/slipstream/bundled/focus/focus; do
+    if ! [ -x "$path" ]; then
+        fail "$path isn't there after installing"
+        continue
+    fi
+    missing=$(ldd "$path" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
+    if [ -n "$missing" ]; then
+        fail "$path can't find: $missing"
+    fi
+done
+for path in /usr/share/applications/io.github.peterwalker78.SlipstreamSettings.desktop \
+    /usr/lib/systemd/user/slipstream-session.target /usr/lib/systemd/user/slipstream-shutdown.target \
+    /usr/lib/systemd/user/slipstream-autostart.target \
+    /usr/share/xdg-desktop-portal/portals/slipstream.portal \
+    /usr/share/xdg-desktop-portal/slipstream-portals.conf \
+    /usr/share/slipstream/bundled/focus/plugin.toml; do
+    [ -r "$path" ] || fail "$path isn't there after installing"
+done
+grep -q '^Exec=/usr/bin/slipstream-session$' /usr/share/wayland-sessions/slipstream.desktop \
+    || fail "the login screen's entry doesn't start /usr/bin/slipstream-session"
+grep -q '^chooser_cmd=/usr/bin/slipstream --choose-share$' /etc/xdg/xdg-desktop-portal-wlr/Slipstream \
+    || fail "the screen-sharing picker isn't the installed program"
+if ! [ -r /etc/pam.d/slipstream ] && ! [ -r /usr/lib/pam.d/slipstream ]; then
+    fail "the lock screen's PAM service isn't installed"
+fi
+if out=$(/usr/bin/slipstream --version 2>&1); then
+    echo "  $out"
+    [ "$out" = "slipstream $version" ] || fail "the installed program says '$out', not $version"
+else
+    fail "slipstream --version didn't run: $out"
+fi
+if ! /usr/share/slipstream/bundled/focus/focus search 25 | grep -q '"focus-25"'; then
+    fail "Focus, the plugin that comes with Slipstream, doesn't run here"
+fi
+
+say "Removing"
+remove || fail "removing the package failed"
+for path in /usr/bin/slipstream /usr/bin/slipstream-session /usr/share/wayland-sessions/slipstream.desktop; do
+    if [ -e "$path" ]; then
+        fail "$path is still here after removing the package"
+    fi
+done
+
+if [ "$failures" -gt 0 ]; then
+    say "$failures problem(s) with the package on this distribution"
+    exit 1
+fi
+say "The package is good on this distribution"

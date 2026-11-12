@@ -672,6 +672,13 @@ check() {
     $pam_dirs. Slipstream's lock would refuse every password here."
     fi
 
+    # A package from the system's package manager puts the session in /usr and keeps it up to
+    # date; a second copy in /usr/local would fight it for the login screen's entry.
+    if [ -e "$root/usr/bin/slipstream-session" ]; then
+        problem "Slipstream is already installed here as a package (slipstream-desktop), and your
+    package manager keeps it up to date. To use a download instead, remove the package first."
+    fi
+
     # Files already where this script writes that something else put there are never replaced.
     for path in "$session_launcher" "$session_entry" "$pam_file" $lightdm_dropin; do
         if ! written_by_slipstream "$path"; then
