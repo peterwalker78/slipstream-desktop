@@ -325,6 +325,10 @@ wlr_conf=/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 # The plugins that come with Slipstream, where the compositor finds them beside its own bin folder.
 focus_manifest=/usr/local/share/slipstream/bundled/focus/plugin.toml
 focus_program=/usr/local/share/slipstream/bundled/focus/focus
+# Slipstream's fonts, where the Settings app finds them beside its own bin folder.
+fonts_dir=/usr/local/share/slipstream/fonts
+font_names="AtkinsonHyperlegible-Regular.ttf AtkinsonHyperlegible-Bold.ttf ChakraPetch-Bold.ttf
+JetBrainsMono-Regular.ttf JetBrainsMono-Bold.ttf"
 
 ours() {
     case $1 in
@@ -333,7 +337,7 @@ ours() {
             | "$installed_bin" | "$installed_settings" | "$settings_entry" \
             | "$session_target" | "$shutdown_target" | "$autostart_target" \
             | "$portals_conf" | "$portal_backend" | "$wlr_conf" \
-            | "$focus_manifest" | "$focus_program") return 0 ;;
+            | "$focus_manifest" | "$focus_program" | "$fonts_dir"/*.ttf) return 0 ;;
     esac
     return 1
 }
@@ -967,6 +971,9 @@ while IFS= read -r path; do
     rm -f "$path"
     case $path in
         */share/slipstream/installed) rmdir "$(dirname "$path")" 2>/dev/null || true ;;
+        */share/slipstream/fonts/*)
+            rmdir "$(dirname "$path")" "$(dirname "$(dirname "$path")")" 2>/dev/null || true
+            ;;
         */share/slipstream/bundled/*/*)
             bundled_plugin=$(dirname "$path")
             rmdir "$bundled_plugin" "$(dirname "$bundled_plugin")" 2>/dev/null || true
@@ -1041,6 +1048,9 @@ if [ "$mode" = uninstall ]; then
                 "$wlr_conf" "$installed_bin" \
                 "$installed_settings" "$settings_entry" "$session_target" "$shutdown_target" \
                 "$autostart_target" "$focus_manifest" "$focus_program" "$manifest"
+            for font in $font_names; do
+                printf '%s\n' "$fonts_dir/$font"
+            done
         } | sed '/^$/d' | sort -u
     )
     system_files=
@@ -1068,6 +1078,10 @@ $data/xdg-desktop-portal/portals/slipstream.portal
 $config/xdg-desktop-portal-wlr/Slipstream
 $HOME/.local/share/slipstream/bundled/focus/plugin.toml
 $HOME/.local/share/slipstream/bundled/focus/focus"
+    for font in $font_names; do
+        user_files="$user_files
+$HOME/.local/share/slipstream/fonts/$font"
+    done
     bold "This removes:"
     printf '%s%s\n' "$system_files" "$user_files" | while IFS= read -r f; do
         if [ -n "$f" ] && [ -e "$f" ]; then
@@ -1103,7 +1117,7 @@ $HOME/.local/share/slipstream/bundled/focus/focus"
     fi
     printf '%s\n' "$user_files" | while IFS= read -r f; do rm -f "$f"; done
     rmdir "$HOME/.local/share/slipstream/bundled/focus" "$HOME/.local/share/slipstream/bundled" \
-        2>/dev/null || true
+        "$HOME/.local/share/slipstream/fonts" 2>/dev/null || true
     if [ "$purge" = yes ]; then
         rm -rf "$config/slipstream" "$state/slipstream"
     fi
@@ -1231,6 +1245,11 @@ if [ -n "$programs" ]; then
         put 644 "$repo/share/slipstream/bundled/focus/plugin.toml" "$focus_manifest"
         put 755 "$repo/share/slipstream/bundled/focus/focus" "$focus_program"
     fi
+    for font in $font_names; do
+        if [ -f "$repo/share/slipstream/fonts/$font" ]; then
+            put 644 "$repo/share/slipstream/fonts/$font" "$fonts_dir/$font"
+        fi
+    done
 fi
 if [ -n "$lightdm_dropin" ]; then
     printf '%s\n' \

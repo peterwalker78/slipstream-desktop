@@ -37,6 +37,9 @@ cp "$from/slipstream" "$from/slipstream-settings" "$stage/$name/bin/"
 # Focus, the plugin that comes with Slipstream, where the compositor finds it beside bin/.
 mkdir -p "$stage/$name/share/slipstream/bundled/focus"
 cp "$repo/plugins/focus/plugin.toml" "$from/focus" "$stage/$name/share/slipstream/bundled/focus/"
+# Slipstream's fonts, which the Settings app loads from share/slipstream/fonts beside bin/.
+mkdir -p "$stage/$name/share/slipstream/fonts"
+cp "$repo"/assets/fonts/*.ttf "$stage/$name/share/slipstream/fonts/"
 cp "$repo/scripts/install-session" "$repo/scripts/update-session" "$repo/scripts/install-extras" \
     "$repo/scripts/try-slipstream" "$stage/$name/scripts/"
 cp "$repo"/session/* "$stage/$name/session/"

@@ -288,6 +288,8 @@ make_download() {
     mkdir -p "$download/share/slipstream/bundled/focus"
     cp "$repo/plugins/focus/plugin.toml" "$download/share/slipstream/bundled/focus/"
     printf '#!/bin/sh\n' >"$download/share/slipstream/bundled/focus/focus"
+    mkdir -p "$download/share/slipstream/fonts"
+    cp "$repo"/assets/fonts/*.ttf "$download/share/slipstream/fonts/"
 }
 # A machine with a screen-sharing backend new enough, and one desktop's backend beside it.
 make_portals() {
@@ -304,6 +306,7 @@ wlr_conf=$r/etc/xdg/xdg-desktop-portal-wlr/Slipstream
 unit=$r/usr/local/lib/systemd/user/slipstream-session.target
 portal_backend=$r/usr/local/share/xdg-desktop-portal/portals/slipstream.portal
 focus=$r/usr/local/share/slipstream/bundled/focus
+fonts=$r/usr/local/share/slipstream/fonts
 
 case_name="a download installs the programs where everyone can run them"
 fresh
@@ -326,6 +329,14 @@ case_name="a download installs Focus where the installed compositor finds it"
 grep -q '^name = "Focus"$' "$focus/plugin.toml" || fail "$case_name: no manifest"
 grep -q "^/usr/local/share/slipstream/bundled/focus/focus$" "$manifest" \
     || fail "$case_name: the manifest doesn't list it"
+
+case_name="a download installs the fonts where the installed Settings app finds them"
+for font in AtkinsonHyperlegible-Regular AtkinsonHyperlegible-Bold ChakraPetch-Bold \
+    JetBrainsMono-Regular JetBrainsMono-Bold; do
+    [ "$(mode_of "$fonts/$font.ttf")" = 644 ] || fail "$case_name: $font isn't installed 644"
+    grep -q "^/usr/local/share/slipstream/fonts/$font.ttf$" "$manifest" \
+        || fail "$case_name: the manifest doesn't list $font"
+done
 
 case_name="a download installs the backend that tells apps dark or light"
 grep -q "^DBusName=org.freedesktop.impl.portal.desktop.slipstream$" "$portal_backend" \
@@ -354,7 +365,7 @@ case_name="uninstalling a download takes the programs with it"
 PORTAL_DIR=$work/portals SCRIPT=$download/scripts/install-session \
     expect_status 0 --uninstall --yes || true
 for f in "$installed_bin" "$installed_settings" "$unit" "$portals_conf" "$portal_backend" \
-    "$wlr_conf" "$focus" "${focus%/*}" "$r/usr/local/share/slipstream"; do
+    "$wlr_conf" "$focus" "${focus%/*}" "$fonts" "$r/usr/local/share/slipstream"; do
     if [ -e "$f" ]; then
         fail "$case_name: $f still there"
     fi
