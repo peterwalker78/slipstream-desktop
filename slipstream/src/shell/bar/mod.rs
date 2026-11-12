@@ -46,6 +46,11 @@ use crate::{
 
 /// Height in logical pixels: 40 design pixels. Windows tile below it.
 pub const HEIGHT: i32 = 32;
+/// A knock's shake: how far it moves the bar at its gentlest and its hardest, logical pixels, and
+/// how long it rattles, seconds.
+const SHAKE_LEAST: f64 = 1.0;
+const SHAKE_MOST: f64 = 4.0;
+const SHAKE_LONG: f64 = 0.35;
 /// The same height in design pixels, which every size below is given in.
 const TALL: f32 = 40.0;
 
@@ -280,6 +285,8 @@ pub struct Bar {
     light: light::Light,
     /// The lit edge's glass on this screen, with its own air.
     glass: glass::Glass,
+    /// A knock's shake: when it started, by the wall clock, and how hard, 0 to 1.
+    shake: Option<(f64, f64)>,
 }
 
 impl Bar {
@@ -334,9 +341,12 @@ impl Bar {
             dim.into_iter().map(Over::Dim).for_each(&mut over);
         }
         if let Some(marker) = self.marker
-            && let Some(pill) = self
-                .pill
-                .element(renderer, marker.edges(draw.wall), draw.alpha)
+            && let Some(pill) = self.pill.element(
+                renderer,
+                marker.edges(draw.wall),
+                draw.alpha,
+                self.shaken(draw.wall, draw.reduced_motion),
+            )
         {
             over(Over::Shaded(pill));
         }
@@ -430,9 +440,14 @@ impl Bar {
         let f = ((HEIGHT as f64 * draw.scale).round() / TALL as f64) as f32;
         // Logical pixels across the bar to its units.
         let units = |logical: i32| logical as f32 * draw.scale as f32 / f;
+        let shaken = self.shaken(draw.wall, draw.reduced_motion);
         Some(glass::Look {
             area: Rectangle::new(
-                (self.at.loc.x as i32, self.at.loc.y as i32).into(),
+                (
+                    self.at.loc.x as i32 + shaken.x,
+                    self.at.loc.y as i32 + shaken.y,
+                )
+                    .into(),
                 (self.at.size.w as i32, HEIGHT).into(),
             ),
             f,
@@ -461,6 +476,30 @@ impl Bar {
     /// stands still.
     fn moves(&self, draw: &BarDraw) -> bool {
         draw.style == BarStyle::LitEdge && draw.shown && !draw.reduced_motion && !draw.power_saver
+    }
+
+    /// Shakes the bar a little from `wall`, `share` of the way from barely to a little more, as a
+    /// knock on its glass does.
+    pub fn shake(&mut self, wall: f64, share: f64) {
+        self.shake = Some((wall, share.clamp(0.0, 1.0)));
+    }
+
+    /// How far the bar is shaken from its place at `wall`, logical pixels: a quick, dying
+    /// rattle. None with reduced motion.
+    fn shaken(&self, wall: f64, reduced: bool) -> Point<i32, Logical> {
+        let Some((from, share)) = self.shake.filter(|_| !reduced) else {
+            return Point::default();
+        };
+        let t = wall - from;
+        if !(0.0..SHAKE_LONG).contains(&t) {
+            return Point::default();
+        }
+        let size = (SHAKE_LEAST + (SHAKE_MOST - SHAKE_LEAST) * share) * (-t / 0.1).exp();
+        let turn = std::f64::consts::TAU * t;
+        Point::from((
+            (size * (turn * 22.0).sin()).round() as i32,
+            (0.4 * size * (turn * 17.0 + 1.3).sin()).round() as i32,
+        ))
     }
 
     /// Sends the lit edge's air rushing, as a change of workspace does.

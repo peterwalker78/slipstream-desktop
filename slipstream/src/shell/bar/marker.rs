@@ -171,6 +171,7 @@ impl Marker {
         renderer: &mut GlesRenderer,
         edges: (f32, f32),
         alpha: f32,
+        shaken: Point<i32, Logical>,
     ) -> Option<Shaded> {
         let strip = self.strip.as_ref()?;
         let program = shader::program::<Program, _>(
@@ -180,7 +181,7 @@ impl Marker {
         )?;
         Some(self.kept.texture(
             (program, strip.texture.clone()),
-            strip.place.area,
+            Rectangle::new(strip.place.area.loc + shaken, strip.place.area.size),
             alpha,
             &uniforms(&strip.place, edges),
         ))

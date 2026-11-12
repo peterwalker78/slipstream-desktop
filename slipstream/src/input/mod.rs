@@ -50,8 +50,12 @@ impl Slipstream {
         self.drawn.chromes.get(&name)?.bar.target_at(x, y)
     }
 
-    /// Whether `pos` is on a bar's glass, clear of its buttons.
+    /// Whether `pos` is on the wind tunnel bar's glass, clear of its buttons: the only bar the
+    /// rave lives behind.
     pub(crate) fn bar_glass_at(&self, pos: Point<f64, Logical>) -> bool {
+        if self.settings.appearance.bar_style != slipstream_config::BarStyle::LitEdge {
+            return false;
+        }
         let Some(index) = self.screen_at(pos) else {
             return false;
         };
@@ -69,6 +73,22 @@ impl Slipstream {
             .chromes
             .get(&screen.output.name())
             .is_some_and(|chrome| chrome.bar.area().contains(local))
+    }
+
+    /// A hint at the rave on the screen with `pos`, `share` of the way from the first to the last:
+    /// its bar shakes and the drop plays quietly, both more as `share` grows.
+    pub(crate) fn hint_rave(&mut self, pos: Point<f64, Logical>, share: f64) {
+        self.knocks.hint(share);
+        let wall = self.wall();
+        if let Some(screen) = self
+            .screen_at(pos)
+            .and_then(|index| self.screens.get(index))
+        {
+            let name = screen.output.name();
+            if let Some(chrome) = self.drawn.chromes.get_mut(&name) {
+                chrome.bar.shake(wall, share);
+            }
+        }
     }
 
     /// Starts the rave on the screen with `pos`, out of its bar.

@@ -38,11 +38,12 @@ impl Slipstream {
         self.keys.super_tap.disarm();
         self.keys.layout_tap.disarm();
         let pressed = button_state == ButtonState::Pressed;
-        // The rave takes every click while it's on, and a press ends it.
+        // The rave takes every click while it's on. More of the knocking that started it carries
+        // on; any other press ends it.
         let wall = self.wall();
         if let Some(rave) = self.rave.as_mut() {
             if pressed {
-                rave.end(wall);
+                rave.press(wall);
             }
             return;
         }
@@ -129,14 +130,17 @@ impl Slipstream {
                 }
                 return;
             }
-            // Knocks on the bar's empty glass: enough quick ones in a row start the rave.
-            if pressed
-                && button == BTN_LEFT
-                && self.bar_glass_at(at)
-                && self.knocks.knock(self.wall())
-            {
-                self.begin_rave(at);
-                return;
+            // Knocks on the wind tunnel bar's empty glass: from the third quick one they hint, and
+            // the tenth starts the rave.
+            if pressed && button == BTN_LEFT && self.bar_glass_at(at) {
+                match self.knocks.knock(self.wall()) {
+                    crate::effects::rave::Knock::Rave => {
+                        self.begin_rave(at);
+                        return;
+                    }
+                    crate::effects::rave::Knock::Hint(share) => self.hint_rave(at, share),
+                    crate::effects::rave::Knock::Nothing => {}
+                }
             }
         }
 
