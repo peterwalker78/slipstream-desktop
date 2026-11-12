@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slipstream: the desktop that's on your side</title>
+<meta name="description" content="A keyboard-first desktop for Linux, in one download that installs beside the one you have.">
+<meta property="og:title" content="Slipstream">
+<meta property="og:description" content="The desktop that's on your side. A keyboard-first desktop for Linux, in one download that installs beside the one you have.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://peterwalker78.github.io/slipstream-desktop/">
+<meta property="og:image" content="https://peterwalker78.github.io/slipstream-desktop/card.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="wordmark-dark.svg">
+<style>
+:root {
+  --bg: #080b10;
+  --panel: #0f151d;
+  --line: #1c2733;
+  --text: #dbe4ee;
+  --muted: #8b9aab;
+  --ring: #5fc3e4;
+  --amber: #e8b45a;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font: 17px/1.55 "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+a { color: var(--ring); }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+header { text-align: center; padding: 56px 0 28px; }
+header img.mark { width: min(520px, 86vw); height: auto; }
+.tagline { font-size: clamp(22px, 3.2vw, 32px); font-weight: 700; margin: 18px 0 6px; }
+.sub { color: var(--muted); margin: 0 auto; max-width: 640px; }
+.nav { margin-top: 20px; display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; }
+.nav a { text-decoration: none; font-weight: 700; }
+.hero { margin: 8px auto 0; }
+video, .poster {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+  background: transparent;
+  aspect-ratio: 16 / 10;
+}
+.frame { border-radius: 8px; background: #0b0f14 center / cover no-repeat; }
+.hero video { border: 1px solid var(--line); }
+.hero p { text-align: center; color: var(--muted); font-size: 15px; margin: 10px 0 0; }
+section { padding: 56px 0 0; }
+h2 { font-size: 26px; margin: 0 0 6px; }
+.lede { color: var(--muted); margin: 0 0 24px; max-width: 760px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: 26px 22px;
+}
+figure { margin: 0; }
+figure video { border: 1px solid var(--line); }
+figcaption { margin-top: 10px; }
+figcaption b { display: block; font-size: 17px; }
+kbd {
+  display: inline-block;
+  margin-top: 4px;
+  font: 14px/1 "JetBrains Mono", ui-monospace, monospace;
+  color: var(--ring);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+  font: 14px/1.5 "JetBrains Mono", ui-monospace, monospace;
+}
+.copy { display: flex; gap: 10px; align-items: flex-start; }
+.copy pre { flex: 1; margin: 0; }
+.copy button {
+  font: inherit; font-size: 15px; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; cursor: pointer;
+}
+.copy button:hover { border-color: var(--ring); }
+.small { color: var(--muted); font-size: 15px; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 22px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+.card h3 { margin: 0 0 6px; }
+dialog {
+  padding: 0; border: 1px solid var(--line); border-radius: 10px; background: #000;
+  width: min(96vw, calc(92vh * 1.6)); max-width: none;
+}
+dialog .frame { border-radius: 10px 10px 0 0; }
+dialog::backdrop { background: rgba(4, 6, 9, 0.88); }
+dialog video { border-radius: 10px 10px 0 0; cursor: zoom-out; }
+dialog p { margin: 0; padding: 12px 16px; background: var(--panel); color: var(--text); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+dialog p span { color: var(--muted); }
+figure video { cursor: zoom-in; }
+footer { margin-top: 72px; border-top: 1px solid var(--line); padding: 28px 0 48px; color: var(--muted); font-size: 15px; }
+footer .row { display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <img class="mark" src="wordmark-dark.svg" alt="Slipstream" width="520" height="52">
+  <p class="tagline">The desktop that's on your side.</p>
+  <p class="sub">A keyboard-first desktop for Linux, in one download that installs beside the one you have.</p>
+  <nav class="nav">
+    <a href="#see-it">See it</a>
+    <a href="#get-it">Get it</a>
+    <a href="https://github.com/peterwalker78/slipstream-desktop">Code</a>
+    <a href="https://github.com/peterwalker78/slipstream-desktop/blob/main/guide/keys.md">Every key</a>
+  </nav>
+</header>
+
+<div class="wrap hero">
+  <div class="frame" style="background-image:url(clips/08-workspaces.jpg)"><video class="clip" src="clips/08-workspaces.mp4" poster="clips/08-workspaces.jpg" muted loop playsinline preload="metadata" aria-label="A busy Slipstream desktop: a browser on an album page, btop and a music visualiser in see-through terminals, and the wind tunnel bar rushing as the workspace changes."></video></div>
+  <p>Recorded from Slipstream itself. Every clip on this page is.</p>
+</div>
+
+<section class="wrap" id="see-it">
+  <h2>See it</h2>
+  <p class="lede">Most of the screens in your life are built to keep you checking, scrolling and coming back. Slipstream is built to give that time back. It holds your notifications until you pause, shows you what's going on without asking for a look, and measures nothing about you.</p>
+  <div class="grid">
+    <figure><div class="frame" style="background-image:url(clips/01-typing.jpg)"><video class="clip" src="clips/01-typing.mp4" poster="clips/01-typing.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Notifications wait until you pause typing</b><kbd>just type</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/02-minimise.jpg)"><video class="clip" src="clips/02-minimise.mp4" poster="clips/02-minimise.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Put a window away and it keeps running as a stream</b><kbd>Super+M</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/03-close.jpg)"><video class="clip" src="clips/03-close.mp4" poster="clips/03-close.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Close a window and the rain eats it</b><kbd>Alt+F4</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/04-bullet-time.jpg)"><video class="clip" src="clips/04-bullet-time.mp4" poster="clips/04-bullet-time.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Bullet time: every workspace in 3D, a letter on each window</b><kbd>Super+Tab</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/05-step-away.jpg)"><video class="clip" src="clips/05-step-away.mp4" poster="clips/05-step-away.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Step away and the desktop sinks into a living wallpaper</b><kbd>any key brings it back</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/06-arrangements.jpg)"><video class="clip" src="clips/06-arrangements.mp4" poster="clips/06-arrangements.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Pick an arrangement made from your own windows</b><kbd>hold Super+T</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/07-alt-tab.jpg)"><video class="clip" src="clips/07-alt-tab.mp4" poster="clips/07-alt-tab.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Flip through your windows as a deck of glass</b><kbd>hold Alt+Tab</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/08-workspaces.jpg)"><video class="clip" src="clips/08-workspaces.mp4" poster="clips/08-workspaces.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Change workspace and the wind tunnel bar rushes with you</b><kbd>Super+1 to 9</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/09-quick-settings.jpg)"><video class="clip" src="clips/09-quick-settings.mp4" poster="clips/09-quick-settings.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Quick settings slide out of the bar like a drawer</b><kbd>Super+A</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/10-drag.jpg)"><video class="clip" src="clips/10-drag.mp4" poster="clips/10-drag.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Drag a window: it lifts, and the others make way</b><kbd>Super and drag</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/11-snip.jpg)"><video class="clip" src="clips/11-snip.mp4" poster="clips/11-snip.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Snip what you choose, and watch it go</b><kbd>Super+Shift+S</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/12-clipboard.jpg)"><video class="clip" src="clips/12-clipboard.mp4" poster="clips/12-clipboard.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Clipboard history that decodes as you move</b><kbd>Super+V</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/13-explorer.jpg)"><video class="clip" src="clips/13-explorer.mp4" poster="clips/13-explorer.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>The explorer answers sums, units and emoji</b><kbd>tap Super</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/14-plugins.jpg)"><video class="clip" src="clips/14-plugins.mp4" poster="clips/14-plugins.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Little apps beside the clock, the Focus timer among them</b><kbd>Super+Y</kbd></figcaption></figure>
+    <figure><div class="frame" style="background-image:url(clips/15-dock.jpg)"><video class="clip" src="clips/15-dock.mp4" poster="clips/15-dock.jpg" muted loop playsinline preload="metadata"></video></div>
+      <figcaption><b>Dock the window you're in to the bar as glass</b><kbd>Super+W</kbd></figcaption></figure>
+  </div>
+</section>
+
+<section class="wrap" id="get-it">
+  <h2>Get it</h2>
+  <p class="lede">One command. It downloads the newest release, checks its published checksum and signature, and says what it will do before it writes anything.</p>
+  <div class="copy">
+    <pre id="cmd">sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"</pre>
+    <button type="button" id="copy">Copy</button>
+  </div>
+  <p>Then log out and choose <b>Slipstream</b> on the login screen. Tap Super for your apps, Super+Enter for a terminal, Super and the arrows to move around, Super+Tab for bullet time, and Super+/ for every key and the tour.</p>
+  <p class="small">Add <code>-- --try</code> to open it in a window on the desktop you're using now, installing nothing. Read <a href="https://github.com/peterwalker78/slipstream-desktop/blob/main/install.sh">install.sh</a> before you run it. You'll need an x86_64 machine with Debian 13's libraries or newer, and graphics with working Mesa drivers. <a href="https://github.com/peterwalker78/slipstream-desktop/blob/main/guide/install.md">Everything about installing</a>.</p>
+</section>
+
+<section class="wrap" id="companions">
+  <h2>Two companion apps</h2>
+  <p class="lede">They share the same aim, and the installer asks about each one first.</p>
+  <div class="pair">
+    <div class="card"><h3><a href="https://github.com/peterwalker78/glimmerwood">Glimmerwood</a></h3>
+      <p>A quiet, lightweight browser. Its wisp, a small flame in the toolbar, brightens when you read, learn or make something, and grows sleepy in an endless feed. It never blocks or nags.</p></div>
+    <div class="card"><h3><a href="https://github.com/peterwalker78/westering">Westering</a></h3>
+      <p>For the end of the day: a few quiet minutes under tonight's real sky, drawn in the same fine dots as the wallpapers, to set down what's on your mind. It has no network access at all.</p></div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="row">
+    <span>Slipstream is free software under the GPL-3.0-or-later. <a href="https://github.com/peterwalker78/slipstream-desktop">Code and releases on GitHub</a>.</span>
+    <span>Slipstream is part of <a href="https://peterwalker78.github.io/human-again/">Human Again</a>.</span>
+  </div>
+  <p>This page has no trackers, no cookies and no scripts from anywhere else.</p>
+</footer>
+
+<dialog id="big" aria-label="The moment, bigger">
+  <div class="frame" id="big-frame"><video id="big-video" muted loop playsinline></video></div>
+  <p><b id="big-title"></b><span id="big-key"></span></p>
+</dialog>
+<script>
+(function () {
+  var still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var clips = document.querySelectorAll("video.clip");
+  var big = document.getElementById("big");
+  var bigVideo = document.getElementById("big-video");
+  clips.forEach(function (v) {
+    var fig = v.closest("figure");
+    if (!fig) { return; }
+    v.addEventListener("click", function () {
+      bigVideo.src = v.currentSrc || v.src;
+      bigVideo.poster = v.poster;
+      bigVideo.parentNode.style.backgroundImage = "url(" + v.poster + ")";
+      document.getElementById("big-title").textContent = fig.querySelector("b").textContent;
+      document.getElementById("big-key").textContent = fig.querySelector("kbd").textContent;
+      big.showModal();
+      bigVideo.currentTime = 0;
+      bigVideo.play().catch(function () {});
+    });
+  });
+  big.addEventListener("click", function () { big.close(); });
+  big.addEventListener("close", function () { bigVideo.pause(); });
+  if (!still && "IntersectionObserver" in window) {
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.play().catch(function () {}); } else { e.target.pause(); }
+      });
+    }, { threshold: 0.4 });
+    clips.forEach(function (v) { seen.observe(v); });
+  }
+  var button = document.getElementById("copy");
+  button.addEventListener("click", function () {
+    navigator.clipboard.writeText(document.getElementById("cmd").textContent).then(function () {
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = "Copy"; }, 1600);
+    });
+  });
+})();
+</script>
+</body>
+</html>
