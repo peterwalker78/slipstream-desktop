@@ -308,7 +308,9 @@ fn plugin_card(
     if !on && !plugins::missing_write_folders(&plugin.manifest).is_empty() {
         for ability in &mut abilities {
             if ability.what == plugins::What::Changes {
-                ability.says.push_str(" (a new folder, made when you turn it on)");
+                ability
+                    .says
+                    .push_str(" (a new folder, made when you turn it on)");
             }
         }
     }

@@ -61,12 +61,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
             }
         }
     });
-    row(
-        &styles,
-        "Every key in this style",
-        None,
-        &show,
-    );
+    row(&styles, "Every key in this style", None, &show);
     page.append(&own_group);
     page.append(&plugin_group);
     fill_app_shortcuts(&group(&page, "Apps' own shortcuts"), store);

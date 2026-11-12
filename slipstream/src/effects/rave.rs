@@ -50,7 +50,6 @@
 //! with the music.
 
 use std::{
-    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Child, Command},
 };

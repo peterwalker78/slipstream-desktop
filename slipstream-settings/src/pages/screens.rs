@@ -374,8 +374,9 @@ fn night_light(page: &gtk::Box, store: &Store) {
             to.set_sensitive(custom);
             if let Some(sub) = &sub {
                 sub.set_text(&match which {
-                    NightSchedule::Off => "Turn it on and off yourself in quick settings."
-                        .to_string(),
+                    NightSchedule::Off => {
+                        "Turn it on and off yourself in quick settings.".to_string()
+                    }
                     NightSchedule::Sunset => sunset_note(),
                     NightSchedule::Custom => "Warms up over half an hour from the start, and \
                                               cools over half an hour from the end."
