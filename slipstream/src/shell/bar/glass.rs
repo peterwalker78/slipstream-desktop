@@ -8,10 +8,11 @@
 //! smoke with a fine, fluffy grain, which gather, swell, thin and clear over tens of seconds at
 //! any height in the glass. The workspace marker stands in the stream and sheds a curl of smoke
 //! every few seconds, alternately above and below it; each drifts downwind, rises, turns and
-//! breathes, and fades on its own clock. Two laser projectors at the bar's middle, just out of
-//! sight below and above it, fan thin, straight beams out both ways across it, as at a show;
-//! each beam is widest at its projector and thins with distance, and brightens where it crosses
-//! smoke. A broad sheen slides slowly along the frosted glass, and where it meets the polished
+//! breathes, and fades on its own clock. A laser projector at the bar's very middle, behind the
+//! clock, throws thin, straight beams out both ways, as at a show, sweeping slowly up and down
+//! past each other while the fan opens and closes, never turning faster than eight degrees a
+//! minute; each beam is widest at the projector and thins with distance, and brightens where it
+//! crosses smoke. A broad sheen slides slowly along the frosted glass, and where it meets the polished
 //! foot and the top edge the light catches the glass at a point that glides with it, and a few
 //! nicks in the foot flare as it passes. The air bends the bar's picture behind it, more in the
 //! lower glass than over the text, with a hint of colour split, and round the text and icons its
@@ -21,7 +22,8 @@
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
-//! picture; the bar's own shader then reads the smoke and the air's gradient from that field, and
+//! picture, beside an ink map of how near each spot is to text, worked out only when the picture
+//! is painted; the bar's own shader then reads the smoke and the air's gradient from that field, and
 //! adds the lasers, the sheen and its glints, and the edge, each of which gives up early where it
 //! has nothing to draw. Nothing moves faster than a few pixels a second, so it is drawn about
 //! fifteen times a second.
@@ -38,7 +40,7 @@ use smithay::{
         allocator::Fourcc,
         renderer::{
             Bind, Color32F, Frame, ImportMem, Offscreen, Renderer,
-            gles::{GlesError, GlesPixelProgram, GlesRenderer, GlesTexture},
+            gles::{GlesError, GlesPixelProgram, GlesRenderer, GlesTexProgram, GlesTexture},
         },
     },
     utils::{Logical, Physical, Rectangle, Size, Transform},
@@ -89,6 +91,8 @@ uniform vec4 origins;
 uniform vec3 origins_more;
 
 const float PI = 3.14159265;
+// The thin haze everywhere, as a share of the thickest smoke.
+const float HAZE = 0.12;
 // How fast the air drifts and the curls with it, units a second.
 const float AIR = 5.0;
 const float DRIFT = 6.0;
@@ -180,6 +184,9 @@ float fog(vec2 p, float t, float grained) {
     float life = snoise(vec3((p.x - 0.8 * AIR * t) / 380.0, 1.7, t * 0.033));
     float d = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
     d *= 0.6 + 0.8 * grained;
+    // A thin haze fills the whole glass between the billows, as in a club, so the beams always
+    // have something to light.
+    d = HAZE + (1.0 - HAZE) * d;
     return d * smoothstep(0.0, 7.0, p.y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, p.y));
 }
 
@@ -237,6 +244,56 @@ void main() {
 }
 "#;
 
+/// The ink map: how near each spot of the bar is to its text and icons, worked out from the
+/// picture once each time it is painted, at the field's resolution, into rows of the same texture
+/// under the field. Red is the nearest bright pixel a few pixels round, green along a stretch of
+/// its line, which is what a beam has to stay clear of not to strike text through. Its numbers
+/// are in the bar's units unless they say otherwise.
+const INK: &str = r#"#version 100
+
+//_DEFINES_
+
+#if defined(EXTERNAL)
+#extension GL_OES_EGL_image_external : require
+#endif
+
+precision highp float;
+#if defined(EXTERNAL)
+uniform samplerExternalOES tex;
+#else
+uniform sampler2D tex;
+#endif
+
+uniform float alpha;
+varying vec2 v_coords;
+
+#if defined(DEBUG_FLAGS)
+uniform float tint;
+#endif
+
+// The picture's width and height in screen pixels, and screen pixels to one of the bar's units.
+uniform vec3 frame;
+
+void main() {
+    vec2 px = v_coords * frame.xy;
+    float near = 0.0;
+    float along = 0.0;
+    for (int j = -2; j <= 2; j++) {
+        for (int i = -9; i <= 9; i++) {
+            vec2 at = (px + vec2(float(i) * 2.0, float(j) * 1.5) * frame.z) / frame.xy;
+            float ink = dot(texture2D(tex, at).rgb, vec3(0.33));
+            along = max(along, ink);
+            if (i >= -1 && i <= 1) near = max(near, ink);
+        }
+    }
+    gl_FragColor = vec4(near, along, 0.0, 1.0) * alpha;
+#if defined(DEBUG_FLAGS)
+    if (tint == 1.0)
+        gl_FragColor = vec4(0.0, 0.2, 0.0, 0.2) + gl_FragColor * 0.8;
+#endif
+}
+"#;
+
 /// The bar's shader: the picture bent by the air, with the light the smoke, the lasers, the sheen
 /// and the edge add to it. Its colours are premultiplied, and the light is added to them without
 /// changing their alpha.
@@ -271,6 +328,8 @@ uniform vec4 air;
 uniform vec3 ring;
 // Where a docked pane's frame carries the bar on down, so its foot has no edge: left and right.
 uniform vec2 gap;
+// The clock, the date and the chip after them, which the lasers stay clear of: left and right.
+uniform vec2 clock;
 
 const float PI = 3.14159265;
 const vec3 AMBER = vec3(0.96, 0.66, 0.30);
@@ -291,6 +350,14 @@ float field(vec2 px) {
     return texture2D(tex, vec2(at.x, frame.y + at.y) / frame.xw).r;
 }
 
+// How near the picture's pixel `px` is to text and icons, from the ink map under the field: a few
+// pixels round, and along its line.
+vec2 inked(vec2 px) {
+    vec2 cells = ceil(frame.xy / vec2(FIELD_X, FIELD_Y));
+    vec2 at = clamp(px / vec2(FIELD_X, FIELD_Y), vec2(0.5), cells - 0.5);
+    return texture2D(tex, vec2(at.x, frame.y + cells.y + at.y) / frame.xw).rg;
+}
+
 // One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a thin, straight
 // line, the same brightness all along, with a whiter core and a faint glow, as the air it lights
 // is seen from the side. In perspective it is widest at its projector and thins as it goes away.
@@ -300,33 +367,36 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     float along = dot(rel, dir);
     float width = max(1.6 * f * (1.0 - along / 2600.0), 0.5);
     float off = (rel.x * dir.y - rel.y * dir.x) * f;
-    if (along < 0.0 || abs(off) > 10.0 * width) return vec3(0.0);
+    if (along < 0.0 || abs(off) > 20.0 * width) return vec3(0.0);
     float core = exp(-off * off / (0.5 * width * width));
     float glow = exp(-off * off / (9.0 * width * width));
-    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow)
-        * exp(-along / 1800.0) * (0.35 + 0.9 * through);
+    // In thick smoke the beam's light spreads into the haze round it.
+    float bloom = exp(-off * off / (60.0 * width * width)) * through;
+    // The projector sits behind the clock, so a beam comes into sight only once it is clear of
+    // the clock, the date and the chip after them.
+    float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
+    float clear = smoothstep(reach - 10.0, reach + 30.0, along);
+    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow + 0.12 * hue * bloom)
+        * exp(-along / 1800.0) * (0.35 + 0.9 * through) * clear;
 }
 
-// Two laser projectors at the bar's middle, as at a show: one just below its foot fans four beams
-// out and up both ways, one just above its top fans two out and down. Both are out of sight, so
-// the beams cross the bar clear of the clock. The fans scan slowly and drift a little.
+// The laser projector at the bar's very middle, half-way up, behind the clock, as at a show: it
+// throws three beams out each way, in the logo's colours, which sweep slowly up and down past
+// each other while the fan opens and closes, each side a little behind the other. No beam turns
+// faster than eight degrees a minute.
 vec3 lasers(vec2 p, float t, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
-    vec2 low = vec2(wide * 0.5 + 30.0 * sin(2.0 * PI * t / 190.0), 58.0);
-    for (int i = 0; i < 4; i++) {
+    vec2 from = vec2(wide * 0.5, 20.0);
+    // The sweep turns at most six degrees a minute, and the fan opens at most two.
+    float spread = 0.016 + SPREAD_SWING * sin(2.0 * PI * t / SPREAD_PERIOD + 1.0);
+    for (int i = 0; i < 6; i++) {
         float fi = float(i);
-        float side = i < 2 ? -1.0 : 1.0;
-        float k = mod(fi, 2.0);
-        float angle = 0.034 + 0.02 * k + 0.008 * sin(2.0 * PI * t / (50.0 + 9.0 * fi) + fi * 1.7);
-        vec3 hue = k < 0.5 ? ring : MINT;
-        acc += beam(p, low, vec2(side * cos(angle), -sin(angle)), hue, f, through);
-    }
-    vec2 high = vec2(wide * 0.5 - 30.0 * sin(2.0 * PI * t / 230.0 + 1.0), -18.0);
-    for (int i = 0; i < 2; i++) {
-        float fi = float(i);
-        float side = i == 0 ? -1.0 : 1.0;
-        float angle = 0.03 + 0.008 * sin(2.0 * PI * t / (61.0 + 13.0 * fi) + fi * 2.3);
-        acc += beam(p, high, vec2(side * cos(angle), sin(angle)), AMBER, f, through);
+        float side = i < 3 ? -1.0 : 1.0;
+        // Which of the side's three it is: -1, 0 or 1.
+        float k = mod(fi, 3.0) - 1.0;
+        float angle = SWEEP * sin(2.0 * PI * t / SWEEP_PERIOD + side * 0.9) + k * spread;
+        vec3 hue = k < -0.5 ? ring : (k < 0.5 ? MINT : AMBER);
+        acc += beam(p, from, vec2(side * cos(angle), -sin(angle)), hue, f, through);
     }
     return acc;
 }
@@ -411,22 +481,18 @@ void main() {
 
     // The smoke catches the light, as edge-lit glass does, nearly white with a touch of the ring,
     // and its rims show faintly in the logo's colours; the lasers cross it.
-    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.08 + 0.06 * body) * glass;
+    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass;
     light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
-    light += lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.4 * glass;
+    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.4 * glass;
 
-    // Text and icons stay easy to read: round anything bright in the picture, the air's light
-    // is held back. A few pixels either way are looked at, so a glyph keeps a dark margin.
-    if (dot(light, vec3(1.0)) > 0.01) {
-        vec2 reach = 3.0 * f / frame.xw;
-        float ink = 0.0;
-        ink = max(ink, dot(texture2D(tex, v_coords).rgb, vec3(0.33)));
-        ink = max(ink, dot(texture2D(tex, v_coords + vec2(reach.x, 0.0)).rgb, vec3(0.33)));
-        ink = max(ink, dot(texture2D(tex, v_coords - vec2(reach.x, 0.0)).rgb, vec3(0.33)));
-        ink = max(ink, dot(texture2D(tex, vec2(v_coords.x, min(v_coords.y + reach.y, (frame.y - 0.5) / frame.w))).rgb, vec3(0.33)));
-        ink = max(ink, dot(texture2D(tex, v_coords - vec2(0.0, reach.y)).rgb, vec3(0.33)));
-        light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink);
-    }
+    // Text and icons stay easy to read: round anything bright in the picture, the smoke's and
+    // the sheen's light is held back, so a glyph keeps a dark margin; and a beam through a line
+    // of text would strike it through, so beams are held back along the whole line, passing over
+    // or under the numbers and icons, never through them.
+    vec2 ink = inked(px);
+    light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x);
+    beams *= 1.0 - 0.9 * smoothstep(0.15, 0.4, ink.y);
+    light += beams;
 
     // Where the light catches the glass, after that: it never sits on the text.
     float crossing = sheen_at * wide - (39.5 - 20.0) * 1.9;
@@ -461,12 +527,22 @@ void main() {
 /// Mark the glass's programs in a renderer's keeping.
 struct Program;
 struct FieldProgram;
+struct InkProgram;
 
 /// The smoke's field has one cell for this many screen pixels across, and this many down.
 const FIELD_X: f32 = 4.0;
 const FIELD_Y: f32 = 2.0;
 /// The largest gradient of the air the bar's shader takes, either way.
 const GRADIENT: f32 = 2.0;
+/// The lasers: how far the fan sweeps either way, in radians, and how long a sweep takes, and how
+/// long the fan takes to open and close again, in seconds. Together they keep the fastest beam
+/// under eight degrees a minute: a beam's far end creeps a pixel or two a second, which shows if
+/// you watch it for a few seconds and stays out of the way if you don't.
+const SWEEP: f32 = 0.04;
+const SWEEP_PERIOD: f32 = 145.0;
+const SPREAD_PERIOD: f32 = 110.0;
+/// How far the fan opens and closes either way, in radians.
+const SPREAD_SWING: f32 = 0.01;
 
 /// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
@@ -476,6 +552,10 @@ fn source() -> String {
             ("FIELD_X", &FIELD_X),
             ("FIELD_Y", &FIELD_Y),
             ("GRADIENT", &GRADIENT),
+            ("SWEEP", &SWEEP),
+            ("SWEEP_PERIOD", &SWEEP_PERIOD),
+            ("SPREAD_PERIOD", &SPREAD_PERIOD),
+            ("SPREAD_SWING", &SPREAD_SWING),
         ],
     )
 }
@@ -491,6 +571,7 @@ struct Uniforms {
     air: [f32; 4],
     ring: [f32; 3],
     gap: [f32; 2],
+    clock: [f32; 2],
 }
 
 impl shader::Uniforms for Uniforms {
@@ -500,6 +581,19 @@ impl shader::Uniforms for Uniforms {
             .with("air", self.air)
             .with("ring", self.ring)
             .with("gap", self.gap)
+            .with("clock", self.clock)
+    }
+}
+
+/// The ink map's shader's numbers: the picture's size and screen pixels to a unit.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct InkUniforms {
+    frame: [f32; 3],
+}
+
+impl shader::Uniforms for InkUniforms {
+    fn values(&self) -> Values {
+        Values::default().with("frame", self.frame)
     }
 }
 
@@ -669,9 +763,10 @@ impl Atlas {
             .into()
     }
 
-    /// The texture's whole size for a picture `size` screen pixels: the field's rows under it.
+    /// The texture's whole size for a picture `size` screen pixels: the field's rows under it,
+    /// and the ink map's under those.
     fn whole(size: Size<i32, Physical>) -> Size<i32, Physical> {
-        (size.w, size.h + Self::cells(size).h).into()
+        (size.w, size.h + 2 * Self::cells(size).h).into()
     }
 }
 
@@ -696,6 +791,8 @@ pub struct Look {
     pub ring: u32,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
+    /// The clock's block, its ends in the bar's units.
+    pub clock: (f32, f32),
     pub alpha: f32,
     /// Whether the air moves.
     pub moves: bool,
@@ -744,6 +841,11 @@ impl Glass {
             },
             "the lit edge's smoke",
         )?;
+        let ink = shader::program::<InkProgram, _>(
+            renderer,
+            |renderer| renderer.compile_custom_texture_shader(INK, &shader::names::<InkUniforms>()),
+            "the lit edge's ink map",
+        )?;
         let at = self.air.advance(look.now, look.moves, look.marker);
         if self
             .atlas
@@ -765,7 +867,12 @@ impl Glass {
         let atlas = self.atlas.as_mut()?;
         if !atlas.holds_picture || atlas.field_at != Some(at) {
             let numbers = field_uniforms(&self.air, at, picture.size, look);
-            if let Err(err) = fill(renderer, atlas, picture, &field, &numbers) {
+            let programs = Programs {
+                field: &field,
+                ink: &ink,
+                f: look.f,
+            };
+            if let Err(err) = fill(renderer, atlas, picture, &programs, &numbers) {
                 tracing::warn!("couldn't draw the lit edge's smoke: {err}");
                 self.atlas = None;
                 return None;
@@ -790,6 +897,7 @@ impl Glass {
             ],
             ring: rgb(look.ring),
             gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
+            clock: look.clock.into(),
         };
         let part = Rectangle::from_size((atlas.size.w as f64, atlas.size.h as f64).into());
         Some(self.kept.texture_part(
@@ -801,13 +909,21 @@ impl Glass {
     }
 }
 
-/// Draws into `atlas` the picture, if it doesn't hold it yet, and the smoke's field with
-/// `numbers`.
+/// What the atlas is drawn with besides the picture: the field's and the ink map's programs, and
+/// screen pixels to one of the bar's units.
+struct Programs<'a> {
+    field: &'a GlesPixelProgram,
+    ink: &'a GlesTexProgram,
+    f: f32,
+}
+
+/// Draws into `atlas` the picture and its ink map, if it doesn't hold them yet, and the smoke's
+/// field with `numbers`.
 fn fill(
     renderer: &mut GlesRenderer,
     atlas: &mut Atlas,
     picture: &Picture,
-    field: &GlesPixelProgram,
+    programs: &Programs<'_>,
     numbers: &FieldUniforms,
 ) -> Result<(), GlesError> {
     let size = atlas.size;
@@ -828,10 +944,26 @@ fn fill(
             None,
             &[],
         )?;
+        let map = Rectangle::new((0, size.h + cells.h).into(), cells);
+        let (list, len) = shader::Uniforms::values(&InkUniforms {
+            frame: [size.w as f32, size.h as f32, programs.f],
+        })
+        .listed();
+        frame.render_texture_from_to(
+            &picture.texture,
+            Rectangle::from_size((size.w as f64, size.h as f64).into()),
+            map,
+            &[Rectangle::from_size(cells)],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(programs.ink),
+            &list[..len],
+        )?;
     }
     let (list, len) = shader::Uniforms::values(numbers).listed();
     frame.render_pixel_shader_to(
-        field,
+        programs.field,
         Rectangle::from_size((cells.w as f64, cells.h as f64).into()),
         Rectangle::new((0, size.h).into(), cells),
         (cells.w, cells.h).into(),
@@ -972,6 +1104,15 @@ mod tests {
     }
 
     #[test]
+    fn no_laser_turns_faster_than_eight_degrees_a_minute() {
+        use std::f32::consts::TAU;
+        // The outer beams turn with the sweep and the fan's opening at once.
+        let fastest = SWEEP * TAU / SWEEP_PERIOD + SPREAD_SWING * TAU / SPREAD_PERIOD;
+        let per_minute = fastest.to_degrees() * 60.0;
+        assert!(per_minute <= 8.0, "{per_minute} degrees a minute");
+    }
+
+    #[test]
     fn the_clock_wraps_on_a_whole_curl() {
         assert_eq!(WRAP % SHED, 0.0);
         let mut air = Air::starting_at(WRAP - 0.5);
@@ -987,10 +1128,10 @@ mod tests {
     }
 
     #[test]
-    fn the_field_sits_under_the_picture_with_a_cell_for_every_four_by_two_pixels() {
+    fn the_field_and_the_ink_map_sit_under_the_picture_a_cell_for_every_four_by_two_pixels() {
         let size = Size::<i32, Physical>::from((1920, 40));
         assert_eq!(Atlas::cells(size), (480, 20).into());
-        assert_eq!(Atlas::whole(size), (1920, 60).into());
+        assert_eq!(Atlas::whole(size), (1920, 80).into());
         // A picture that doesn't divide evenly still has every pixel covered.
         let odd = Size::<i32, Physical>::from((1537, 41));
         assert_eq!(Atlas::cells(odd), (385, 21).into());

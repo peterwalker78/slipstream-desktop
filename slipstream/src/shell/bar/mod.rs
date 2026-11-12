@@ -271,6 +271,8 @@ pub struct Bar {
     at: Rectangle<f64, Logical>,
     /// What wants attention on it, never dimmed: each one's left and right edges, the same way.
     attention: Vec<(f64, f64)>,
+    /// The clock's block, its ends in the bar's units, which the wind tunnel's lasers stay clear of.
+    clock: (f32, f32),
     breath: breath::Breath,
     light: light::Light,
     /// The lit edge's glass on this screen, with its own air.
@@ -394,6 +396,7 @@ impl Bar {
         }
         self.targets = placed(painted.targets.clone(), rect, draw.width);
         let (x, unit) = (rect.x as f64, painted.unit);
+        self.clock = painted.clock;
         self.attention = painted
             .attention
             .iter()
@@ -436,6 +439,7 @@ impl Bar {
             gap: content
                 .dock
                 .map(|(left, right)| (units(left), units(right))),
+            clock: self.clock,
             alpha: draw.alpha,
             moves: self.moves(draw),
             now: draw.now,
@@ -538,6 +542,8 @@ struct Painted {
     attention: Vec<(f32, f32)>,
     /// Logical pixels to one of the bar's units.
     unit: f64,
+    /// The clock, the date and the chip after them: their left and right ends in the bar's units.
+    clock: (f32, f32),
 }
 
 /// Whether a power mode, power-profiles-daemon's profile, is set to save power. An unknown mode,
@@ -646,6 +652,7 @@ fn paint(content: &Content, width: i32, scale: f64, style: BarStyle) -> Option<P
         marker: at_rest,
         attention: bar.attention,
         unit: bar.unit,
+        clock: (centre_x, centre_x + block_w),
     })
 }
 
