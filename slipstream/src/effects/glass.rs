@@ -312,6 +312,13 @@ impl Glass {
         !self.broken
     }
 
+    /// Lets go of the pictures once the fade has settled, leaving the shaders compiled. The next
+    /// fade draws its first frame whole, as the first fade does.
+    pub fn settle(&mut self) {
+        self.texture = None;
+        self.through = None;
+    }
+
     /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.
     /// `nearer` is how much nearer the eye this pane starts than the windows' does.
     pub fn element(

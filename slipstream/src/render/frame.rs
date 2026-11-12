@@ -340,6 +340,11 @@ pub fn output_elements(
         chrome.unlock = None;
     }
     let v = View::new(state, renderer, &mut chrome, output, geo, now);
+    // The glass fade's pictures are screen-sized, so they go once the UI is all there or all gone.
+    if !v.glass {
+        chrome.glass.settle();
+        chrome.glass_bar.settle();
+    }
     // The rave's club, in front of everything on its screen, the pointer too; put in at the end,
     // where the camera diving into it shows the rest.
     let mut club = None;
