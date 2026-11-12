@@ -244,7 +244,7 @@ impl Rain {
     pub fn new(reduced_motion: bool, effects: Effects, ring_rgb: [f32; 3]) -> Self {
         Self {
             streams: Vec::new(),
-            glyphs: Glyphs::load(),
+            glyphs: None,
             reduced_motion,
             effects,
             pinned: None,
@@ -305,7 +305,15 @@ impl Rain {
     /// Which light the streams are drawn in, and the code rain's glyphs when it is that: for
     /// anything else that is drawn as a stream.
     pub fn light(&mut self) -> (Effects, Option<&mut Glyphs>) {
+        self.load_glyphs();
         (self.effects, self.glyphs.as_mut())
+    }
+
+    /// Loads the glyphs the first time code rain wants them.
+    fn load_glyphs(&mut self) {
+        if self.effects == Effects::Matrix && self.glyphs.is_none() {
+            self.glyphs = Glyphs::load();
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -429,6 +437,7 @@ impl Rain {
         } else {
             APPEAR
         };
+        self.load_glyphs();
         let Rain {
             streams,
             glyphs,

@@ -13,7 +13,7 @@
 //! documentation. No representations are made about the suitability of this software for any
 //! purpose. It is provided "as is" without express or implied warranty.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::OnceLock};
 
 /// Columns of glyphs across a band, each a third of its width. GLMatrix sizes glyphs by the
 /// window's height and scatters strips at every depth, which in a narrow, screen-tall stream gives
@@ -640,15 +640,22 @@ impl Target<'_> {
 /// The rain's glyphs, rasterised from its font once per size and cached as coverage — one byte a
 /// pixel, no colour, because the colour changes with the app's load and the cache must not.
 pub struct Glyphs {
-    font: fontdue::Font,
+    font: &'static fontdue::Font,
     scaled: HashMap<(usize, bool, (usize, usize)), Vec<u8>>,
+}
+
+/// The rain's font, parsed the first time a glyph is wanted and shared by everything that draws
+/// one; `None` if it doesn't parse.
+fn font() -> Option<&'static fontdue::Font> {
+    static FONT: OnceLock<Option<fontdue::Font>> = OnceLock::new();
+    FONT.get_or_init(|| fontdue::Font::from_bytes(RAIN_FONT, fontdue::FontSettings::default()).ok())
+        .as_ref()
 }
 
 impl Glyphs {
     pub fn load() -> Option<Self> {
-        let font = fontdue::Font::from_bytes(RAIN_FONT, fontdue::FontSettings::default()).ok()?;
         Some(Self {
-            font,
+            font: font()?,
             scaled: HashMap::new(),
         })
     }
