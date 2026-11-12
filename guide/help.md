@@ -4,7 +4,7 @@
 
 ## When something goes wrong
 
-The installer's check finds most problems, and writes nothing. If you installed with the one command, run this; from a download or a clone, run `scripts/install-session --check`.
+The installer's check finds most problems, and installs nothing. If you installed with the one command, run this; from a download or a clone, run `scripts/install-session --check`.
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --check
@@ -18,11 +18,11 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 ## A program is asking to record your screen
 
-Slipstream asks before any program can see your screen. A card names the program and offers **just this once** or **always allow**; Esc says no. Nothing is recorded until you answer, so a tool simply waits.
+Slipstream asks before any program can see your screen. A card names the program and offers **until you log out** or **always allow**; Esc says no. Nothing is recorded until you answer, so a tool simply waits.
 
 The card can only name a program it can identify, and it will not remember an answer against a program anyone could replace, so a script in your home directory is refused outright rather than asked about. That is deliberate: an answer remembered against a file you can rewrite would be a standing permission for whatever is put there next.
 
-**Settings → Privacy** lists what has been allowed, and the bin beside each one makes it ask again next time. Nothing is ever added there except by answering the card.
+**Settings → Session** lists what has been allowed, under Allowed to record the screen, once there is something to list, and the bin beside each one makes it ask again next time. Nothing is ever added there except by answering the card.
 
 Screen *sharing*, for a call through the portal, is a separate thing, with its own picker and the red pill on the bar that stops it.
 
@@ -55,7 +55,7 @@ Downloads are over https only. With `bundle_signer=`, a bundle is installed only
 
 ## Apps running in the background
 
-The notification centre (Super+N) lists the apps running without a window up, under **Background Apps**: an app whose windows you closed while it carried on, and an app that keeps an icon in the system tray, such as a chat or sync client, even one that started straight to its icon and never opened a window. An app that does both shows once.
+The notification centre (Super+N) lists the apps running without a window up, under **Background apps**: an app whose windows you closed while it carried on, and an app that keeps an icon in the system tray, such as a chat or sync client, even one that started straight to its icon and never opened a window. An app that does both shows once.
 
 - **Click** one, or choose it and press Enter, to bring it back. An app with a tray icon is asked to show itself, so one that was only hidden isn't started a second time. An app whose icon only has a menu shows its menu instead.
 - **Right-click** one, or press the Menu key or Shift+F10 on it, for its tray menu, drawn by Slipstream. The arrows move, Enter or Space chooses, → and ← open and close a submenu, and an entry's underlined letter chooses it straight away. Esc puts the menu away.

@@ -46,7 +46,7 @@ Each time it runs, or each time something changes for a program that keeps runni
 Every field is optional.
 
 - `lines`: up to six lines of text.
-- `sections`: named groups of gauges, up to four. Each gauge has a `label` and a `percent`, and can have `resets`, when it starts over in seconds since the Unix epoch, which shows as the time left, and `window`, how long it lasts in seconds. With both, the part of the window gone by is shaded in the gauge, in the focus ring's colour, and anything used beyond it shows in the bullet-time colour. A gauge without a `percent` shows only that, and the time left, as a timer's does. A section can have a `detail` beside its name, a `note` under it, and `stale` to dim it.
+- `sections`: named groups of gauges, up to four. Each gauge has a `label` and a `percent`, and can have `resets`, when it starts over in seconds since the Unix epoch, which shows as the time left, and `window`, how long it lasts in seconds. With both, the part of the window gone by is shaded in the gauge, in your primary colour, and anything used beyond it shows in your secondary colour. A gauge without a `percent` shows only that, and the time left, as a timer's does. A section can have a `detail` beside its name, a `note` under it, and `stale` to dim it.
 - `buttons`: up to three. Pressing one runs the plugin's program again with `press` and the button's `id` after its own words: `./weather.sh press refresh`. It waits for a run already under way to finish, and anything it leaves running is stopped when it exits. A button can instead have Slipstream do one thing for it, when you press it, and then the program isn't run: open a web address in your browser, with `"open": "https://…"`, for a plugin that needs `open`; copy text, with `"copy": "…"`, for one that needs `clipboard`; or control what's playing, with the id `media:play-pause`, `media:next` or `media:previous`, for one that needs `media`.
 - A card with two or more sections has a cog, which slides it across to a switch for each one, to hide the ones you don't want.
 - `glance`: what the chip shows when this plugin is the one chosen for it. Without it, the chip shows the first section's first two gauges and the larger of their percentages.
@@ -72,7 +72,7 @@ tile = true
 {"tile": {"id": "awake", "label": "Keep awake", "icon": "sun", "on": true}}
 ```
 
-- `id` is what pressing the tile sends, as a button's: `press awake`. `label` is its name, and `on` lights it in the accent colour. Under the label is the plugin's name.
+- `id` is what pressing the tile sends, as a button's: `press awake`. `label` is its name, and `on` lights it in your tertiary colour. Under the label is the plugin's name.
 - `icon` is one of `bell`, `eye`, `file`, `folder`, `gauge`, `keyboard`, `lock`, `mic`, `moon`, `pause`, `play`, `power`, `run`, `search`, `sun`, `tick` and `volume`; any other, or none, gets a plain one.
 - The tile changes when the card does, so print a new card with the new `on` once the press has done its work. Up to four plugins' tiles show, while their plugins are on.
 
@@ -114,7 +114,7 @@ They have no keys until you give them some, in **Settings → Shortcuts**, under
 
 A plugin runs in a sandbox, made with [bubblewrap](https://github.com/containers/bubblewrap), the tool Flatpak uses. In it, the program sees the system's programs, libraries and settings, read-only, and of your own files only its folder, read-only, its own folder for what it keeps, and the folders its `read` names, read-only. Your home folder is empty and `/tmp` is its own. It can't see or signal any other program, and it has no network, no display and no session bus. Its environment is only `HOME`, `USER`, `LOGNAME`, `PATH`, `SHELL`, the language and time zone settings, the `$XDG_…_HOME` folders, and the proxy settings for one that goes online, so the SSH and GPG agents are left out too. On top of that, a filter refuses it the kernel's own ways round a sandbox, as Flatpak's does: keyrings, namespaces and mounts, typing into a terminal, loading kernel modules, `bpf`, `ptrace`, `io_uring`, and sockets other than local, internet and netlink.
 
-`needs` adds to that. **Settings → Plugins** lists what each plugin can do in everyday words before you turn it on, and sums it up beside its name: **Safe** when it can't see or send anything of yours that matters, **Worth a thought** when it can see something private or send what it sees online, and **Full access** for one that needs `everything`:
+`needs` adds to that. **Settings → Plugins** lists what each plugin can do in everyday words before you turn it on, and sums it up beside its name: **Safe** when nothing it sees can leave this computer, **Worth a thought** when it can see something private or send what it sees online, and **Full access** for one that needs `everything`:
 
 - `network`: the internet and your local network. It shares the computer's own network, so it can also reach any program listening for other programs there.
 - `windows`: the display, to open windows of its own. Its windows are treated as a Flatpak app's are: it can't type as your keyboard, read the clipboard while you're elsewhere, or draw over the desktop.

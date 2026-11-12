@@ -9,7 +9,7 @@ These are the Windows style's keys, which Slipstream starts with. Settings → S
 | Keys | What they do |
 |---|---|
 | Super, tapped on its own, or Super+S | App explorer |
-| Super+Return, Super+E, Super+I | Terminal, files, Settings |
+| Super+Enter, Super+E, Super+I | Terminal, files, Settings |
 | Super+B | A new window of your default browser |
 | Alt+Tab, Alt+Shift+Tab | Switch windows, dealt as a deck of glass |
 | Alt+F4 | Close the window |
@@ -75,7 +75,7 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 |---|---|
 | Super+Space | App explorer |
 | Super+W | Close the window |
-| Super+Shift+Return, Super+Shift+B | A new window of your default browser |
+| Super+Shift+Enter, Super+Shift+B | A new window of your default browser |
 | Super+Shift+F | Files |
 | Super+Shift+arrows | Move the window: it swaps places with the one that way |
 | Super+- and =, with Shift for height | Resize |
@@ -84,7 +84,7 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 | Super+L | Tiling or gravity; keep Super held to choose the arrangement |
 | Super+J, Super+Shift+J | Turn the whole layout a quarter, clockwise or back |
 | Super+O, Super+Shift+O | Dock the window to the bar; bring it back down |
-| Super+Tab, Super+Shift+Tab | Next, previous workspace |
+| Super+Tab, Super+Shift+Tab | Next, previous workspace (in place of Super+Ctrl+← →) |
 | Super+Ctrl+↑ | Bullet time |
 | Super+Ctrl+A | Quick settings |
 | Super+Alt+Shift+, | Notifications |
