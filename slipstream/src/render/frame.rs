@@ -313,6 +313,7 @@ pub fn output_elements(
     crate::paint::trim_layers();
     let rave_wanted = state.rave.is_some() || state.knocks.hinting(state.wall());
     crate::effects::rave::warm(renderer, rave_wanted);
+    crate::effects::shader::trim_when_due();
     // While locked, the lock is all there is: nothing below reads a window, and any rave ends.
     if state.lock.is_some() {
         state.rave = None;

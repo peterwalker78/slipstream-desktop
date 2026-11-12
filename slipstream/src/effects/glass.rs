@@ -315,8 +315,9 @@ impl Glass {
     /// Lets go of the pictures once the fade has settled, leaving the shaders compiled. The next
     /// fade draws its first frame whole, as the first fade does.
     pub fn settle(&mut self) {
-        self.texture = None;
-        self.through = None;
+        if self.texture.take().is_some() | self.through.take().is_some() {
+            crate::effects::shader::trim_soon();
+        }
     }
 
     /// `elements`, the UI drawn at full strength, shown as its pane `progress` of the way gone.

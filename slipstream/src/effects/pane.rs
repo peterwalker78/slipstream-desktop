@@ -374,8 +374,9 @@ impl Panes {
             .get_or_insert_with(Instant::now)
             .elapsed()
             >= KEEP_SHADER
+            && self.program.take().is_some()
         {
-            self.program = None;
+            crate::effects::shader::trim_soon();
         }
     }
 

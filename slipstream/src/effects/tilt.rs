@@ -264,7 +264,9 @@ impl Stage {
     /// Lets go of the overview's picture once bullet time has zoomed back in, leaving the shader
     /// compiled. The next zoom draws its first frame whole.
     pub fn settle(&mut self) {
-        self.texture = None;
+        if self.texture.take().is_some() {
+            crate::effects::shader::trim_soon();
+        }
     }
 
     /// `elements`, drawn flat `dense` times the screen's own resolution, then shown turned by

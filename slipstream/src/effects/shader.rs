@@ -102,8 +102,39 @@ pub fn holds_program<K: 'static, P: 'static>(renderer: &GlesRenderer) -> bool {
 /// Lets go of the program marked by `K` in `renderer`. The renderer deletes it once nothing
 /// drawing with it is left.
 pub fn let_go<K: 'static, P: 'static>(renderer: &GlesRenderer) {
-    if let Some(held) = renderer.egl_context().user_data().get::<Held<K, P>>() {
-        held.program.borrow_mut().take();
+    if let Some(held) = renderer.egl_context().user_data().get::<Held<K, P>>()
+        && held.program.borrow_mut().take().is_some()
+    {
+        trim_soon();
+    }
+}
+
+thread_local! {
+    /// Frames to go before the memory let go of is handed back to the system, or 0 for none.
+    static TRIM_IN: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Hands the memory just let go of back to the system a few frames from now, once the renderer
+/// has deleted what it held. The graphics driver frees a compiled program, or a texture drawn in
+/// software, in pieces the allocator otherwise keeps for itself.
+pub fn trim_soon() {
+    TRIM_IN.set(3);
+}
+
+/// Counts down to a trim asked for by `trim_soon`. Called once a frame.
+pub fn trim_when_due() {
+    let left = TRIM_IN.get();
+    if left == 0 {
+        return;
+    }
+    TRIM_IN.set(left - 1);
+    if left == 1 {
+        #[cfg(target_env = "gnu")]
+        // SAFETY: malloc_trim only hands free memory at the edges of the allocator's pages back
+        // to the system; it touches nothing in use.
+        unsafe {
+            libc::malloc_trim(0);
+        }
     }
 }
 
