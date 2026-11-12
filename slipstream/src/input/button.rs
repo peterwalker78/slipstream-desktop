@@ -147,7 +147,7 @@ impl Slipstream {
         // A left press on the gap between tiles resizes them, and with Super held on a window it
         // drags that window to swap it. Either way the press reaches no app.
         if pressed {
-            let super_held = Mods::from_state(&keyboard.modifier_state(), self.nested).logo;
+            let super_held = Mods::from_state(&keyboard.modifier_state()).logo;
             if self.start_drag(pointer.current_location(), button, serial, super_held) {
                 self.forward_button(button, button_state, serial, time);
                 return;

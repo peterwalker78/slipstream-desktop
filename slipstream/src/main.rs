@@ -509,9 +509,10 @@ fn start_nested(
     // SAFETY: as above, the other threads reach the environment only through `std`.
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
     tracing::info!(
-        "listening on WAYLAND_DISPLAY={}. Nested, Alt is the Mod key: Alt+arrows move focus, \
-         Alt+1–9 and Alt+Ctrl+←/→ switch workspace, Alt+Shift+1–9 and Alt+Shift+←/→ move the \
-         window there, Alt+Return opens a terminal, and closing the window quits",
+        "listening on WAYLAND_DISPLAY={}. The focused window holds the keyboard, Super included: \
+         Super+arrows move focus, Super+1–9 and Super+Ctrl+←/→ switch workspace, Super+Shift+1–9 \
+         and Super+Shift+←/→ move the window there, Super+Return opens a terminal, Ctrl+Alt \
+         lets go of the keyboard, and closing the window quits",
         state.socket_name.to_string_lossy()
     );
     Ok(())

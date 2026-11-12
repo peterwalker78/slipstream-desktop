@@ -17,4 +17,4 @@ cargo test --workspace      # in the box
 scripts/test-install-session
 ```
 
-Nested, **Alt is the Mod key**, since your desktop keeps Super for itself.
+Nested, the window holds the keyboard while it has focus, Super included, so the keys are the same as in the session. Press and let go of **Ctrl+Alt** to give the keyboard back to your desktop, and click the window to take it again; the window's title says which. On X11, or a Wayland desktop that doesn't support keyboard-shortcuts-inhibit, your desktop keeps the keys it uses itself.

@@ -411,10 +411,7 @@ impl Slipstream {
                 // Super with the wheel zooms the screen, whatever the pointer is over.
                 let held = self.seat.get_keyboard().map(|kb| kb.modifier_state());
                 if let Some(held) = held
-                    && crate::keys::zooms_with_wheel(crate::keys::Mods::from_state(
-                        &held,
-                        self.nested,
-                    ))
+                    && crate::keys::zooms_with_wheel(crate::keys::Mods::from_state(&held))
                 {
                     let notch = if event.source() == AxisSource::Finger {
                         30.0

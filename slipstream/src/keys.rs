@@ -336,25 +336,18 @@ pub struct Mods {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
-    /// Slipstream's Mod key: Super on real hardware (see `from_state`).
+    /// Slipstream's Mod key: Super, nested too, where the window holds the keyboard.
     pub logo: bool,
 }
 
 impl Mods {
-    /// Nested inside another desktop, that desktop keeps Super for itself (KDE binds
-    /// Super+Shift+Esc, for one), so Alt stands in for Super.
-    pub fn from_state(m: &ModifiersState, nested: bool) -> Self {
-        let mut mods = Self {
+    pub fn from_state(m: &ModifiersState) -> Self {
+        Self {
             ctrl: m.ctrl,
             alt: m.alt,
             shift: m.shift,
             logo: m.logo,
-        };
-        if nested && mods.alt && !mods.logo {
-            mods.alt = false;
-            mods.logo = true;
         }
-        mods
     }
 }
 
@@ -440,7 +433,7 @@ fn focus() -> impl Iterator<Item = Binding> {
 /// Alt+F4, the task switcher and the terminal.
 fn switching() -> Vec<Binding> {
     vec![
-        // On real hardware only: nested inside KDE, KWin takes Alt+F4 for its own window.
+        // Nested, the host takes Alt+F4 for its own window unless it passes the window every key.
         bind(ALT, Keysym::F4, Action::Close),
         // Letting go of Alt settles on the window.
         bind(ALT, Keysym::Tab, Action::CycleWindows { forward: true }),
@@ -1409,18 +1402,23 @@ mod tests {
     }
 
     #[test]
-    fn nested_alt_stands_in_for_super() {
+    fn alt_never_stands_in_for_super() {
         let alt = ModifiersState {
             alt: true,
             ..ModifiersState::default()
         };
-        let nested = Mods::from_state(&alt, true);
         assert_eq!(
-            action_for(&defaults(), nested, Keysym::Right),
+            action_for(&defaults(), Mods::from_state(&alt), Keysym::Right),
+            None
+        );
+        let logo = ModifiersState {
+            logo: true,
+            ..ModifiersState::default()
+        };
+        assert_eq!(
+            action_for(&defaults(), Mods::from_state(&logo), Keysym::Right),
             Some(Action::Focus(Direction::Right))
         );
-        let hardware = Mods::from_state(&alt, false);
-        assert_eq!(action_for(&defaults(), hardware, Keysym::Right), None);
     }
 
     #[test]

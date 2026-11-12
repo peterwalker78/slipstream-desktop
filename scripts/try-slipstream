@@ -51,11 +51,12 @@ mkdir -p "$scratch/config" "$scratch/state" "$scratch/data"
 
 echo "Slipstream is opening in a window."
 echo
-echo "  In a window, Alt stands in for the Windows key, which the desktop around it keeps."
-echo "  Alt+Return  a terminal        Alt+Space   the app explorer"
-echo "  Alt+1…5     workspaces        Alt+Tab     switch windows"
-echo "  Alt+I       settings          Alt+Q       close the window"
-echo "  Alt+Shift+Q closes Slipstream and ends this trial."
+echo "  The window holds the keyboard, Super included, while you use it."
+echo "  Super+Return  a terminal      Super        the app explorer"
+echo "  Super+1…5     workspaces      Alt+Tab      switch windows"
+echo "  Super+I       settings        Alt+F4       close a window"
+echo "  Ctrl+Alt lets go of the keyboard; click the window to use it again."
+echo "  Closing the window ends this trial."
 echo
 echo "Nothing here is saved: settings and layout go to a scratch folder."
 echo
