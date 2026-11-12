@@ -467,6 +467,7 @@ impl Bar {
             moves: self.moves(draw),
             shown: draw.shown,
             animated: draw.style == BarStyle::LitEdge && !draw.reduced_motion && !draw.power_saver,
+            lasers: !draw.power_saver,
             now: draw.now,
         })
     }

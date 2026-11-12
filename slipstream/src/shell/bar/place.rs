@@ -99,9 +99,9 @@ impl Place {
     }
 }
 
-/// The fill of the bar along the screen's edge: a near-black a little deeper than the dark chips',
-/// nearly opaque.
-const EDGE_FILL: u32 = 0x090a0eeb;
+/// The fill of the bar along the screen's edge: a near-black deeper than the dark chips', nearly
+/// opaque.
+const EDGE_FILL: u32 = 0x07080beb;
 
 /// What the bar is made of, as 0xRRGGBBAA colours: its fill, and its edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

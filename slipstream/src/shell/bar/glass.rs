@@ -18,9 +18,10 @@
 //! a glint. A broad sheen slides slowly along the frosted glass, kept faint behind the clock as the
 //! smoke is. The air bends the bar's picture behind it, more in the lower glass than over the text,
 //! with a hint of colour split, and round the text and icons its light is held back so they stay
-//! easy to read: a beam nearing text fades gradually. The foot is a polished edge with an inner
-//! reflection, lit by the light running along it, brighter round the marker and where smoke sits
-//! against it.
+//! easy to read: a beam nearing text fades gradually. The pane shows its edges all round, as a
+//! sheet of glass does: a fine bright face at the very edge and a fainter reflection of it across
+//! the glass's thickness. The foot's edge is lit besides where smoke sits against it. The glass is
+//! kept dark, and in the power saver mode the projector is off.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -607,9 +608,24 @@ void main() {
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
+    // The pane's edges all round, top, foot and both ends, as a sheet of glass shows its own: a
+    // fine bright face at the very edge, a dark line inside it, and a fainter reflection of the
+    // face across the glass's thickness. None where a docked pane's frame carries the bar on down.
+    float to_side = min(px.x, frame.x - px.x);
+    float to_foot = mix(frame.y - px.y, 1e4, in_gap);
+    float rim = 1e4;
+    rim = min(rim, min(to_side, px.y));
+    rim = min(rim, to_foot);
+    float face = exp(-pow(rim - 0.5, 2.0) / 0.5);
+    float thickness = 2.6 * f;
+    float inner = exp(-pow(rim - thickness, 2.0) / (0.6 * f * f));
+    float shade = exp(-pow(rim - 0.5 * thickness - 0.5, 2.0) / (0.4 * f * f));
+    behind.rgb *= 1.0 - 0.45 * shade;
+    vec3 rims = mix(PALE, ring, 0.2) * (0.42 * face + 0.14 * inner);
+
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
     // The glass's own light is kept low, so the bar reads dark.
-    vec3 added = min(min(0.8 * light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
+    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams + rims, vec3(1.0));
     vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
@@ -828,13 +844,15 @@ impl Air {
 
     /// The projector's power and the breath before a rush at `now`, for the shader. The
     /// projector powers up while the desktop is `shown` and goes down while it fades; without
-    /// motion (`animated` false) it is simply on.
-    fn stage(&mut self, now: f64, shown: bool, animated: bool) -> [f32; 2] {
+    /// motion (`animated` false) it is simply on, and without `lasers` simply off.
+    fn stage(&mut self, now: f64, shown: bool, animated: bool, lasers: bool) -> [f32; 2] {
         let step = self
             .power_last
             .map_or(0.0, |last| (now - last).clamp(0.0, STEP_MOST));
         self.power_last = Some(now);
-        self.power = if !animated {
+        self.power = if !lasers {
+            0.0
+        } else if !animated {
             1.0
         } else if shown {
             (self.power + step / POWER_UP).min(1.0)
@@ -937,11 +955,13 @@ pub struct Look {
     /// The clock's block, its ends in the bar's units.
     pub clock: (f32, f32),
     pub alpha: f32,
-    /// Whether the air moves; whether the desktop is shown rather than fading; and whether the
-    /// glass animates at all, which it doesn't with reduced motion or in the power saver mode.
+    /// Whether the air moves; whether the desktop is shown rather than fading; whether the
+    /// glass animates at all, which it doesn't with reduced motion or in the power saver mode; and
+    /// whether the projector is on, which it isn't in the power saver mode.
     pub moves: bool,
     pub shown: bool,
     pub animated: bool,
+    pub lasers: bool,
     pub now: f64,
 }
 
@@ -993,7 +1013,8 @@ impl Glass {
             "the lit edge's ink map",
         )?;
         let at = self.air.advance(look.now, look.moves, look.marker);
-        let stage = self.air.stage(look.now, look.shown, look.animated);
+        let stage = self.air
+            .stage(look.now, look.shown, look.animated, look.lasers);
         if self
             .atlas
             .as_ref()
@@ -1271,22 +1292,27 @@ mod tests {
     }
 
     #[test]
-    fn the_projector_powers_up_as_the_desktop_comes_back_and_is_simply_on_without_motion() {
+    fn the_projector_powers_up_as_the_desktop_comes_back_is_on_without_motion_and_off_saving_power() {
         let mut air = Air::starting_at(100.0);
-        assert_eq!(air.stage(0.0, true, true)[0], 0.0, "off at first");
+        assert_eq!(air.stage(0.0, true, true, true)[0], 0.0, "off at first");
         let mut power = 0.0;
         for n in 1..=30 {
-            power = air.stage(n as f64 / 60.0, true, true)[0];
+            power = air.stage(n as f64 / 60.0, true, true, true)[0];
         }
         assert_eq!(power, 1.0, "fully on after half a second");
         for n in 31..=50 {
-            power = air.stage(n as f64 / 60.0, false, true)[0];
+            power = air.stage(n as f64 / 60.0, false, true, true)[0];
         }
         assert_eq!(power, 0.0, "down again as the desktop fades");
         assert_eq!(
-            air.stage(1.0, false, false)[0],
+            air.stage(1.0, false, false, true)[0],
             1.0,
             "simply on without motion"
+        );
+        assert_eq!(
+            air.stage(1.1, true, true, false)[0],
+            0.0,
+            "off in the power saver mode"
         );
     }
 
