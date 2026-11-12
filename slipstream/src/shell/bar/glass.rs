@@ -4,16 +4,20 @@
 //!
 //! Slow air drifts along the bar from left to right, and through the glass it shows the way a
 //! wind tunnel's schlieren photographs do: as soft light and shade where it gathers and thins,
-//! with faint rims in the logo's colours, amber through mint to cyan. It drifts in patches of
-//! smoke that gather, swell, thin and clear over tens of seconds, at any height in the glass,
-//! their edges fraying into threads. The workspace marker stands in the stream and sheds a curl of smoke every few seconds, alternately above and
-//! below it; each drifts downwind, rises, turns and breathes, and fades on its own clock. Two laser
-//! projectors beyond the bar throw fans of beams across it in perspective, seen mostly where they
-//! pass through smoke, scanning by a few degrees over most of a minute. A broad sheen slides slowly along the frosted
-//! glass, and in it single facets of the frosting flash as pinpoints as the light lines up with
-//! them. The air bends the bar's picture behind it, more in the lower glass than over the text,
-//! with a hint of colour split. The foot is a polished edge with an inner reflection, lit by the
-//! light running along it, brighter round the marker and where fog sits against it.
+//! with faint rims in the logo's colours, amber through mint to cyan. It drifts as soft billows of
+//! smoke with a fine, fluffy grain, which gather, swell, thin and clear over tens of seconds at
+//! any height in the glass. The workspace marker stands in the stream and sheds a curl of smoke
+//! every few seconds, alternately above and below it; each drifts downwind, rises, turns and
+//! breathes, and fades on its own clock. Two laser projectors at the bar's middle, just out of
+//! sight below and above it, fan thin, straight beams out both ways across it, as at a show;
+//! each beam is widest at its projector and thins with distance, and brightens where it crosses
+//! smoke. A broad sheen slides slowly along the frosted glass, and where it meets the polished
+//! foot and the top edge the light catches the glass at a point that glides with it, and a few
+//! nicks in the foot flare as it passes. The air bends the bar's picture behind it, more in the
+//! lower glass than over the text, with a hint of colour split, and round the text and icons its
+//! light is held back so they stay easy to read. The foot is a polished edge with an inner
+//! reflection, lit by the light running along it, brighter round the marker and where smoke sits
+//! against it.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -159,36 +163,23 @@ float hash2(vec2 c) {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-// Ridged noise: bright creases where the noise crosses zero, the threads smoke is made of, from 0
-// to 1.
-float threads(vec3 q) {
-    float sum = 0.0;
-    float share = 0.5;
-    for (int i = 0; i < 2; i++) {
-        sum += share * (1.0 - abs(snoise(q)));
-        q = q * 2.1 + 3.7;
-        share *= 0.5;
-    }
-    return sum / 0.75;
+// The fine grain smoke is made of: small soft lumps, the same size every way, carried a little
+// faster than the billows they sit in, from 0 to 1.
+float grain(vec2 p, float t) {
+    vec2 q = vec2(p.x - 1.1 * AIR * t, p.y) / 9.0;
+    return 0.5 + 0.5 * (0.65 * snoise(vec3(q, t * 0.08)) + 0.35 * snoise(vec3(q * 2.3 + 4.1, t * 0.11)));
 }
 
-// The threads at `p`, stretched along the flow and carried a little faster than the fog they fray.
-float fray(vec2 p, float t) {
-    vec2 q = vec2((p.x - 1.2 * AIR * t) / 70.0, p.y / 10.0);
-    vec2 w = vec2(snoise(vec3(q * 0.25, t * 0.04)), snoise(vec3(q * 0.25 + 5.2, t * 0.04 + 3.0)));
-    return threads(vec3(q + 1.4 * w, t * 0.05));
-}
-
-// The fog at `p`, frayed by `frayed`: carried downwind, gathering here and clearing there over tens
-// of seconds, at any height in the glass. Its edges break into threads and it thins softly, so it
-// reads as smoke rather than a film.
-float fog(vec2 p, float t, float frayed) {
-    vec2 q = vec2((p.x - AIR * t) / 150.0, p.y / 16.0);
-    vec2 w = vec2(snoise(vec3(q * 0.7, t * 0.025)), snoise(vec3(q * 0.7 + 5.2, t * 0.025 + 3.0)));
-    float body = 0.5 + 0.5 * fbm(vec3(q + 0.8 * w, t * 0.03));
+// The fog at `p`, given its grain: soft billows carried downwind and curled by the air, gathering
+// here and clearing there over tens of seconds, at any height in the glass. It thins softly at
+// its edges, and the grain gives it the fluffy texture of real smoke.
+float fog(vec2 p, float t, float grained) {
+    vec2 q = vec2((p.x - AIR * t) / 150.0, p.y / 18.0);
+    vec2 w = vec2(snoise(vec3(q * 0.6, t * 0.025)), snoise(vec3(q * 0.6 + 5.2, t * 0.025 + 3.0)));
+    float body = 0.5 + 0.5 * fbm(vec3(q + 1.2 * w, t * 0.03));
     float life = snoise(vec3((p.x - 0.8 * AIR * t) / 380.0, 1.7, t * 0.033));
-    float d = smoothstep(0.2, 0.95, body + 0.55 * life + 0.45 * (frayed - 0.6));
-    d *= 0.7 + 0.3 * frayed;
+    float d = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
+    d *= 0.6 + 0.8 * grained;
     return d * smoothstep(0.0, 7.0, p.y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, p.y));
 }
 
@@ -229,10 +220,10 @@ float curls(vec2 p, float t) {
     return acc;
 }
 
-// All the smoke at `p`: the fog, and the curls frayed by the same threads.
+// All the smoke at `p`: the fog, and the curls, with the same grain.
 float smoke(vec2 p, float t) {
-    float frayed = fray(p, t);
-    return fog(p, t, frayed) + 1.2 * curls(p, t) * (0.45 + 0.55 * frayed);
+    float grained = grain(p, t);
+    return fog(p, t, grained) + 1.2 * curls(p, t) * (0.6 + 0.4 * grained);
 }
 
 // The smoke here, for the picture's pixels under this one of the field's.
@@ -300,72 +291,75 @@ float field(vec2 px) {
     return texture2D(tex, vec2(at.x, frame.y + at.y) / frame.xw).r;
 }
 
-// One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`. Seen in
-// perspective it is a hairline where it leaves its projector, far off, and widens and softens as
-// it comes nearer; its white-hot core thins out as the same light spreads wider. Where it lights
-// smoke it breaks into the grain laser light has, which shimmers slowly.
-vec3 beam(vec2 p, float t, vec2 from, vec2 dir, vec3 hue, float seed, float f, float through) {
+// One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a thin, straight
+// line, the same brightness all along, with a whiter core and a faint glow, as the air it lights
+// is seen from the side. In perspective it is widest at its projector and thins as it goes away.
+// Smoke it crosses lights up more brightly.
+vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     vec2 rel = p - from;
     float along = dot(rel, dir);
-    float width = 0.4 + along * 0.0018 * f;
+    float width = max(1.6 * f * (1.0 - along / 2600.0), 0.5);
     float off = (rel.x * dir.y - rel.y * dir.x) * f;
-    if (along < 0.0 || abs(off) > 12.0 * width) return vec3(0.0);
-    float core = exp(-off * off / (width * width));
-    float halo = exp(-off * off / (25.0 * width * width));
-    // Laser speckle: a fine grain, a couple of pixels across, that shimmers slowly.
-    vec2 cell = floor(p * f / 2.0) + 31.0 * seed;
-    float phase = t * 0.7;
-    float grain = 0.7 + 0.3 * (2.0 * mix(hash2(cell + floor(phase)), hash2(cell + floor(phase) + 1.0),
-        smoothstep(0.0, 1.0, fract(phase))) - 1.0);
-    float grainy = mix(1.0, grain, smoothstep(0.0, 0.3, through));
-    float spread = inversesqrt(max(width, 1.0));
-    return (mix(hue, vec3(1.0), 0.55 * core) * core * spread * grainy + 0.22 * hue * halo)
-        * exp(-along / 1300.0) * (0.08 + 1.3 * through);
+    if (along < 0.0 || abs(off) > 10.0 * width) return vec3(0.0);
+    float core = exp(-off * off / (0.5 * width * width));
+    float glow = exp(-off * off / (9.0 * width * width));
+    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow)
+        * exp(-along / 1800.0) * (0.35 + 0.9 * through);
 }
 
-// Two laser projectors beyond the bar, each throwing a fan of beams that scans slowly. One, below
-// the foot, fans up and rightwards past the workspaces; the other, above the top, fans down and
-// leftwards past the tray. Each drifts along the bar.
+// Two laser projectors at the bar's middle, as at a show: one just below its foot fans four beams
+// out and up both ways, one just above its top fans two out and down. Both are out of sight, so
+// the beams cross the bar clear of the clock. The fans scan slowly and drift a little.
 vec3 lasers(vec2 p, float t, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
-    vec2 low = vec2(wide * 0.2 + 60.0 * sin(2.0 * PI * t / 170.0), 58.0);
+    vec2 low = vec2(wide * 0.5 + 30.0 * sin(2.0 * PI * t / 190.0), 58.0);
     for (int i = 0; i < 4; i++) {
         float fi = float(i);
-        float angle = 0.03 + 0.017 * fi + 0.01 * sin(2.0 * PI * t / (52.0 + 11.0 * fi) + fi * 1.7);
-        acc += beam(p, t, low, vec2(cos(angle), -sin(angle)), ring, fi, f, through);
+        float side = i < 2 ? -1.0 : 1.0;
+        float k = mod(fi, 2.0);
+        float angle = 0.034 + 0.02 * k + 0.008 * sin(2.0 * PI * t / (50.0 + 9.0 * fi) + fi * 1.7);
+        vec3 hue = k < 0.5 ? ring : MINT;
+        acc += beam(p, low, vec2(side * cos(angle), -sin(angle)), hue, f, through);
     }
-    vec2 high = vec2(wide * 0.82 + 60.0 * sin(2.0 * PI * t / 210.0 + 2.0), -18.0);
-    for (int i = 0; i < 3; i++) {
+    vec2 high = vec2(wide * 0.5 - 30.0 * sin(2.0 * PI * t / 230.0 + 1.0), -18.0);
+    for (int i = 0; i < 2; i++) {
         float fi = float(i);
-        float angle = 0.028 + 0.02 * fi + 0.01 * sin(2.0 * PI * t / (61.0 + 9.0 * fi) + fi * 2.3);
-        vec3 hue = i == 1 ? AMBER : MINT;
-        acc += beam(p, t, high, vec2(-cos(angle), sin(angle)), hue, 10.0 + fi, f, through);
+        float side = i == 0 ? -1.0 : 1.0;
+        float angle = 0.03 + 0.008 * sin(2.0 * PI * t / (61.0 + 13.0 * fi) + fi * 2.3);
+        acc += beam(p, high, vec2(side * cos(angle), sin(angle)), AMBER, f, through);
     }
     return acc;
 }
 
-// Frosted glass is countless tiny facets, each tilted its own way, so the sheen is a soft patch
-// rather than a mirror's spot. A facet tilted just right to send the light to the eye flashes as
-// a pinpoint. Most are tilted only a little, so the flashes gather where the sheen is; as the
-// light moves each lights for a fraction of a second and goes out while others light, and when
-// the light holds still, so do they.
-vec3 sparkle(vec2 p, float t, float from_sheen, float f) {
-    vec2 cell = floor(p / 2.0);
-    float h1 = hash2(cell);
-    float h4 = hash2(cell + 77.1);
-    float tilt = sqrt(-2.0 * log(max(h1, 1e-4))) * cos(2.0 * PI * h4);
-    float want = from_sheen + 0.05 * sin(2.0 * PI * t / 23.0)
-        + 0.04 * sin(2.0 * PI * t / 9.0 + 1.3) * sin(2.0 * PI * t / 13.7);
-    // Nearly every facet faces away: those go no further.
-    float miss = (tilt - want) / 0.008;
-    if (abs(miss) > 3.0) return vec3(0.0);
-    float lit = exp(-miss * miss);
-    float h2 = hash2(cell + 17.3);
-    float h3 = hash2(cell + 41.9);
-    vec2 d = (p - (cell + 0.25 + 0.5 * vec2(h2, h3)) * 2.0) * f;
-    float point = exp(-dot(d, d) / 0.32) + 0.12 * exp(-dot(d, d) / 2.5);
-    vec3 hue = mix(vec3(0.92, 0.98, 1.0), h3 > 0.82 ? AMBER : ring, 0.22);
-    return hue * lit * (0.25 + 0.75 * h2 * h2 * h2) * point;
+// Light catching the glass at points, as it does on a real pane: where the sheen meets the
+// polished foot, and its top edge, the glass flares at one point that glides along with it, a
+// bright point drawn out a little along the edge with a soft bloom, swelling and fading as the
+// pane trims; and a few fixed nicks in the foot flare as the sheen passes over them. `crossing`
+// is where the sheen meets the foot, in the bar's units.
+vec3 glints(vec2 px, vec2 p, float t, float f, float wide, float crossing) {
+    float swell = 0.55 + 0.45 * sin(2.0 * PI * t / 37.0);
+    vec3 acc = vec3(0.0);
+    for (int e = 0; e < 2; e++) {
+        // The foot, and the top edge, where the sheen meets it 37 units further on.
+        float y = e == 0 ? frame.y - 0.5 * f : 0.5;
+        float x = e == 0 ? crossing : crossing + 37.0;
+        vec2 d = vec2((p.x - x) * f, px.y - y);
+        if (abs(d.x) > 120.0 * f || abs(d.y) > 10.0 * f) continue;
+        float point = exp(-dot(d, d) / (1.2 * f * f));
+        float drawn = exp(-abs(d.x) / (18.0 * f)) * exp(-d.y * d.y / (0.35 * f * f));
+        float bloom = exp(-dot(d, d) / (36.0 * f * f));
+        acc += PALE * swell * (e == 0 ? 1.0 : 0.6) * (0.9 * point + 0.35 * drawn + 0.08 * bloom);
+    }
+    if (p.y > 33.0) {
+        for (int k = 0; k < 5; k++) {
+            float x = wide * (0.08 + 0.84 * hash2(vec2(float(k) * 7.31, 1.7)));
+            float flare = exp(-pow((x - crossing) / 70.0, 2.0));
+            vec2 d = vec2((p.x - x) * f, px.y - (frame.y - 0.5 * f));
+            acc += PALE * flare * (0.7 * exp(-dot(d, d) / (0.8 * f * f))
+                + 0.06 * exp(-dot(d, d) / (25.0 * f * f)));
+        }
+    }
+    return acc;
 }
 
 void main() {
@@ -412,16 +406,31 @@ void main() {
     float sheen_at = 0.5 + 0.34 * sin(2.0 * PI * t / 960.0 + 2.2) + 0.06 * sin(2.0 * PI * t / 310.0);
     float from_sheen = (p.x - sheen_at * wide + (p.y - 20.0) * 1.9) / 260.0;
     float sheen = exp(-from_sheen * from_sheen);
-    float grain = 0.75 + 0.5 * hash2(floor(px) + 5.5);
-    vec3 light = (ring * 0.016 * body + vec3(0.8, 0.92, 1.0) * 0.05 * sheen * grain * (0.4 + 0.6 * body)) * glass;
+    float frosting = 0.75 + 0.5 * hash2(floor(px) + 5.5);
+    vec3 light = (ring * 0.016 * body + vec3(0.8, 0.92, 1.0) * 0.05 * sheen * frosting * (0.4 + 0.6 * body)) * glass;
 
     // The smoke catches the light, as edge-lit glass does, nearly white with a touch of the ring,
-    // and its rims show faintly in the logo's colours; the lasers cross it, and the frosting
-    // glints.
-    light += mix(PALE, ring, 0.3) * smoothstep(0.0, 1.0, here) * (0.12 + 0.06 * body) * glass;
-    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.06 * glass * smoothstep(16.0, 39.0, p.y);
-    light += lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.45 * glass;
-    light += sparkle(p, t, from_sheen, f) * 1.1 * glass;
+    // and its rims show faintly in the logo's colours; the lasers cross it.
+    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.08 + 0.06 * body) * glass;
+    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
+    light += lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.4 * glass;
+
+    // Text and icons stay easy to read: round anything bright in the picture, the air's light
+    // is held back. A few pixels either way are looked at, so a glyph keeps a dark margin.
+    if (dot(light, vec3(1.0)) > 0.01) {
+        vec2 reach = 3.0 * f / frame.xw;
+        float ink = 0.0;
+        ink = max(ink, dot(texture2D(tex, v_coords).rgb, vec3(0.33)));
+        ink = max(ink, dot(texture2D(tex, v_coords + vec2(reach.x, 0.0)).rgb, vec3(0.33)));
+        ink = max(ink, dot(texture2D(tex, v_coords - vec2(reach.x, 0.0)).rgb, vec3(0.33)));
+        ink = max(ink, dot(texture2D(tex, vec2(v_coords.x, min(v_coords.y + reach.y, (frame.y - 0.5) / frame.w))).rgb, vec3(0.33)));
+        ink = max(ink, dot(texture2D(tex, v_coords - vec2(0.0, reach.y)).rgb, vec3(0.33)));
+        light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink);
+    }
+
+    // Where the light catches the glass, after that: it never sits on the text.
+    float crossing = sheen_at * wide - (39.5 - 20.0) * 1.9;
+    light += glints(px, p, t, f, wide, crossing);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
     // reflection, brighter round the marker and where fog sits against it. None where a docked
