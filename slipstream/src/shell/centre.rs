@@ -658,7 +658,7 @@ impl Centre {
             // Apps running with no visible window.
             if !boxes.is_empty() {
                 let heading = Style::new(Face::BodyBold, 16.0, INK);
-                p.text("Background Apps", x0, y + HEAD_H / 2.0, &heading);
+                p.text("Background apps", x0, y + HEAD_H / 2.0, &heading);
                 let launching = self.launch.as_ref().and_then(|(chip, _)| {
                     let at = look.chips.iter().position(|shown| shown.id() == *chip)?;
                     Some((at, look.launch_frac as f32 / 255.0))

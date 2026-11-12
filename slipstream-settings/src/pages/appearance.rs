@@ -49,7 +49,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &motion,
         "Effects",
-        Some("What minimised apps turn into: falling code, or streaks of light"),
+        Some("What minimised apps turn into: streaks of light, or falling code."),
         &effects,
     );
     let rain = gtk::Switch::new();
@@ -62,7 +62,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &motion,
         "Close into the rain",
-        Some("A closed window falls away in the same effects instead of fading"),
+        Some("A closing window falls away in the effect above, instead of fading."),
         &rain,
     );
 
@@ -366,8 +366,8 @@ fn colours(card: &gtk::Box, store: &Store) {
         card,
         "Primary colour",
         Some(
-            "Where the keyboard is: the ring around the focused window and in the panels, and the \
-             workspace you're on. Also a battery that's charging and plugins that are on. Pick \
+            "Where the keyboard is: the ring around the focused window, the chosen row in panels, \
+             and the workspace you're on. Also a battery that's charging and plugins that are on. Pick \
              any colour, and you're asked whether the two below should change to go with it.",
         ),
         &focus_control,

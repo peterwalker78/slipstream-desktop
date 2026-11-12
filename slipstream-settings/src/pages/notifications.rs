@@ -9,8 +9,8 @@ const LONGEST_WAIT_CHOICES: [u64; 6] = [1, 5, 10, 15, 30, 60];
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Notifications",
-        "Pop-ups wait for a pause instead of interrupting you, and so does a window an app opens \
-         while you type. The sounds are on the Sound page.",
+        "Pop-ups can wait for a pause in your typing. A window an app opens while you type always \
+         waits. The sounds are on the Sound page.",
     );
     let typing = group(&page, "While you type");
 
@@ -18,7 +18,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     wait.set_active(store.get().notifications.wait_while_typing);
     row(
         &typing,
-        "Wait until I pause",
+        "Wait for a pause in typing",
         Some(
             "Pop-ups wait until you've stopped typing for 15 seconds, then show together. \
              Critical ones never wait. Only the timing of key presses is used, never the keys.",

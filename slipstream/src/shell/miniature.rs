@@ -1360,7 +1360,7 @@ fn sheet(p: &mut Painter, typed: Typed, w: f32, h: f32, names: &KeyNames) {
         ("Super+Alt+← → ↑ ↓", "move the window"),
         ("Alt+Tab", "switch window"),
         ("Alt+F4", "close window"),
-        ("Super+F", "maximise"),
+        ("Super+F", "fill the tiling area"),
         ("Super+R", "turn the layout"),
         ("Super+T", "tiling or gravity"),
         ("Super+1–9", "go to a workspace"),

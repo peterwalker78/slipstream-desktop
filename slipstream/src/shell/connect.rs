@@ -109,14 +109,13 @@ impl Connect {
             // Said plainly, because the difference only shows up later: one answer leaves the
             // numbered workspaces alone, the other spends one of them on this screen.
             true => format!(
-                "{} — showing {}, a workspace of its own, so your numbered workspaces stay on the \
-                 screen you're using. Or it can show {} instead, which then belongs to this \
-                 screen.",
+                "{} is showing {}, a new workspace just for it, so your numbered workspaces stay \
+                 on the screen you're using. Or it can show {}, which then moves to this screen.",
                 self.monitor, self.own_label, self.share_label
             ),
             false => format!(
-                "{} — showing {}, a workspace of its own. Super+P moves the keyboard to it, and \
-                 Super+Shift+P sends a window there.",
+                "{} is showing {}, a new workspace just for it. Super+P moves the keyboard there, \
+                 and Super+Shift+P sends a window.",
                 self.monitor, self.own_label
             ),
         };

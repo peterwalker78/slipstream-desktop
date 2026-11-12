@@ -130,7 +130,7 @@ The same command can also try Slipstream first, or take it away again:
 # Open it in a window on the desktop you're using now, installing nothing
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --try
 
-# Say what it would do, writing nothing
+# Say what it would do, installing nothing
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --check
 
 # Remove exactly what it wrote
@@ -203,7 +203,7 @@ Both are projects of their own that run on any Linux desktop. The installer adds
 | [**Help**](guide/help.md) | when something goes wrong, a program asking to record your screen, plugins beside the clock, apps that come with your desktop, bringing an AI agent's session back, keeping one working while you're logged out, and seeing one at work from across the room |
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
-| [**Working on Slipstream**](guide/development.md) | the workspace, and running it nested |
+| [**Working on Slipstream**](guide/development.md) | how the code is laid out, and running it in a window |
 
 AI coding tools are used in writing Slipstream's code. Every change is built and tested in CI.
 

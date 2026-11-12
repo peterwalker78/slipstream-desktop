@@ -18,9 +18,9 @@ const HOW_TO: &str =
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Plugins",
-        "Little apps that add a card to the panel beside the clock. Each one runs in a sandbox, \
-         says what it can do before you switch it on, and can't do anything else. One that \
-         changes after you switch it on stays off until you switch it on again.",
+        "Little apps that add a card to the panel beside the clock. Each runs in a sandbox and \
+         can do only what its card here says. If one changes, it stays off until you turn it on \
+         again.",
     );
     let list = gtk::Box::new(gtk::Orientation::Vertical, 18);
     page.append(&list);
@@ -51,7 +51,7 @@ fn fill(list: &gtk::Box, store: &Store) {
     for (care, means) in [
         (
             plugins::Care::Safe,
-            "It can't see or send anything of yours that matters.",
+            "Nothing it sees can leave this computer.",
         ),
         (
             plugins::Care::Thought,
@@ -59,8 +59,7 @@ fn fill(list: &gtk::Box, store: &Store) {
         ),
         (
             plugins::Care::Full,
-            "It runs outside the sandbox, as a program you install yourself does. Switch it on \
-             only if you trust where it came from.",
+            "It runs outside the sandbox, as a program you install yourself does.",
         ),
     ] {
         let line = gtk::Box::builder().spacing(14).css_classes(["row"]).build();
@@ -309,7 +308,7 @@ fn plugin_card(
     if !on && !plugins::missing_write_folders(&plugin.manifest).is_empty() {
         for ability in &mut abilities {
             if ability.what == plugins::What::Changes {
-                ability.says.push_str(", made for it as you switch it on");
+                ability.says.push_str(" (a new folder, made when you turn it on)");
             }
         }
     }
@@ -319,8 +318,7 @@ fn plugin_card(
         abilities.push(plugins::Ability {
             what: plugins::What::Everything,
             says: format!(
-                "Adds {} {}, which {} outside the sandbox whenever you or your tools run {}, \
-                 with everything you can reach:",
+                "Adds {} {}, which {} outside the sandbox whenever you or your tools run {}.",
                 if one { "the command" } else { "the commands" },
                 plugins::listed(&commands),
                 if one { "runs" } else { "run" },
@@ -390,14 +388,14 @@ fn plugin_card(
     } else if held {
         notice(
             &card,
-            "Updated, so it's off until you switch it on again.",
+            "Updated, so it's off until you turn it on again.",
             explained,
         );
     }
     if let Some(why) = &plugin.too_big {
         notice(
             &card,
-            &format!("Too big to check: {why}. It can't be switched on until it holds less."),
+            &format!("Too big to check: {why}. It can't be turned on until it holds less."),
             &[],
         );
     }
@@ -576,7 +574,7 @@ fn glance_choice(
 ) -> gtk::CheckButton {
     let shown = settings.plugins.glance() == Some(id);
     let choice = gtk::CheckButton::builder()
-        .label("On the chip")
+        .label("Show beside the clock")
         .active(shown)
         .valign(gtk::Align::Center)
         .build();

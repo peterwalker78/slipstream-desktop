@@ -531,8 +531,8 @@ impl<W: Clone + PartialEq> Exit<W> {
         let count = self.asked.len();
         let mut note = match count {
             0 => "Nothing is open.".to_string(),
-            1 => "One window is open. Its app is asked to close it first.".to_string(),
-            n => format!("{n} windows are open. Every app is asked to close first."),
+            1 => "One window is open. Its app gets the chance to close it first.".to_string(),
+            n => format!("{n} windows are open. Each app gets the chance to close first."),
         };
         let verb = self.intent.verb();
         match self.held.len() {
@@ -1026,7 +1026,7 @@ mod tests {
         // The ask card counts them; only the windows that wouldn't close get named.
         assert_eq!(
             exit.ask_card(panel::AMBER).note,
-            "11 windows are open. Every app is asked to close first."
+            "11 windows are open. Each app gets the chance to close first."
         );
         assert!(exit.ask_card(panel::AMBER).rows.is_empty());
         exit.key(Keysym::Return, 0.0);

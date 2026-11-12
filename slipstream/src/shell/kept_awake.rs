@@ -81,9 +81,9 @@ pub fn sentence(holders: &[Holder]) -> (String, &'static str) {
 /// What the hold means for the person at the screen.
 pub fn note(holders: usize) -> &'static str {
     if holders > 1 {
-        "The wallpaper and the lock wait for them."
+        "The screen won't fade or lock until they stop."
     } else {
-        "The wallpaper and the lock wait for it."
+        "The screen won't fade or lock until it stops."
     }
 }
 
@@ -206,8 +206,8 @@ mod tests {
             sentence(&holders(&["Player", "Game", "Editor"])).0,
             "Player and 2 more"
         );
-        assert_eq!(note(1), "The wallpaper and the lock wait for it.");
-        assert_eq!(note(2), "The wallpaper and the lock wait for them.");
+        assert_eq!(note(1), "The screen won't fade or lock until it stops.");
+        assert_eq!(note(2), "The screen won't fade or lock until they stop.");
     }
 
     #[test]

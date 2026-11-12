@@ -784,7 +784,8 @@ impl Slipstream {
             }
             Response::Warn => self.notify_self(
                 "Sleep won’t lock first",
-                "logind can’t be reached, so loginctl can’t lock or unlock this session either.",
+                "Slipstream can’t reach the system’s login manager (logind), so the screen won’t lock before \
+                 sleeping, and loginctl can’t lock or unlock it either.",
                 false,
             ),
         }

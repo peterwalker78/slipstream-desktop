@@ -81,7 +81,7 @@ pub fn track_line(title: Option<&str>, artist: Option<&str>) -> String {
     let title = title.map(str::trim).filter(|title| !title.is_empty());
     let artist = artist.map(str::trim).filter(|artist| !artist.is_empty());
     match (title, artist) {
-        (Some(title), Some(artist)) => format!("{title} — {artist}"),
+        (Some(title), Some(artist)) => format!("{title} · {artist}"),
         (Some(one), None) | (None, Some(one)) => one.to_string(),
         (None, None) => String::new(),
     }
@@ -334,7 +334,7 @@ mod tests {
     fn a_track_reads_title_then_artist() {
         assert_eq!(
             track_line(Some("Teardrop"), Some("Massive Attack")),
-            "Teardrop — Massive Attack"
+            "Teardrop · Massive Attack"
         );
         assert_eq!(track_line(Some(" Teardrop "), Some("")), "Teardrop");
         assert_eq!(track_line(None, None), "");

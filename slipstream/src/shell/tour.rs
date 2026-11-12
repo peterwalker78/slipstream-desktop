@@ -88,7 +88,7 @@ pub const LESSONS: [Lesson; 14] = [
         title: "Open anything by name",
         why: "{tap} and type a few letters of what you want, and Enter opens it beside what you \
               were doing. The same box finds recent files, does sums and converts units.",
-        habit: Some("The Start menu habit — tap the key, type, Enter — works unchanged."),
+        habit: Some("Tap the key, type, press Enter, just like the Start menu."),
         keys: &["Super"],
         beats: 3,
         still: 0.66,

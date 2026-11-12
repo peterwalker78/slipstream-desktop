@@ -636,7 +636,7 @@ impl Slipstream {
             // Something else may be answering them now, so it is said where it is seen.
             Event::Unanswered => self.show_toast(
                 "Password requests aren't shown",
-                "Programs that need an administrator's password can't ask here until you log in again",
+                "Programs that need an administrator's password can't ask here until you log in again.",
             ),
             Event::Helper { attempt, said } => self.polkit_said(attempt, said),
         }

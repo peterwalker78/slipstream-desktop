@@ -31,7 +31,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &restore,
         "Reopen without asking",
-        Some("Reopens them at login without asking first."),
+        Some("Otherwise a card at login asks first."),
         &straight,
     );
 
@@ -61,8 +61,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &clipboard,
         "Clipboard history",
         Some(
-            "Keeps the last 25 things you copied, to paste again. Forgotten when you log out; \
-             passwords are never kept.",
+            "Keeps the last 25 things you copied, to paste again. Forgotten when you log out, and \
+             anything a password manager marks as secret is never kept.",
         ),
         &history,
     );

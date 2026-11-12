@@ -386,7 +386,7 @@ fn paint_switch(
     }
     let middle = y + CHECK_ROW / 2.0;
     let text_x = x + CHECK + 12.0;
-    let words = "Restore this layout next time";
+    let words = "Reopen these apps next time";
     p.text(words, text_x, middle, &label);
     // The key sits beside the words, as it does inside a button, not adrift at the card's edge.
     p.text(
@@ -396,7 +396,7 @@ fn paint_switch(
         &key,
     );
     p.text(
-        "Your apps come back on their workspaces next time. Not what they had open.",
+        "They reopen on their workspaces. What each had open is up to the app.",
         x + CHECK + 12.0,
         y + CHECK_ROW + 10.0,
         &under,

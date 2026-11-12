@@ -92,8 +92,8 @@ impl Offer {
             title: format!("Reopen {windows} {plural}?"),
             // Said before anything is reopened, not discovered afterwards.
             note: format!(
-                "{list} — on the workspaces they were on, in the layout they were in. It reopens \
-                 the apps, not what they had open."
+                "{list}, on the workspaces they were on, in the layout they were in. What each \
+                 had open is up to the app."
             ),
             rows: self
                 .lost
@@ -169,7 +169,7 @@ mod tests {
     fn the_card_counts_the_windows_and_names_the_apps() {
         let card = offer().card();
         assert_eq!(card.title, "Reopen 3 windows?");
-        assert!(card.note.starts_with("Konsole, Firefox — "));
+        assert!(card.note.starts_with("Konsole, Firefox, on "));
         // What it can't reopen is named rather than quietly dropped.
         assert_eq!(card.rows.len(), 1);
         assert_eq!(card.rows[0].name, "some-run-box-command");
@@ -194,7 +194,7 @@ mod tests {
             offer
                 .card()
                 .note
-                .starts_with("App 0, App 1, App 2, App 3, App 4, App 5 and 3 more — ")
+                .starts_with("App 0, App 1, App 2, App 3, App 4, App 5 and 3 more, on ")
         );
     }
 

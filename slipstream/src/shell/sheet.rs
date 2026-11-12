@@ -1167,7 +1167,7 @@ mod tests {
             "{turn:?}"
         );
         assert!(turn.len() <= 2, "both ways on one row: {turn:?}");
-        assert_eq!(row("maximise"), ["Super+F"]);
+        assert_eq!(row("fill the tiling area, and back"), ["Super+F"]);
         assert_eq!(row("every key"), ["Super+/"]);
         assert_eq!(row("go to a window by its letter"), ["J K L…"]);
     }

@@ -150,9 +150,9 @@ impl Ask {
         let app = &self.app;
         let note = self.refusal.clone().unwrap_or_else(|| {
             format!(
-                "They work from any window, and only {app} hears them, as a press and a release: \
-                 never the window you're in, and nothing else you type. To change one, choose it \
-                 and press the keys you want. Backspace leaves it out."
+                "They work from any window. Only {app} hears them, never the window you're in, and \
+                 it hears nothing else you type. To change one, choose it and press the keys you \
+                 want; Backspace leaves it out."
             )
         });
         let end = (self.top + VISIBLE).min(self.rows.len());
@@ -175,7 +175,7 @@ impl Ask {
                     }),
                 })
                 .collect(),
-            more: (hidden > 0).then(|| format!("{hidden} more — arrow keys scroll")),
+            more: (hidden > 0).then(|| format!("{hidden} more · use the arrows to scroll")),
             field: None,
             remember: None,
             buttons: vec![

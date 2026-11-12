@@ -7,8 +7,8 @@ use super::*;
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Shortcuts",
-        "The shortcuts your hands already know. The shortcut sheet and the tour show the keys of \
-         the style chosen here.",
+        "The shortcuts your hands already know. The list of every key and the tour show the \
+         style chosen here.",
     );
     let styles = group(&page, "Shortcuts");
     // The whole list is long and the shortcut sheet shows it too, so it waits behind a button.
@@ -64,7 +64,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
     row(
         &styles,
         "Every key in this style",
-        Some("The shortcut sheet shows them too."),
+        None,
         &show,
     );
     page.append(&own_group);
@@ -165,7 +165,7 @@ fn fill_own(card: &gtk::Box, store: &Store) {
         let controls = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         controls.append(&label(&shown, "kv"));
         let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-        delete.set_tooltip_text(Some("Take it away"));
+        delete.set_tooltip_text(Some("Remove this shortcut"));
         delete.add_css_class("flat");
         {
             let (store, refill, spec) = (store.clone(), refill.clone(), key.keys.clone());
@@ -283,7 +283,7 @@ fn add_own(
         let mut specs = vec![spec];
         specs.extend(settings.keys.apps.iter().map(|own| own.keys.clone()));
         let Some(mut checked) = check_keys(settings.keys.style, &specs) else {
-            sub.set_text("Slipstream isn't installed beside Settings, so keys can't be checked.");
+            sub.set_text("Keys can't be checked, because Slipstream isn't installed.");
             return gtk::glib::Propagation::Stop;
         };
         let kept = checked.split_off(1);
@@ -437,7 +437,7 @@ fn fill_plugin_keys(card: &gtk::Box, store: &Store) {
             };
             controls.append(&label(&shown, "kv"));
             let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-            delete.set_tooltip_text(Some("Take its keys away"));
+            delete.set_tooltip_text(Some("Remove its keys"));
             delete.add_css_class("flat");
             {
                 let (store, refill) = (store.clone(), refill.clone());
@@ -518,7 +518,7 @@ fn listen_for_keys(
         };
         let settings = store.get();
         let Some(mut checked) = check_keys(settings.keys.style, &[spec]) else {
-            line.set_text("Slipstream isn't installed beside Settings, so keys can't be checked.");
+            line.set_text("Keys can't be checked, because Slipstream isn't installed.");
             return gtk::glib::Propagation::Stop;
         };
         let checked = checked.remove(0);
@@ -601,14 +601,14 @@ fn fill_app_shortcuts(card: &gtk::Box, store: &Store) {
             &shortcut.description
         };
         let keys = if shortcut.keys.is_empty() {
-            "Left out"
+            "No keys"
         } else {
             &shortcut.keys
         };
         let controls = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         controls.append(&label(keys, "kv"));
         let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-        delete.set_tooltip_text(Some("Take it away, and ask again next time"));
+        delete.set_tooltip_text(Some("Remove, and ask again next time"));
         delete.add_css_class("flat");
         {
             let refill = refill.clone();
@@ -652,7 +652,7 @@ fn fill_keys(sheet: &gtk::Box, store: &Store) {
         row(
             &card,
             "The list of keys isn't available",
-            Some("The shortcut sheet still shows every key."),
+            Some("Slipstream's own list of keys still shows every one."),
             &gtk::Box::new(gtk::Orientation::Horizontal, 0),
         );
         return;

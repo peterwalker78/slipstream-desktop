@@ -2,7 +2,7 @@
 //! selection. Pure and generic over the window type, so it's unit-tested without Wayland.
 //!
 //! Bullet time uses the everyday keys without Super: arrows and Tab choose, 1–9 look at a
-//! workspace, Shift+1–9 sends the chosen window there, PgUp/PgDn weigh it, M minimises it, Delete
+//! workspace, Shift+1–9 sends the chosen window there, PgUp/PgDn size it, M minimises it, Delete
 //! closes it, Enter goes and Esc goes back. A letter label goes straight to its target.
 
 use smithay::{
@@ -503,7 +503,7 @@ pub const KEYS: [KeyRow; 11] = [
         kind: Kind::Weigh,
         keys: "PgUp PgDn",
         does: "bigger, smaller",
-        legend: Some("PgUp/PgDn weigh"),
+        legend: Some("PgUp/PgDn size"),
         example: (Keysym::Next, false),
     },
     KeyRow {
@@ -543,7 +543,7 @@ mod tests {
     fn the_legend_and_the_keys_agree() {
         assert_eq!(
             legend(),
-            "← → ↑ ↓ choose · j k l… jump · ⏎ go · Shift+1–9 send · PgUp/PgDn weigh · M minimise · Del close · Esc back"
+            "← → ↑ ↓ choose · j k l… jump · ⏎ go · Shift+1–9 send · PgUp/PgDn size · M minimise · Del close · Esc back"
         );
         for row in &KEYS {
             let (key, shift) = row.example;

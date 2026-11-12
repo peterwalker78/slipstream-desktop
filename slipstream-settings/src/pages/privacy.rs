@@ -26,7 +26,7 @@ fn fill_capture_allowed(card: &gtk::Box, store: &Store) {
         // and two programs of the same name in different places are not the same allowance.
         let name = exe.rsplit('/').next().unwrap_or(&exe).to_string();
         let delete = gtk::Button::from_icon_name("user-trash-symbolic");
-        delete.set_tooltip_text(Some("Ask again next time"));
+        delete.set_tooltip_text(Some("Remove, and ask again next time"));
         delete.add_css_class("flat");
         {
             let store = store.clone();

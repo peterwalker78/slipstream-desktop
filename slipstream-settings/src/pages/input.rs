@@ -69,7 +69,10 @@ fn mouse(card: &gtk::Box, store: &Store, has_touchpad: bool) {
     row(
         card,
         "Natural scrolling",
-        Some("Turning the wheel down moves the page down, rather than further down the page."),
+        Some(
+            "Reverses the wheel: turning it down takes you back up the page, as natural \
+             scrolling does on a touchpad.",
+        ),
         &natural,
     );
 }

@@ -158,8 +158,8 @@ impl Picker {
     pub fn for_capture(program: String, exe: PathBuf, now: f64) -> Self {
         let rows = vec![
             Row {
-                name: "Just this once".to_string(),
-                title: "until you log out".to_string(),
+                name: "Until you log out".to_string(),
+                title: "then it asks again".to_string(),
                 note: None,
             },
             Row {
@@ -327,7 +327,7 @@ impl Picker {
                  do, and the red dot on the bar stops it."
             ),
             rows: self.rows[self.top..end].to_vec(),
-            more: (hidden > 0).then(|| format!("{hidden} more — arrow keys scroll")),
+            more: (hidden > 0).then(|| format!("{hidden} more · use the arrows to scroll")),
             field: None,
             remember: None,
             buttons: vec![
