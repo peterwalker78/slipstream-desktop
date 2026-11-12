@@ -591,8 +591,8 @@ void main() {
     beams += glints(px, p, t, f, wide);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
-    // reflection, brighter round the marker and where fog sits against it. None where a docked
-    // pane's frame carries the bar on down.
+    // reflection, lit only where fog sits against it, so it comes and goes with the smoke. None
+    // where a docked pane's frame carries the bar on down.
     float foot = frame.y - 0.5 * f;
     float waver = clamp(g.y * 5.0 / 7.0, -0.8, 0.8) * f;
     float d1 = (px.y - (foot + waver)) / f;
@@ -601,14 +601,15 @@ void main() {
     // Only the rows round the foot have an edge to light.
     float lit = 0.0;
     if (p.y > 35.0) {
-        lit = 0.26 + 0.24 * near + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
+        lit = 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
     }
     float in_gap = clamp(min(px.x + 0.5, gap.y * f) - max(px.x - 0.5, gap.x * f), 0.0, 1.0);
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
-    vec3 added = min(min(light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
+    // The glass's own light is kept low, so the bar reads dark.
+    vec3 added = min(min(0.8 * light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
     vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
