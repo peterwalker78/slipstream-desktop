@@ -1047,7 +1047,7 @@ impl Slipstream {
         if !self.owns_state {
             self.show_toast(
                 "Setting not saved",
-                "Another Slipstream session owns the settings file, so this one leaves it alone.",
+                "Another Slipstream session is running and keeps your settings, so change it there.",
             );
             return;
         }

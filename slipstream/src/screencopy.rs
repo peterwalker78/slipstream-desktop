@@ -128,7 +128,7 @@ struct Waiting {
 #[derive(Default)]
 pub struct Screencopy {
     waiting: Vec<Waiting>,
-    /// Programs allowed for this session only, by the "Just this once" answer. The settings file
+    /// Programs allowed for this session only, by the "Until you log out" answer. The settings file
     /// holds the ones allowed for good.
     once: Vec<PathBuf>,
     /// Frames whose program is being asked about, held until the card is answered. Their clients

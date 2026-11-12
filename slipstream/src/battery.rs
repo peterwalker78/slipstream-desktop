@@ -135,8 +135,9 @@ impl LowCard {
         Card {
             title: format!("Battery at {}%", self.percent),
             note: format!(
-                "Sleeping in {seconds} s{left}, so what you have open is kept safe in memory. \
-                 Plug in to carry on."
+                "Going to sleep in {seconds} {unit}{left}, which keeps what you have open safe in \
+                 memory. Plug in to carry on.",
+                unit = if seconds == 1 { "second" } else { "seconds" },
             ),
             rows: Vec::new(),
             more: None,

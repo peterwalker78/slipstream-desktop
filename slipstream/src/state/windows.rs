@@ -567,9 +567,10 @@ impl Slipstream {
         };
         if self.workspaces.is_floating(&window) {
             let float = self.key_label(crate::keys::Action::ToggleFloating);
+            let switch = self.key_label(crate::keys::Action::SwitchFloatingFocus);
             self.show_toast(
-                "This window floats",
-                &format!("{float} puts it back in the tiling."),
+                "Only the tiles turn",
+                &format!("{switch} moves the keyboard to them, and {float} tiles this window."),
             );
             return;
         }
@@ -577,8 +578,8 @@ impl Slipstream {
         if ws.gravity.is_on() {
             let gravity = self.key_label(crate::keys::Action::ToggleGravity);
             self.show_toast(
-                "Only tiling turns",
-                &format!("Gravity has no rows or columns to turn. {gravity} goes back to tiling."),
+                "Turning needs tiling",
+                &format!("Gravity places the windows itself. {gravity} switches back to tiling."),
             );
             return;
         }

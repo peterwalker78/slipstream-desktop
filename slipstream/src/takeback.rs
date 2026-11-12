@@ -246,9 +246,10 @@ impl Slipstream {
             self.takeback.refuse(None);
             self.update_shortcuts_inhibitor();
             self.update_pointer_constraint();
+            let key = self.take_back_label();
             self.show_toast(
-                "Grabs allowed again",
-                &format!("{name} may take the mouse and keys again."),
+                &format!("Mouse and keys can go to {name} again"),
+                &format!("{key} takes them back any time."),
             );
             return;
         }

@@ -658,7 +658,7 @@ fn paint_front(
         let note = Style::new(Face::Body, 13.0, quiet(facts.ahead));
         let said = match &shown.problem {
             _ if shown.held && shown.problem.is_none() => {
-                "Changed since it was turned on: turn it on again to run it".into()
+                "It's changed since you turned it on. Turn it on again in Plugin settings to run it.".into()
             }
             Some(problem) => problem.clone(),
             None => "Starting…".into(),
