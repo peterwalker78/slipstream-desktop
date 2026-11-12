@@ -214,10 +214,13 @@ float fog(vec2 p, vec3 at, float t, float grained) {
     d *= 0.6 + 0.8 * grained;
     // Nearer smoke, on the near side of the tunnel, streaks past twice as fast towards the ends,
     // fainter, so you feel yourself moving through it.
-    float out_from = 1000.0 / at.x;
-    float near_n = (at.x * 2.7 + TOWARDS * t) * 1.2;
-    float wisps = 0.5 + 0.5 * fbm(vec3(near_n, at.y * 0.4, at.z * 9.0 + t * 0.004));
-    d = max(d, 0.6 * smoothstep(0.55, 0.9, wisps) * smoothstep(150.0, 600.0, out_from));
+    // Near the middle they are too far off to show, so their noise is skipped there.
+    float near = smoothstep(150.0, 600.0, 1000.0 / at.x);
+    if (near > 0.0) {
+        float near_n = (at.x * 2.7 + TOWARDS * t) * 1.2;
+        float wisps = 0.5 + 0.5 * fbm(vec3(near_n, at.y * 0.4, at.z * 9.0 + t * 0.004));
+        d = max(d, 0.6 * smoothstep(0.55, 0.9, wisps) * near);
+    }
     // A thin haze fills the whole glass between the billows, as in a club, so the beams always
     // have something to light.
     d = HAZE + (1.0 - HAZE) * d;
@@ -375,6 +378,11 @@ uniform vec2 gap;
 uniform vec2 clock;
 // How far the projector has powered up, 0 to 1, and how deep the breath in before a rush is.
 uniform vec2 stage;
+// The laser show at this moment, the same for every pixel: the cosine and sine of the inner
+// pair's tilt and the outer pair's, and how brightly each pair is lit, how strongly the projector
+// flares where the scissors meet, and where along the bar the sheen is, a share of its width.
+uniform vec4 scissors;
+uniform vec4 show;
 
 // How far a beam reaches once the projector has fully powered up, units: past either end.
 const float POWER_REACH = 1400.0;
@@ -382,7 +390,6 @@ const float POWER_REACH = 1400.0;
 const float BEVEL = 4.0;
 const vec3 GLASS_GREEN = vec3(0.5, 0.9, 0.78);
 
-const float PI = 3.14159265;
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
 
 // A hash without sine, by Dave Hoskins. Distributed under the MIT License.
@@ -455,36 +462,30 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
 
 // The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
 // pattern is symmetrical, left to right and top to bottom: four beams each way in the primary
-// colour, an inner pair and an outer pair, which open and close against each other like scissors, crossing in a diamond behind the clock. The pairs swell and
-// fade in turn, and the whole show breathes. No beam turns faster than ten degrees a minute.
+// colour, an inner pair and an outer pair, which open and close against each other like scissors,
+// crossing in a diamond behind the clock. The pairs swell and fade in turn, and the whole show
+// breathes; how is worked out once a frame, in `scissors` and `show`.
 const vec2 PROJECTOR_Y = vec2(0.5, 20.0);
 
-// Beam `i` of the eight at time `t`: which way it goes, how brightly it is lit, and its colour.
-void show(int i, float t, out vec2 dir, out float lit, out vec3 hue) {
-    float fi = float(i);
-    float side = i < 4 ? -1.0 : 1.0;
-    float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
-    bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
-    float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
-    float angle = up * (inner ? 0.022 + scissor : 0.05 - scissor);
-    // Breathing in before a rush, the scissors close a hair and the beams dip.
-    angle = mix(angle, up * 0.036, 0.3 * stage.y);
-    float swell = sin(2.0 * PI * t / 23.0);
-    lit = (0.85 + 0.15 * sin(2.0 * PI * t / 41.0))
-        * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell)) * (1.0 - 0.5 * stage.y);
-    hue = ring;
-    dir = vec2(side * cos(angle), -sin(angle));
+// Beam `i` of the four on the `side` of the projector a pixel is on (each beam only reaches its
+// own side): which way it goes, and how brightly it is lit.
+void beam_of(int i, float side, out vec2 dir, out float lit) {
+    bool inner = i < 2;
+    float up = i == 0 || i == 2 ? 1.0 : -1.0;
+    vec2 tilt = inner ? scissors.xy : scissors.zw;
+    lit = inner ? show.x : show.y;
+    dir = vec2(side * tilt.x, -up * tilt.y);
 }
 
-vec3 lasers(vec2 p, float t, float wide, float f, float through) {
+vec3 lasers(vec2 p, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
     vec2 from = vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y);
-    for (int i = 0; i < 8; i++) {
+    float side = p.x < from.x ? -1.0 : 1.0;
+    for (int i = 0; i < 4; i++) {
         vec2 dir;
         float lit;
-        vec3 hue;
-        show(i, t, dir, lit, hue);
-        acc += beam(p, from, dir, hue, f, through) * lit;
+        beam_of(i, side, dir, lit);
+        acc += beam(p, from, dir, ring, f, through) * lit;
     }
     return acc;
 }
@@ -492,14 +493,15 @@ vec3 lasers(vec2 p, float t, float wide, float f, float through) {
 // Light catching the glass where a beam meets it: at the top edge or the polished foot, each
 // beam lights a point in its colour, white at the middle, drawn out a little along the edge
 // with a soft bloom, as bright as the beam is.
-vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
+vec3 glints(vec2 px, vec2 p, float f, float wide) {
     vec3 acc = vec3(0.0);
     vec2 from = vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y);
-    for (int i = 0; i < 8; i++) {
+    float side = p.x < from.x ? -1.0 : 1.0;
+    vec3 hue = ring;
+    for (int i = 0; i < 4; i++) {
         vec2 dir;
         float lit;
-        vec3 hue;
-        show(i, t, dir, lit, hue);
+        beam_of(i, side, dir, lit);
         // Up to the top edge, or down to the foot's middle.
         float to = dir.y < 0.0 ? 0.5 * f : frame.y - 0.5 * f;
         float along = abs((to / f - from.y) / dir.y);
@@ -548,7 +550,6 @@ void main() {
     vec2 uv = v_coords;
     vec2 p = px / f;
     float wide = frame.x / f;
-    float t = air.x;
 
     // The smoke, worked out at a lower resolution once a frame, and the air's gradient across
     // the field's neighbouring cells, as a schlieren photograph reads it: its strength and which
@@ -584,7 +585,7 @@ void main() {
     // The pane: a tint deepening towards the foot, and the sheen sliding slowly along it, faintly
     // grainy as frosting is.
     float body = smoothstep(14.0, 39.0, p.y);
-    float sheen_at = 0.5 + 0.34 * sin(2.0 * PI * t / 960.0 + 2.2) + 0.06 * sin(2.0 * PI * t / 310.0);
+    float sheen_at = show.w;
     float from_sheen = (p.x - sheen_at * wide + (p.y - 20.0) * 1.9) / 260.0;
     float sheen = exp(-from_sheen * from_sheen);
     float frosting = 0.75 + 0.5 * hash2(floor(px) + 5.5);
@@ -593,7 +594,7 @@ void main() {
     // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
     // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
     // beam the smoke's own glow is a little darker, so the beam stands out.
-    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
+    vec3 beams = lasers(p, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
     float beside = smoothstep(0.0, 0.1, dot(beams, vec3(0.33)));
     light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
         * (1.0 - 0.5 * beside);
@@ -616,15 +617,14 @@ void main() {
 
     // Where the scissor pairs meet, about every half a minute, the projector flares softly
     // behind the clock, held back round its text, and the beams brighten near it.
-    float s = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
-    float meet = exp(-pow((2.0 * SCISSOR - 2.0 * s) / 0.0025, 2.0)) * stage.x;
+    float meet = show.z;
     vec2 to_projector = (p - vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y)) * vec2(0.35, 1.0);
     light += ring * meet * 0.12 * exp(-dot(to_projector, to_projector) / 300.0) * glass
         * (1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x));
     beams *= 1.0 + 0.5 * meet * exp(-abs(p.x - wide * PROJECTOR_Y.x) / 250.0);
 
     // Where the beams catch the glass, after that: on its edges, never on the text.
-    beams += glints(px, p, t, f, wide);
+    beams += glints(px, p, f, wide);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
     // reflection, lit only where fog sits against it, so it comes and goes with the smoke. None
@@ -704,8 +704,6 @@ fn source() -> String {
             ("FIELD_X", &FIELD_X),
             ("FIELD_Y", &FIELD_Y),
             ("GRADIENT", &GRADIENT),
-            ("SCISSOR", &SCISSOR),
-            ("SCISSOR_PERIOD", &SCISSOR_PERIOD),
         ],
     )
 }
@@ -725,6 +723,8 @@ struct Uniforms {
     gap: [f32; 2],
     clock: [f32; 2],
     stage: [f32; 2],
+    scissors: [f32; 4],
+    show: [f32; 4],
 }
 
 impl shader::Uniforms for Uniforms {
@@ -738,6 +738,8 @@ impl shader::Uniforms for Uniforms {
             .with("gap", self.gap)
             .with("clock", self.clock)
             .with("stage", self.stage)
+            .with("scissors", self.scissors)
+            .with("show", self.show)
     }
 }
 
@@ -770,6 +772,50 @@ impl shader::Uniforms for FieldUniforms {
             .with("origins", self.origins)
             .with("origins_more", self.origins_more)
     }
+}
+
+/// GLSL's smoothstep.
+fn smoothstep(from: f64, to: f64, x: f64) -> f64 {
+    let x = ((x - from) / (to - from)).clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// The laser show at the air's time `t` with the projector's power and the breath before a rush
+/// at `stage`, the same for every pixel of the bar, for its shader: the cosine and sine of the
+/// inner pair's tilt and of the outer pair's; and how brightly each pair is lit, how strongly the
+/// projector flares where the scissors meet, and where along the bar the sheen is, a share of its
+/// width.
+fn show(t: f64, [power, breath]: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+    use std::f64::consts::TAU;
+    let (power, breath) = (power as f64, breath as f64);
+    let (reach, period) = (SCISSOR as f64, SCISSOR_PERIOD as f64);
+    let scissor = reach * (TAU * t / period).sin();
+    // The scissors open and close against each other; breathing in before a rush, they close a
+    // hair and the beams dip.
+    let tilt = |angle: f64| {
+        let angle = angle + (0.036 - angle) * 0.3 * breath;
+        [angle.cos() as f32, angle.sin() as f32]
+    };
+    let [inner_cos, inner_sin] = tilt(0.022 + scissor);
+    let [outer_cos, outer_sin] = tilt(0.05 - scissor);
+    // The pairs swell and fade in turn, and the whole show breathes.
+    let swell = (TAU * t / 23.0).sin();
+    let lit = |swell: f64| {
+        (0.85 + 0.15 * (TAU * t / 41.0).sin())
+            * (0.3 + 0.7 * smoothstep(-0.4, 0.7, swell))
+            * (1.0 - 0.5 * breath)
+    };
+    let meet = (-((2.0 * reach - 2.0 * scissor) / 0.0025).powi(2)).exp() * power;
+    let sheen = 0.5 + 0.34 * (TAU * t / 960.0 + 2.2).sin() + 0.06 * (TAU * t / 310.0).sin();
+    (
+        [inner_cos, inner_sin, outer_cos, outer_sin],
+        [
+            lit(swell) as f32,
+            lit(-swell) as f32,
+            meet as f32,
+            sheen as f32,
+        ],
+    )
 }
 
 /// How many times as fast the air runs `since` seconds after a rush began.
@@ -1026,10 +1072,15 @@ impl Glass {
         }
     }
 
-    /// Lets the picture go, in a style that doesn't need it.
-    pub fn forget(&mut self) {
+    /// Lets the picture go, in a style that doesn't need it, and the glass's programs with it,
+    /// which hold several megabytes in the driver; they are compiled again if the style comes
+    /// back.
+    pub fn forget(&mut self, renderer: &GlesRenderer) {
         self.picture = None;
         self.atlas = None;
+        shader::release::<Program, GlesTexProgram>(renderer);
+        shader::release::<FieldProgram, GlesPixelProgram>(renderer);
+        shader::release::<InkProgram, GlesTexProgram>(renderer);
     }
 
     /// The bar as `look` says. `None` without a picture, or if either shader didn't compile or
@@ -1095,6 +1146,7 @@ impl Glass {
             self.kept.changed();
         }
         let whole = Atlas::whole(atlas.size);
+        let (scissors, show) = show(at, stage);
         let uniforms = Uniforms {
             frame: [
                 atlas.size.w as f32,
@@ -1114,6 +1166,8 @@ impl Glass {
             gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
             clock: look.clock.into(),
             stage,
+            scissors,
+            show,
         };
         let part = Rectangle::from_size((atlas.size.w as f64, atlas.size.h as f64).into());
         Some(self.kept.texture_part(
