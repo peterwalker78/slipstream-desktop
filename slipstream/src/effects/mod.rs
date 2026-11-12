@@ -11,6 +11,7 @@ pub(crate) mod lit_line;
 pub(crate) mod overview;
 pub(crate) mod pane;
 pub(crate) mod rain;
+pub(crate) mod rave;
 pub(crate) mod saver;
 pub(crate) mod scope;
 pub(crate) mod shader;

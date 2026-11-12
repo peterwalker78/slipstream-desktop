@@ -378,6 +378,9 @@ pub struct Slipstream {
     pub lock: Option<crate::lock::Lock<Window>>,
     /// The lock going away, while it fades.
     pub unlocking: Option<crate::lock::Unlocking>,
+    /// Knocks on the bar's empty glass, and the rave they start (`rave.rs`).
+    pub knocks: crate::effects::rave::Knocks,
+    pub rave: Option<crate::effects::rave::Rave>,
     /// Alt+Tab's deck of glass panes, while it's open and while its panes fly home (`deck.rs`).
     pub deck: Option<crate::deck::Deck<Window>>,
     /// Two tiles passing through each other as they trade places (`pane.rs`).
@@ -655,6 +658,8 @@ impl Slipstream {
             power_answers,
             lock: None,
             unlocking: None,
+            knocks: Default::default(),
+            rave: None,
             deck: None,
             pass: None,
             lock_answers,

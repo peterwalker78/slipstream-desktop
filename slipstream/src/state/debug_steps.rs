@@ -67,6 +67,12 @@ impl Slipstream {
                 debug::Step::Screens => self.log_screens(),
                 debug::Step::Windows => self.log_windows(),
                 debug::Step::Motion => self.log_reduced_motion(),
+                debug::Step::Rave => {
+                    if let Some(rect) = self.screen_rect(0) {
+                        let at = (rect.x as f64 + 4.0, rect.y as f64 + 4.0).into();
+                        self.begin_rave(at);
+                    }
+                }
                 debug::Step::Rush => {
                     for chrome in self.drawn.chromes.values_mut() {
                         chrome.bar.rush_now();

@@ -50,6 +50,53 @@ impl Slipstream {
         self.drawn.chromes.get(&name)?.bar.target_at(x, y)
     }
 
+    /// Whether `pos` is on a bar's glass, clear of its buttons.
+    pub(crate) fn bar_glass_at(&self, pos: Point<f64, Logical>) -> bool {
+        let Some(index) = self.screen_at(pos) else {
+            return false;
+        };
+        let Some(screen) = self.screens.get(index) else {
+            return false;
+        };
+        if self.fullscreen_on(screen.workspace) || self.bar_target_at(pos).is_some() {
+            return false;
+        }
+        let Some(rect) = self.screen_rect(index) else {
+            return false;
+        };
+        let local = Point::<f64, Logical>::from((pos.x - rect.x as f64, pos.y - rect.y as f64));
+        self.drawn
+            .chromes
+            .get(&screen.output.name())
+            .is_some_and(|chrome| chrome.bar.area().contains(local))
+    }
+
+    /// Starts the rave on the screen with `pos`, out of its bar.
+    pub(crate) fn begin_rave(&mut self, pos: Point<f64, Logical>) {
+        let Some(screen) = self
+            .screen_at(pos)
+            .and_then(|index| self.screens.get(index))
+        else {
+            return;
+        };
+        let name = screen.output.name();
+        let Some(bar) = self
+            .drawn
+            .chromes
+            .get(&name)
+            .map(|chrome| chrome.bar.area())
+        else {
+            return;
+        };
+        let still = self.clock.reduced_motion;
+        self.rave = Some(crate::effects::rave::Rave::begin(
+            name,
+            bar,
+            self.wall(),
+            still,
+        ));
+    }
+
     /// Whether something of Slipstream's own is taking the pointer: the explorer, quick settings,
     /// the notification centre, bullet time, the share picker, the login offer, or the way out
     /// while it's asking. Clicks already stop at each of these; motion and the wheel stop here.

@@ -235,6 +235,8 @@ pub enum Step {
     Motion,
     /// Sends the lit edge's air rushing, as a change of workspace does.
     Rush,
+    /// Starts the rave on the first screen, as ten knocks on its bar would.
+    Rave,
     /// Super+P and Super+Shift+P.
     NextScreen,
     MoveToNextScreen,
@@ -511,6 +513,7 @@ impl Script {
                     ("windows", None) => Step::Windows,
                     ("motion", None) => Step::Motion,
                     ("rush", None) => Step::Rush,
+                    ("rave", None) => Step::Rave,
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
                     ("swapscreens", None) => Step::SwapScreens,

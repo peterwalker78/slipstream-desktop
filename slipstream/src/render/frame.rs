@@ -310,8 +310,9 @@ pub fn output_elements(
         .remove(&name)
         .unwrap_or_else(|| state.new_saver());
     let now = state.clock.frame();
-    // While locked, the lock is all there is: nothing below reads a window.
+    // While locked, the lock is all there is: nothing below reads a window, and any rave ends.
     if state.lock.is_some() {
+        state.rave = None;
         let elements = lock_elements(
             state,
             renderer,
@@ -337,6 +338,24 @@ pub fn output_elements(
         chrome.unlock = None;
     }
     let v = View::new(state, renderer, &mut chrome, output, geo, now);
+    // The rave covers everything on its screen, the pointer too.
+    if let Some(rave) = state.rave.as_mut().filter(|rave| rave.screen == name) {
+        if rave.tick(v.wall) {
+            let look = crate::effects::rave::Look {
+                screen: geo.size.to_f64(),
+                scale: v.scale,
+                ring: state.ring_rgb,
+                secondary: state.bullet_rgb,
+                tertiary: state.accent_rgb,
+            };
+            elements.extend(
+                rave.element(renderer, &look, v.wall)
+                    .map(OutputElement::Bar),
+            );
+        } else {
+            state.rave = None;
+        }
+    }
     chrome.overview.begin();
     chrome.panes.begin();
     chrome.overview.set_accent(state.bullet_rgb);

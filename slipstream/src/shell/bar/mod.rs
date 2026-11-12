@@ -504,6 +504,11 @@ impl Bar {
         }
     }
 
+    /// Where the bar was last drawn, in logical pixels from the screen's corner.
+    pub fn area(&self) -> Rectangle<f64, Logical> {
+        self.at
+    }
+
     /// How far below the screen's top the bar was last drawn.
     pub fn top(&self) -> f64 {
         self.at.loc.y

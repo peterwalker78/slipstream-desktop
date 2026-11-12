@@ -265,6 +265,14 @@ impl Slipstream {
     ) {
         self.own_keymap();
         let pressed = key_state == KeyState::Pressed;
+        // The rave takes every key while it's on, and a press ends it.
+        let wall = self.wall();
+        if let Some(rave) = self.rave.as_mut() {
+            if pressed {
+                rave.end(wall);
+            }
+            return;
+        }
         // The release of a Caps Lock press that only woke the faded UI goes nowhere either.
         if !pressed && self.keys.caps_woke == Some(keycode) {
             self.keys.caps_woke = None;

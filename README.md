@@ -209,4 +209,4 @@ AI coding tools are used in writing Slipstream's code. Every change is built and
 
 ## Licence
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE). Parts of the compositor started from Smithay's `smallvil` example (MIT). The code rain is built from xscreensaver's GLMatrix. The fonts are under the SIL Open Font Licence; their licences are in `assets/fonts`.
+GPL-3.0-or-later. See [`LICENSE`](LICENSE). Parts of the compositor started from Smithay's `smallvil` example (MIT). The code rain is built from xscreensaver's GLMatrix. The fonts are under the SIL Open Font Licence; their licences are in `assets/fonts`. The music loop in `assets/music` is by REKLAW, under CC BY-NC-ND 4.0, not the GPL; its licence is beside it.

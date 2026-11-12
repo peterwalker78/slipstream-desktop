@@ -1,0 +1,9 @@
+the-mundane-insane-loop.opus is sixteen bars of "The Mundane Insane" by REKLAW, from the
+soundtrack album The Buzz, played four times over without a break.
+
+It is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0
+International licence (CC BY-NC-ND 4.0): you may copy and share it unchanged, with credit to
+REKLAW, but not commercially and not remixed, transformed or built upon.
+https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+It is not covered by the GPL that covers Slipstream's code.

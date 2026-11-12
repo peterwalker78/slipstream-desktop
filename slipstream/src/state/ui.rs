@@ -198,7 +198,9 @@ impl Slipstream {
             || self.battery.card.is_some()
             || self.restoring.is_some()
             || self.lock.is_some()
-            || self.unlocking.is_some();
+            || self.unlocking.is_some()
+            // Nobody touches anything while dancing.
+            || self.rave.is_some();
         let opacity = self.idle.update(now, keep_up) as f32;
         crate::screensaver::set_active(self.idle.is_faded() || self.lock.is_some());
         // Pop-ups that arrived while it was faded show now it's coming back, and ones that

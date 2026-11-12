@@ -38,6 +38,14 @@ impl Slipstream {
         self.keys.super_tap.disarm();
         self.keys.layout_tap.disarm();
         let pressed = button_state == ButtonState::Pressed;
+        // The rave takes every click while it's on, and a press ends it.
+        let wall = self.wall();
+        if let Some(rave) = self.rave.as_mut() {
+            if pressed {
+                rave.end(wall);
+            }
+            return;
+        }
         // Reaching for the mouse ends any typing: what a click opens was asked for.
         if pressed {
             self.concentration.end();
@@ -119,6 +127,15 @@ impl Slipstream {
                 if pressed {
                     self.bar_clicked(target);
                 }
+                return;
+            }
+            // Knocks on the bar's empty glass: enough quick ones in a row start the rave.
+            if pressed
+                && button == BTN_LEFT
+                && self.bar_glass_at(at)
+                && self.knocks.knock(self.wall())
+            {
+                self.begin_rave(at);
                 return;
             }
         }
