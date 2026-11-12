@@ -42,6 +42,25 @@ pub fn buffer(pixmap: &Pixmap) -> MemoryRenderBuffer {
     )
 }
 
+/// An empty buffer of `size` pixels, one per screen pixel, to be painted with `repaint`.
+pub fn blank(size: (i32, i32)) -> MemoryRenderBuffer {
+    MemoryRenderBuffer::new(Fourcc::Abgr8888, size, 1, OutputTransform::Normal, None)
+}
+
+/// Paints `buffer` in place: `draw` is handed its pixels, and `damage` is the part it changed.
+/// The renderer then updates the texture it already holds for the buffer rather than making a
+/// new one, so a picture that changes many times a second costs no allocation or new texture.
+pub fn repaint(
+    buffer: &mut MemoryRenderBuffer,
+    damage: Rectangle<i32, smithay::utils::Buffer>,
+    draw: impl FnOnce(&mut [u8]),
+) {
+    let _ = buffer.render().draw(|pixels| {
+        draw(pixels);
+        Ok::<_, std::convert::Infallible>(vec![damage])
+    });
+}
+
 fn paint_of(rgba: u32) -> Paint<'static> {
     let [r, g, b, a] = rgba.to_be_bytes();
     let mut paint = Paint::default();

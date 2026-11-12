@@ -9,7 +9,7 @@
 use slipstream_config::Effects;
 use smithay::{
     backend::renderer::{ImportMem, Renderer, element::memory::MemoryRenderBufferRenderElement},
-    utils::{Logical, Point, Size},
+    utils::{Logical, Point, Rectangle, Size},
 };
 
 use crate::{
@@ -81,6 +81,10 @@ pub struct Slot {
     stepped_to: f64,
     seed: u64,
     look_load: Option<u16>,
+    /// The strip's light, upright, kept between steps.
+    lit: Vec<u8>,
+    canvas: Option<Canvas>,
+    /// What is painted, its buffer painted over in place at each step.
     painted: Option<(Shown, paint::Painted)>,
 }
 
@@ -111,6 +115,8 @@ impl Slot {
             stepped_to: now,
             seed: now.to_bits() | 1,
             look_load: None,
+            lit: Vec::new(),
+            canvas: None,
             painted: None,
         }
     }
@@ -238,33 +244,59 @@ impl Slot {
         *look_load = Some(step);
         if changed || stale {
             // The strip's light, upright: `iw` across and `ih` down.
-            let mut lit = vec![0u8; iw * ih * 4];
+            let lit = &mut self.lit;
+            lit.clear();
+            lit.resize(iw * ih * 4, 0);
             let gain = match light {
                 Light::Streaks(streaks) => {
-                    streaks.draw_along(&mut lit, iw, ih);
+                    streaks.draw_along(lit, iw, ih);
                     GAIN_STREAKS
                 }
                 Light::Rain(band) => {
                     if let Some(glyphs) = glyphs {
-                        band.draw_along(&mut lit, iw, ih, glyphs);
+                        band.draw_along(lit, iw, ih, glyphs);
                     }
                     GAIN_RAIN
                 }
             };
             let reach = (FRONT * scale as f32).max(1.0);
-            keep_between(&mut lit, iw, shown.lit, reach);
+            keep_between(lit, iw, shown.lit, reach);
             let edge = edge_colour(keyboard, ring, shown.flash as f32 / 16.0);
-            let pixmap = paint_strip(&lit, gain, device, inset, (iw, ih), scale, edge)?;
-            self.painted = Some((
-                shown,
-                paint::Painted {
-                    buffer: paint::buffer(&pixmap),
+            let size = (device, inset, (iw, ih), scale);
+            if self
+                .canvas
+                .as_ref()
+                .is_none_or(|canvas| canvas.size != size)
+            {
+                self.canvas = Some(Canvas::new(device, inset, (iw, ih), scale)?);
+            }
+            let pixmap = self.canvas.as_mut()?.paint(lit, gain, edge);
+            if self
+                .painted
+                .as_ref()
+                .is_none_or(|(was, _)| (was.device, was.scale) != (device, scale))
+            {
+                let buffer = paint::blank((pixmap.width() as i32, pixmap.height() as i32));
+                let painted = paint::Painted {
+                    buffer,
                     logical,
                     device,
                     scale,
                     pieces: Default::default(),
-                },
-            ));
+                };
+                self.painted = Some((shown, painted));
+            }
+            if let Some((was, painted)) = &mut self.painted {
+                *was = shown;
+                painted.logical = logical;
+                let whole =
+                    Rectangle::from_size((pixmap.width() as i32, pixmap.height() as i32).into());
+                paint::repaint(&mut painted.buffer, whole, |pixels| {
+                    if pixels.len() == pixmap.data().len() {
+                        pixels.copy_from_slice(pixmap.data());
+                    }
+                });
+            }
         }
         self.painted.as_ref()?.1.element(renderer, at, alpha)
     }
@@ -335,56 +367,99 @@ fn edge_colour(keyboard: bool, ring: [f32; 3], flash: f32) -> u32 {
 
 /// The strip's card `device` screen pixels big with `light`, `inner.0`×`inner.1`, added inside
 /// its edge at `gain` of 255, softened along the corners, with its edge in `edge`.
-fn paint_strip(
-    light: &[u8],
-    gain: u32,
-    device: (i32, i32),
-    inset: usize,
-    inner: (usize, usize),
-    scale: f64,
-    edge: u32,
-) -> Option<resvg::tiny_skia::Pixmap> {
-    let (w, h) = (device.0.max(1) as u32, device.1.max(1) as u32);
-    let radius = RADIUS * scale as f32;
-    let (iw, ih) = inner;
-    let mut p = Painter::new(w, h, 1.0)?;
-    p.fill(0.0, 0.0, w as f32, h as f32, radius, CARD);
-    // The shape inside the edge that the light may fall on.
-    let mut shape = Painter::new(iw as u32, ih as u32, 1.0)?;
-    shape.fill(
-        0.0,
-        0.0,
-        iw as f32,
-        ih as f32,
-        (radius - inset as f32).max(0.0),
-        0xffffffff,
-    );
-    let cover = shape.pixmap.data();
-    let data = p.pixmap.data_mut();
-    for (i, light) in light.chunks_exact(4).enumerate() {
-        let cover = cover[i * 4 + 3] as u32 * gain / 255;
-        if cover == 0 || light[..3] == [0, 0, 0] {
-            continue;
-        }
-        // A card only a pixel or two across still has an inner shape of one, past its edge.
-        let (x, y) = (i % iw + inset, i / iw + inset);
-        if x >= w as usize || y >= h as usize {
-            continue;
-        }
-        let at = (y * w as usize + x) * 4;
-        for (channel, &light) in data[at..at + 3].iter_mut().zip(&light[..3]) {
-            let added = *channel as u32 + (light as u32 * cover + 127) / 255;
-            *channel = added.min(255) as u8;
-        }
+/// The strip's dark card and the shape inside its edge that the light may fall on, painted once
+/// for a size, and a canvas the light and the edge are laid on at each step.
+struct Canvas {
+    /// The device size, inset, inner size and scale these are painted for.
+    size: ((i32, i32), usize, (usize, usize), f64),
+    card: resvg::tiny_skia::Pixmap,
+    /// How much of each pixel of the inner shape is inside it, one byte a pixel.
+    cover: Vec<u8>,
+    painter: Painter,
+}
+
+impl Canvas {
+    fn new(device: (i32, i32), inset: usize, inner: (usize, usize), scale: f64) -> Option<Self> {
+        let (w, h) = (device.0.max(1) as u32, device.1.max(1) as u32);
+        let radius = RADIUS * scale as f32;
+        let (iw, ih) = inner;
+        let mut card = Painter::new(w, h, 1.0)?;
+        card.fill(0.0, 0.0, w as f32, h as f32, radius, CARD);
+        let mut shape = Painter::new(iw as u32, ih as u32, 1.0)?;
+        shape.fill(
+            0.0,
+            0.0,
+            iw as f32,
+            ih as f32,
+            (radius - inset as f32).max(0.0),
+            0xffffffff,
+        );
+        Some(Self {
+            size: (device, inset, inner, scale),
+            card: card.pixmap,
+            cover: shape.pixmap.data().chunks_exact(4).map(|p| p[3]).collect(),
+            painter: Painter::new(w, h, 1.0)?,
+        })
     }
-    let line = (scale.round() as f32).max(1.0);
-    p.border(0.0, 0.0, w as f32, h as f32, radius, line, edge);
-    Some(p.pixmap)
+
+    /// The card with `light` added on inside its edge at `gain` (out of 255), and the edge drawn
+    /// round it in `edge`.
+    fn paint(&mut self, light: &[u8], gain: u32, edge: u32) -> &resvg::tiny_skia::Pixmap {
+        let (_, inset, (iw, _), scale) = self.size;
+        let p = &mut self.painter;
+        let (w, h) = (p.pixmap.width(), p.pixmap.height());
+        p.pixmap.data_mut().copy_from_slice(self.card.data());
+        let data = p.pixmap.data_mut();
+        for (i, (light, &cover)) in light.chunks_exact(4).zip(&self.cover).enumerate() {
+            let cover = cover as u32 * gain / 255;
+            if cover == 0 || light[..3] == [0, 0, 0] {
+                continue;
+            }
+            // A card only a pixel or two across still has an inner shape of one, past its edge.
+            let (x, y) = (i % iw + inset, i / iw + inset);
+            if x >= w as usize || y >= h as usize {
+                continue;
+            }
+            let at = (y * w as usize + x) * 4;
+            for (channel, &light) in data[at..at + 3].iter_mut().zip(&light[..3]) {
+                let added = *channel as u32 + (light as u32 * cover + 127) / 255;
+                *channel = added.min(255) as u8;
+            }
+        }
+        let radius = RADIUS * scale as f32;
+        let line = (scale.round() as f32).max(1.0);
+        p.border(0.0, 0.0, w as f32, h as f32, radius, line, edge);
+        &p.pixmap
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn paint_strip(
+        light: &[u8],
+        gain: u32,
+        device: (i32, i32),
+        inset: usize,
+        inner: (usize, usize),
+        scale: f64,
+        edge: u32,
+    ) -> Option<resvg::tiny_skia::Pixmap> {
+        let mut canvas = Canvas::new(device, inset, inner, scale)?;
+        Some(canvas.paint(light, gain, edge).clone())
+    }
+
+    #[test]
+    fn a_canvas_painted_again_keeps_nothing_of_the_step_before() {
+        let lit = vec![255u8; 6 * 4 * 4];
+        let dark = [0u8; 6 * 4 * 4];
+        let mut canvas = Canvas::new((8, 6), 1, (6, 4), 1.0).unwrap();
+        canvas.paint(&lit, GAIN_STREAKS, 0xffffffff);
+        let again = canvas.paint(&dark, GAIN_RAIN, EDGE).clone();
+        let fresh = paint_strip(&dark, GAIN_RAIN, (8, 6), 1, (6, 4), 1.0, EDGE).unwrap();
+        assert_eq!(again.data(), fresh.data());
+    }
 
     #[test]
     fn the_light_is_shown_quieter_than_a_streams_and_only_inside_the_edge() {
