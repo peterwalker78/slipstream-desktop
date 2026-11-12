@@ -1,9 +1,9 @@
-the-mundane-insane-loop.opus is thirty-two bars of "The Mundane Insane" by REKLAW, from the
-soundtrack album The Buzz, the loud section and the breakdown after it, played twice over
-without a break. the-mundane-insane-hint.opus
-is its first 0.4 seconds, faded out.
+the-mundane-insane-loop.opus is "The Mundane Insane" by REKLAW, from the soundtrack album The
+Buzz, from its drop to where it comes back round to it, about three minutes.
+the-mundane-insane-intro.opus is the 1.88 seconds that lead into the drop.
+the-mundane-insane-hint.opus is the drop's first 0.4 seconds, faded out.
 
-Both are licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0
+All three are licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0
 International licence (CC BY-NC-ND 4.0): you may copy and share them unchanged, with credit to
 REKLAW, but not commercially and not remixed, transformed or built upon.
 https://creativecommons.org/licenses/by-nc-nd/4.0/
