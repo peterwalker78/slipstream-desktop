@@ -11,7 +11,7 @@ use smithay::{
             element::{Id, Kind, texture::TextureRenderElement},
             gles::{
                 GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
-                UniformValue, element::TextureShaderElement,
+                UniformValue, element::TextureShaderElement, ffi,
             },
         },
     },
@@ -378,6 +378,34 @@ pub fn draw_offscreen(
     draw_offscreen_over(renderer, texture, broken, elements, sizes, what, clear)
 }
 
+/// Makes `texture` repeat its edge texels past its edges rather than wrapping round, as a new
+/// texture does: drawn scaled up, its outermost pixels would otherwise blend in a quarter of the
+/// opposite edge, a line of the top along the bottom of the screen.
+fn clamp_edges(renderer: &mut GlesRenderer, texture: &GlesTexture) {
+    let id = texture.tex_id();
+    let set = renderer.with_context(|gl| {
+        // SAFETY: plain GL calls on the renderer's own current context, binding a texture it made
+        // and putting the binding back to none afterwards.
+        unsafe {
+            gl.BindTexture(ffi::TEXTURE_2D, id);
+            gl.TexParameteri(
+                ffi::TEXTURE_2D,
+                ffi::TEXTURE_WRAP_S,
+                ffi::CLAMP_TO_EDGE as i32,
+            );
+            gl.TexParameteri(
+                ffi::TEXTURE_2D,
+                ffi::TEXTURE_WRAP_T,
+                ffi::CLAMP_TO_EDGE as i32,
+            );
+            gl.BindTexture(ffi::TEXTURE_2D, 0);
+        }
+    });
+    if let Err(err) = set {
+        tracing::warn!("couldn't clamp an offscreen texture's edges: {err}");
+    }
+}
+
 /// `draw_offscreen` onto `clear` rather than nothing.
 pub fn draw_offscreen_over(
     renderer: &mut GlesRenderer,
@@ -400,6 +428,7 @@ pub fn draw_offscreen_over(
         let size = Size::<i32, Buffer>::from((physical.w, physical.h));
         match renderer.create_buffer(Fourcc::Abgr8888, size) {
             Ok(made) => {
+                clamp_edges(renderer, &made);
                 *texture = Some(Canvas {
                     texture: made,
                     size: physical,

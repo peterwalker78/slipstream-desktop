@@ -10,31 +10,33 @@
 //! a machine has for itself, volume, brightness and media, go on doing their jobs while it plays.
 //!
 //! The club is a room rendered in 3D, seen only by its lasers: a floor, walls, a stage and a truss
-//! over it, five projectors along the stage and two hung at the truss's ends. The room is full of
-//! smoke, soft clouds drifting out from the stage over the crowd, which shows only where a laser
-//! lights it, brightest looking back towards the projector, and glows faintly between them. Each
-//! beam is a thin line through it, hidden behind the stage or a wall, kept over the crowd's heads
-//! as a show keeps them, and lands on the room as a spot. In the slower routines a
-//! projector scans a sheet of light between its beams, a wedge that thins with distance, its edges
-//! bright where the scan turns, the smoke's clouds showing in it as a slice through them. A
-//! projector can also scan beams round a cone, a tunnel you stand inside, or a sheet of light
-//! overhead, a "liquid sky". The camera arrives in its place in the crowd and drifts a little as a
-//! hand-held one does. The bar's smoke streams out of where the camera dived in, and gives way to
-//! the room's own. It sees as a film camera does: highlights roll off to white, with a little grain.
-//! It is drawn at half the screen's resolution and scaled up, so it runs smoothly on a laptop.
+//! over it, five projectors along the stage and three hung from the truss, one at each end and one
+//! under its middle. The room is full of smoke, soft clouds drifting out from the stage over the
+//! crowd, which shows only where a laser lights it, brightest looking back towards the projector,
+//! and glows faintly between them. Each beam is a thin line through it, hidden behind the stage or
+//! a wall, kept over the crowd's heads as a show keeps them, except in the routines that fire down
+//! across the floor, and lands on the room as a spot. In the slower routines a projector scans a
+//! sheet of light between its beams, a wedge that thins with distance, its edges bright where the
+//! scan turns, the smoke's clouds showing in it as a slice through them. A projector can also scan
+//! beams round a cone, a tunnel you stand inside, or a sheet of light overhead, a "liquid sky". The
+//! camera arrives in its place in the crowd and drifts a little as a hand-held one does. The bar's
+//! smoke streams out of where the camera dived in, and gives way to the room's own. It sees as a
+//! film camera does: highlights roll off to white, with a little grain. It is drawn at half the
+//! screen's resolution and scaled up, so it runs smoothly on a laptop.
 //!
 //! The show is programmed to the track as a laser show is: one routine to a phrase of a few bars,
 //! moving smoothly within it and easing into the next so it arrives on the downbeat. The fans open
-//! slowly, every beam sweeps together in unison, the two sides cross in an X whose meeting point
-//! moves on each downbeat, waves roll across the fans, and a pulse chases from beam to beam across
-//! every projector; over each eight-bar block's last bar every beam draws into one point, which
-//! bursts open on the next downbeat. The kicks, snares and hi-hats of each sixteenth note were
-//! measured from the music and are kept here: the kicks light the centre fan and the snares the pair
-//! beside it, so the hits add light without moving a beam. A breakdown slows to the centre fan
-//! turning in the smoke before its last two bars build, every beam closing in on you as the chase
-//! speeds up, into a dark half beat and the drop. Big changes of brightness come no faster than the
-//! beat, under the three a second that can bring on a seizure; only thin beams chase faster. It is
-//! drawn in the theme's three colours.
+//! slowly, every beam sweeps together in unison with the outer pair low across the floor, the two
+//! sides cross in an X whose meeting point moves on each downbeat, waves roll across the fans, and
+//! a pulse chases from beam to beam across every projector and over the floor; over each
+//! eight-bar block's last bar every beam draws into one point, which bursts open on the next
+//! downbeat. The kicks, snares and hi-hats of each sixteenth note were measured from the music and
+//! are kept here: the kicks light the centre fan and the snares the pair beside it, so the hits add
+//! light without moving a beam. A breakdown slows to the centre fan turning in the smoke before its
+//! last two bars build, every beam closing in on you as the chase speeds up, into a dark half beat
+//! and the drop. Big changes of brightness come no faster than the beat, under the three a second
+//! that can bring on a seizure; only thin beams chase faster. It is drawn in the theme's three
+//! colours.
 //!
 //! The music plays through PipeWire (`pw-play`), as the volume click does, as one gapless stream:
 //! the build-up into the drop, then the track's loop, from its drop to where it comes back round to
@@ -627,7 +629,7 @@ impl Rave {
             outer: moves.outer.values(),
             motion: [moves.wave, moves.rolled, moves.chased, moves.truss].map(|n| n as f32),
             shape: [moves.unison, moves.cross, moves.meet, moves.chase].map(|n| n as f32),
-            scanned: [moves.sheet as f32],
+            scanned: [moves.sheet, moves.down].map(|n| n as f32),
             ring: look.ring,
             secondary: look.secondary,
             tertiary: look.tertiary,
@@ -910,7 +912,8 @@ impl Fan {
 /// way rather than as mirror images; how far every beam is drawn to one meeting point, and where
 /// across the room it is, in metres; how much a pulse chases from beam to beam and which beam it
 /// has got to; how brightly the truss's projectors fire; how far every beam closes in on you; and
-/// how far the projectors scan sheets of light between their beams rather than drawing beams.
+/// how far the projectors scan sheets of light between their beams rather than drawing beams; and
+/// how far the routine fires down into the room, under the stage, rather than over the crowd.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Moves {
     centre: Fan,
@@ -926,6 +929,7 @@ struct Moves {
     truss: f64,
     converge: f64,
     sheet: f64,
+    down: f64,
 }
 
 impl Moves {
@@ -945,6 +949,7 @@ impl Moves {
             truss: lerp(self.truss, to.truss, x),
             converge: lerp(self.converge, to.converge, x),
             sheet: lerp(self.sheet, to.sheet, x),
+            down: lerp(self.down, to.down, x),
         }
     }
 }
@@ -1085,13 +1090,15 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
             }
         }
         Routine::Sweep => {
+            // The outer pair sweeps low, down across the floor, under the others.
             let aim = 0.42 * (TAU * local / 8.0).sin();
             Moves {
                 centre: fan(aim, 0.008, 0.14, 0.5),
                 inner: fan(aim, 0.008, 0.12, 0.5),
-                outer: fan(aim, 0.008, 0.1, 0.5),
+                outer: fan(aim, 0.008, -0.07, 0.5),
                 unison: 1.0,
                 truss: 0.4,
+                down: 1.0,
                 ..rest
             }
         }
@@ -1120,13 +1127,15 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
             sheet: 1.0,
             ..rest
         },
+        // The outer pair fires down into the room, so the pulse runs across the floor too.
         Routine::Chase => Moves {
             centre: fan(0.0, 0.06, 0.2, 0.7),
             inner: fan(0.32, 0.06, 0.18, 0.7),
-            outer: fan(0.6, 0.05, 0.15, 0.65),
+            outer: fan(0.2, 0.05, -0.09, 0.65),
             wave: 0.03,
             chase: 1.0,
             truss: 0.5,
+            down: 1.0,
             ..rest
         },
         Routine::Converge => {
@@ -1238,7 +1247,7 @@ struct Uniforms {
     outer: [f32; 4],
     motion: [f32; 4],
     shape: [f32; 4],
-    scanned: [f32; 1],
+    scanned: [f32; 2],
     ring: [f32; 3],
     secondary: [f32; 3],
     tertiary: [f32; 3],
@@ -1532,8 +1541,9 @@ uniform vec4 motion;
 // How far the fans aim the same way rather than as mirror images, how far every beam is drawn to
 // one meeting point and where across the room it is, and how much the chase shows.
 uniform vec4 shape;
-// How far the projectors scan sheets of light between their beams rather than drawing beams.
-uniform float scanned;
+// How far the projectors scan sheets of light between their beams rather than drawing beams, and
+// how far the routine fires down into the room rather than keeping over the crowd.
+uniform vec2 scanned;
 uniform vec3 ring;
 uniform vec3 secondary;
 uniform vec3 tertiary;
@@ -1867,16 +1877,16 @@ float landing(vec3 from, vec3 dir) {
     return best;
 }
 
-// How much of a beam from `from` along `dir` is shown: as a show keeps its lasers over the
-// audience's heads, one that would come out over the crowd lower than a little above your head, or
-// come down on the floor among it, fades out, so nothing streaks down under the projectors. One
-// that goes off to a side wall is left alone.
-float over_crowd(vec3 from, vec3 dir) {
+// How much of a beam from `from` along `dir` is shown: a show keeps its lasers over the audience's
+// heads, so one that would come out over the crowd lower than a little above your head, or come
+// down on the floor among it, fades out, unless the routine is one that fires `down` into the
+// room. One that goes off to a side wall is left alone.
+float over_crowd(vec3 from, vec3 dir, float down) {
     float ends = landing(from, dir);
     if (dir.z < 0.0) ends = min(ends, (eye.z - from.z) / dir.z);
     vec3 end = from + dir * ends;
     if (end.z > STAGE_FRONT || abs(end.x) > SIDE - 1.0) return 1.0;
-    return smoothstep(eye.y + 0.3, eye.y + 1.2, end.y);
+    return max(smoothstep(eye.y + 0.3, eye.y + 1.2, end.y), down);
 }
 
 // A beam from `from` along `dir`, `lit` bright, seen along `ray` from the eye up to the surface
@@ -1958,35 +1968,33 @@ vec3 aura(vec3 ray, vec3 from, vec3 axis, vec3 hue, float lit) {
     return vivid(hue) * (glowing * lit * phase(-facing) * 0.35);
 }
 
-// The liquid sky: a sheet of light scanned out from the stage over the room at `height`, the
-// smoke drifting through it, rolling slowly with the smoke's own currents. Its light spreads as it
-// fans out, so it is brightest near the stage and fades over you, and brightest looking back
-// towards its projector; far off, where a pixel covers metres of it, its smoke is seen as a whole.
-vec3 sky(vec3 ray, float wall, float height, vec3 hue, float pix) {
-    if (ray.y < 0.01) return vec3(0.0);
-    float hit = (height - eye.y) / ray.y;
+// The liquid sky: a sheet of light scanned out over the room by a projector hung under the middle
+// of the truss, tilted to pass `over` metres above you, the smoke drifting through it. It ripples
+// slowly with the smoke's own currents, more the further it is from the projector, which holds it
+// still at its source. Its light spreads as it fans out, so it is brightest near the projector and
+// fades over you, and brightest looking back towards it; far off, where a pixel covers metres of
+// it, its smoke is seen as a whole.
+vec3 sky(vec3 ray, float wall, float over, vec3 hue, float pix) {
+    vec3 from = vec3(0.0, TRUSS_Y - 0.4, TRUSS_Z);
+    vec3 normal = normalize(vec3(0.0, 1.0, (over - from.y) / from.z));
+    float facing = dot(ray, normal);
+    if (facing < 0.01) return vec3(0.0);
+    float hit = dot(from - eye, normal) / facing;
     vec3 at = eye + ray * hit;
-    float roll = 0.4 * snoise(vec3(at.x * 0.07, at.z * 0.07, bar.x * 0.03));
-    hit = (height + roll - eye.y) / ray.y;
+    float pinned = smoothstep(1.0, 10.0, length(at.xz - from.xz));
+    float roll = 0.4 * pinned * snoise(vec3(at.x * 0.07, at.z * 0.07, bar.x * 0.03));
+    hit = dot(from + vec3(0.0, roll, 0.0) - eye, normal) / facing;
     if (hit > wall) return vec3(0.0);
     at = eye + ray * hit;
-    vec3 from = vec3(0.0, height, STAGE_FRONT + 1.5);
     vec3 v = at - from;
     float r = length(v);
     if (v.z > 0.0) return vec3(0.0);
     float across = abs(atan(v.x, -v.z));
     float fan = 1.0 - smoothstep(1.0, 1.25, across);
     float smoke = mix(haze(at), 0.5, smoothstep(0.05, 0.5, pix * hit));
-    float graze = min(1.0 / ray.y, 6.0);
+    float graze = min(1.0 / facing, 6.0);
     float spread = 1.0 / max(r * 0.15, 0.6);
     return vivid(hue) * (smoke * graze * spread * fan * phase(dot(v / r, -ray)) * 0.06);
-}
-
-// Where `at` in the room shows, as the view's coordinates (height 1 to the top).
-vec2 shown(vec3 at, vec3 forward, vec3 right, vec3 up) {
-    vec3 v = at - eye;
-    float z = max(dot(v, forward), 0.01);
-    return vec2(dot(v, right), dot(v, up)) / (z * VIEW);
 }
 
 void main() {
@@ -2033,7 +2041,6 @@ void main() {
     here = clamp(here, 0.0, 1.0);
 
     float kick = hits.x;
-    float calm = mood.x;
     float bars = floor(max(b, 0.0) / 4.0);
     // The colours take turns on the projectors, a section at a time.
     float turn = mod(floor(bars / 8.0), 3.0);
@@ -2057,7 +2064,7 @@ void main() {
             float round_about = 2.0 * PI * float(i) / 12.0 + b * PI * 0.0625;
             vec3 dir = normalize(axis + open * (side * cos(round_about) + lift * sin(round_about)));
             vec3 hue = mod(float(i), 2.0) < 0.5 ? c1 : c2;
-            air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir), pix);
+            air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir, 0.0), pix);
         }
         // Aimed at you, it lights the smoke all through its cone in a round glow.
         air += aura(ray, apex, axis, c1, cue.x);
@@ -2091,13 +2098,13 @@ void main() {
                 float apart = mod(float(j) * 8.0 + fi - motion.z, 20.0);
                 apart = min(apart, 20.0 - apart);
                 float chased = 0.12 + 0.88 * exp(-apart * apart / 3.0);
-                float lit = look.w * mix(1.0, chased, shape.w) * over_crowd(from, dir);
+                float lit = look.w * mix(1.0, chased, shape.w) * over_crowd(from, dir, scanned.y);
                 // Scanning a sheet, the light is spread between the beams, and only the edges,
                 // where the scan turns, stay as bright lines.
-                float edge = i == 0 || i == 7 ? 1.0 : 1.0 - 0.85 * scanned;
+                float edge = i == 0 || i == 7 ? 1.0 : 1.0 - 0.85 * scanned.x;
                 air += beam(ray, wall, on_surface, lands, from, dir, hue, lit * edge, pix);
-                if (i > 0 && scanned > 0.0)
-                    air += sheet(ray, wall, from, last, dir, hue, 0.5 * (lit + last_lit) * scanned, pix);
+                if (i > 0 && scanned.x > 0.0)
+                    air += sheet(ray, wall, from, last, dir, hue, 0.5 * (lit + last_lit) * scanned.x, pix);
                 last = dir;
                 last_lit = lit;
             }
@@ -2135,14 +2142,14 @@ void main() {
             float across = mix(1.2, 0.3 + 0.1 * fi, swing);
             float rise = atan(tan(angle) * sin(across)) * (1.0 + 2.0 * swing);
             vec3 dir = aimed(side * across, rise);
-            air += beam(ray, wall, on_surface, lands, from, dir, ring, handed * lit * 1.4 * over_crowd(from, dir), pix);
+            air += beam(ray, wall, on_surface, lands, from, dir, ring, handed * lit * 1.4 * over_crowd(from, dir, 0.0), pix);
         }
     }
 
-    // The liquid sky, dropping in with the second crash and rising and falling with the bass.
+    // The liquid sky, dropping in with the second crash.
     if (cue.z > 0.0) {
-        float height = 5.2 + 2.0 * mood.w;
-        air += sky(ray, wall, height, c2, pix) * cue.z;
+        float over = 5.2 + 2.0 * mood.w;
+        air += sky(ray, wall, over, c2, pix) * cue.z;
     }
 
     // The room, lit only by the spots the lasers throw on its walls, floor and truss, the stage
@@ -2152,13 +2159,7 @@ void main() {
     vec3 room = albedo * (vec3(0.01) + (abs(what - 1.0) < 0.5 ? vec3(0.0) : lands));
     air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.04;
 
-    // The projectors' lenses, bright points on the stage.
     vec3 colour = room + air;
-    for (int j = 0; j < 5; j++) {
-        vec2 d = n - shown(vec3((float(j) - 2.0) * 4.5, STAGE_TOP + 0.5, STAGE_FRONT + 1.5), forward, right, up);
-        float flare = exp(-dot(d, d) * 20000.0);
-        colour += mix(j == 2 ? c1 : c2, vec3(1.0), 0.6) * flare * (cue.y + shape.w + 0.4 * cue.x) * (1.0 - 0.8 * calm);
-    }
 
     // As the camera passes through the glass, a flare sweeps across it.
     vec2 local = v_coords * place.zw;
@@ -2168,10 +2169,12 @@ void main() {
     float edge = min(min(local.x, place.z - local.x), min(local.y, place.w - local.y));
     colour += vivid(ring) * exp(-edge * edge / 6.0) * (1.0 - beat.y) * 0.6;
 
-    // A film camera's response: highlights roll off to white, the drop blooms, and a little grain.
+    // A film camera's response: highlights roll off to white, the drop blooms, and a little grain
+    // in the light, none in the dark, so the smoke fades smoothly away; under it a dither finer than
+    // a step of the screen's brightness, so the fade never bands.
     colour *= 2.2 * (1.0 + 0.6 * drop);
     colour = clamp((colour * (2.51 * colour + 0.03)) / (colour * (2.43 * colour + 0.59) + 0.14), 0.0, 1.0);
-    colour += (hash(vec3(gl_FragCoord.xy, floor(clock * 24.0))) - 0.5) * 0.02;
+    colour += (hash(vec3(gl_FragCoord.xy, floor(clock * 24.0))) - 0.5) * (1.5 / 255.0 + 0.03 * colour);
 
     // Over it, the bar's smoke lit as the bar lights it, as thick as the cue says, until the room's
     // own takes over, and the bar's own fan, so both carry on from the bar unchanged.
@@ -2546,6 +2549,26 @@ mod tests {
             Routine::Build,
         ] {
             assert_eq!(pose(routine, 2.0, 16.0).sheet, 0.0, "{routine:?}");
+        }
+    }
+
+    #[test]
+    fn the_sweep_and_the_chase_fire_down_across_the_floor_and_the_rest_keep_over_the_crowd() {
+        for routine in [Routine::Sweep, Routine::Chase] {
+            let moves = pose(routine, 2.0, 16.0);
+            assert_eq!(moves.down, 1.0, "{routine:?}");
+            assert!(moves.outer.tilt - moves.wave < 0.0, "{routine:?}");
+            assert!(moves.centre.tilt > 0.0, "{routine:?}");
+        }
+        for routine in [
+            Routine::Open,
+            Routine::Cross,
+            Routine::Waves,
+            Routine::Converge,
+            Routine::Rest,
+            Routine::Build,
+        ] {
+            assert_eq!(pose(routine, 2.0, 16.0).down, 0.0, "{routine:?}");
         }
     }
 
