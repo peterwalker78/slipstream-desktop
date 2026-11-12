@@ -64,7 +64,9 @@ the login screen.
 %autosetup -n slipstream-desktop-%{upstream_version}
 
 %build
-cargo build --release --locked --offline -p slipstream -p slipstream-settings -p slipstream-focus
+# The build follows the workspace's release profile and .cargo/config.toml, as the download does;
+# a distribution's RUSTFLAGS would replace both.
+env -u RUSTFLAGS cargo build --release --locked --offline -p slipstream -p slipstream-settings -p slipstream-focus
 
 %install
 %if 0%{?suse_version}
