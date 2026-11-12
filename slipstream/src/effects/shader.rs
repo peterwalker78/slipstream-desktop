@@ -67,7 +67,7 @@ pub fn with_constants(source: &str, constants: &[(&str, &dyn Float)]) -> String 
 }
 
 /// The most numbers one of these shaders takes.
-const MOST: usize = 16;
+const MOST: usize = 20;
 
 /// One of a shader's numbers: its name and one to four floats.
 #[derive(Clone, Copy, Debug, PartialEq)]
