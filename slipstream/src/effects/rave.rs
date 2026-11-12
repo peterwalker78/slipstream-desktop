@@ -99,7 +99,7 @@ const HAT_DECAY: f64 = 0.06;
 /// Thirty-two bars of "The Mundane Insane" by REKLAW, twice over (CC BY-NC-ND 4.0; see
 /// `assets/music/LICENSE.txt`).
 static MUSIC: &[u8] = include_bytes!("../../../assets/music/the-mundane-insane-loop.opus");
-/// Its first 0.6 seconds, faded out: the hint.
+/// Its first 0.4 seconds, faded out: the hint.
 static HINT: &[u8] = include_bytes!("../../../assets/music/the-mundane-insane-hint.opus");
 /// How loud the hint plays at its first knock and at the knock before the rave, 0 to 1.
 const HINT_QUIET: f64 = 0.06;
