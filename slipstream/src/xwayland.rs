@@ -231,6 +231,9 @@ impl XwmHandler for Slipstream {
     }
 
     fn property_notify(&mut self, _xwm: XwmId, surface: X11Surface, property: WmWindowProperty) {
+        if matches!(property, WmWindowProperty::Title | WmWindowProperty::Class) {
+            self.x11_renamed();
+        }
         // A new opacity changes nothing the window draws, so nothing else would show it.
         if !matches!(property, WmWindowProperty::Opacity) {
             return;

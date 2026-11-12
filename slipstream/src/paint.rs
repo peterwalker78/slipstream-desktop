@@ -42,6 +42,25 @@ pub fn buffer(pixmap: &Pixmap) -> MemoryRenderBuffer {
     )
 }
 
+/// An empty buffer of `size` pixels, one per screen pixel, to be painted with `repaint`.
+pub fn blank(size: (i32, i32)) -> MemoryRenderBuffer {
+    MemoryRenderBuffer::new(Fourcc::Abgr8888, size, 1, OutputTransform::Normal, None)
+}
+
+/// Paints `buffer` in place: `draw` is handed its pixels, and `damage` is the part it changed.
+/// The renderer then updates the texture it already holds for the buffer rather than making a
+/// new one, so a picture that changes many times a second costs no allocation or new texture.
+pub fn repaint(
+    buffer: &mut MemoryRenderBuffer,
+    damage: Rectangle<i32, smithay::utils::Buffer>,
+    draw: impl FnOnce(&mut [u8]),
+) {
+    let _ = buffer.render().draw(|pixels| {
+        draw(pixels);
+        Ok::<_, std::convert::Infallible>(vec![damage])
+    });
+}
+
 fn paint_of(rgba: u32) -> Paint<'static> {
     let [r, g, b, a] = rgba.to_be_bytes();
     let mut paint = Paint::default();
@@ -108,9 +127,12 @@ struct LayerKey {
     glass: bool,
 }
 
-/// Painted layers are kept up to this many bytes. A panel's is a few megabytes at 1.25×, and
-/// panels that grow with their content need one for each height they've been.
-const LAYER_CACHE_BYTES: usize = 48 << 20;
+/// Painted layers are kept up to this many bytes: enough for the panels on screen at once, with
+/// room for a large screen at 2×. A panel's is a few megabytes at 1.25×, and panels that grow
+/// with their content need one for each height they've been.
+const LAYER_CACHE_BYTES: usize = 24 << 20;
+/// A painted layer not used for this long is let go, so a quiet desktop gives the memory back.
+const LAYER_IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A mask, and the pixmap size, radius and scale it was made for.
 type Corners = Option<((u32, u32, u32, u32), Mask)>;
@@ -121,8 +143,17 @@ thread_local! {
 }
 
 thread_local! {
-    static LAYERS: std::cell::RefCell<Vec<(LayerKey, Pixmap)>> =
+    /// Painted layers, the least recently used first, each with when it was last used.
+    static LAYERS: std::cell::RefCell<Vec<(LayerKey, Pixmap, std::time::Instant)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Lets go of the painted layers that haven't been used for a while.
+pub fn trim_layers() {
+    let now = std::time::Instant::now();
+    LAYERS.with_borrow_mut(|cache| {
+        cache.retain(|(_, _, used)| now.duration_since(*used) < LAYER_IDLE);
+    });
 }
 
 /// Copies `src` onto `dst` with its corner at (`x`, `y`), if everything it lands on is still
@@ -363,8 +394,8 @@ impl Painter {
             let found = LAYERS.with_borrow(|cache| {
                 cache
                     .iter()
-                    .find(|(k, _)| *k == key)
-                    .map(|(_, pixmap)| pixmap.clone())
+                    .find(|(k, ..)| *k == key)
+                    .map(|(_, pixmap, _)| pixmap.clone())
             });
             if let Some(pixmap) = found.or_else(paint_fresh) {
                 place(&mut self.pixmap, &pixmap);
@@ -372,26 +403,27 @@ impl Painter {
             return;
         }
         LAYERS.with_borrow_mut(|cache| {
-            if let Some(at) = cache.iter().position(|(k, _)| *k == key) {
+            let now = std::time::Instant::now();
+            if let Some(at) = cache.iter().position(|(k, ..)| *k == key) {
                 // The most recently used goes last, and the oldest first out.
-                let entry = cache.remove(at);
-                cache.push(entry);
+                let (key, pixmap, _) = cache.remove(at);
+                cache.push((key, pixmap, now));
             } else {
                 let Some(pixmap) = paint_fresh() else {
                     return;
                 };
-                cache.push((key, pixmap));
+                cache.push((key, pixmap, now));
                 while cache.len() > 1
                     && cache
                         .iter()
-                        .map(|(_, pixmap)| pixmap.data().len())
+                        .map(|(_, pixmap, _)| pixmap.data().len())
                         .sum::<usize>()
                         > LAYER_CACHE_BYTES
                 {
                     cache.remove(0);
                 }
             }
-            let (_, pixmap) = cache.last().expect("found or just added");
+            let (_, pixmap, _) = cache.last().expect("found or just added");
             place(&mut self.pixmap, pixmap);
         });
     }

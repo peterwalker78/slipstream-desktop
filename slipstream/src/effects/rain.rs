@@ -206,8 +206,10 @@ pub struct Stream {
     band: Option<Band>,
     /// Or its own streaks of light, which say the same.
     streaks: Option<Streaks>,
-    /// The card with the rain on it.
+    /// The card with the rain on it, painted over in place at each step.
     painted: Option<Painted>,
+    /// The rain's light before it is laid on the card, kept between steps.
+    light: Vec<u8>,
     stepped_to: f64,
     /// Keeps two streams of the same app from falling in step.
     seed: u64,
@@ -367,6 +369,7 @@ impl Rain {
             band: None,
             streaks: None,
             painted: None,
+            light: Vec::new(),
             stepped_to: now,
             seed: now.to_bits() ^ ((self.streams.len() as u64 + 1) << 32) | 1,
         });
@@ -559,26 +562,45 @@ impl Rain {
                 .as_ref()
                 .is_none_or(|painted| painted.scale != scale || painted.device != device);
             if changed || stale || recoloured {
-                let mut light = vec![0u8; iw * ih * 4];
+                let light = &mut stream.light;
+                light.clear();
+                light.resize(iw * ih * 4, 0);
                 match effects {
                     Effects::Matrix => {
                         if let (Some(band), Some(glyphs)) = (&mut stream.band, glyphs.as_mut()) {
                             band.resize(iw as f32, ih as f32);
-                            band.draw(&mut light, iw, ih, iw as f32 / 2.0, glyphs);
+                            band.draw(light, iw, ih, iw as f32 / 2.0, glyphs);
                         }
                     }
                     Effects::Slipstream => {
-                        if let Some(streaks) = &stream.streaks {
-                            streaks.draw(&mut light, iw, ih);
+                        if let Some(streaks) = &mut stream.streaks {
+                            streaks.draw(light, iw, ih);
                         }
                     }
                 }
-                stream.painted = Some(Painted {
-                    buffer: paint::buffer(&compose(&light, card)),
-                    logical: card_size,
-                    device,
-                    scale,
-                });
+                let (w, h) = (card.base.width() as i32, card.base.height() as i32);
+                if stale {
+                    stream.painted = Some(Painted {
+                        buffer: paint::blank((w, h)),
+                        logical: card_size,
+                        device,
+                        scale,
+                    });
+                }
+                if let Some(painted) = &mut stream.painted {
+                    painted.logical = card_size;
+                    // Only the shape inside the edge changes from one step to the next.
+                    let whole = Rectangle::from_size((w, h).into());
+                    let damage = Rectangle::new(
+                        (card.inset as i32, card.inset as i32).into(),
+                        (iw as i32, ih as i32).into(),
+                    )
+                    .intersection(whole)
+                    .unwrap_or(whole);
+                    paint::repaint(&mut painted.buffer, damage, |pixels| {
+                        compose(light, card, pixels)
+                    });
+                }
             }
 
             // Elements are listed front to back.
@@ -613,13 +635,16 @@ impl Rain {
 }
 
 /// A stream's `light`, drawn at the size of the card's inner shape, added on to its card one
-/// screen pixel to a buffer pixel. Light is added only inside that shape, softened along its
-/// rounded corners, so it stops the same distance from the card's edge all the way round.
-fn compose(light: &[u8], card: &Card) -> Pixmap {
+/// screen pixel to a buffer pixel, into `data`, the card's pixels. Light is added only inside
+/// that shape, softened along its rounded corners, so it stops the same distance from the card's
+/// edge all the way round.
+fn compose(light: &[u8], card: &Card, data: &mut [u8]) {
     let (iw, _) = card.inner;
-    let mut out = card.base.clone();
-    let (w, h) = (out.width() as usize, out.height() as usize);
-    let data = out.data_mut();
+    if data.len() != card.base.data().len() {
+        return;
+    }
+    data.copy_from_slice(card.base.data());
+    let (w, h) = (card.base.width() as usize, card.base.height() as usize);
     for (i, (light, &cover)) in light.chunks_exact(4).zip(&card.cover).enumerate() {
         if cover == 0 || light[..3] == [0, 0, 0] {
             continue;
@@ -635,7 +660,6 @@ fn compose(light: &[u8], card: &Card) -> Pixmap {
             *channel = added.min(255) as u8;
         }
     }
-    out
 }
 
 /// A stream's button: a flat dark card, a shade lighter than the one hanging from it, with the
@@ -870,7 +894,8 @@ mod tests {
             let mut slits = vec![0u8; iw * ih * 4];
             streaks.draw(&mut slits, iw, ih);
             for light in [rain, slits] {
-                let out = compose(&light, &card);
+                let mut out = card.base.clone();
+                compose(&light, &card, out.data_mut());
                 let (w, h) = (device.0 as usize, device.1 as usize);
                 let inset = card.inset;
                 assert_eq!(inset, (2.0 * scale).floor() as usize);

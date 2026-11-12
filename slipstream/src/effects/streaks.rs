@@ -117,6 +117,10 @@ pub struct Streaks {
     /// Laid on its side along a strip, rather than falling down a card.
     along: bool,
     still: bool,
+    /// Kept between draws so a step reuses its buffers: the float light and the blur's pass
+    /// across.
+    sum: Vec<f32>,
+    across: Vec<f32>,
 }
 
 impl Streaks {
@@ -163,6 +167,8 @@ impl Streaks {
             name_rgb: QUIET,
             along,
             still: false,
+            sum: Vec::new(),
+            across: Vec::new(),
         };
         streaks.resize(width, height, scale);
         for _ in 0..WARM_TICKS {
@@ -283,11 +289,11 @@ impl Streaks {
     }
 
     /// Adds the light to `light`, `w`×`h` pixels of RGBA; only the colour channels are written.
-    pub fn draw(&self, light: &mut [u8], w: usize, h: usize) {
+    pub fn draw(&mut self, light: &mut [u8], w: usize, h: usize) {
         let colour = colour_for(self.load);
         let hot = colour.map(|c| c + (1.0 - c) * 0.55);
         let scale = self.scale as f32;
-        let mut sum = vec![0f32; w * h * 3];
+        let mut sum = zeroed(std::mem::take(&mut self.sum), w * h * 3);
         for streak in &self.streaks {
             let b = bright(streak.near);
             let half = width(streak.near, scale) / 2.0;
@@ -320,9 +326,11 @@ impl Streaks {
                 }
             }
         }
-        bloom(&mut sum, w, h, (BLOOM * scale).round().max(1.0) as usize);
+        let radius = (BLOOM * scale).round().max(1.0) as usize;
+        bloom(&mut sum, &mut self.across, w, h, radius);
         self.draw_spine(&mut sum, w, h);
         add_to(light, &sum);
+        self.sum = sum;
     }
 
     /// Adds the light to `light`, `w`×`h` pixels of RGBA, for a card laid on its side along a
@@ -333,11 +341,11 @@ impl Streaks {
     /// a haze. So each streak is a thread a single row fine, white-hot at the head and dying
     /// away behind it, and the name is cut out of the light rather than lit through it, so it
     /// stays sharp whatever passes.
-    pub fn draw_along(&self, light: &mut [u8], w: usize, h: usize) {
+    pub fn draw_along(&mut self, light: &mut [u8], w: usize, h: usize) {
         let colour = colour_for(self.load);
         let scale = self.scale as f32;
         let heat = THREAD_HEAT * scale;
-        let mut sum = vec![0f32; w * h * 3];
+        let mut sum = zeroed(std::mem::take(&mut self.sum), w * h * 3);
         for streak in &self.streaks {
             let row = h as i32 - 1 - streak.x as i32;
             if row < 0 || row >= h as i32 || streak.y <= 0.0 {
@@ -402,6 +410,7 @@ impl Streaks {
             }
         }
         add_to(light, &sum);
+        self.sum = sum;
     }
 
     /// The name's colour and brightness where it holds `glow` of the light that passed: dim in
@@ -442,6 +451,13 @@ impl Streaks {
             }
         }
     }
+}
+
+/// `buffer` emptied and refilled with `len` zeroes, keeping what it had allocated.
+fn zeroed(mut buffer: Vec<f32>, len: usize) -> Vec<f32> {
+    buffer.clear();
+    buffer.resize(len, 0.0);
+    buffer
 }
 
 /// Adds the float light `sum`, three channels a pixel, to RGBA `light`; only the colour channels
@@ -504,12 +520,13 @@ fn column(
 
 /// Softens the light: a box blur `radius` pixels each way, across then down, added back on top.
 /// Both passes keep a running total, so a pixel costs the same whatever the radius, and the pass
-/// down walks the rows in memory order.
-fn bloom(sum: &mut [f32], w: usize, h: usize, radius: usize) {
+/// down walks the rows in memory order. `across` holds the first pass.
+fn bloom(sum: &mut [f32], across: &mut Vec<f32>, w: usize, h: usize, radius: usize) {
     if w == 0 || h == 0 {
         return;
     }
-    let mut across = vec![0f32; sum.len()];
+    across.clear();
+    across.resize(sum.len(), 0.0);
     let span = (2 * radius + 1) as f32;
     for y in 0..h {
         let row = y * w * 3;
@@ -678,7 +695,7 @@ mod tests {
                 })
                 .collect();
             let (mut fast, mut plain) = (light.clone(), light);
-            bloom(&mut fast, w, h, radius);
+            bloom(&mut fast, &mut Vec::new(), w, h, radius);
             bloom_plainly(&mut plain, w, h, radius);
             for (a, b) in fast.iter().zip(&plain) {
                 assert!((a - b).abs() < 1e-4, "{w}x{h} r{radius}: {a} against {b}");
@@ -689,7 +706,7 @@ mod tests {
     const W: usize = 40;
     const H: usize = 700;
 
-    fn lit(streaks: &Streaks) -> Vec<u8> {
+    fn lit(streaks: &mut Streaks) -> Vec<u8> {
         let mut light = vec![0u8; W * H * 4];
         streaks.draw(&mut light, W, H);
         light
@@ -704,10 +721,10 @@ mod tests {
 
     #[test]
     fn a_busy_app_sends_more_light_than_an_idle_one() {
-        let idle = Streaks::new("Foot", 0.0, W, H, 1.25, 7);
-        let busy = Streaks::new("Foot", 1.0, W, H, 1.25, 7);
+        let mut idle = Streaks::new("Foot", 0.0, W, H, 1.25, 7);
+        let mut busy = Streaks::new("Foot", 1.0, W, H, 1.25, 7);
         assert!(busy.streaks.len() > 3 * idle.streaks.len().max(1));
-        assert!(brightness(&lit(&busy)) > 2 * brightness(&lit(&idle)));
+        assert!(brightness(&lit(&mut busy)) > 2 * brightness(&lit(&mut idle)));
     }
 
     #[test]
@@ -753,12 +770,12 @@ mod tests {
     fn reduced_motion_holds_the_light_still() {
         let mut streaks = Streaks::new("Foot", 0.5, W, H, 1.25, 5);
         streaks.hold(0.5);
-        let before = lit(&streaks);
+        let before = lit(&mut streaks);
         assert!(streaks.is_still());
-        assert_eq!(before, lit(&streaks));
+        assert_eq!(before, lit(&mut streaks));
         let mut strip = Streaks::along("Foot", 0.5, 160, 20, 1.0, 5);
         strip.hold(0.5);
-        assert_eq!(along(&strip), along(&strip));
+        assert_eq!(along(&mut strip), along(&mut strip));
     }
 
     /// A strip 160 long and 20 high with nothing in it but one streak at depth `near`, its
@@ -783,7 +800,7 @@ mod tests {
             .sum()
     }
 
-    fn along(streaks: &Streaks) -> Vec<u8> {
+    fn along(streaks: &mut Streaks) -> Vec<u8> {
         let mut light = vec![0u8; 160 * 20 * 4];
         streaks.draw_along(&mut light, 160, 20);
         light
@@ -793,7 +810,7 @@ mod tests {
     fn along_a_strip_a_streak_is_a_thread_brightest_at_its_head_and_nothing_ahead_of_it() {
         // No name, so nothing but the thread is drawn. Half a pixel in from the foot is the
         // strip's bottom row but four.
-        let light = along(&strip_with("", 1.0, 100.0, 4.5));
+        let light = along(&mut strip_with("", 1.0, 100.0, 4.5));
         let row = 15;
         assert!(at(&light, 99, row) > at(&light, 80, row));
         assert!(at(&light, 80, row) > at(&light, 40, row));
@@ -819,7 +836,10 @@ mod tests {
         // A thread whose head has just come out from behind the name.
         let head = right as f32 + 12.0;
         named.streaks[0].y = head;
-        let (bare, named) = (along(&strip_with("", 1.0, head, 10.5)), along(&named));
+        let (bare, named) = (
+            along(&mut strip_with("", 1.0, head, 10.5)),
+            along(&mut named),
+        );
         let row = 9;
         // Between two letters the thread is still there, but dimmer than with no name.
         assert!(at(&named, gap, row) > 0);

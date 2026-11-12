@@ -19,7 +19,7 @@ use std::{
     process::Command,
     sync::{
         Arc, Mutex, MutexGuard,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::Thread,
     time::{Duration, Instant},
@@ -119,6 +119,8 @@ struct Control {
     heard: Mutex<VecDeque<String>>,
     /// Cuts short the wait for a line from a program that keeps running, while one runs.
     waker: Mutex<Option<Waker>>,
+    /// How many times it has published, so a reader can tell nothing changed without a copy.
+    published: AtomicU64,
 }
 
 impl Control {
@@ -164,6 +166,11 @@ impl Worker {
 
     pub fn published(&self) -> Published {
         self.published.lock().unwrap().clone()
+    }
+
+    /// How many times it has published; it only grows.
+    pub fn generation(&self) -> u64 {
+        self.control.published.load(Ordering::Acquire)
     }
 
     /// Button `button` was pressed: the program runs with `press <button>` after it, in its
@@ -331,6 +338,7 @@ impl Job {
             Some(card)
         });
         *self.published.lock().unwrap() = Published { card, problem };
+        self.control.published.fetch_add(1, Ordering::Release);
     }
 
     /// Takes `line` as the new card if it reads as one, sending the notification on it; says why

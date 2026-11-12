@@ -111,6 +111,8 @@ pub struct Captures {
     pending: Vec<(Target, Frame)>,
     /// Every window, as the toplevel list announces it.
     listed: Vec<Listed>,
+    /// An X11 window's title or class changed since the list was last brought up to date.
+    x11_renamed: bool,
 }
 
 impl Captures {
@@ -520,12 +522,20 @@ impl Slipstream {
         }
     }
 
+    /// An X11 window's title or class has changed, for the toplevel list to send on its next
+    /// pass. A Wayland window's are read in place each pass, but an X11 window's can only be
+    /// copied out, so they are only read once one has changed.
+    pub fn x11_renamed(&mut self) {
+        self.captures.x11_renamed = true;
+    }
+
     /// Brings the toplevel list up to date with the windows there are: new ones announced, closed
     /// ones withdrawn, and a changed title or app id sent. Called once a pass of the event loop;
-    /// comparing a few strings per window is cheaper than hooking every place a window comes,
-    /// goes, or retitles itself.
-    pub fn sync_toplevels(&mut self, windows: Vec<Window>) {
-        let windows: Vec<Window> = windows.into_iter().filter(|w| w.alive()).collect();
+    /// comparing a few strings per window in place, with nothing copied unless one changed, is
+    /// cheaper than hooking every place a window comes, goes, or retitles itself.
+    pub fn sync_toplevels(&mut self, mut windows: Vec<Window>) {
+        windows.retain(|w| w.alive());
+        let x11_renamed = std::mem::take(&mut self.captures.x11_renamed);
         let list = &mut self.protocols.foreign_toplevel_list;
         self.captures.listed.retain(|listed| {
             let open = windows.contains(&listed.window);
@@ -535,8 +545,12 @@ impl Slipstream {
             open
         });
         for window in windows {
-            let title = crate::state::window_title(&window);
-            let app_id = crate::state::window_app_id(&window).unwrap_or_default();
+            let read = |window: &Window| {
+                (
+                    crate::state::window_title(window),
+                    crate::state::window_app_id(window).unwrap_or_default(),
+                )
+            };
             match self
                 .captures
                 .listed
@@ -544,6 +558,14 @@ impl Slipstream {
                 .find(|listed| listed.window == window)
             {
                 Some(listed) => {
+                    let same = match window.x11_surface() {
+                        Some(_) => !x11_renamed,
+                        None => crate::state::names_are(&window, &listed.title, &listed.app_id),
+                    };
+                    if same {
+                        continue;
+                    }
+                    let (title, app_id) = read(&window);
                     if listed.title != title || listed.app_id != app_id {
                         if listed.title != title {
                             listed.handle.send_title(&title);
@@ -557,6 +579,7 @@ impl Slipstream {
                     }
                 }
                 None => {
+                    let (title, app_id) = read(&window);
                     let handle = self
                         .protocols
                         .foreign_toplevel_list

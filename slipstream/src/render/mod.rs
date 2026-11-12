@@ -201,7 +201,7 @@ fn bar_content(
         awake: state.awake,
         kept_awake: state.idle.pill.clone(),
         layout: state.layout_label(),
-        plugins: state.plugins.chip(&state.plugins.shown()),
+        plugins: state.plugins.bar_chip(),
         plugins_open: state.plugin_panel.is_open(),
         // The pane hangs from the bar of the screen the streams are on.
         dock: state

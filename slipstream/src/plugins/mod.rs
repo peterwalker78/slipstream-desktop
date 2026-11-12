@@ -26,6 +26,7 @@ pub use slipstream_config::plugins::Glance;
 pub use worker::Sent;
 
 use std::{
+    cell::RefCell,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -154,6 +155,10 @@ pub struct Plugins {
     /// they were last told.
     windows_looked: Option<Instant>,
     windows_told: Option<String>,
+    /// The bar's chip, and the sum of the running plugins' generations it was worked out at.
+    /// Cleared whenever the plugins or the settings change, so while it is kept the plugins are
+    /// the same ones and the sum only moves when one of them publishes.
+    chip: RefCell<Option<(u64, Option<Chip>)>>,
 }
 
 impl Plugins {
@@ -182,12 +187,14 @@ impl Plugins {
             media: None,
             windows_looked: None,
             windows_told: None,
+            chip: RefCell::new(None),
         }
     }
 
     /// Follows the settings. A plugin turned off stops at once, with everything its program
     /// started; one turned on starts once its folder has been looked at.
     pub fn configure(&mut self, settings: &Settings) {
+        *self.chip.get_mut() = None;
         self.wanted = settings.plugins.clone();
         let wanted = &self.wanted;
         // Whatever is dropped here is stopped.
@@ -209,6 +216,7 @@ impl Plugins {
     /// What a look at the plugin folders found: a plugin that's on and unchanged keeps running,
     /// one newly approved starts, and one gone or held is stopped.
     pub fn scanned(&mut self, scan: Scan) {
+        *self.chip.get_mut() = None;
         if scan.problems != self.reported {
             for why in &scan.problems {
                 tracing::warn!("plugins: {why}");
@@ -378,6 +386,24 @@ impl Plugins {
             .collect()
     }
 
+    /// What the bar's chip shows, worked out again only when a plugin has published since.
+    pub fn bar_chip(&self) -> Option<Chip> {
+        let generation = self
+            .running
+            .iter()
+            .map(|running| running.worker.generation())
+            .sum();
+        let mut cached = self.chip.borrow_mut();
+        match &*cached {
+            Some((at, chip)) if *at == generation => chip.clone(),
+            _ => {
+                let chip = self.chip(&self.shown());
+                *cached = Some((generation, chip.clone()));
+                chip
+            }
+        }
+    }
+
     /// What the chip shows, from `shown`. None when there are no plugins at all.
     pub fn chip(&self, shown: &[Shown]) -> Option<Chip> {
         (self.installed > 0).then(|| Chip {
@@ -535,6 +561,7 @@ impl Plugins {
 
     /// Stops every plugin, now: the compositor is on its way out.
     pub fn stop_all(&mut self) {
+        *self.chip.get_mut() = None;
         self.media = None;
         self.running.clear();
         slipstream_config::command::end_all();
