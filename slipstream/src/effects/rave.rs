@@ -1073,6 +1073,7 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
                 centre: fan(0.0, 0.02 + 0.07 * x, 0.04 + 0.26 * x, 0.5),
                 inner: fan(0.18 + 0.1 * x, 0.02 + 0.07 * x, 0.03 + 0.2 * x, 0.45),
                 outer: fan(0.4 + 0.15 * x, 0.02 + 0.06 * x, 0.02 + 0.15 * x, 0.4),
+                truss: 0.35,
                 sheet: 1.0,
                 ..rest
             }
@@ -1084,6 +1085,7 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
                 inner: fan(aim, 0.008, 0.12, 0.5),
                 outer: fan(aim, 0.008, 0.1, 0.5),
                 unison: 1.0,
+                truss: 0.4,
                 ..rest
             }
         }
@@ -1098,7 +1100,7 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
                 outer: fan(0.5, 0.012, 0.1, 0.5),
                 cross: 1.0,
                 meet: lerp(at(bar), at(bar + 1.0), moving),
-                truss: 0.3,
+                truss: 0.5,
                 sheet: 1.0,
                 ..rest
             }
@@ -1108,7 +1110,7 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
             inner: fan(0.3, 0.05, 0.12, 0.5),
             outer: fan(0.55, 0.05, 0.1, 0.45),
             wave: 0.08,
-            truss: 0.25,
+            truss: 0.45,
             sheet: 1.0,
             ..rest
         },
@@ -1118,7 +1120,7 @@ fn pose(routine: Routine, local: f64, len: f64) -> Moves {
             outer: fan(0.6, 0.05, 0.15, 0.65),
             wave: 0.03,
             chase: 1.0,
-            truss: 0.3,
+            truss: 0.5,
             ..rest
         },
         Routine::Converge => {
@@ -1672,28 +1674,30 @@ vec3 vivid(vec3 c) {
     return clamp(mix(vec3(grey), c, 1.6), 0.0, 1.0);
 }
 
-// The room's smoke at `p`, 0 to 1: soft clouds a couple of metres across with thinner gaps
-// between, and a fine grain through them, all drifting out from the stage over the crowd, rising
-// and sliding sideways. Its layers slide at different speeds, so the clouds turn over as they go.
+// The room's smoke at `p`, 0 to 1, as real stage haze is: soft clouds a couple of metres across
+// carried round in slow swirls, drawn into soft wisps where it folds, thinning into gaps but
+// never quite clear, all drifting out from the stage over the crowd, rising and sliding sideways.
 // It shows only where a laser lights it.
 float haze(vec3 p) {
     float t = bar.x;
     vec3 s = (p - vec3(0.25 * t, 0.06 * t, -0.4 * t)) * 0.3;
-    float warp = snoise(s * 0.4 + vec3(0.0, 0.0, 0.04 * t));
-    float clouds = 0.65 * snoise(s + vec3(1.2 * warp, 0.0, warp))
-        + 0.35 * snoise(s * 2.3 + vec3(7.1, warp, 0.05 * t));
-    float grain = snoise(vec3(s.x * 7.0, s.y * 12.0, s.z * 7.0 + 0.1 * t));
-    float thick = smoothstep(-0.55, 0.6, clouds);
-    return 0.14 + 0.86 * thick * (0.82 + 0.18 * grain);
+    vec3 swirl = vec3(snoise(s * 0.5 + vec3(0.0, 0.0, 0.03 * t)),
+                      snoise(s * 0.5 + vec3(5.2, 1.3, 0.03 * t)), 0.0);
+    vec3 q = s + 0.8 * swirl;
+    float clouds = snoise(q);
+    float fold = snoise(q * 2.2 + vec3(7.1, 0.0, 0.05 * t));
+    float wisps = exp(-fold * fold * 5.0);
+    float fine = snoise(q * 6.5 + 3.3);
+    return clamp(0.5 + 0.42 * clouds + 0.14 * (wisps - 0.45) + 0.05 * fine, 0.06, 1.0);
 }
 
-// The smoke at `p` as `haze` has it, its clouds without their fine grain or turning over: enough
-// for a thin beam or a faint glow, at half the cost.
+// The smoke at `p` as `haze` has it, its clouds without their swirls, wisps or grain: enough for
+// a thin beam or a faint glow, at a third of the cost.
 float thin_haze(vec3 p) {
     float t = bar.x;
     vec3 s = (p - vec3(0.25 * t, 0.06 * t, -0.4 * t)) * 0.3;
     float clouds = 0.65 * snoise(s) + 0.35 * snoise(s * 2.3 + vec3(7.1, 0.0, 0.05 * t));
-    return 0.14 + 0.86 * smoothstep(-0.55, 0.6, clouds) * 0.82;
+    return clamp(0.5 + 0.4 * clouds, 0.06, 1.0);
 }
 
 // How much more light smoke scatters towards the eye than side on, where the light travelling
@@ -1912,18 +1916,28 @@ vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
         * lens * fade * lit;
 }
 
-// The liquid sky: a sheet of light scanned overhead at `height`, a thin slab of lit haze, the smoke
-// drifting through it, lit most where you look along it.
-vec3 sky(vec3 ray, float wall, float height, vec3 hue) {
+// The liquid sky: a sheet of light scanned out from the stage over the room at `height`, the
+// smoke drifting through it, rolling slowly with the smoke's own currents. Its light spreads as it
+// fans out, so it is brightest near the stage and fades over you, and brightest looking back
+// towards its projector; far off, where a pixel covers metres of it, its smoke is seen as a whole.
+vec3 sky(vec3 ray, float wall, float height, vec3 hue, float pix) {
     if (ray.y < 0.01) return vec3(0.0);
     float hit = (height - eye.y) / ray.y;
-    if (hit > wall) return vec3(0.0);
     vec3 at = eye + ray * hit;
-    if (at.z < 1.0 || at.z > STAGE_FRONT + 2.0 || abs(at.x) > SIDE) return vec3(0.0);
-    float lit = haze(at);
-    float graze = 1.0 / max(ray.y, 0.05);
-    float edge = smoothstep(STAGE_FRONT + 2.0, STAGE_FRONT - 4.0, at.z) * smoothstep(SIDE, SIDE - 4.0, abs(at.x));
-    return vivid(hue) * lit * graze * edge * 0.07;
+    float roll = 0.4 * snoise(vec3(at.x * 0.07, at.z * 0.07, bar.x * 0.03));
+    hit = (height + roll - eye.y) / ray.y;
+    if (hit > wall) return vec3(0.0);
+    at = eye + ray * hit;
+    vec3 from = vec3(0.0, height, STAGE_FRONT + 1.5);
+    vec3 v = at - from;
+    float r = length(v);
+    if (v.z > 0.0) return vec3(0.0);
+    float across = abs(atan(v.x, -v.z));
+    float fan = 1.0 - smoothstep(1.0, 1.25, across);
+    float smoke = mix(haze(at), 0.5, smoothstep(0.05, 0.5, pix * hit));
+    float graze = min(1.0 / ray.y, 6.0);
+    float spread = 1.0 / max(r * 0.15, 0.6);
+    return vivid(hue) * (smoke * graze * spread * fan * phase(dot(v / r, -ray)) * 0.06);
 }
 
 // Where `at` in the room shows, as the view's coordinates (height 1 to the top).
@@ -1977,7 +1991,6 @@ void main() {
     here = clamp(here, 0.0, 1.0);
 
     float kick = hits.x;
-    float hat = hits.z;
     float calm = mood.x;
     float bars = floor(max(b, 0.0) / 4.0);
     // The colours take turns on the projectors, a section at a time.
@@ -2089,8 +2102,8 @@ void main() {
 
     // The liquid sky, dropping in with the second crash and rising and falling with the bass.
     if (cue.z > 0.0) {
-        float height = 5.2 - 0.5 * kick + 2.0 * mood.w;
-        air += sky(ray, wall, height, c2) * cue.z * (0.8 + 0.6 * hat);
+        float height = 5.2 + 2.0 * mood.w;
+        air += sky(ray, wall, height, c2, pix) * cue.z;
     }
 
     // The room, lit only by the spots the lasers throw on its walls, floor and truss, the stage
@@ -2098,8 +2111,7 @@ void main() {
     // light scattered through it, so its clouds show a little everywhere.
     vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : vec3(0.4);
     vec3 room = albedo * (vec3(0.01) + (abs(what - 1.0) < 0.5 ? vec3(0.0) : lands));
-    float busy = min(cue.x + cue.y + cue.z + shape.w, 1.5);
-    air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.03 * busy;
+    air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.04;
 
     // The projectors' lenses, bright points on the stage.
     vec3 colour = room + air;
