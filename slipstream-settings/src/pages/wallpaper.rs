@@ -24,7 +24,7 @@ const NARROWEST: i32 = 240;
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Wallpaper",
-        "The living wallpaper behind your windows. Tick more than one and they take turns.",
+        "The living wallpaper behind your windows. Tick more than one to have them take turns.",
     );
 
     let cycle = group(&page, "Cycle");
@@ -44,13 +44,13 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &cycle,
         "Change the picture every",
         Some(
-            "With more than one ticked, they take turns in a random order. The next one takes \
-             over at the end of a turn, so the screen is nearly empty when the picture changes.",
+            "With more than one ticked, they go in a random order, and the picture changes when \
+             the screen is nearly empty.",
         ),
         &change,
     );
 
-    let idle = group(&page, "Taking the screen");
+    let idle = group(&page, "When you step away");
     let current = store.get().wallpaper.fade_after_secs;
     let waits = choices(&FADE_CHOICES, current);
     let names: Vec<String> = waits.iter().map(|&secs| describe(secs)).collect();
@@ -67,8 +67,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &idle,
         "Fade to the wallpaper after",
         Some(
-            "Time with no keyboard or mouse input. A fullscreen window or a playing video keeps \
-             the desktop up, and so does Awake: hold Caps Lock down to turn it on or off.",
+            "Time with no keyboard or mouse input. A fullscreen window, a playing video or \
+             Awake (hold Caps Lock) keeps the desktop up.",
         ),
         &fade,
     );
@@ -82,7 +82,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );
 
-    let turns = group(&page, "Taking turns");
+    let turns = group(&page, "Pictures");
     let chosen: Vec<&str> = store
         .get()
         .wallpaper
@@ -358,13 +358,13 @@ fn all_ticks(on: bool, count: usize) -> Vec<bool> {
 fn all_blurb(ticked: usize, count: usize) -> String {
     if ticked == count {
         format!(
-            "Every one takes its turn, including any added later. Untick to keep only {}.",
+            "Every one is used, including any added later. Untick to keep only {}.",
             slipstream_config::VARIATIONS[0].title
         )
     } else if ticked == 1 {
-        "One is ticked, so it stays. Tick more below and they take turns.".to_string()
+        "Only one is ticked. Tick more below to have them change.".to_string()
     } else {
-        format!("{ticked} of {count} take turns. Tick this to have every one take its turn.")
+        format!("{ticked} of {count} ticked. Tick this to use every one.")
     }
 }
 

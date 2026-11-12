@@ -90,6 +90,7 @@ pub const SETTINGS_PAGES: [SettingsPage; 12] = [
         title: "Notifications",
         holds: &[
             "Do not disturb",
+            "Wait for a pause in typing",
             "Wait until I pause",
             "Windows don't take the keyboard",
         ],

@@ -81,7 +81,7 @@ fn displays(page: &gtk::Box, store: &Store) {
             "Resolution",
             Some(match screen.running.is_empty() {
                 true => "What this screen is set to.",
-                false => "What this screen is set to. Automatic uses the one it asks for.",
+                false => "Automatic uses this screen's own, marked in the list.",
             }),
             &mode_pick,
         );
@@ -115,9 +115,12 @@ fn displays(page: &gtk::Box, store: &Store) {
             });
         }
         let running = match screen.running.is_empty() {
-            true => format!("It is {} × {} logical pixels.", screen.width, screen.height),
+            true => format!(
+                "How big everything is drawn. Now {} × {} logical pixels.",
+                screen.width, screen.height
+            ),
             false => format!(
-                "How big everything is drawn. It is running {} at {:.0}%.",
+                "How big everything is drawn. Now {} at {:.0}%.",
                 screen.running,
                 if screen.scale > 0.0 {
                     screen.scale
@@ -338,7 +341,7 @@ fn night_light(page: &gtk::Box, store: &Store) {
     let sub = row(
         &night,
         "Schedule",
-        Some("Warmer colours in the evening. Quick settings turns it on and off by hand."),
+        Some("Turn it on and off yourself in quick settings."),
         &schedule,
     );
 
@@ -371,8 +374,7 @@ fn night_light(page: &gtk::Box, store: &Store) {
             to.set_sensitive(custom);
             if let Some(sub) = &sub {
                 sub.set_text(&match which {
-                    NightSchedule::Off => "Warmer colours in the evening. Quick settings \
-                                           turns it on and off by hand."
+                    NightSchedule::Off => "Turn it on and off yourself in quick settings."
                         .to_string(),
                     NightSchedule::Sunset => sunset_note(),
                     NightSchedule::Custom => "Warms up over half an hour from the start, and \

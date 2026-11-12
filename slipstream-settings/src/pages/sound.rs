@@ -71,8 +71,8 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &heard,
         "Volume click",
         Some(
-            "Plays at the new level when the volume keys or a slider change it, so you can hear \
-             the volume as well as see it. Never on mute or brightness.",
+            "Plays at the new level when the volume keys or a slider change it. Muting and \
+             brightness stay silent.",
         ),
         &click,
     );

@@ -6,9 +6,9 @@ use super::*;
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Workspaces",
-        "As many as you want, up to twenty, each with a name of its own or none. Super and a \
-         number goes to one of the first nine. Deleting one moves its windows to the one before \
-         it, or the first, and one with no name goes by its number as the list changes.",
+        "Up to twenty, named or not. Super and a number goes to one of the first nine. Delete \
+         one and its windows move to the one before it, or to the first. One without a name \
+         shows its number.",
     );
     let card = group(&page, "Workspaces");
     fill_workspaces(&card, store);
@@ -51,7 +51,7 @@ fn fill_workspaces(card: &gtk::Box, store: &Store) {
         };
         let up = button("go-up-symbolic", "Move up", index > 0);
         let down = button("go-down-symbolic", "Move down", index + 1 < count);
-        let delete = button("user-trash-symbolic", "Delete", count > 1);
+        let delete = button("user-trash-symbolic", "Delete this workspace", count > 1);
         for (control, step) in [(&up, -1isize), (&down, 1)] {
             let store = store.clone();
             let refill = refill.clone();
