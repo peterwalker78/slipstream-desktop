@@ -54,7 +54,7 @@
 //! it, `unshare` (a click on the bar's red dot), `polkit:MESSAGE` (the password card, as a
 //! program needing an administrator would open it, checking nothing), `press:NAME`,
 //! `release:NAME` and `chord:super+shift+s` (keys by xkb name, through the same routing as the keyboard, and meaning
-//! what they mean in the login session: Super is Super even nested), `motion` (every animating
+//! what they mean in the login session even when a nested window has let go of the keyboard), `motion` (every animating
 //! part's reduced-motion flag, into the log), `arc` (the lit edge's arc, struck now), `lock` (the lock screen; nested runs only), `unlock`
 //! (the lock taken down as a right password would), `battery:N` (pretend the battery is at N
 //! percent and unplugged; `battery:N+` charging, `battery:off` reads it again), and `quit`. While

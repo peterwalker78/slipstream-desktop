@@ -17,4 +17,4 @@ cargo test --workspace      # in the distrobox
 scripts/test-install-session
 ```
 
-In a window, **Alt stands in for Super**, since your desktop keeps Super for itself. The distrobox is [set up here](install.md#building-it-yourself).
+In a window, Slipstream holds the keyboard while it has focus, Super included, so the keys are the same as in the session. Press and let go of **Ctrl+Alt** to give the keyboard back to your desktop, and click the window to take it again. The window's title says which. On X11, or a Wayland desktop without keyboard-shortcuts-inhibit, your desktop keeps the keys it uses itself. The distrobox is [set up here](install.md#building-it-yourself).

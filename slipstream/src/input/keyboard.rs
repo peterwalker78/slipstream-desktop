@@ -369,15 +369,17 @@ impl Slipstream {
         let mut waking = false;
         // Looked up before `input`, which holds the keyboard lock while the filter runs.
         let gamescope_focused = self.gamescope_focused();
-        // A Super tap is off for games (fullscreen or gamescope), and for a real keyboard when
-        // nested, where Alt stands in for Super and a tapped Alt is an app's menu bar.
+        // Nested, a window that has let go of the keyboard passes every key to the focused app.
+        // Debug steps' keys always count.
+        let let_go = self.keys_let_go && !injected;
+        // A Super tap is off for games (fullscreen or gamescope).
         let fullscreen_focused = self
             .focused_window()
             .is_some_and(|window| self.is_fullscreen(&window));
         // An app holding the shortcuts gets Super on its own too.
         let inhibited = self.shortcuts_inhibited();
         let tap_allowed = keys::taps_super(self.settings.keys.style)
-            && (injected || !self.nested)
+            && !let_go
             && !gamescope_focused
             && !fullscreen_focused
             && !inhibited;
@@ -409,9 +411,7 @@ impl Slipstream {
                 let key = handle
                     .raw_latin_sym_or_raw_current_sym()
                     .unwrap_or_else(|| handle.modified_sym());
-                // Injected keys mean what they mean in the login session: no
-                // nested Alt standing in for Super.
-                let mods = Mods::from_state(modifiers, state.nested && !injected);
+                let mods = Mods::from_state(modifiers);
                 // F7 on its own, while the wallpaper is showing, saves a picture of it as it is
                 // and leaves it showing: any other key brings the desktop back, so a screenshot's
                 // usual keys can't. No app gets a key pressed on the faded screen, and no binding
@@ -537,6 +537,14 @@ impl Slipstream {
                     state.keys.suppressed_keys.push(key);
                     return FilterResult::Intercept(Some(taken));
                 }
+                // Let go of, the window runs no shortcuts; the lock and the cards above still
+                // take their keys.
+                if let_go {
+                    if !pressed && release_suppressed(&mut state.keys.suppressed_keys, key) {
+                        return FilterResult::Intercept(None);
+                    }
+                    return FilterResult::Forward;
+                }
                 // An app holding the shortcuts (a virtual machine, a remote desktop) gets every
                 // key but the one that takes them back. The hardware keys (volume, brightness,
                 // media) stay the laptop's.
@@ -628,8 +636,7 @@ impl Slipstream {
             self.finish_cycle();
         }
         // Gravity's arrangement settles when Super is let go.
-        if self.arrange.is_some() && !Mods::from_state(&keyboard.modifier_state(), self.nested).logo
-        {
+        if self.arrange.is_some() && !Mods::from_state(&keyboard.modifier_state()).logo {
             self.finish_arrangement();
         }
     }

@@ -183,8 +183,11 @@ pub struct Slipstream {
     pub bindings: Vec<keys::Binding>,
     /// Awake is on: the UI doesn't fade to the wallpaper. Held Caps Lock toggles it.
     pub awake: bool,
-    /// Running as a window inside another desktop, where Alt stands in for Super.
+    /// Running as a window inside another desktop.
     pub nested: bool,
+    /// Nested, the window has let go of the keyboard: keys reach the focused app but run none
+    /// of Slipstream's shortcuts, so the desktop around it can have them.
+    pub keys_let_go: bool,
     /// Started from the login screen, so the session environment is shared with D-Bus.
     pub session: bool,
     /// This compositor holds the state folder's owner lock (`live.rs`), so it is the one that
@@ -561,6 +564,7 @@ impl Slipstream {
             bindings: keys::checked(keys::defaults(settings.keys.style), settings.keys.style),
             awake: false,
             nested: false,
+            keys_let_go: false,
             owns_state: true,
             session: false,
             udev: None,

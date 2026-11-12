@@ -1,7 +1,10 @@
+mod capture;
+
 use std::time::Duration;
 
 use smithay::{
     backend::{
+        input::{ButtonState, InputEvent, KeyState, KeyboardKeyEvent, PointerButtonEvent},
         renderer::damage::OutputDamageTracker,
         winit::{self, WinitEvent},
     },
@@ -52,10 +55,29 @@ pub fn init_winit(
     state.screen_connected(&output, 0);
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
+    let mut capture = capture::Capture::new(backend.window());
+    state.keys_let_go = !capture.held();
 
     event_loop
         .handle()
         .insert_source(winit, move |event, _, state| {
+            capture.dispatch();
+            match &event {
+                WinitEvent::Focus(true) => capture.take(backend.window()),
+                WinitEvent::Focus(false) => capture.let_go(backend.window()),
+                WinitEvent::Input(InputEvent::Keyboard { event }) => capture.key(
+                    backend.window(),
+                    event.key_code().raw(),
+                    event.state() == KeyState::Pressed,
+                ),
+                WinitEvent::Input(InputEvent::PointerButton { event })
+                    if event.state() == ButtonState::Pressed =>
+                {
+                    capture.take(backend.window());
+                }
+                _ => (),
+            }
+            state.keys_let_go = !capture.held();
             match event {
                 WinitEvent::Resized { size, .. } => {
                     output.change_current_state(

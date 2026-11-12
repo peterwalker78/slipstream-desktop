@@ -36,6 +36,11 @@ async-io = "2.6"
 futures-lite = "2.6"
 # Clearing the signal mask in children (`launch::command`).
 libc = "0.2"
+# Nested on a Wayland desktop, the window asks the host for every key, Super included
+# (keyboard-shortcuts-inhibit), over winit's own connection. winit already uses all three.
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+wayland-client = "0.31.15"
+wayland-protocols = { version = "0.32.13", features = ["client", "unstable"] }
 # The settings file, shared by the compositor and slipstream-settings.
 slipstream-config = { path = "slipstream-config" }
 serde = { version = "1", features = ["derive"] }
