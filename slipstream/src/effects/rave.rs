@@ -474,7 +474,11 @@ impl Rave {
         let bar = self.bar_middle();
         let to = centre_projector(size);
         let travel = smooth(0.0, 1.0, self.dived(now));
-        (bar.x + (to.x - bar.x) * travel, bar.y + (to.y - bar.y) * travel).into()
+        (
+            bar.x + (to.x - bar.x) * travel,
+            bar.y + (to.y - bar.y) * travel,
+        )
+            .into()
     }
 
     /// The club as `look` says at `now`, over the screen or, during the dive, over the bar's glass
@@ -512,7 +516,9 @@ impl Rave {
             }
         }
         let (area, uniforms) = self.uniforms(look, now);
-        Some(OutputElement::Bar(self.kept.pixel(program, area, &uniforms)))
+        Some(OutputElement::Bar(
+            self.kept.pixel(program, area, &uniforms),
+        ))
     }
 
     /// `elements`, everything else on the screen, as the camera shows them diving into the bar at
@@ -656,7 +662,10 @@ fn centre_projector(size: Size<f64, Logical>) -> Point<f64, Logical> {
     let look = f64::from(LOOK_UP);
     let length = (1.0 + look * look).sqrt();
     // Its height and distance as the camera sees them, tilted up by the camera's look.
-    let (up, forward) = ((rise - ahead * look) / length, (rise * look + ahead) / length);
+    let (up, forward) = (
+        (rise - ahead * look) / length,
+        (rise * look + ahead) / length,
+    );
     let shown = up / (forward * f64::from(VIEW));
     (size.w / 2.0, size.h / 2.0 * (1.0 - shown)).into()
 }
@@ -2356,7 +2365,10 @@ mod tests {
         assert!(diving.screen[3] > 16.0 && diving.screen[3] < 480.0);
         let landed_at = at(&rave, 10.0 + DIVE).screen;
         assert_eq!(landed_at[2], 768.0);
-        assert!((landed_at[3] - 0.622 * 960.0).abs() < 1.0, "at the centre projector");
+        assert!(
+            (landed_at[3] - 0.622 * 960.0).abs() < 1.0,
+            "at the centre projector"
+        );
         assert_eq!(
             diving.bar[0],
             100.0 + (DIVE * 0.4) as f32,
@@ -2530,7 +2542,12 @@ mod tests {
         for routine in [Routine::Open, Routine::Waves, Routine::Cross, Routine::Rest] {
             assert_eq!(pose(routine, 2.0, 16.0).sheet, 1.0, "{routine:?}");
         }
-        for routine in [Routine::Sweep, Routine::Chase, Routine::Converge, Routine::Build] {
+        for routine in [
+            Routine::Sweep,
+            Routine::Chase,
+            Routine::Converge,
+            Routine::Build,
+        ] {
             assert_eq!(pose(routine, 2.0, 16.0).sheet, 0.0, "{routine:?}");
         }
     }

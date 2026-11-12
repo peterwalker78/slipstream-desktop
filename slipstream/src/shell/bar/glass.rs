@@ -1057,7 +1057,8 @@ impl Glass {
             "the lit edge's ink map",
         )?;
         let at = self.air.advance(look.now, look.moves, look.marker);
-        let stage = self.air
+        let stage = self
+            .air
             .stage(look.now, look.shown, look.animated, look.lasers);
         if self
             .atlas
@@ -1336,7 +1337,8 @@ mod tests {
     }
 
     #[test]
-    fn the_projector_powers_up_as_the_desktop_comes_back_is_on_without_motion_and_off_saving_power() {
+    fn the_projector_powers_up_as_the_desktop_comes_back_is_on_without_motion_and_off_saving_power()
+    {
         let mut air = Air::starting_at(100.0);
         assert_eq!(air.stage(0.0, true, true, true)[0], 0.0, "off at first");
         let mut power = 0.0;
