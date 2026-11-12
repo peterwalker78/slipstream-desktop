@@ -9,9 +9,7 @@
 use smithay::{
     backend::renderer::{
         Color32F, Renderer,
-        element::{
-            Id, Kind, texture::TextureRenderElement,
-        },
+        element::{Id, Kind, texture::TextureRenderElement},
         gles::{
             GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
             element::TextureShaderElement,
