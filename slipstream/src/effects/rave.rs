@@ -127,6 +127,15 @@ const HIT_GAIN: f64 = 3.0;
 /// pixels, scaled up. Its light is soft and every beam is at least a pixel wide, so it shows
 /// little, and it keeps the show smooth on a laptop's graphics.
 const RESOLUTION: f64 = 0.5;
+/// The club's camera and stage, which its shader is given: half the view's height as the tangent
+/// of its angle, the eye's height in metres and how far it looks up (the rise of its gaze for a
+/// metre ahead), and the stage's top and front, in metres. The projectors stand half a metre
+/// over the stage, a metre and a half behind its front.
+const VIEW: f32 = 0.62;
+const EYE_HEIGHT: f32 = 1.75;
+const LOOK_UP: f32 = 0.14;
+const STAGE_TOP: f32 = 1.0;
+const STAGE_FRONT: f32 = 21.0;
 /// The bar's height in the units its glass is drawn in.
 const BAR_UNITS: f64 = 40.0;
 
@@ -459,15 +468,13 @@ impl Rave {
     }
 
     /// Where the bar's middle is shown at `now` on a screen `size` logical pixels: the camera dives
-    /// in on it, carrying it to the screen's middle by the time it lands.
+    /// in on it, carrying it to where the club's centre projector shows by the time it lands, so
+    /// the bar's lasers finish where the show's middle cluster fires from.
     fn held(&self, now: f64, size: Size<f64, Logical>) -> Point<f64, Logical> {
         let bar = self.bar_middle();
+        let to = centre_projector(size);
         let travel = smooth(0.0, 1.0, self.dived(now));
-        (
-            bar.x + (size.w / 2.0 - bar.x) * travel,
-            bar.y + (size.h / 2.0 - bar.y) * travel,
-        )
-            .into()
+        (bar.x + (to.x - bar.x) * travel, bar.y + (to.y - bar.y) * travel).into()
     }
 
     /// The club as `look` says at `now`, over the screen or, during the dive, over the bar's glass
@@ -637,6 +644,21 @@ fn looped(beats: f64, again: bool) -> f64 {
     } else {
         beats
     }
+}
+
+/// Where the club's centre projector shows on a screen `size` logical pixels as the camera lands,
+/// looking straight down the room from its place in the crowd, a little up.
+fn centre_projector(size: Size<f64, Logical>) -> Point<f64, Logical> {
+    let (rise, ahead) = (
+        f64::from(STAGE_TOP) + 0.5 - f64::from(EYE_HEIGHT),
+        f64::from(STAGE_FRONT) + 1.5,
+    );
+    let look = f64::from(LOOK_UP);
+    let length = (1.0 + look * look).sqrt();
+    // Its height and distance as the camera sees them, tilted up by the camera's look.
+    let (up, forward) = ((rise - ahead * look) / length, (rise * look + ahead) / length);
+    let shown = up / (forward * f64::from(VIEW));
+    (size.w / 2.0, size.h / 2.0 * (1.0 - shown)).into()
 }
 
 /// What the club is drawn with.
@@ -1248,6 +1270,11 @@ fn club_source() -> String {
         &[
             ("SCISSOR", &glass::SCISSOR),
             ("SCISSOR_PERIOD", &glass::SCISSOR_PERIOD),
+            ("VIEW", &VIEW),
+            ("EYE_HEIGHT", &EYE_HEIGHT),
+            ("LOOK_UP", &LOOK_UP),
+            ("STAGE_TOP", &STAGE_TOP),
+            ("STAGE_FRONT", &STAGE_FRONT),
         ],
     )
 }
@@ -1504,8 +1531,6 @@ uniform vec3 secondary;
 uniform vec3 tertiary;
 
 const float PI = 3.14159265;
-// Half the view's height, as the tangent of its angle.
-const float VIEW = 0.62;
 // The room, in metres: its floor and ceiling, its side walls, the wall behind the stage and the one
 // behind you; the stage's front, top and half-width; the truss over it, its height, depth and
 // radius.
@@ -1513,8 +1538,6 @@ const float CEILING = 9.0;
 const float SIDE = 15.0;
 const float BACK = 32.0;
 const float BEHIND = -8.0;
-const float STAGE_TOP = 1.0;
-const float STAGE_FRONT = 21.0;
 const float STAGE_HALF = 11.0;
 const float TRUSS_Y = 7.2;
 const float TRUSS_Z = 22.0;
@@ -1934,9 +1957,9 @@ void main() {
 
     // The camera, in its place in the crowd, looks a little up, drifts and sways as a hand-held one
     // does, and kicks with the drop.
-    eye = vec3(0.3 * sin(clock * 0.27), 1.75 + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
+    eye = vec3(0.3 * sin(clock * 0.27), EYE_HEIGHT + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
     float yaw = 0.025 * sin(clock * 0.21) + 0.004 * drop * sin(b * 97.0);
-    float pitch = 0.14 + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0);
+    float pitch = LOOK_UP + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0);
     vec3 forward = normalize(vec3(sin(yaw), pitch, cos(yaw)));
     vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
     vec3 up = cross(forward, right);
@@ -2282,11 +2305,13 @@ mod tests {
         let diving = at(&rave, 10.0 + DIVE * 0.4);
         assert_eq!(diving.bar[3], 1.0, "the bar's own fan");
         assert_eq!(diving.beat[3], 0.0, "and its smoke");
-        // About the bar's middle, carried down to the screen's middle as the camera lands.
+        // About the bar's middle, carried down to the centre projector as the camera lands.
         assert_eq!(at(&rave, 10.0).screen[2..], [768.0, 16.0]);
         assert_eq!(diving.screen[2], 768.0);
         assert!(diving.screen[3] > 16.0 && diving.screen[3] < 480.0);
-        assert_eq!(at(&rave, 10.0 + DIVE).screen[2..], [768.0, 480.0]);
+        let landed_at = at(&rave, 10.0 + DIVE).screen;
+        assert_eq!(landed_at[2], 768.0);
+        assert!((landed_at[3] - 0.622 * 960.0).abs() < 1.0, "at the centre projector");
         assert_eq!(
             diving.bar[0],
             100.0 + (DIVE * 0.4) as f32,

@@ -18,9 +18,10 @@
 //! a glint. A broad sheen slides slowly along the frosted glass, kept faint behind the clock as the
 //! smoke is. The air bends the bar's picture behind it, more in the lower glass than over the text,
 //! with a hint of colour split, and round the text and icons its light is held back so they stay
-//! easy to read: a beam nearing text fades gradually. The pane shows its edges all round, as a
-//! sheet of glass does: a fine bright face at the very edge and a fainter reflection of it across
-//! the glass's thickness. The foot's edge is lit besides where smoke sits against it. The glass is
+//! easy to read: a beam nearing text fades gradually. The pane's edges, its foot, its top and both
+//! ends, are polished, each a bright face with an inner reflection across the glass's thickness,
+//! always faintly there and lit up where smoke sits against it, as a pane carries light out to its
+//! edges. The glass is
 //! kept dark, and in the power saver mode the projector is off.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
@@ -377,6 +378,9 @@ uniform vec2 stage;
 
 // How far a beam reaches once the projector has fully powered up, units: past either end.
 const float POWER_REACH = 1400.0;
+// How bright the glass's edges are with no smoke against them, so the pane's outline is always
+// faintly there.
+const float EDGE_SEEN = 0.12;
 
 const float PI = 3.14159265;
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
@@ -592,8 +596,8 @@ void main() {
     beams += glints(px, p, t, f, wide);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
-    // reflection, lit only where fog sits against it, so it comes and goes with the smoke. None
-    // where a docked pane's frame carries the bar on down.
+    // reflection, always faintly there and lit up where fog sits against it. None where a docked
+    // pane's frame carries the bar on down.
     float foot = frame.y - 0.5 * f;
     float waver = clamp(g.y * 5.0 / 7.0, -0.8, 0.8) * f;
     float d1 = (px.y - (foot + waver)) / f;
@@ -602,30 +606,34 @@ void main() {
     // Only the rows round the foot have an edge to light.
     float lit = 0.0;
     if (p.y > 35.0) {
-        lit = 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
+        lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
     }
     float in_gap = clamp(min(px.x + 0.5, gap.y * f) - max(px.x - 0.5, gap.x * f), 0.0, 1.0);
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
-    // The pane's edges all round, top, foot and both ends, as a sheet of glass shows its own: a
-    // fine bright face at the very edge, a dark line inside it, and a fainter reflection of the
-    // face across the glass's thickness. None where a docked pane's frame carries the bar on down.
-    float to_side = min(px.x, frame.x - px.x);
-    float to_foot = mix(frame.y - px.y, 1e4, in_gap);
-    float rim = 1e4;
-    rim = min(rim, min(to_side, px.y));
-    rim = min(rim, to_foot);
-    float face = exp(-pow(rim - 0.5, 2.0) / 0.5);
-    float thickness = 2.6 * f;
-    float inner = exp(-pow(rim - thickness, 2.0) / (0.6 * f * f));
-    float shade = exp(-pow(rim - 0.5 * thickness - 0.5, 2.0) / (0.4 * f * f));
-    behind.rgb *= 1.0 - 0.45 * shade;
-    vec3 rims = mix(PALE, ring, 0.2) * (0.42 * face + 0.14 * inner);
+    // The top and both ends show their edges as the foot does, as a pane of glass carries light
+    // out to its edges: a bright face and its reflection across the glass's thickness, wavering
+    // with the air, always faintly there and lit up where smoke sits against them.
+    if (p.y < 5.0) {
+        float top_lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 2.0 * f)));
+        float t1 = (px.y - (0.5 * f - waver)) / f;
+        float t2 = (px.y - (2.7 * f - 0.6 * waver)) / f;
+        light += mix(ring, PALE, 0.18) * (exp(-t1 * t1 / 0.38) + 0.34 * exp(-t2 * t2 / 0.5)) * top_lit;
+    }
+    float end = min(p.x, wide - p.x);
+    if (end < 5.0) {
+        float at_end = p.x < wide * 0.5 ? 2.0 * f : frame.x - 2.0 * f;
+        float end_lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(at_end, px.y)));
+        float side_waver = clamp(g.x * 5.0 / 7.0, -0.8, 0.8);
+        float e1 = end - 0.5 - side_waver;
+        float e2 = end - 2.7 - 0.6 * side_waver;
+        light += mix(ring, PALE, 0.18) * (exp(-e1 * e1 / 0.38) + 0.34 * glass * exp(-e2 * e2 / 0.5)) * end_lit;
+    }
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
     // The glass's own light is kept low, so the bar reads dark.
-    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams + rims, vec3(1.0));
+    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
     vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
