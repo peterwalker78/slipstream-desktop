@@ -67,6 +67,28 @@ pub(crate) fn window_app_id(window: &Window) -> Option<String> {
     toplevel_data(toplevel.wl_surface(), |data| data.app_id.clone()).map(|id| id.to_lowercase())
 }
 
+/// Whether a Wayland window's title is still `title` and its app ID, lowercased as
+/// `window_app_id` gives it, still `app_id`, read where they are kept without copying either.
+pub(crate) fn names_are(window: &Window, title: &str, app_id: &str) -> bool {
+    let Some(toplevel) = window.toplevel() else {
+        return false;
+    };
+    toplevel_data(toplevel.wl_surface(), |data| {
+        let id = data.app_id.as_deref().unwrap_or_default();
+        let same_id = if id.is_ascii() {
+            id.len() == app_id.len()
+                && id
+                    .bytes()
+                    .zip(app_id.bytes())
+                    .all(|(a, b)| a.to_ascii_lowercase() == b)
+        } else {
+            id.to_lowercase() == app_id
+        };
+        Some(data.title.as_deref().unwrap_or_default() == title && same_id)
+    })
+    .unwrap_or(title.is_empty() && app_id.is_empty())
+}
+
 /// The last dot-separated segment of an app ID, with the first letter capitalised:
 /// `com.discord.Discord` → `Discord`, `spotify` → `Spotify`.
 pub(super) fn pretty_name(app_id: &str) -> String {
