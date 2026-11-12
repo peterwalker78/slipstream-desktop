@@ -24,7 +24,7 @@ use smithay::{
             GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent, RelativeMotionEvent,
         },
     },
-    utils::{Logical, Point, SERIAL_COUNTER},
+    utils::{Logical, Point, SERIAL_COUNTER, Size},
     wayland::seat::WaylandFocus,
 };
 
@@ -108,9 +108,17 @@ impl Slipstream {
         else {
             return;
         };
+        let Some(size) = self
+            .screen_at(pos)
+            .and_then(|index| self.screen_rect(index))
+            .map(|rect| Size::from((rect.w as f64, rect.h as f64)))
+        else {
+            return;
+        };
         let still = self.clock.reduced_motion;
         self.rave = Some(crate::effects::rave::Rave::begin(
             name,
+            size,
             bar,
             self.wall(),
             still,

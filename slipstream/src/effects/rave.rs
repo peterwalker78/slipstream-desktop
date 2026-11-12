@@ -53,10 +53,11 @@ const KNOCK_GAP: f64 = 0.45;
 /// How long the zoom into the bar takes, and back out, seconds.
 const ZOOM_IN: f64 = 1.8;
 const ZOOM_OUT: f64 = 0.6;
-/// How far the screen zoom magnifies at the end of the zoom in, and how much nearer the bar's
-/// glass comes on top of that: together, enough for the bar to fill the screen.
-const SCREEN_ZOOM: f64 = 30.0;
-const GLASS_NEARER: f64 = 4.5;
+/// How much of the zoom in the screen zoom does, as a share of its magnification's logarithm: the
+/// rest is the bar's glass coming nearer. Together they are worked out from the screen, to just
+/// more than fill it, whatever its size.
+const SCREEN_SHARE: f64 = 0.7;
+const FILL_MORE: f64 = 1.1;
 /// How far back the club is at the start of the zoom, as a share of its size on screen.
 const CLUB_FAR: f64 = 0.12;
 /// The music's tempo, and how many beats there are in the loop.
@@ -213,6 +214,8 @@ pub struct Rave {
     pub screen: String,
     /// Where the bar was when it started, in the screen's own logical pixels.
     bar: Rectangle<f64, Logical>,
+    /// How far the bar has to be magnified, all told, about its middle to fill the screen.
+    fill: f64,
     began: f64,
     /// The last knock, which more quick ones carry on from rather than ending the show.
     last_knock: f64,
@@ -227,10 +230,17 @@ pub struct Rave {
 }
 
 impl Rave {
-    /// The rave starting at `now` on `screen`, whose bar is at `bar`.
-    pub fn begin(screen: String, bar: Rectangle<f64, Logical>, now: f64, still: bool) -> Self {
+    /// The rave starting at `now` on `screen`, `size` logical pixels, whose bar is at `bar`.
+    pub fn begin(
+        screen: String,
+        size: Size<f64, Logical>,
+        bar: Rectangle<f64, Logical>,
+        now: f64,
+        still: bool,
+    ) -> Self {
         let mut rave = Self {
             screen,
+            fill: fill(size, bar),
             bar,
             began: now,
             last_knock: now,
@@ -295,8 +305,8 @@ impl Rave {
         }
     }
 
-    /// The screen zoom while it zooms in or out: centred on the bar's middle, from 1 up to
-    /// `SCREEN_ZOOM`. `None` once the club fills the screen, or with reduced motion.
+    /// The screen zoom while it zooms in or out: centred on the bar's middle, from 1 up to its
+    /// share of filling the screen. `None` once the club fills it, or with reduced motion.
     pub fn zoom(&self, now: f64, scale: f64) -> Option<crate::zoom::View> {
         let k = self.zoomed(now);
         if self.still || k >= 1.0 || k <= 0.0 {
@@ -305,7 +315,7 @@ impl Rave {
         let centre = self.bar_middle().to_physical(scale).to_i32_round();
         Some(crate::zoom::View {
             centre,
-            level: SCREEN_ZOOM.powf(eased(k)),
+            level: self.fill.powf(SCREEN_SHARE * eased(k)),
         })
     }
 
@@ -355,8 +365,8 @@ impl Rave {
         // club fills the screen, the screen itself.
         let zooming = self.zoom(now, s).is_some();
         let (area, on_screen) = if zooming {
-            let glass = GLASS_NEARER.powf(e);
-            let level = SCREEN_ZOOM.powf(e);
+            let glass = self.fill.powf((1.0 - SCREEN_SHARE) * e);
+            let level = self.fill.powf(SCREEN_SHARE * e);
             let w = self.bar.size.w * glass;
             let h = self.bar.size.h * glass;
             let area = Rectangle::<f64, Logical>::new(
@@ -416,6 +426,15 @@ pub struct Look {
     pub ring: [f32; 3],
     pub secondary: [f32; 3],
     pub tertiary: [f32; 3],
+}
+
+/// How far `bar` has to be magnified about its middle to just more than fill a screen `size`
+/// logical pixels, whatever its size or shape.
+fn fill(size: Size<f64, Logical>, bar: Rectangle<f64, Logical>) -> f64 {
+    let (x, y) = (bar.loc.x + bar.size.w / 2.0, bar.loc.y + bar.size.h / 2.0);
+    let across = x.max(size.w - x) / (bar.size.w / 2.0).max(1.0);
+    let down = y.max(size.h - y) / (bar.size.h / 2.0).max(1.0);
+    across.max(down).max(1.0) * FILL_MORE
 }
 
 fn eased(x: f64) -> f64 {
@@ -804,6 +823,10 @@ mod tests {
         Rave {
             screen: "eDP-1".into(),
             bar: Rectangle::new((0.0, 0.0).into(), (1536.0, 32.0).into()),
+            fill: fill(
+                (1536.0, 960.0).into(),
+                Rectangle::new((0.0, 0.0).into(), (1536.0, 32.0).into()),
+            ),
             began: 10.0,
             last_knock: 10.0,
             ending: None,
@@ -845,11 +868,20 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_and_its_glass_fill_the_screen_by_the_end_of_the_zoom() {
-        // Half the bar's height, nearer and magnified about its middle, reaches past the foot of a
-        // very tall screen: 2160 logical pixels, the bar's middle 16 from the top.
-        let reach = 16.0 * SCREEN_ZOOM * GLASS_NEARER;
-        assert!(reach > 2160.0 - 16.0, "{reach}");
+    fn the_bar_and_its_glass_fill_any_screen_by_the_end_of_the_zoom() {
+        for (w, h) in [
+            (1536.0, 960.0),
+            (1280.0, 2560.0),
+            (7680.0, 2160.0),
+            (800.0, 600.0),
+        ] {
+            let bar = Rectangle::new((0.0, 0.0).into(), (w, 32.0).into());
+            let all = fill((w, h).into(), bar);
+            // Half the bar's height reaches past the screen's foot, and half its width past its
+            // sides.
+            assert!(16.0 * all > h - 16.0, "{w}x{h}");
+            assert!(w / 2.0 * all > w / 2.0, "{w}x{h}");
+        }
     }
 
     #[test]
