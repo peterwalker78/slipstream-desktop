@@ -169,27 +169,13 @@ fn compose(variation: &mut dyn super::Variation, grid: &mut Grid, frame: Frame) 
 /// The time, the date and the first workspace, as the bar would give them now. No battery: a
 /// preview has no business reading one.
 fn local_readings() -> Readings {
-    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    // SAFETY: `time` and `localtime_r` write only into the values handed to them.
-    let tm = unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return Readings::default();
-        }
-        tm
+    use slipstream_config::localtime;
+    let Some(tm) = localtime::now() else {
+        return Readings::default();
     };
     Readings {
-        time: format!("{:02}:{:02}", tm.tm_hour, tm.tm_min),
-        date: format!(
-            "{} {} {}",
-            DAYS[tm.tm_wday.clamp(0, 6) as usize],
-            tm.tm_mday,
-            MONTHS[tm.tm_mon.clamp(0, 11) as usize]
-        ),
+        time: localtime::format(&tm, crate::status::TIME).unwrap_or_default(),
+        date: localtime::format(&tm, crate::status::DATE).unwrap_or_default(),
         place: slipstream_config::workspace_label("", 0),
         battery: None,
     }

@@ -102,6 +102,7 @@ pub mod command;
 mod display;
 mod file;
 mod input;
+pub mod localtime;
 mod pages;
 pub mod plugins;
 pub mod screens;

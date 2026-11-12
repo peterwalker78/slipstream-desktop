@@ -1,8 +1,9 @@
 //! What the bar and quick settings show about the machine: the time and date, battery, network,
-//! Bluetooth, volume, brightness and power mode. Read off the main thread, since most of it means
-//! running a program.
+//! Bluetooth, volume, brightness and power mode. Read off the main thread, since some of it means
+//! waiting on other programs.
 
 use std::{
+    ffi::CStr,
     process::Stdio,
     sync::{
         Arc, Mutex, MutexGuard, OnceLock, PoisonError,
@@ -11,6 +12,12 @@ use std::{
     },
     thread::Thread,
     time::{Duration, Instant},
+};
+
+use slipstream_config::localtime;
+use zbus::{
+    blocking::Connection,
+    zvariant::{OwnedObjectPath, OwnedValue},
 };
 
 use crate::calendar::Date;
@@ -75,6 +82,12 @@ impl Default for Reading {
 static READER: OnceLock<Thread> = OnceLock::new();
 /// Read everything on the next pass, not only what changes often.
 static EVERYTHING: AtomicBool = AtomicBool::new(false);
+/// `pactl subscribe` is running, so the sound is read only when it reports a change.
+static FOLLOWING: AtomicBool = AtomicBool::new(false);
+/// Read the speakers' volume on the next pass.
+static SPEAKERS_CHANGED: AtomicBool = AtomicBool::new(true);
+/// Read the microphone on the next pass.
+static MIC_CHANGED: AtomicBool = AtomicBool::new(true);
 /// Until when the reader leaves the shared reading alone, while a change shown ahead of time is
 /// still being made.
 static HELD_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
@@ -94,6 +107,7 @@ pub fn start() -> Arc<Mutex<Reading>> {
         let mut estimate = slipstream_config::battery::Estimate::default();
         let started = Instant::now();
         let mut rarely: Option<Instant> = None;
+        let bus = system_bus();
         loop {
             // Timed rather than counted, since a volume change wakes the reader early.
             let everything = EVERYTHING.swap(false, Ordering::Relaxed)
@@ -102,9 +116,22 @@ pub fn start() -> Arc<Mutex<Reading>> {
                 rarely = Some(Instant::now());
             }
             read_often(&mut reading, &mut estimate, started.elapsed().as_secs_f64());
+            // Without `pactl subscribe` to say when the sound changed, the speakers are read on
+            // every pass and the microphone with the things that change rarely.
+            let following = FOLLOWING.load(Ordering::Relaxed);
+            if SPEAKERS_CHANGED.swap(false, Ordering::Relaxed) || !following {
+                let (volume, muted) = volume().unwrap_or((0, false));
+                reading.volume = volume;
+                reading.muted = muted;
+            }
+            if (MIC_CHANGED.swap(false, Ordering::Relaxed) || (everything && !following))
+                && let Some((_, muted)) = mic()
+            {
+                reading.mic_muted = muted;
+            }
             // NetworkManager, BlueZ and the power profile change rarely; ask them every 10 s.
             if everything {
-                read_rarely(&mut reading);
+                read_rarely(&mut reading, bus.as_ref());
             }
             let held = HELD_UNTIL
                 .lock()
@@ -127,9 +154,9 @@ const RARELY: Duration = Duration::from_secs(10);
 const FOLLOW_TRIES: usize = 20;
 
 /// Volume changes made anywhere else, from Settings, another app or a headset's buttons, reach
-/// the reading at once rather than at the next read: `pactl subscribe` reports each change to the
-/// speakers in use, or to which speakers those are, and the reader reads again. Without `pactl`,
-/// the reads every 2 s still catch them.
+/// the reading at once: `pactl subscribe` reports each change to the speakers or microphone in
+/// use, or to which ones those are, and the reader reads that again. Nothing else reads them while
+/// it runs. Without `pactl`, the reader reads them on a timer instead.
 fn follow_sound() {
     use std::io::BufRead;
     for _ in 0..FOLLOW_TRIES {
@@ -142,19 +169,29 @@ fn follow_sound() {
         let Ok(mut child) = child else {
             return;
         };
+        // Anything that changed while nothing was following is read afresh.
+        FOLLOWING.store(true, Ordering::Relaxed);
+        SPEAKERS_CHANGED.store(true, Ordering::Relaxed);
+        MIC_CHANGED.store(true, Ordering::Relaxed);
         if let Some(events) = child.stdout.take() {
             for line in std::io::BufReader::new(events).lines() {
                 let Ok(line) = line else {
                     break;
                 };
-                if (line.contains(" on sink ") || line.contains(" on server"))
-                    && let Some(reader) = READER.get()
-                {
-                    reader.unpark();
+                let server = line.contains(" on server");
+                if line.contains(" on source ") || server {
+                    MIC_CHANGED.store(true, Ordering::Relaxed);
+                }
+                if line.contains(" on sink ") || server {
+                    SPEAKERS_CHANGED.store(true, Ordering::Relaxed);
+                    if let Some(reader) = READER.get() {
+                        reader.unpark();
+                    }
                 }
             }
         }
         let _ = child.wait();
+        FOLLOWING.store(false, Ordering::Relaxed);
         std::thread::sleep(Duration::from_secs(5));
     }
 }
@@ -169,6 +206,8 @@ pub fn hold() {
 pub fn refresh() {
     *HELD_UNTIL.lock().unwrap() = None;
     EVERYTHING.store(true, Ordering::Relaxed);
+    SPEAKERS_CHANGED.store(true, Ordering::Relaxed);
+    MIC_CHANGED.store(true, Ordering::Relaxed);
     if let Some(reader) = READER.get() {
         reader.unpark();
     }
@@ -295,35 +334,29 @@ fn read_often(
     }
     reading.battery = battery();
     reading.battery_time = battery_time(estimate, now);
-    let (volume, muted) = volume().unwrap_or((0, false));
-    reading.volume = volume;
-    reading.muted = muted;
     reading.brightness = crate::launch::backlight()
         .map(|(_, now, max)| (now * 100 + max / 2).checked_div(max).unwrap_or(0).min(100) as u8);
 }
 
-fn read_rarely(reading: &mut Reading) {
-    reading.online = online();
-    reading.wifi = output("nmcli", &["-t", "-f", "WIFI", "radio"]).is_none_or(|s| s == "enabled");
-    reading.network = output(
-        "nmcli",
-        &["-t", "-f", "NAME,TYPE", "connection", "show", "--active"],
-    )
-    .and_then(|text| active_connection(&text));
-    reading.bluetooth = bluetooth();
+fn read_rarely(reading: &mut Reading, bus: Option<&Connection>) {
+    // Without NetworkManager there's no telling, so the bar assumes a connection.
+    reading.online = property(bus, NM, NM_PATH, NM, "State").is_none_or(is_connected);
+    reading.wifi = property(bus, NM, NM_PATH, NM, "WirelessEnabled").unwrap_or(true);
+    reading.network = active_connection(&active_connections(bus));
+    reading.bluetooth =
+        property(bus, BLUEZ, ADAPTER, "org.bluez.Adapter1", "Powered") == Some(true);
     reading.bluetooth_device = if reading.bluetooth {
-        // bluetoothctl waits forever for a missing bluetoothd, hence the timeout.
-        output("timeout", &["3", "bluetoothctl", "devices", "Connected"])
-            .and_then(|text| connected_device(&text))
+        connected_device(bluetooth_devices(bus))
     } else {
         None
     };
-    reading.power_profile = power_profile();
-    // Only the microphone key and its display care, and nothing else changes it behind our back
-    // often enough to read every couple of seconds.
-    if let Some((_, muted)) = mic() {
-        reading.mic_muted = muted;
-    }
+    reading.power_profile = property(
+        bus,
+        POWER_PROFILES,
+        POWER_PROFILES_PATH,
+        POWER_PROFILES,
+        "ActiveProfile",
+    );
 }
 
 /// A program's trimmed output, if it ran and succeeded.
@@ -339,77 +372,139 @@ fn output(program: &str, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// `date` follows the system time zone and locale, including changes to them; std knows only UTC.
+/// How the bar writes the time and the date, as `strftime` patterns.
+pub const TIME: &CStr = c"%H:%M";
+pub const DATE: &CStr = c"%a %-d %b";
+
+/// The time and date in the system's time zone and locale, following changes to either.
 fn clock() -> Option<(String, String, Date)> {
-    parse_clock(&output("date", &["+%H:%M|%a %-d %b|%Y-%m-%d"])?)
-}
-
-fn parse_clock(text: &str) -> Option<(String, String, Date)> {
-    let mut parts = text.split('|');
-    let time = parts.next()?.to_string();
-    let date = parts.next()?.to_string();
-    let mut ymd = parts.next()?.split('-');
+    let tm = localtime::now()?;
     let today = Date {
-        year: ymd.next()?.parse().ok()?,
-        month: ymd.next()?.parse().ok()?,
-        day: ymd.next()?.parse().ok()?,
+        year: tm.tm_year + 1900,
+        month: tm.tm_mon as u32 + 1,
+        day: tm.tm_mday as u32,
     };
-    // The calendar indexes its tables by month.
-    if !(1..=12).contains(&today.month) || !(1..=31).contains(&today.day) {
-        return None;
-    }
-    Some((time, date, today))
+    Some((
+        localtime::format(&tm, TIME)?,
+        localtime::format(&tm, DATE)?,
+        today,
+    ))
 }
 
-/// Without NetworkManager there's no telling, so the bar assumes a connection.
-fn online() -> bool {
-    output("nmcli", &["-t", "-f", "STATE", "general"]).is_none_or(|state| is_connected(&state))
+/// How long NetworkManager, BlueZ or power-profiles-daemon get to answer; a missing bluetoothd
+/// could otherwise keep the reader waiting.
+const ANSWER: Duration = Duration::from_secs(3);
+
+const NM: &str = "org.freedesktop.NetworkManager";
+const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+const BLUEZ: &str = "org.bluez";
+const ADAPTER: &str = "/org/bluez/hci0";
+
+/// The system bus, kept for the reader's life, so a reading costs a few messages and no programs.
+fn system_bus() -> Option<Connection> {
+    zbus::blocking::connection::Builder::system()
+        .map(|builder| builder.method_timeout(ANSWER))
+        .and_then(|builder| builder.build())
+        .inspect_err(|err| tracing::warn!("no system bus for network and Bluetooth: {err}"))
+        .ok()
 }
 
-fn is_connected(nm_state: &str) -> bool {
-    // "connected (site only)" and "connected (local only)" still count; "connecting" doesn't.
-    nm_state.starts_with("connected")
+/// One property of an object on the system bus; `None` if the service or the object isn't there.
+fn property<T: TryFrom<OwnedValue>>(
+    bus: Option<&Connection>,
+    service: &str,
+    path: &str,
+    interface: &str,
+    name: &str,
+) -> Option<T> {
+    let reply = bus?
+        .call_method(
+            Some(service),
+            path,
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &(interface, name),
+        )
+        .ok()?;
+    let value: OwnedValue = reply.body().deserialize().ok()?;
+    T::try_from(value).ok()
 }
 
-/// The first Wi-Fi connection in `nmcli -t -f NAME,TYPE connection show --active`, else the first
-/// wired one. nmcli escapes colons in names as `\:`.
-fn active_connection(text: &str) -> Option<String> {
-    let connections: Vec<(String, &str)> = text
-        .lines()
-        .filter_map(|line| {
-            let (name, kind) = line.rsplit_once(':')?;
-            Some((name.replace("\\:", ":"), kind))
+/// NetworkManager's state: connected to the internet (70), to the site only (60) or to the local
+/// network only (50) all count; connecting (40) doesn't.
+fn is_connected(nm_state: u32) -> bool {
+    nm_state >= 50
+}
+
+/// Each active connection's name and type, sorted by name.
+fn active_connections(bus: Option<&Connection>) -> Vec<(String, String)> {
+    const ACTIVE: &str = "org.freedesktop.NetworkManager.Connection.Active";
+    let paths: Vec<OwnedObjectPath> =
+        property(bus, NM, NM_PATH, NM, "ActiveConnections").unwrap_or_default();
+    let mut connections: Vec<(String, String)> = paths
+        .iter()
+        .filter_map(|path| {
+            let text = |name| property::<String>(bus, NM, path.as_str(), ACTIVE, name);
+            Some((text("Id")?, text("Type")?))
         })
         .collect();
+    connections.sort();
+    connections
+}
+
+/// The first Wi-Fi connection, else the first wired one.
+fn active_connection(connections: &[(String, String)]) -> Option<String> {
     let of_kind = |wanted: &str| {
         connections
             .iter()
-            .find(|(_, kind)| *kind == wanted)
+            .find(|(_, kind)| kind == wanted)
             .map(|(name, _)| name.clone())
     };
     of_kind("802-11-wireless").or_else(|| of_kind("802-3-ethernet"))
 }
 
-fn bluetooth() -> bool {
-    output(
-        "busctl",
-        &[
-            "get-property",
-            "org.bluez",
-            "/org/bluez/hci0",
-            "org.bluez.Adapter1",
-            "Powered",
-        ],
-    )
-    .is_some_and(|powered| powered == "b true")
+/// Each Bluetooth device BlueZ knows: its object path, whether it's connected, and its name.
+fn bluetooth_devices(bus: Option<&Connection>) -> Vec<(String, bool, Option<String>)> {
+    let objects = bus.and_then(|bus| {
+        bus.call_method(
+            Some(BLUEZ),
+            "/",
+            Some("org.freedesktop.DBus.ObjectManager"),
+            "GetManagedObjects",
+            &(),
+        )
+        .ok()?
+        .body()
+        .deserialize::<zbus::fdo::ManagedObjects>()
+        .ok()
+    });
+    objects
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(path, interfaces)| {
+            let (_, device) = interfaces
+                .into_iter()
+                .find(|(name, _)| name.as_str() == "org.bluez.Device1")?;
+            let value = |key: &str| device.get(key)?.try_clone().ok();
+            let connected = value("Connected").and_then(|v| bool::try_from(v).ok());
+            let name = |key| value(key).and_then(|v| String::try_from(v).ok());
+            Some((
+                path.as_str().to_string(),
+                connected == Some(true),
+                name("Alias").or_else(|| name("Name")),
+            ))
+        })
+        .collect()
 }
 
-/// The first device in `bluetoothctl devices Connected`: lines like `Device <address> <name>`.
-fn connected_device(text: &str) -> Option<String> {
-    text.lines().find_map(|line| {
-        let rest = line.strip_prefix("Device ")?;
-        let (_, name) = rest.split_once(' ')?;
-        Some(name.to_string())
+/// The name of the first connected device on the adapter, in order of their object paths.
+fn connected_device(mut devices: Vec<(String, bool, Option<String>)>) -> Option<String> {
+    devices.sort();
+    let on_adapter = format!("{ADAPTER}/");
+    devices.into_iter().find_map(|(path, connected, name)| {
+        (connected && path.starts_with(&on_adapter))
+            .then_some(name)
+            .flatten()
     })
 }
 
@@ -436,30 +531,15 @@ fn parse_volume(text: &str) -> Option<(u8, bool)> {
 }
 
 const POWER_PROFILES: &str = "org.freedesktop.UPower.PowerProfiles";
-
-fn power_profile() -> Option<String> {
-    let path = format!("/{}", POWER_PROFILES.replace('.', "/"));
-    let text = output(
-        "busctl",
-        &[
-            "get-property",
-            POWER_PROFILES,
-            &path,
-            POWER_PROFILES,
-            "ActiveProfile",
-        ],
-    )?;
-    Some(text.strip_prefix("s ")?.trim_matches('"').to_string())
-}
+const POWER_PROFILES_PATH: &str = "/org/freedesktop/UPower/PowerProfiles";
 
 /// The command that switches the power profile.
 pub fn set_power_profile(profile: &str) -> Vec<String> {
-    let path = format!("/{}", POWER_PROFILES.replace('.', "/"));
     [
         "busctl",
         "set-property",
         POWER_PROFILES,
-        &path,
+        POWER_PROFILES_PATH,
         POWER_PROFILES,
         "ActiveProfile",
         "s",
@@ -549,21 +629,28 @@ mod tests {
 
     #[test]
     fn network_states_that_count_as_online() {
-        assert!(is_connected("connected"));
-        assert!(is_connected("connected (site only)"));
-        assert!(!is_connected("connecting"));
-        assert!(!is_connected("disconnected"));
+        assert!(is_connected(70), "connected");
+        assert!(is_connected(60), "connected (site only)");
+        assert!(is_connected(50), "connected (local only)");
+        assert!(!is_connected(40), "connecting");
+        assert!(!is_connected(20), "disconnected");
     }
 
     #[test]
-    fn wifi_is_preferred_and_escaped_colons_are_undone() {
-        let text = "lo:loopback\nWired 1:802-3-ethernet\nCafe\\: Guest:802-11-wireless";
-        assert_eq!(active_connection(text), Some("Cafe: Guest".into()));
+    fn wifi_is_preferred_over_a_wired_connection() {
+        let connection = |name: &str, kind: &str| (name.to_string(), kind.to_string());
+        let lo = connection("lo", "loopback");
+        let wired = connection("Wired 1", "802-3-ethernet");
+        let wifi = connection("Cafe: Guest", "802-11-wireless");
         assert_eq!(
-            active_connection("lo:loopback\nWired 1:802-3-ethernet"),
+            active_connection(&[lo.clone(), wired.clone(), wifi]),
+            Some("Cafe: Guest".into())
+        );
+        assert_eq!(
+            active_connection(&[lo.clone(), wired]),
             Some("Wired 1".into())
         );
-        assert_eq!(active_connection("lo:loopback"), None);
+        assert_eq!(active_connection(&[lo]), None);
     }
 
     #[test]
@@ -575,25 +662,28 @@ mod tests {
 
     #[test]
     fn the_clock_reads_time_date_and_today() {
-        let (time, date, today) = parse_clock("17:24|Fri 11 Sep|2026-09-11").unwrap();
-        assert_eq!((time.as_str(), date.as_str()), ("17:24", "Fri 11 Sep"));
-        assert_eq!(
-            today,
-            Date {
-                year: 2026,
-                month: 9,
-                day: 11
-            }
-        );
+        let (time, date, today) = clock().unwrap();
+        assert_eq!(time.len(), 5, "{time}");
+        assert!(!date.is_empty());
+        assert!((1..=12).contains(&today.month) && (1..=31).contains(&today.day));
     }
 
     #[test]
-    fn bluetooth_devices_are_named_after_their_address() {
+    fn the_first_connected_device_on_the_adapter_is_named() {
+        let device = |path: &str, connected: bool, name: Option<&str>| {
+            (path.to_string(), connected, name.map(str::to_string))
+        };
+        let devices = vec![
+            device("/org/bluez/hci1/dev_AA", true, Some("Other adapter")),
+            device("/org/bluez/hci0/dev_CC", true, Some("Keyboard")),
+            device("/org/bluez/hci0/dev_AA", false, Some("Speaker")),
+            device("/org/bluez/hci0/dev_BB", true, Some("Headphones")),
+        ];
+        assert_eq!(connected_device(devices), Some("Headphones".into()));
         assert_eq!(
-            connected_device("Device 00:11:22:33:44:55 WH-1000XM4\n"),
-            Some("WH-1000XM4".into())
+            connected_device(vec![device("/org/bluez/hci0/dev_AA", false, None)]),
+            None
         );
-        assert_eq!(connected_device(""), None);
     }
 
     #[test]
