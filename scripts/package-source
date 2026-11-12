@@ -32,7 +32,10 @@ mkdir -p "$stage"
 git -C "$repo" archive --format=tar --prefix="$name/" HEAD | tar -C "$stage" -xf -
 (
     cd "$stage/$name"
-    cargo vendor --locked --quiet vendor >"$stage/vendor.toml"
+    cargo vendor --locked vendor >"$stage/vendor.toml" 2>"$stage/vendor.log" \
+        || { cat "$stage/vendor.log" >&2; exit 1; }
+    grep -q '^directory = "vendor"$' "$stage/vendor.toml" \
+        || { echo "package-source: cargo vendor wrote no configuration" >&2; exit 1; }
     {
         echo
         echo "# Added by scripts/package-source: build from the crates in vendor/, offline."
