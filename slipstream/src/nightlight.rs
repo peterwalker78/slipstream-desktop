@@ -57,23 +57,18 @@ impl Night {
 
 /// What the local clock says: minutes after midnight, the date, and how far ahead of UTC it is.
 fn local_clock() -> (f64, (i64, u32, u32), f64) {
-    // SAFETY: `time` and `localtime_r` write only into the values handed to them.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return (12.0 * 60.0, (1970, 1, 1), 0.0);
-        }
+    let Some(tm) = slipstream_config::localtime::now() else {
+        return (12.0 * 60.0, (1970, 1, 1), 0.0);
+    };
+    (
+        (tm.tm_hour * 60 + tm.tm_min) as f64 + tm.tm_sec as f64 / 60.0,
         (
-            (tm.tm_hour * 60 + tm.tm_min) as f64 + tm.tm_sec as f64 / 60.0,
-            (
-                tm.tm_year as i64 + 1900,
-                tm.tm_mon as u32 + 1,
-                tm.tm_mday as u32,
-            ),
-            tm.tm_gmtoff as f64 / 60.0,
-        )
-    }
+            tm.tm_year as i64 + 1900,
+            tm.tm_mon as u32 + 1,
+            tm.tm_mday as u32,
+        ),
+        tm.tm_gmtoff as f64 / 60.0,
+    )
 }
 
 /// The warmth night light should have: `manual` is the switch, and `scheduled` whether the schedule

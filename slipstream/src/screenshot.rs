@@ -65,22 +65,17 @@ pub fn file_name([year, month, day, hour, minute, second]: [i32; 6]) -> String {
 
 /// The local date and time now, as `file_name` takes it.
 fn local_now() -> [i32; 6] {
-    // SAFETY: `time` and `localtime_r` write only into the values handed to them.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return [1970, 1, 1, 0, 0, 0];
-        }
-        [
-            tm.tm_year + 1900,
-            tm.tm_mon + 1,
-            tm.tm_mday,
-            tm.tm_hour,
-            tm.tm_min,
-            tm.tm_sec,
-        ]
-    }
+    let Some(tm) = slipstream_config::localtime::now() else {
+        return [1970, 1, 1, 0, 0, 0];
+    };
+    [
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+    ]
 }
 
 /// The Screenshots folder inside the pictures folder `user-dirs.dirs` names (`user_dirs`, the
