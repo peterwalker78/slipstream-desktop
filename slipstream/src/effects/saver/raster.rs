@@ -115,6 +115,18 @@ pub(super) fn paint_cell(
     let (w, h) = (layout.cell_w, layout.cell_h);
     let x0 = layout.origin.0 + col as usize * w;
     let y0 = layout.origin.1 + row as usize * h;
+    paint_cell_at(pixels, width, glyphs, (x0, y0, w, h), (from, to, along));
+}
+
+/// Draws a cell as `look` says into the box (`x0`, `y0`, `w`, `h`) of `pixels`, rows `width`
+/// pixels long.
+pub(super) fn paint_cell_at(
+    pixels: &mut [u8],
+    width: usize,
+    glyphs: &mut GlyphCache,
+    (x0, y0, w, h): (usize, usize, usize, usize),
+    (from, to, along): Look,
+) {
     fill(pixels, width, (x0, y0, w, h), BACKGROUND);
     let weight = along as f32 / TWEEN_LEVELS as f32;
     if from != to {

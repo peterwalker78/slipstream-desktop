@@ -2108,7 +2108,7 @@ fn wallpaper_elements(
     elements.extend(
         saver
             .element(renderer, v.frame(v.now), glow, paused, tween)
-            .map(OutputElement::Memory),
+            .map(OutputElement::Texture),
     );
     let Some(at) = fallen.windows else {
         return;

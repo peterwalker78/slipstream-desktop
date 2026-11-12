@@ -10,7 +10,7 @@ use smithay::{
     backend::renderer::{
         Color32F, Renderer,
         element::{
-            Id, Kind, memory::MemoryRenderBufferRenderElement, texture::TextureRenderElement,
+            Id, Kind, texture::TextureRenderElement,
         },
         gles::{
             GlesRenderer, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType,
@@ -371,7 +371,7 @@ impl Glass {
     pub fn through(
         &mut self,
         renderer: &mut GlesRenderer,
-        wallpaper: MemoryRenderBufferRenderElement<GlesRenderer>,
+        wallpaper: TextureRenderElement<GlesTexture>,
         screen: tilt::Sizes,
         (progress, nearer): (f32, f32),
         beneath: Option<TextureShaderElement>,
@@ -379,7 +379,7 @@ impl Glass {
     ) -> Option<TextureShaderElement> {
         let pane = self.shown(renderer, screen, progress, nearer)?;
         let mut elements = vec![
-            OutputElement::Memory(wallpaper),
+            OutputElement::Texture(wallpaper),
             OutputElement::Shaded(pane),
         ];
         elements.extend(beneath.map(OutputElement::Shaded));

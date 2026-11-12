@@ -100,7 +100,7 @@ pub(super) fn lock_elements(
                     false,
                     false,
                 )
-                .map(OutputElement::Memory),
+                .map(OutputElement::Texture),
         );
     }
     elements

@@ -47,11 +47,12 @@ use smithay::{
     backend::{
         allocator::Fourcc,
         renderer::{
-            ImportMem, Renderer,
+            ContextId, Offscreen, Renderer,
             element::{
                 Kind,
-                memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+                texture::{TextureRenderBuffer, TextureRenderElement},
             },
+            gles::{GlesRenderer, GlesTexture, ffi},
         },
     },
     utils::{Buffer, Logical, Rectangle, Size, Transform},
@@ -262,8 +263,12 @@ fn step_hz(asked: f64, layout: &Layout) -> f64 {
 }
 
 pub struct Saver {
-    buffer: Option<MemoryRenderBuffer>,
-    /// The buffer's size in screen pixels.
+    /// The picture, on the graphics card only, and the renderer it was made in. Changed cells are
+    /// painted into `strip` and uploaded from there, so no copy of the whole screen is kept.
+    picture: Option<(TextureRenderBuffer<GlesTexture>, ContextId<GlesTexture>)>,
+    /// A band of pixels the cells are painted into on their way to the picture.
+    strip: Vec<u8>,
+    /// The picture's size in screen pixels.
     device: (usize, usize),
     layout: Option<Layout>,
     /// The grid composed at the step before the latest, which cells fade from while tweening —
@@ -271,8 +276,11 @@ pub struct Saver {
     from: Vec<Cell>,
     /// The grid composed at the latest step.
     to: Vec<Cell>,
-    /// What the buffer shows, cell by cell.
+    /// What the picture shows, cell by cell.
     shown: Vec<Look>,
+    /// What it's to show next, worked out into here and swapped with `shown`, so a paint
+    /// allocates nothing.
+    looks: Vec<Look>,
     /// Composed into and swapped with `to`, so a step allocates nothing.
     scratch: Grid,
     glyphs: GlyphCache,
@@ -331,12 +339,14 @@ impl Saver {
             .and_then(|id| make(id))
             .unwrap_or_else(|| Box::<slipstream::Slipstream>::default());
         Self {
-            buffer: None,
+            picture: None,
+            strip: Vec::new(),
             device: (0, 0),
             layout: None,
             from: Vec::new(),
             to: Vec::new(),
             shown: Vec::new(),
+            looks: Vec::new(),
             scratch: Grid::new(0, 0),
             glyphs: GlyphCache::default(),
             chosen,
@@ -500,35 +510,39 @@ impl Saver {
     /// The wallpaper for a screen `size` logical pixels big, at `alpha`. While `paused` (under a
     /// fullscreen window) it keeps its last frame. With `tween` (bullet time slowing the clock, so
     /// a step lasts many frames) cells fade from one step to the next rather than switching.
-    pub fn element<R>(
+    pub fn element(
         &mut self,
-        renderer: &mut R,
+        renderer: &mut GlesRenderer,
         frame: crate::panel::Frame,
         alpha: f32,
         paused: bool,
         tween: bool,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
+    ) -> Option<TextureRenderElement<GlesTexture>> {
         let (size, scale, now) = (frame.size, frame.scale, frame.time);
         let now = self.paced(now);
         let device = (
             (size.w as f64 * scale).round() as usize,
             (size.h as f64 * scale).round() as usize,
         );
-        let fresh = self.buffer.is_none() || self.device != device;
+        let context = renderer.context_id();
+        let fresh = self.device != device
+            || self
+                .picture
+                .as_ref()
+                .is_none_or(|(_, made_in)| *made_in != context);
         if fresh {
             let layout = layout(device.0, device.1)?;
-            self.buffer = Some(MemoryRenderBuffer::from_slice(
-                &vec![0u8; device.0 * device.1 * 4],
-                Fourcc::Abgr8888,
-                (device.0 as i32, device.1 as i32),
-                1,
-                Transform::Normal,
-                None,
-            ));
+            // Left as it comes: the first paint covers every pixel.
+            let texture = renderer
+                .create_buffer(
+                    Fourcc::Abgr8888,
+                    Size::from((device.0 as i32, device.1 as i32)),
+                )
+                .map_err(|err| tracing::warn!("no texture for the wallpaper: {err}"))
+                .ok()?;
+            let picture =
+                TextureRenderBuffer::from_texture(renderer, texture, 1, Transform::Normal, None);
+            self.picture = Some((picture, context));
             self.device = device;
             self.shown.clear();
             self.from.clear();
@@ -575,7 +589,17 @@ impl Saver {
         );
         if self.shown.is_empty() || self.painted != Some(key) {
             let started = thread_cpu();
-            self.paint(along);
+            if let Some((mut picture, made_in)) = self.picture.take() {
+                let _ = picture.render().draw(|texture| {
+                    let mut damage = Vec::new();
+                    self.paint(along, &mut |pixels, rect| {
+                        upload(renderer, texture, pixels, rect);
+                        damage.push(rect);
+                    });
+                    Ok::<_, ()>(damage)
+                });
+                self.picture = Some((picture, made_in));
+            }
             self.cost.paint += thread_cpu().saturating_sub(started);
             self.painted = Some(key);
         }
@@ -584,29 +608,26 @@ impl Saver {
     }
 
     /// The picture last painted, as another element at `alpha`, without stepping or painting.
-    pub fn again<R>(
+    pub fn again(
         &self,
-        renderer: &mut R,
+        renderer: &GlesRenderer,
         size: Size<i32, Logical>,
         alpha: f32,
-    ) -> Option<MemoryRenderBufferRenderElement<R>>
-    where
-        R: Renderer + ImportMem,
-        R::TextureId: Send + Clone + 'static,
-    {
-        let buffer = self.buffer.as_ref()?;
-        MemoryRenderBufferRenderElement::from_buffer(
-            renderer,
+    ) -> Option<TextureRenderElement<GlesTexture>> {
+        let (picture, made_in) = self.picture.as_ref()?;
+        if *made_in != renderer.context_id() {
+            return None;
+        }
+        Some(TextureRenderElement::from_texture_render_buffer(
             (0.0, 0.0),
-            buffer,
+            picture,
             Some(alpha),
             Some(Rectangle::from_size(
                 (self.device.0 as f64, self.device.1 as f64).into(),
             )),
             Some(size),
             Kind::Unspecified,
-        )
-        .ok()
+        ))
     }
 
     fn step(&mut self, now: f64) {
@@ -642,91 +663,177 @@ impl Saver {
         self.layout = Some(layout);
     }
 
-    /// Brings the buffer `along` the way from the previous step's grid to the latest: draws the
-    /// cells whose look changed, and tells the buffer which rows of pixels to upload.
-    fn paint(&mut self, along: f64) {
+    /// Brings the picture `along` the way from the previous step's grid to the latest: paints
+    /// the cells whose look changed and hands each run of them to `upload`, as pixels and where
+    /// they go. The first paint, or one after the grid's size changed, covers the whole picture.
+    fn paint(&mut self, along: f64, upload: &mut dyn FnMut(&[u8], Rectangle<i32, Buffer>)) {
         let Saver {
-            buffer,
+            strip,
             device,
             layout,
             from,
             to,
             shown,
+            looks,
             glyphs,
             cost,
             ..
         } = self;
-        let (Some(buffer), Some(layout)) = (buffer.as_mut(), layout.as_ref()) else {
+        let Some(layout) = layout.as_ref() else {
             return;
         };
         let level = (along * TWEEN_LEVELS as f64).round() as u8;
-        let looks: Vec<Look> = to
-            .iter()
-            .enumerate()
-            .map(|(i, &target)| {
-                let start = from.get(i).copied().unwrap_or(target);
-                if start == target || level >= TWEEN_LEVELS {
-                    (target, target, TWEEN_LEVELS)
-                } else if level == 0 {
-                    (start, start, TWEEN_LEVELS)
-                } else {
-                    (start, target, level)
-                }
-            })
-            .collect();
+        looks.clear();
+        looks.extend(to.iter().enumerate().map(|(i, &target)| {
+            let start = from.get(i).copied().unwrap_or(target);
+            if start == target || level >= TWEEN_LEVELS {
+                (target, target, TWEEN_LEVELS)
+            } else if level == 0 {
+                (start, start, TWEEN_LEVELS)
+            } else {
+                (start, target, level)
+            }
+        }));
         let full = shown.len() != looks.len();
-        if !full && looks == *shown {
+        if !full && looks == shown {
             return;
         }
-        let blank = (BLANK, BLANK, TWEEN_LEVELS);
         let (width, height) = *device;
+        let (cell_w, cell_h) = (layout.cell_w, layout.cell_h);
         let mut repainted = 0u64;
-        let mut context = buffer.render();
-        let _ = context.draw(|pixels| {
-            let mut damage: Vec<Rectangle<i32, Buffer>> = Vec::new();
-            if full {
-                for pixel in pixels.chunks_exact_mut(4) {
-                    pixel.copy_from_slice(&[BACKGROUND[0], BACKGROUND[1], BACKGROUND[2], 255]);
-                }
-            }
-            for row in 0..layout.rows {
-                let mut span: Option<(i32, i32)> = None;
-                for col in 0..layout.cols {
-                    let i = (row * layout.cols + col) as usize;
-                    let look = looks[i];
-                    let changed = if full {
-                        look != blank
-                    } else {
-                        look != shown[i]
-                    };
-                    if changed {
-                        repainted += 1;
-                        paint_cell(pixels, width, layout, glyphs, col, row, look);
-                        span = Some(span.map_or((col, col), |(first, _)| (first, col)));
+        if full {
+            // Band by band, a row of cells or a margin at a time, each on the background.
+            let top = layout.origin.1;
+            let bottom = top + layout.rows as usize * cell_h;
+            let mut y = 0;
+            while y < height {
+                let row = (y >= top && y < bottom).then(|| ((y - top) / cell_h) as i32);
+                let band = match row {
+                    Some(_) => cell_h,
+                    None if y < top => (top - y).min(cell_h),
+                    None => (height - y).min(cell_h),
+                };
+                let pixels = background(strip, width * band);
+                if let Some(row) = row {
+                    for col in 0..layout.cols {
+                        let look = looks[(row * layout.cols + col) as usize];
+                        if look != (BLANK, BLANK, TWEEN_LEVELS) {
+                            repainted += 1;
+                            let x0 = layout.origin.0 + col as usize * cell_w;
+                            paint_cell_at(pixels, width, glyphs, (x0, 0, cell_w, cell_h), look);
+                        }
                     }
                 }
-                if let (false, Some((first, last))) = (full, span) {
-                    damage.push(Rectangle::new(
-                        (
-                            (layout.origin.0 + first as usize * layout.cell_w) as i32,
-                            (layout.origin.1 + row as usize * layout.cell_h) as i32,
-                        )
-                            .into(),
-                        (
-                            ((last - first + 1) as usize * layout.cell_w) as i32,
-                            layout.cell_h as i32,
-                        )
-                            .into(),
-                    ));
+                upload(
+                    pixels,
+                    Rectangle::new((0, y as i32).into(), (width as i32, band as i32).into()),
+                );
+                y += band;
+            }
+        } else {
+            for row in 0..layout.rows {
+                let at = |col: i32| (row * layout.cols + col) as usize;
+                let mut col = 0;
+                while col < layout.cols {
+                    if looks[at(col)] == shown[at(col)] {
+                        col += 1;
+                        continue;
+                    }
+                    // A run of changed cells, carried over short gaps of unchanged ones, which
+                    // are painted again as they are rather than uploaded on their own.
+                    let first = col;
+                    let mut last = col;
+                    let mut next = col + 1;
+                    while next < layout.cols && next - last <= RUN_GAP {
+                        if looks[at(next)] != shown[at(next)] {
+                            last = next;
+                        }
+                        next += 1;
+                    }
+                    let run_w = (last - first + 1) as usize * cell_w;
+                    let pixels = background(strip, run_w * cell_h);
+                    for (n, c) in (first..=last).enumerate() {
+                        if looks[at(c)] != shown[at(c)] {
+                            repainted += 1;
+                        }
+                        paint_cell_at(
+                            pixels,
+                            run_w,
+                            glyphs,
+                            (n * cell_w, 0, cell_w, cell_h),
+                            looks[at(c)],
+                        );
+                    }
+                    upload(
+                        pixels,
+                        Rectangle::new(
+                            (
+                                (layout.origin.0 + first as usize * cell_w) as i32,
+                                (layout.origin.1 + row as usize * cell_h) as i32,
+                            )
+                                .into(),
+                            (run_w as i32, cell_h as i32).into(),
+                        ),
+                    );
+                    col = last + 1;
                 }
             }
-            if full {
-                damage.push(Rectangle::from_size((width as i32, height as i32).into()));
-            }
-            Ok::<_, ()>(damage)
-        });
-        *shown = looks;
+        }
+        std::mem::swap(shown, looks);
         cost.cells += repainted;
+    }
+}
+
+/// How many unchanged cells a run of changed ones carries over rather than ending.
+const RUN_GAP: i32 = 3;
+
+/// The first `len` pixels of `strip`, grown if need be, filled with the background.
+fn background(strip: &mut Vec<u8>, len: usize) -> &mut [u8] {
+    if strip.len() < len * 4 {
+        strip.resize(len * 4, 0);
+    }
+    let pixels = &mut strip[..len * 4];
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[BACKGROUND[0], BACKGROUND[1], BACKGROUND[2], 255]);
+    }
+    pixels
+}
+
+/// Writes `pixels`, rows of `rect`'s width packed together, into `rect` of `texture`.
+/// `ImportMem::update_memory` reads its data as a copy of the whole texture, which is what this
+/// avoids keeping.
+fn upload(
+    renderer: &mut GlesRenderer,
+    texture: &GlesTexture,
+    pixels: &[u8],
+    rect: Rectangle<i32, Buffer>,
+) {
+    let (x, y, w, h) = (rect.loc.x, rect.loc.y, rect.size.w, rect.size.h);
+    if w <= 0 || h <= 0 || pixels.len() < (w * h * 4) as usize {
+        return;
+    }
+    let id = texture.tex_id();
+    let done = renderer.with_context(|gl| {
+        // SAFETY: plain GL calls on the renderer's own current context, writing a texture it made
+        // from a slice checked above to hold every pixel read, and putting the binding back.
+        unsafe {
+            gl.BindTexture(ffi::TEXTURE_2D, id);
+            gl.TexSubImage2D(
+                ffi::TEXTURE_2D,
+                0,
+                x,
+                y,
+                w,
+                h,
+                ffi::RGBA,
+                ffi::UNSIGNED_BYTE,
+                pixels.as_ptr().cast(),
+            );
+            gl.BindTexture(ffi::TEXTURE_2D, 0);
+        }
+    });
+    if let Err(err) = done {
+        tracing::warn!("couldn't upload the wallpaper: {err}");
     }
 }
 
@@ -839,14 +946,6 @@ mod tests {
     fn saver_for(layout: &Layout) -> Saver {
         let mut saver = Saver::new(false, &slipstream_config::Wallpaper::default());
         saver.device = (640, 400);
-        saver.buffer = Some(MemoryRenderBuffer::from_slice(
-            &vec![0u8; 640 * 400 * 4],
-            Fourcc::Abgr8888,
-            (640, 400),
-            1,
-            Transform::Normal,
-            None,
-        ));
         saver.layout = Some(layout.clone());
         saver
     }
@@ -856,7 +955,7 @@ mod tests {
         let layout = layout(640, 400).unwrap();
         let mut saver = saver_for(&layout);
         saver.to = logo_grid(&layout).cells;
-        saver.paint(1.0);
+        saver.paint(1.0, &mut |_, _| {});
         let again = logo_grid(&layout);
         assert!(
             saver
@@ -879,11 +978,11 @@ mod tests {
         let (before, after) = (saver.from[i], saver.to[i]);
         assert_ne!(before, after, "the letter arrives between the two steps");
 
-        saver.paint(0.0);
+        saver.paint(0.0, &mut |_, _| {});
         assert_eq!(saver.shown[i], (before, before, TWEEN_LEVELS));
-        saver.paint(0.5);
+        saver.paint(0.5, &mut |_, _| {});
         assert_eq!(saver.shown[i], (before, after, TWEEN_LEVELS / 2));
-        saver.paint(1.0);
+        saver.paint(1.0, &mut |_, _| {});
         assert_eq!(saver.shown[i], (after, after, TWEEN_LEVELS));
     }
 
