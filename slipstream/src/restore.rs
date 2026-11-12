@@ -441,6 +441,35 @@ mod tests {
         Record::new(1, windows, workspaces)
     }
 
+    fn tiling(index: usize, tiles: &str) -> Tiling {
+        Tiling {
+            index,
+            name: String::new(),
+            tiles: tiles.into(),
+        }
+    }
+
+    /// A window that was poured into the code rain, `slot` in its order.
+    fn in_rain(app: &str, slot: usize) -> Win {
+        Win {
+            in_rain: true,
+            workspace: None,
+            ..win(app, 1, slot)
+        }
+    }
+
+    /// Konsole beside Dolphin over Firefox on the first workspace.
+    fn three_tiled() -> Record {
+        record(
+            vec![
+                win("org.kde.konsole", 1, 0),
+                win("org.kde.dolphin", 1, 1),
+                win("firefox", 1, 2),
+            ],
+            vec![tiling(1, "v0.5(0,h0.4(1,2))")],
+        )
+    }
+
     fn plan(record: &Record) -> Plan<&'static str> {
         Plan::new(record, 0.0, entry, 5, |index| index - 1)
     }
@@ -480,11 +509,7 @@ mod tests {
     fn a_workspace_number_as_big_as_an_integer_is_a_place_not_a_crash() {
         let record = record(
             vec![win("firefox", 5, 0), win("org.kde.konsole", usize::MAX, 3)],
-            vec![Tiling {
-                index: 5,
-                name: String::new(),
-                tiles: "0".into(),
-            }],
+            vec![tiling(5, "0")],
         );
         let plan: Plan<&str> = Plan::new(&record, 0.0, entry, 5, |index| index.saturating_sub(1));
         assert_eq!(plan.len(), 2, "both land on the last workspace there is");
@@ -523,18 +548,7 @@ mod tests {
 
     #[test]
     fn the_recorded_tree_comes_back_around_the_windows_that_claimed_it() {
-        let record = record(
-            vec![
-                win("org.kde.konsole", 1, 0),
-                win("org.kde.dolphin", 1, 1),
-                win("firefox", 1, 2),
-            ],
-            vec![Tiling {
-                index: 1,
-                name: String::new(),
-                tiles: "v0.5(0,h0.4(1,2))".into(),
-            }],
-        );
+        let record = three_tiled();
         let mut plan = plan(&record);
         plan.claim("org.kde.konsole", &"konsole", None, 1.0);
         plan.claim("org.kde.dolphin", &"dolphin", None, 1.1);
@@ -559,18 +573,7 @@ mod tests {
 
     #[test]
     fn a_slot_nothing_claimed_closes_up() {
-        let record = record(
-            vec![
-                win("org.kde.konsole", 1, 0),
-                win("org.kde.dolphin", 1, 1),
-                win("firefox", 1, 2),
-            ],
-            vec![Tiling {
-                index: 1,
-                name: String::new(),
-                tiles: "v0.5(0,h0.4(1,2))".into(),
-            }],
-        );
+        let record = three_tiled();
         let mut plan = plan(&record);
         plan.claim("org.kde.konsole", &"konsole", None, 1.0);
         // Dolphin never starts; the split above it collapses into Firefox.
@@ -588,14 +591,7 @@ mod tests {
 
     #[test]
     fn a_window_that_closes_again_gives_its_place_back() {
-        let record = record(
-            vec![win("firefox", 1, 0)],
-            vec![Tiling {
-                index: 1,
-                name: String::new(),
-                tiles: "0".into(),
-            }],
-        );
+        let record = record(vec![win("firefox", 1, 0)], vec![tiling(1, "0")]);
         let mut plan = plan(&record);
         plan.claim("firefox", &"a", None, 1.0);
         plan.release(&"a");
@@ -658,18 +654,10 @@ mod tests {
     fn a_docked_window_goes_back_up_to_the_bar_at_its_size() {
         let record = record(
             vec![
+                in_rain("firefox", 0),
                 Win {
-                    in_rain: true,
-                    workspace: None,
-                    slot: 0,
-                    ..win("firefox", 1, 0)
-                },
-                Win {
-                    in_rain: true,
-                    workspace: None,
-                    slot: 1,
                     docked: Some("medium".into()),
-                    ..win("org.kde.konsole", 1, 1)
+                    ..in_rain("org.kde.konsole", 1)
                 },
             ],
             vec![],
@@ -689,10 +677,8 @@ mod tests {
     fn a_pane_size_that_cant_be_read_leaves_the_window_in_the_rain() {
         let record = record(
             vec![Win {
-                in_rain: true,
-                workspace: None,
                 docked: Some("enormous".into()),
-                ..win("org.kde.konsole", 1, 0)
+                ..in_rain("org.kde.konsole", 0)
             }],
             vec![],
         );
@@ -705,20 +691,7 @@ mod tests {
     #[test]
     fn the_code_rain_comes_back_in_its_own_order() {
         let record = record(
-            vec![
-                Win {
-                    in_rain: true,
-                    workspace: None,
-                    slot: 1,
-                    ..win("firefox", 1, 1)
-                },
-                Win {
-                    in_rain: true,
-                    workspace: None,
-                    slot: 0,
-                    ..win("org.kde.konsole", 1, 0)
-                },
-            ],
+            vec![in_rain("firefox", 1), in_rain("org.kde.konsole", 0)],
             vec![],
         );
         let mut plan = plan(&record);
@@ -778,18 +751,7 @@ mod tests {
     fn two_recorded_workspaces_landing_on_one_share_it_without_mixing_their_slots() {
         let record = record(
             vec![win("org.kde.konsole", 1, 0), win("org.kde.dolphin", 3, 0)],
-            vec![
-                Tiling {
-                    index: 1,
-                    name: String::new(),
-                    tiles: "0".into(),
-                },
-                Tiling {
-                    index: 3,
-                    name: String::new(),
-                    tiles: "0".into(),
-                },
-            ],
+            vec![tiling(1, "0"), tiling(3, "0")],
         );
         // Three workspaces became one.
         let mut plan: Plan<&str> = Plan::new(&record, 0.0, entry, 1, |_| 0);

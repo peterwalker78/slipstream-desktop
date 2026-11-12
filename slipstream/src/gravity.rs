@@ -531,26 +531,6 @@ mod tests {
     }
 
     #[test]
-    fn tiling_is_never_a_step() {
-        let all = ["a", "b", "c", "d"];
-        assert!(!Rung::LADDER.contains(&Rung::Tiling));
-        // Walking the whole ladder both ways never reports tiling, so gravity is never turned
-        // off and on again in passing, and nothing announces it.
-        let mut gravity = Gravity::default();
-        let mut seen = Vec::new();
-        for heavier in [false, false, false, true, true, true, true, true, true] {
-            if let Step::Moved(rung) = step(&mut gravity, &all, "a", heavier) {
-                seen.push(rung);
-            }
-        }
-        assert!(
-            !seen.contains(&Rung::Tiling),
-            "stepped through tiling: {seen:?}"
-        );
-        assert!(gravity.is_on(), "the ladder never turns gravity off");
-    }
-
-    #[test]
     fn the_first_press_from_tiling_enters_the_ladder_at_the_end_it_points_at() {
         let all = ["a", "b", "c"];
         // Heavier takes the centre; lighter goes to the grid. Neither passes through the other.
@@ -590,6 +570,10 @@ mod tests {
             }
         }
         assert_eq!(climbed, Rung::LADDER, "no rung missed, none repeated");
+        // Tiling is never a step, so gravity is never turned off and on again in passing, and
+        // nothing announces it.
+        assert!(!Rung::LADDER.contains(&Rung::Tiling));
+        assert!(gravity.is_on(), "the ladder never turns gravity off");
     }
 
     /// Every layout the ladder can reach for one window, as the windows' rectangles.
@@ -850,7 +834,7 @@ mod tests {
         step(&mut gravity, &all, "a", true);
         let rects = gravity.rects(&all, AREA, OUTER_GAP, INNER_GAP);
         let (a, b) = (rect_of(&rects, "a"), rect_of(&rects, "b"));
-        assert_eq!(b.x - (a.x + a.w), 10, "tiling's inner gap");
+        assert_eq!(b.x - (a.x + a.w), INNER_GAP);
     }
 
     #[test]

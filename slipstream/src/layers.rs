@@ -419,49 +419,44 @@ mod tests {
     };
 
     #[test]
-    fn a_zone_the_size_of_the_screen_leaves_the_area_alone() {
+    fn exclusive_zones_trim_the_area_on_their_own_screen() {
         let area = Rect {
             y: 32,
             h: 928,
             ..SCREEN
         };
-        let zone = Rectangle::new((0, 0).into(), (1536, 960).into());
-        assert_eq!(within_zone(area, SCREEN, zone), area);
-    }
-
-    #[test]
-    fn a_dock_along_the_bottom_shortens_the_area() {
-        let area = Rect {
-            y: 32,
-            h: 928,
-            ..SCREEN
-        };
-        let zone = Rectangle::new((0, 0).into(), (1536, 900).into());
-        assert_eq!(within_zone(area, SCREEN, zone), Rect { h: 868, ..area });
-    }
-
-    #[test]
-    fn a_panel_down_the_left_narrows_the_area_on_its_own_screen() {
-        let area = Rect {
-            y: 32,
-            h: 928,
-            w: 1400,
-            ..SCREEN
-        };
-        let zone = Rectangle::new((48, 0).into(), (1488, 960).into());
-        let inside = within_zone(area, SCREEN, zone);
-        assert_eq!(inside.x, 1536 + 48);
-        assert_eq!(inside.w, 1400 - 48);
-    }
-
-    #[test]
-    fn a_bar_along_the_top_no_taller_than_ours_changes_nothing() {
-        let area = Rect {
-            y: 32,
-            h: 928,
-            ..SCREEN
-        };
-        let zone = Rectangle::new((0, 30).into(), (1536, 930).into());
-        assert_eq!(within_zone(area, SCREEN, zone), area);
+        let zone = |x, y, w, h| Rectangle::new((x, y).into(), (w, h).into());
+        for (case, area, zone, inside) in [
+            (
+                "a zone the size of the screen leaves the area alone",
+                area,
+                zone(0, 0, 1536, 960),
+                area,
+            ),
+            (
+                "a dock along the bottom shortens the area",
+                area,
+                zone(0, 0, 1536, 900),
+                Rect { h: 868, ..area },
+            ),
+            (
+                "a panel down the left narrows the area",
+                Rect { w: 1400, ..area },
+                zone(48, 0, 1488, 960),
+                Rect {
+                    x: 1536 + 48,
+                    w: 1400 - 48,
+                    ..area
+                },
+            ),
+            (
+                "a bar along the top no taller than ours changes nothing",
+                area,
+                zone(0, 30, 1536, 930),
+                area,
+            ),
+        ] {
+            assert_eq!(within_zone(area, SCREEN, zone), inside, "{case}");
+        }
     }
 }

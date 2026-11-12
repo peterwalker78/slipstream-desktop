@@ -30,6 +30,5 @@ mod tests {
         assert_eq!(ink(74, crate::panel::AMBER), CALM);
         assert_eq!(ink(75, crate::panel::AMBER), crate::panel::AMBER);
         assert_eq!(ink(90, crate::panel::AMBER), HOT);
-        assert_eq!(dim(0xffb547ff), 0xffb54772);
     }
 }

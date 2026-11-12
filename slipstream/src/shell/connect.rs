@@ -190,6 +190,7 @@ mod tests {
     #[test]
     fn enter_keeps_the_workspace_of_its_own_and_esc_shares_one() {
         let card = card(Some((1, "Workspace 2".into())));
+        assert_eq!(card.card().buttons.len(), 2);
         let now = DEAF + 0.1;
         assert_eq!(card.key(Keysym::Return, now), Act::Own);
         assert_eq!(card.key(Keysym::Escape, now), Act::Share);
@@ -197,23 +198,15 @@ mod tests {
     }
 
     #[test]
-    fn with_no_workspace_free_to_share_both_keys_keep_its_own() {
+    fn with_no_workspace_free_to_share_there_is_one_answer_and_both_keys_give_it() {
         let card = card(None);
+        assert_eq!(card.card().buttons.len(), 1);
         let now = DEAF + 0.1;
         assert_eq!(card.key(Keysym::Return, now), Act::Own);
         assert_eq!(
             card.key(Keysym::Escape, now),
             Act::Own,
             "nothing else to do"
-        );
-    }
-
-    #[test]
-    fn the_card_offers_one_answer_when_there_is_nothing_to_share() {
-        assert_eq!(card(None).card().buttons.len(), 1);
-        assert_eq!(
-            card(Some((1, "Workspace 2".into()))).card().buttons.len(),
-            2
         );
     }
 }

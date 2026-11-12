@@ -237,6 +237,7 @@ mod tests {
         machine.note_saying(301, "robin: counting the ledger\nidle\n", 160);
         machine.note_saying(302, "robin: growing the orchard\n", 170);
         let agents = machine.read();
+        assert_eq!(agents.len(), 3, "an idle agent is still shown");
         assert_eq!(agents[0].name, "robin: fixing the kiln");
         assert_eq!(
             agents[0].status,
@@ -274,16 +275,6 @@ mod tests {
         );
         assert_eq!(agents[1].status, AgentStatus::Idle);
         assert_eq!(agents[1].helpers.len(), MOST_HELPERS);
-    }
-
-    #[test]
-    fn idle_agent_is_shown_like_any_other() {
-        let machine = Machine::new("working-idle");
-        machine.process(300, "/home/sam/projects/kiln");
-        machine.note_saying(300, "robin: done\nidle\n", 150);
-        let agents = machine.read();
-        assert_eq!(agents.len(), 1, "idle note is still counted");
-        assert_eq!(agents[0].status, AgentStatus::Idle);
     }
 
     #[test]

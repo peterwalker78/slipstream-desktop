@@ -678,36 +678,36 @@ mod tests {
 
     #[test]
     fn the_screen_beside_one_is_found_by_where_it_sits() {
-        use crate::layout::Direction;
+        use crate::layout::Direction::{Down, Left, Right, Up};
         // A panel with a monitor to its right, tops level.
         let row = [rect(0, 0, 1536, 960), rect(1536, 0, 1920, 1080)];
-        assert_eq!(towards(&row, 0, Direction::Right), Some(1));
-        assert_eq!(towards(&row, 1, Direction::Left), Some(0));
-        assert_eq!(towards(&row, 0, Direction::Up), None);
-        assert_eq!(towards(&row, 0, Direction::Down), None);
-    }
-
-    #[test]
-    fn a_screen_above_the_panel_is_reached_by_going_up() {
-        use crate::layout::Direction;
         // A monitor on a stand, the laptop below it.
         let stack = [rect(0, 1080, 1536, 960), rect(0, 0, 1920, 1080)];
-        assert_eq!(towards(&stack, 0, Direction::Up), Some(1));
-        assert_eq!(towards(&stack, 1, Direction::Down), Some(0));
-        assert_eq!(towards(&stack, 0, Direction::Left), None);
-        assert_eq!(towards(&stack, 0, Direction::Right), None);
-    }
-
-    #[test]
-    fn a_screen_straight_ahead_beats_one_off_to_a_corner() {
-        use crate::layout::Direction;
         // Two to the right: one level with the panel, one far above it and slightly nearer.
-        let screens = [
+        let corner = [
             rect(0, 1000, 1536, 960),
             rect(1536, 1000, 1920, 1080),
             rect(1500, -2000, 800, 600),
         ];
-        assert_eq!(towards(&screens, 0, Direction::Right), Some(1));
+        for (label, screens, from, direction, found) in [
+            ("row: right", &row[..], 0, Right, Some(1)),
+            ("row: back left", &row[..], 1, Left, Some(0)),
+            ("row: nothing up", &row[..], 0, Up, None),
+            ("row: nothing down", &row[..], 0, Down, None),
+            ("stack: up", &stack[..], 0, Up, Some(1)),
+            ("stack: back down", &stack[..], 1, Down, Some(0)),
+            ("stack: nothing left", &stack[..], 0, Left, None),
+            ("stack: nothing right", &stack[..], 0, Right, None),
+            (
+                "straight ahead beats a corner",
+                &corner[..],
+                0,
+                Right,
+                Some(1),
+            ),
+        ] {
+            assert_eq!(towards(screens, from, direction), found, "{label}");
+        }
     }
 
     #[test]

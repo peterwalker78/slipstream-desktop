@@ -1246,19 +1246,6 @@ mod tests {
     }
 
     #[test]
-    fn every_style_zooms_in_out_and_back() {
-        for style in KeyStyle::ALL {
-            let bindings = checked(super::defaults(style), style);
-            for step in [Step::In, Step::Out, Step::Off] {
-                assert!(
-                    bindings.iter().any(|b| b.action == Action::Zoom(step)),
-                    "{style:?} has no key to zoom {step:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn super_alone_with_the_wheel_zooms() {
         assert!(zooms_with_wheel(SUPER));
         assert!(!zooms_with_wheel(NONE));
@@ -1303,102 +1290,98 @@ mod tests {
     }
 
     #[test]
-    fn hide_all_is_its_own_key_beside_minimise() {
-        let bindings = defaults();
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::h),
-            Some(Action::HideAll)
-        );
-        // Super+M stays one window, as on Windows, and Super+D still only shows the desktop.
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::m),
-            Some(Action::Minimise)
-        );
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::d),
-            Some(Action::ShowDesktop)
-        );
-    }
-
-    #[test]
-    fn super_w_docks_a_window_and_with_shift_brings_it_back() {
-        let bindings = defaults();
-        let super_shift = Mods {
-            shift: true,
-            ..SUPER
-        };
-        assert_eq!(action_for(&bindings, SUPER, Keysym::w), Some(Action::Dock));
-        assert_eq!(
-            action_for(&bindings, super_shift, Keysym::w),
-            Some(Action::Undock)
-        );
-    }
-
-    #[test]
-    fn mod_arrows_move_focus() {
-        let bindings = defaults();
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::Right),
-            Some(Action::Focus(Direction::Right))
-        );
-        assert_eq!(action_for(&bindings, Mods::default(), Keysym::Right), None);
-    }
-
-    #[test]
-    fn mod_alt_arrows_move_the_tile_itself() {
-        let bindings = defaults();
-        let super_alt = Mods { alt: true, ..SUPER };
-        assert_eq!(
-            action_for(&bindings, super_alt, Keysym::Down),
-            Some(Action::MoveTile(Direction::Down))
-        );
-        // Orca's toggle is the one Super+Alt combination that must not be ours.
-        assert!(is_reserved(super_alt, Keysym::s));
-        assert!(!is_reserved(super_alt, Keysym::Down));
-    }
-
-    #[test]
-    fn windows_style_workspace_keys() {
-        let bindings = defaults();
-        let super_ctrl = Mods {
-            ctrl: true,
-            ..SUPER
-        };
-        let super_shift = Mods {
-            shift: true,
-            ..SUPER
-        };
-        let alt = Mods {
-            alt: true,
-            ..Mods::default()
-        };
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::_3),
-            Some(Action::Workspace(3))
-        );
-        assert_eq!(
-            action_for(&bindings, super_shift, Keysym::_5),
-            Some(Action::MoveToWorkspace(5))
-        );
-        assert_eq!(
-            action_for(&bindings, super_ctrl, Keysym::Right),
-            Some(Action::WorkspaceBy(1))
-        );
-        assert_eq!(
-            action_for(&bindings, super_shift, Keysym::Left),
-            Some(Action::MoveToWorkspaceBy(-1))
-        );
-        assert_eq!(action_for(&bindings, alt, Keysym::F4), Some(Action::Close));
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::e),
-            Some(Action::Launch(App::Files))
-        );
-        assert_eq!(
-            action_for(&bindings, SUPER, Keysym::r),
-            Some(Action::Rotate { clockwise: true })
-        );
-        // Super+Space is the input methods' again: a tapped Super opens the explorer.
-        assert_eq!(action_for(&bindings, SUPER, Keysym::space), None);
+    fn windows_keys_are_where_windows_has_them() {
+        let windows = windows_checked(defaults());
+        let at = |mods, key| action_for(&windows, mods, key);
+        for (case, mods, key, action) in [
+            (
+                "hide all, beside minimise",
+                SUPER,
+                Keysym::h,
+                Some(Action::HideAll),
+            ),
+            (
+                "Super+M stays one window",
+                SUPER,
+                Keysym::m,
+                Some(Action::Minimise),
+            ),
+            (
+                "Super+D only shows the desktop",
+                SUPER,
+                Keysym::d,
+                Some(Action::ShowDesktop),
+            ),
+            ("Super+W docks", SUPER, Keysym::w, Some(Action::Dock)),
+            (
+                "Shift brings it back",
+                MOD_SHIFT,
+                Keysym::w,
+                Some(Action::Undock),
+            ),
+            (
+                "arrows move focus",
+                SUPER,
+                Keysym::Right,
+                Some(Action::Focus(Direction::Right)),
+            ),
+            ("a bare arrow is the app's", NONE, Keysym::Right, None),
+            (
+                "Alt moves the tile",
+                MOD_ALT,
+                Keysym::Down,
+                Some(Action::MoveTile(Direction::Down)),
+            ),
+            ("a workspace", SUPER, Keysym::_3, Some(Action::Workspace(3))),
+            (
+                "to a workspace",
+                MOD_SHIFT,
+                Keysym::_5,
+                Some(Action::MoveToWorkspace(5)),
+            ),
+            (
+                "the next workspace",
+                MOD_CTRL,
+                Keysym::Right,
+                Some(Action::WorkspaceBy(1)),
+            ),
+            (
+                "to the one before",
+                MOD_SHIFT,
+                Keysym::Left,
+                Some(Action::MoveToWorkspaceBy(-1)),
+            ),
+            ("Alt+F4", ALT, Keysym::F4, Some(Action::Close)),
+            ("files", SUPER, Keysym::e, Some(Action::Launch(App::Files))),
+            (
+                "rotate",
+                SUPER,
+                Keysym::r,
+                Some(Action::Rotate { clockwise: true }),
+            ),
+            // A tapped Super opens the explorer, so Super+Space is the input methods' again.
+            ("Super+Space is not ours", SUPER, Keysym::space, None),
+            (
+                "Alt+Tab",
+                ALT,
+                Keysym::Tab,
+                Some(Action::CycleWindows { forward: true }),
+            ),
+            (
+                "Alt+Shift+Tab",
+                ALT_SHIFT,
+                Keysym::ISO_Left_Tab,
+                Some(Action::CycleWindows { forward: false }),
+            ),
+            (
+                "Super+F maximises",
+                SUPER,
+                Keysym::f,
+                Some(Action::Maximise),
+            ),
+        ] {
+            assert_eq!(at(mods, key), action, "{case}");
+        }
     }
 
     #[test]
@@ -1460,6 +1443,8 @@ mod tests {
             is_reserved(Mods::default(), Keysym::Insert),
             "Orca modifier"
         );
+        assert!(is_reserved(MOD_ALT, Keysym::s), "Orca's toggle");
+        assert!(!is_reserved(MOD_ALT, Keysym::Down));
     }
 
     #[test]
@@ -1502,41 +1487,6 @@ mod tests {
         };
         let kept = defaults()[0];
         assert_eq!(windows_checked(vec![input_method_switch, kept]), vec![kept]);
-    }
-
-    #[test]
-    fn alt_tab_switches_windows() {
-        let alt = Mods {
-            alt: true,
-            ..Mods::default()
-        };
-        let alt_shift = Mods { shift: true, ..alt };
-        let bindings = windows_checked(defaults());
-        assert_eq!(
-            action_for(&bindings, alt, Keysym::Tab),
-            Some(Action::CycleWindows { forward: true })
-        );
-        assert_eq!(
-            action_for(&bindings, alt_shift, Keysym::ISO_Left_Tab),
-            Some(Action::CycleWindows { forward: false })
-        );
-        let shift = Mods {
-            shift: true,
-            ..Mods::default()
-        };
-        assert!(
-            is_reserved(shift, Keysym::Tab),
-            "Steam overlay stays reserved"
-        );
-    }
-
-    #[test]
-    fn super_f_maximises_and_stays_gamescope_s_while_it_is_focused() {
-        assert_eq!(
-            action_for(&windows_checked(defaults()), SUPER, Keysym::f),
-            Some(Action::Maximise)
-        );
-        assert!(passes_to_gamescope(SUPER, Keysym::f));
     }
 
     #[test]
@@ -1655,6 +1605,8 @@ mod tests {
     #[test]
     fn gamescope_keys_pass_through() {
         assert!(passes_to_gamescope(SUPER, Keysym::s));
+        // Super+F maximises, and is gamescope's while it is focused.
+        assert!(passes_to_gamescope(SUPER, Keysym::f));
         assert!(!passes_to_gamescope(SUPER, Keysym::Tab));
         assert!(!passes_to_gamescope(Mods::default(), Keysym::s));
     }

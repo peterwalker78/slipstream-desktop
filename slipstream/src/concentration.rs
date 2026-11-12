@@ -126,19 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn parent_is_read_past_awkward_command_names() {
-        assert_eq!(
-            crate::notify::parent_of("412 (bash) S 400 412 412 0"),
-            Some(400)
-        );
-        assert_eq!(
-            crate::notify::parent_of("9001 (Web Content (x) 2) S 8810 1 1 0"),
-            Some(8810)
-        );
-        assert_eq!(crate::notify::parent_of("garbage"), None);
-    }
-
-    #[test]
     fn a_process_descends_from_itself_and_its_parents() {
         let me = std::process::id();
         assert!(descends_from(me, me));

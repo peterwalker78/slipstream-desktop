@@ -973,7 +973,7 @@ mod tests {
         l.insert("b", Some(&"a"), AREA);
         let (a, b) = (rect_of(&l, "a"), rect_of(&l, "b"));
         assert_eq!(a.y, b.y);
-        assert_eq!(b.x - (a.x + a.w), 10, "inner gap between neighbours");
+        assert_eq!(b.x - (a.x + a.w), INNER_GAP, "inner gap between neighbours");
         assert_eq!(a.x, OUTER_GAP, "outer gap on the left");
         assert_eq!(b.x + b.w, 1000 - OUTER_GAP, "outer gap on the right");
     }
@@ -988,7 +988,7 @@ mod tests {
         let rects = l.rects_within(AREA, &min);
         let (a, b) = (rects[0].1, rects[1].1);
         assert_eq!(a.w, 600, "just its minimum, no more");
-        assert_eq!(b.x - (a.x + a.w), 10, "the gap stays");
+        assert_eq!(b.x - (a.x + a.w), INNER_GAP, "the gap stays");
         assert_eq!(b.x + b.w, 1000 - OUTER_GAP);
 
         // On the right it takes the room from the left.
@@ -1194,6 +1194,14 @@ mod tests {
         }
     }
 
+    /// a and b side by side.
+    fn pair() -> Dwindle<&'static str> {
+        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
+        l.insert("a", None, AREA);
+        l.insert("b", None, AREA);
+        l
+    }
+
     fn three() -> Dwindle<&'static str> {
         // a on the left; b above c on the right.
         let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
@@ -1242,9 +1250,7 @@ mod tests {
 
     #[test]
     fn snaps_to_thirds_and_half() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        l.insert("a", None, AREA);
-        l.insert("b", None, AREA);
+        let mut l = pair();
         let mut wider = || l.resize(&"a", Resize::Wider, AREA, NO_MIN);
         assert_eq!(wider(), Resized::Changed(0.55));
         assert_eq!(wider(), Resized::Changed(0.6));
@@ -1260,9 +1266,7 @@ mod tests {
 
     #[test]
     fn clamps_and_reports_the_limit() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        l.insert("a", None, AREA);
-        l.insert("b", None, AREA);
+        let mut l = pair();
         let mut last = Resized::NothingBeside;
         for _ in 0..20 {
             last = l.resize(&"a", Resize::Narrower, AREA, NO_MIN);
@@ -1305,9 +1309,7 @@ mod tests {
 
     #[test]
     fn a_neighbours_minimum_holds_it() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        l.insert("a", None, AREA);
-        l.insert("b", None, AREA);
+        let mut l = pair();
         // b won't go narrower than half the area, so a can't grow into it.
         let half = (1000 - 2 * OUTER_GAP - INNER_GAP) / 2 + 1;
         let min = move |t: &&str| if *t == "b" { (half, 0) } else { (0, 0) };
@@ -1317,9 +1319,7 @@ mod tests {
 
     #[test]
     fn dividers_lie_between_the_tiles() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        l.insert("a", None, AREA);
-        l.insert("b", None, AREA);
+        let mut l = pair();
         let dividers = l.dividers(AREA, NO_MIN);
         assert_eq!(dividers.len(), 1);
         let (a, b) = (rect_of(&l, "a"), rect_of(&l, "b"));
@@ -1369,9 +1369,7 @@ mod tests {
 
     #[test]
     fn a_drag_ratio_respects_minimums() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        l.insert("a", None, AREA);
-        l.insert("b", None, AREA);
+        let mut l = pair();
         // b needs 590 of what's across, its tile and its share of the gaps; a can go down to the
         // limit.
         let min = |t: &&str| if *t == "b" { (580, 0) } else { (0, 0) };
@@ -1408,10 +1406,7 @@ mod tests {
 
     #[test]
     fn closing_a_window_leaves_the_shape_of_what_is_left() {
-        let mut l = Dwindle::new(OUTER_GAP, INNER_GAP);
-        for id in ["a", "b", "c"] {
-            l.insert(id, None, AREA);
-        }
+        let mut l = three();
         l.remove(&"b");
         let Some(Shape::Split { a, b, .. }) = l.shape() else {
             panic!("two windows should be a split");

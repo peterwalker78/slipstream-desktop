@@ -428,9 +428,14 @@ mod tests {
         (1..=5).map(|id| (id, String::new())).collect()
     }
 
+    /// The five workspaces the settings ask for, nothing on them yet.
+    fn workspaces() -> Workspaces<&'static str> {
+        Workspaces::new(&five(), OUTER_GAP, INNER_GAP)
+    }
+
     #[test]
     fn an_edited_list_is_followed_by_id_and_a_deleted_workspace_s_windows_go_left() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "one", None, AREA);
         ws.insert(2, "three", None, AREA);
         ws.insert(3, "four", None, AREA);
@@ -473,7 +478,7 @@ mod tests {
 
     #[test]
     fn deleting_the_first_workspace_sends_its_windows_to_the_new_first() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "a", None, AREA);
         let map = ws.reconcile(&[(2, String::new())], 1, AREA);
         assert_eq!(map[0], 0);
@@ -482,18 +487,14 @@ mod tests {
     }
 
     #[test]
-    fn there_are_always_enough_workspaces_for_every_screen() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
-        ws.reconcile(&[(1, String::new())], 2, AREA);
-        assert_eq!(ws.count(), 2);
-        assert_ne!(ws.get(0).id, ws.get(1).id);
-    }
-
-    #[test]
-    fn a_workspace_made_for_a_screen_is_scratch_and_the_settings_list_is_not() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+    fn there_are_always_enough_workspaces_for_every_screen_made_as_scratch() {
+        let mut ws = workspaces();
         ws.reconcile(&[(1, String::new()), (2, String::new())], 4, AREA);
         assert_eq!(ws.count(), 4);
+        let mut ids: Vec<u32> = (0..4).map(|index| ws.get(index).id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 4, "each its own id: {ids:?}");
         assert!(!ws.is_scratch(0) && !ws.is_scratch(1), "the user's two");
         assert!(
             ws.is_scratch(2) && ws.is_scratch(3),
@@ -503,7 +504,7 @@ mod tests {
 
     #[test]
     fn add_scratch_puts_a_workspace_of_its_own_at_the_end() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         let index = ws.add_scratch();
         assert_eq!(index, 5, "after the five the settings asked for");
         assert!(ws.is_scratch(index));
@@ -512,7 +513,7 @@ mod tests {
 
     #[test]
     fn a_screen_s_own_workspace_keeps_its_windows_when_the_list_is_reconciled() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         let scratch = ws.add_scratch();
         ws.insert(scratch, "a", None, AREA);
         // Another screen arrives, or a workspace is renamed: either way the list is rebuilt.
@@ -529,7 +530,7 @@ mod tests {
 
     #[test]
     fn an_empty_workspace_of_its_own_is_not_kept_across_a_reconcile() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         let scratch = ws.add_scratch();
         assert_eq!(ws.count(), 6);
         let id = ws.get(scratch).id;
@@ -540,7 +541,7 @@ mod tests {
 
     #[test]
     fn pruning_drops_empty_workspaces_of_their_own_from_the_end_only() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         let first = ws.add_scratch();
         let second = ws.add_scratch();
         ws.insert(first, "a", None, AREA);
@@ -555,7 +556,7 @@ mod tests {
 
     #[test]
     fn pruning_leaves_a_workspace_a_screen_is_looking_at() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         let scratch = ws.add_scratch();
         assert_eq!(ws.prune_scratch(&[scratch], 5), 0, "a screen is on it");
         assert_eq!(ws.count(), 6);
@@ -565,7 +566,7 @@ mod tests {
 
     #[test]
     fn pruning_never_takes_one_of_the_user_s_workspaces() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         assert_eq!(
             ws.prune_scratch(&[], 1),
             0,
@@ -576,7 +577,7 @@ mod tests {
 
     #[test]
     fn a_workspace_added_after_an_id_at_the_top_of_its_range_still_gets_its_own() {
-        let mut ws: Workspaces<&str> = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.reconcile(&[(u32::MAX, "Mail".into())], 3, AREA);
         let ids: Vec<u32> = (0..ws.count()).map(|index| ws.get(index).id).collect();
         assert_eq!(ids, [u32::MAX, 1, 2]);
@@ -584,7 +585,7 @@ mod tests {
 
     #[test]
     fn a_window_lives_on_exactly_one_workspace() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "a", None, AREA);
         ws.insert(2, "b", None, AREA);
         assert_eq!(ws.find(&"a"), Some(0));
@@ -604,7 +605,7 @@ mod tests {
 
     #[test]
     fn remembered_focus_moves_on_when_its_window_leaves() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "a", None, AREA);
         ws.insert(0, "b", Some(&"a"), AREA);
         ws.get_mut(0).last_focus = Some("b");
@@ -616,7 +617,7 @@ mod tests {
 
     #[test]
     fn a_maximised_window_takes_the_area() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         for id in ["a", "b", "c"] {
             ws.insert(0, id, None, AREA);
         }
@@ -649,7 +650,7 @@ mod tests {
 
     #[test]
     fn focus_elsewhere_ends_it() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "a", None, AREA);
         ws.insert(0, "b", None, AREA);
         ws.insert(1, "c", None, AREA);
@@ -663,7 +664,7 @@ mod tests {
 
     #[test]
     fn a_new_window_ends_it() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(0, "a", None, AREA);
         ws.insert(0, "b", None, AREA);
         ws.get_mut(0).toggle_maximised(&"a");
@@ -674,7 +675,7 @@ mod tests {
 
     #[test]
     fn gravity_lays_out_until_it_turns_off_and_survives_its_centre_leaving() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         for id in ["a", "b", "c"] {
             ws.insert(0, id, None, AREA);
         }
@@ -700,7 +701,7 @@ mod tests {
 
     #[test]
     fn a_floating_window_belongs_to_its_workspace_but_not_to_its_tiling() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.insert(1, "tiled", None, AREA);
         ws.get_mut(1).floating.add("dialog", (200, 100), None, AREA);
         assert_eq!(ws.find(&"dialog"), Some(1));
@@ -714,7 +715,7 @@ mod tests {
 
     #[test]
     fn a_deleted_workspace_s_floating_windows_float_on_where_its_tiles_go() {
-        let mut ws = Workspaces::new(&five(), OUTER_GAP, INNER_GAP);
+        let mut ws = workspaces();
         ws.get_mut(2).floating.add("dialog", (200, 100), None, AREA);
         let entries: Vec<(u32, String)> =
             [1, 2, 4, 5].iter().map(|id| (*id, String::new())).collect();

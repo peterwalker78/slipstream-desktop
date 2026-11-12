@@ -295,22 +295,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn identity_prefers_what_the_screen_says() {
-        assert_eq!(
-            identity("Dell Inc.", "DELL U2720Q", "8J3M2P3", "DP-1"),
-            "Dell Inc. DELL U2720Q 8J3M2P3"
-        );
-    }
-
-    #[test]
-    fn identity_falls_back_to_the_connector() {
-        assert_eq!(identity("Unknown", "Unknown", "Unknown", "DP-1"), "DP-1");
-        assert_eq!(identity("", "", "", "eDP-1"), "eDP-1");
-    }
-
-    #[test]
-    fn identity_keeps_the_fields_a_screen_does_give() {
-        assert_eq!(identity("BOE", "Unknown", "", "eDP-1"), "BOE");
+    fn identity_prefers_what_the_screen_says_and_falls_back_to_the_connector() {
+        for (case, fields, want) in [
+            (
+                "all given",
+                ["Dell Inc.", "DELL U2720Q", "8J3M2P3"],
+                "Dell Inc. DELL U2720Q 8J3M2P3",
+            ),
+            ("all Unknown", ["Unknown", "Unknown", "Unknown"], "DP-1"),
+            ("all empty", ["", "", ""], "DP-1"),
+            ("keeps what it gives", ["BOE", "Unknown", ""], "BOE"),
+        ] {
+            assert_eq!(
+                identity(fields[0], fields[1], fields[2], "DP-1"),
+                want,
+                "{case}"
+            );
+        }
     }
 
     #[test]
@@ -383,21 +384,5 @@ mod tests {
         // A hand edit can name any rate at all without upsetting the sums.
         assert!(!sixty.matches("1920x1080@-1e10"));
         assert!(!sixty.matches("1920x1080@inf"));
-    }
-
-    #[test]
-    fn modes_and_the_running_one_are_remembered_for_the_settings_app() {
-        let mut remembered = Remembered::new();
-        let modes = vec![ScreenMode {
-            width: 2880,
-            height: 1800,
-            refresh: 120_000,
-            preferred: true,
-        }];
-        remembered.set_modes("Made Up MU27 0001", modes.clone(), "2880x1800@120", 1.5);
-        let known = remembered.get("Made Up MU27 0001").unwrap();
-        assert_eq!(known.modes, modes);
-        assert_eq!(known.running, "2880x1800@120");
-        assert_eq!(known.scale, 1.5);
     }
 }

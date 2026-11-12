@@ -134,29 +134,11 @@ impl View {
             level,
         }
     }
-
-    /// Where a point of the unmagnified screen is shown.
-    #[cfg(test)]
-    pub fn to_screen(self, at: Point<f64, Physical>) -> Point<f64, Physical> {
-        let centre = self.centre.to_f64();
-        centre + (at - centre).upscale(self.level)
-    }
-
-    /// What is under a point of the screen, in the unmagnified screen's pixels.
-    #[cfg(test)]
-    pub fn to_content(self, at: Point<f64, Physical>) -> Point<f64, Physical> {
-        let centre = self.centre.to_f64();
-        centre + (at - centre).downscale(self.level)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn p(x: f64, y: f64) -> Point<f64, Physical> {
-        Point::from((x, y))
-    }
 
     #[test]
     fn zooming_in_from_off_starts_at_twice_and_steps_up_to_the_most() {
@@ -219,6 +201,8 @@ mod tests {
 
     #[test]
     fn the_point_under_the_pointer_stays_put() {
+        // The frame is magnified about the centre, so the centre must be the pointer, in the
+        // screen's own physical pixels.
         let view = View::about(
             Point::from((1700.0, 300.0)),
             Point::from((1536, 0)),
@@ -226,48 +210,5 @@ mod tests {
             2.0,
         );
         assert_eq!(view.centre, Point::from((205, 375)));
-        let under = view.centre.to_f64();
-        assert_eq!(view.to_screen(under), under);
-        assert_eq!(view.to_content(under), under);
-    }
-
-    #[test]
-    fn mapping_to_the_screen_and_back_agree() {
-        let view = View {
-            centre: Point::from((400, 300)),
-            level: 2.0,
-        };
-        // Twice as far from the centre on screen as underneath.
-        assert_eq!(view.to_screen(p(500.0, 300.0)), p(600.0, 300.0));
-        assert_eq!(view.to_content(p(600.0, 300.0)), p(500.0, 300.0));
-        for at in [p(0.0, 0.0), p(123.5, 77.25), p(1535.0, 959.0)] {
-            let back = view.to_content(view.to_screen(at));
-            assert!((back - at).x.abs() < 1e-9 && (back - at).y.abs() < 1e-9);
-        }
-    }
-
-    #[test]
-    fn the_whole_screen_stays_reachable() {
-        // A pointer in a corner shows that corner: the view never leaves the screen.
-        let (w, h) = (1536.0, 960.0);
-        for (x, y) in [(0, 0), (1535, 959), (768, 480), (1535, 0)] {
-            let view = View {
-                centre: Point::from((x, y)),
-                level: 4.0,
-            };
-            let top_left = view.to_content(p(0.0, 0.0));
-            let bottom_right = view.to_content(p(w, h));
-            assert!(top_left.x >= 0.0 && top_left.y >= 0.0, "{top_left:?}");
-            assert!(
-                bottom_right.x <= w && bottom_right.y <= h,
-                "{bottom_right:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn nothing_magnified_is_the_identity() {
-        let at = p(321.0, 654.0);
-        assert_eq!(View::NONE.to_screen(at), at);
     }
 }

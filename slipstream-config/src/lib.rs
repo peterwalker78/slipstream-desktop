@@ -645,8 +645,8 @@ mod tests {
 
     #[test]
     fn effects_are_read_by_name() {
-        let settings = parse("[motion]\neffects = \"slipstream\"\n").unwrap();
-        assert_eq!(settings.motion.effects, Effects::Slipstream);
+        let settings = parse("[motion]\neffects = \"matrix\"\n").unwrap();
+        assert_eq!(settings.motion.effects, Effects::Matrix);
         assert!(
             settings.motion.close_into_rain,
             "the rest keep their defaults"

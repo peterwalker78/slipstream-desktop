@@ -231,38 +231,24 @@ mod tests {
         );
     }
 
+    /// Keys kept for typing aids or games, and keys that type, are never an app's; keys that
+    /// type nothing can stand alone.
     #[test]
-    fn an_app_never_takes_a_key_kept_for_typing_aids_or_games() {
-        for spec in [
+    fn an_app_never_takes_a_key_that_types_or_is_kept_for_typing_aids_or_games() {
+        let kept = [
             "CTRL+SHIFT+m",
             "CTRL+space",
             "F12",
             "SHIFT+F3",
             "CTRL+ALT+F2",
-        ] {
-            assert_eq!(
-                Trigger::parse(spec).unwrap().check(),
-                Err(Refusal::Kept),
-                "{spec}"
-            );
-        }
-    }
-
-    #[test]
-    fn an_app_never_takes_a_key_that_types() {
-        for spec in ["m", "SHIFT+m", "space", "Return", "Left", "grave"] {
-            assert_eq!(
-                Trigger::parse(spec).unwrap().check(),
-                Err(Refusal::Types),
-                "{spec}"
-            );
-        }
-    }
-
-    #[test]
-    fn keys_that_type_nothing_can_stand_alone() {
-        for spec in ["Pause", "Scroll_Lock", "F9", "F13", "CTRL+ALT+m", "ALT+F7"] {
-            assert_eq!(Trigger::parse(spec).unwrap().check(), Ok(()), "{spec}");
+        ];
+        let types = ["m", "SHIFT+m", "space", "Return", "Left", "grave"];
+        let free = ["Pause", "Scroll_Lock", "F9", "F13", "CTRL+ALT+m", "ALT+F7"];
+        let cases = (kept.iter().map(|spec| (spec, Err(Refusal::Kept))))
+            .chain(types.iter().map(|spec| (spec, Err(Refusal::Types))))
+            .chain(free.iter().map(|spec| (spec, Ok(()))));
+        for (spec, wanted) in cases {
+            assert_eq!(Trigger::parse(spec).unwrap().check(), wanted, "{spec}");
         }
     }
 }

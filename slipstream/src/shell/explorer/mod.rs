@@ -452,22 +452,6 @@ mod tests {
         explorer
     }
 
-    /// Types a query into an open explorer, a character at a time, as a person would.
-    fn type_in(explorer: &mut Explorer, query: &str) {
-        for ch in query.chars() {
-            explorer.key(Keysym::NoSymbol, Some(ch), Mods::default());
-        }
-    }
-
-    #[test]
-    fn a_command_is_offered_only_when_no_app_matches() {
-        let mut explorer = with_apps(&["Files"]);
-        explorer.open(0.0);
-        type_in(&mut explorer, "files");
-        // An app matched, so nothing is offered to run.
-        assert!(explorer.results().run.is_none());
-    }
-
     fn selected(explorer: &Explorer) -> Option<Item> {
         explorer
             .results()
@@ -537,44 +521,29 @@ mod tests {
     }
 
     #[test]
-    fn typing_filters_and_enter_opens_the_best_match() {
-        let mut explorer = with_apps(&["Dolphin", "Firefox", "Konsole"]);
-        explorer.open(0.0);
-        for ch in "fire".chars() {
-            explorer.key(Keysym::NoSymbol, Some(ch), Mods::default());
-        }
-        match explorer.key(Keysym::Return, None, Mods::default()) {
-            Outcome::Activate(Item::App(app), false) => assert_eq!(app.name, "Firefox"),
-            _ => panic!("Enter should open Firefox"),
-        }
-    }
-
-    #[test]
-    fn shift_enter_asks_for_a_new_window() {
-        let mut explorer = with_apps(&["Foot"]);
-        explorer.open(0.0);
-        explorer.key(Keysym::NoSymbol, Some('f'), Mods::default());
-        assert!(matches!(
-            explorer.key(
-                Keysym::Return,
-                None,
-                Mods {
-                    shift: true,
-                    ..Mods::default()
+    fn typing_filters_and_enter_opens_the_best_match_shift_in_a_new_window() {
+        for (shift, new_window) in [(false, false), (true, true)] {
+            let mut explorer = with_apps(&["Dolphin", "Firefox", "Konsole"]);
+            explorer.open(0.0);
+            typed(&mut explorer, "fire");
+            match explorer.key(Keysym::Return, None, Mods { shift, ..NONE }) {
+                Outcome::Activate(Item::App(app), new) => {
+                    assert_eq!((app.name.as_str(), new), ("Firefox", new_window));
                 }
-            ),
-            Outcome::Activate(Item::App(_), true)
-        ));
+                _ => panic!("Enter should open Firefox"),
+            }
+        }
     }
 
     #[test]
-    fn a_query_no_app_matches_can_run_as_a_command() {
+    fn a_command_is_offered_only_when_no_app_matches() {
         let mut explorer = with_apps(&["Firefox"]);
         explorer.open(0.0);
-        for ch in "htop -d 5".chars() {
-            explorer.key(Keysym::NoSymbol, Some(ch), Mods::default());
-        }
+        typed(&mut explorer, "htop -d 5");
         assert_eq!(selected(&explorer), Some(Item::Run("htop -d 5".into())));
+        explorer.key(Keysym::Escape, None, NONE);
+        typed(&mut explorer, "firefox");
+        assert!(explorer.results().run.is_none(), "an app matched");
     }
 
     #[test]
@@ -583,19 +552,19 @@ mod tests {
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut explorer = with_apps(&names);
         explorer.open(0.0);
-        explorer.key(Keysym::Right, None, Mods::default());
-        explorer.key(Keysym::Down, None, Mods::default());
+        explorer.key(Keysym::Right, None, NONE);
+        explorer.key(Keysym::Down, None, NONE);
         assert_eq!(explorer.selected, 5);
-        explorer.key(Keysym::Down, None, Mods::default());
-        explorer.key(Keysym::Down, None, Mods::default());
+        explorer.key(Keysym::Down, None, NONE);
+        explorer.key(Keysym::Down, None, NONE);
         assert_eq!(explorer.selected, 13, "the fourth row");
         assert_eq!(explorer.scroll, 1, "scrolled to keep it in view");
-        explorer.key(Keysym::Down, None, Mods::default());
+        explorer.key(Keysym::Down, None, NONE);
         assert_eq!(explorer.selected, 14, "past the apps: the side column");
         assert_eq!(selected(&explorer), Some(Item::System(System::Lock)));
-        explorer.key(Keysym::Down, None, Mods::default());
-        explorer.key(Keysym::Up, None, Mods::default());
-        explorer.key(Keysym::Up, None, Mods::default());
+        explorer.key(Keysym::Down, None, NONE);
+        explorer.key(Keysym::Up, None, NONE);
+        explorer.key(Keysym::Up, None, NONE);
         assert_eq!(explorer.selected, 13, "back to the app it left");
     }
 
@@ -950,14 +919,14 @@ mod tests {
     fn a_plugin_s_answers_take_the_side_column_and_enter_sends_one() {
         let mut explorer = with_apps(&["Calendar"]);
         explorer.open(0.0);
-        type_in(&mut explorer, "=c");
+        typed(&mut explorer, "=c");
         explorer.set_answers(vec![answers("c", &["Four", "Five"], false)]);
         let results = explorer.results();
         assert!(results.apps.is_empty() && results.run.is_none() && results.files.is_empty());
         assert!(results.items().is_empty(), "stale answers can't be chosen");
         explorer.set_answers(vec![answers("c", &["Four", "Five"], true)]);
-        explorer.key(Keysym::Down, None, Mods::default());
-        match explorer.key(Keysym::Return, None, Mods::default()) {
+        explorer.key(Keysym::Down, None, NONE);
+        match explorer.key(Keysym::Return, None, NONE) {
             Outcome::Activate(Item::Plugin { plugin, id }, _) => {
                 assert_eq!((plugin.as_str(), id.as_str()), ("sums", "five"));
             }
@@ -965,9 +934,9 @@ mod tests {
         }
         // Without a plugin asked, the apps come back.
         explorer.set_answers(Vec::new());
-        explorer.key(Keysym::BackSpace, None, Mods::default());
-        explorer.key(Keysym::BackSpace, None, Mods::default());
-        type_in(&mut explorer, "cal");
+        explorer.key(Keysym::BackSpace, None, NONE);
+        explorer.key(Keysym::BackSpace, None, NONE);
+        typed(&mut explorer, "cal");
         assert_eq!(
             selected(&explorer).map(|item| matches!(item, Item::App(_))),
             Some(true)

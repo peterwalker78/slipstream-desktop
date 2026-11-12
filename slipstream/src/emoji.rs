@@ -307,9 +307,17 @@ mod tests {
 
     #[test]
     fn names_that_start_with_the_query_come_first() {
-        let hearts = search("heart", 20);
-        assert!(hearts.len() > 5);
-        assert!(hearts[0].1.starts_with("heart") || hearts[0].1.contains("heart"));
+        // The sunglasses come first in the list but only have a word starting "sun".
+        let names: Vec<&str> = search("sun", 10).iter().map(|found| found.1).collect();
+        assert_eq!(
+            names,
+            [
+                "sun",
+                "sun behind cloud",
+                "sunflower",
+                "smiling face with sunglasses"
+            ]
+        );
     }
 
     #[test]

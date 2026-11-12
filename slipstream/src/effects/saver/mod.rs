@@ -931,8 +931,8 @@ mod tests {
         assert_eq!(saver.current.id(), "vortex");
     }
 
-    #[test]
-    fn a_variation_holds_for_its_dwell_and_hands_over_as_it_ends() {
+    /// A saver cycling slipstream and vortex, a minute each, started at 0 with no handover.
+    fn cycling_two_a_minute() -> Saver {
         let layout = layout(640, 400).unwrap();
         let mut saver = saver_for(&layout);
         saver.chosen = vec!["slipstream", "vortex"];
@@ -940,6 +940,12 @@ mod tests {
         saver.started = Some(0.0);
         saver.shown_at = Some(0.0);
         saver.handover = None;
+        saver
+    }
+
+    #[test]
+    fn a_variation_holds_for_its_dwell_and_hands_over_as_it_ends() {
+        let mut saver = cycling_two_a_minute();
         saver.maybe_hand_over(59.9, false);
         assert_eq!(saver.current.id(), "slipstream", "still inside its dwell");
         // Bullet time never changes the picture under it.
@@ -952,13 +958,7 @@ mod tests {
 
     #[test]
     fn a_slowed_wallpaper_still_changes_on_time() {
-        let layout = layout(640, 400).unwrap();
-        let mut saver = saver_for(&layout);
-        saver.chosen = vec!["slipstream", "vortex"];
-        saver.change_every = 60.0;
-        saver.started = Some(0.0);
-        saver.shown_at = Some(0.0);
-        saver.handover = None;
+        let mut saver = cycling_two_a_minute();
         // A minute at half pace leaves the wallpaper's clock 30 s behind.
         saver.lag = 30.0;
         saver.maybe_hand_over(29.9, false);

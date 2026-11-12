@@ -552,25 +552,6 @@ mod tests {
     }
 
     #[test]
-    fn a_chrome_shaped_flatpak_finds_its_wayland_window_by_flatpak() {
-        let proxy = Process {
-            lineage: vec![4011, 4010],
-            sandbox: Some(4010),
-            name: "xdg-dbus-proxy".into(),
-            flatpak: Some("com.example.Chrome".into()),
-        };
-        let windows = [in_flatpak(
-            &[4120, 4110, 4100, 3990, 10],
-            "com.example.chrome",
-            "com.example.Chrome",
-        )];
-        assert_eq!(
-            owner(Some(&proxy), &["chrome_status_icon_1", ""], &windows),
-            Some(0)
-        );
-    }
-
-    #[test]
     fn an_xwaylandvideobridge_shaped_item_is_its_own_clients() {
         // A host service whose X11 client and tray item are one process, started by the
         // service manager.

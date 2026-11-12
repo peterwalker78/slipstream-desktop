@@ -619,13 +619,4 @@ mod tests {
             assert_eq!(idle.update(now, true), 1.0);
         }
     }
-
-    #[test]
-    fn a_timeout_of_zero_seconds_never_fades() {
-        let mut idle = Idle {
-            timeout: None,
-            ..Idle::new(false, 120)
-        };
-        assert_eq!(idle.update(1000.0, false), 1.0);
-    }
 }

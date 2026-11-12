@@ -142,40 +142,46 @@ mod tests {
     }
 
     #[test]
-    fn a_fullscreen_window_on_the_plane_keeps_the_screens_formats() {
+    fn only_a_fullscreen_window_that_could_be_on_the_plane_is_offered_the_screens_formats() {
+        use RenderElementPresentationState::{Rendering, ZeroCopy};
         let feedback = feedback();
-        let (id, states) = shown(RenderElementPresentationState::ZeroCopy);
-        assert!(feedback.is_scanout(feedback.pick(true, id, &states)));
-    }
-
-    #[test]
-    fn a_fullscreen_window_in_the_wrong_format_is_offered_the_screens() {
-        let feedback = feedback();
-        for reason in [
-            RenderingReason::FormatUnsupported,
-            RenderingReason::ScanoutFailed,
+        let failed = |reason| Rendering {
+            reason: Some(reason),
+        };
+        for (label, fullscreen, presentation, its_own, scanout) in [
+            ("on the plane", true, ZeroCopy, true, true),
+            (
+                "in the wrong format",
+                true,
+                failed(RenderingReason::FormatUnsupported),
+                true,
+                true,
+            ),
+            (
+                "the plane refused it",
+                true,
+                failed(RenderingReason::ScanoutFailed),
+                true,
+                true,
+            ),
+            // Recording, or something drawn over it: the compositor chose to draw it.
+            (
+                "composited on purpose",
+                true,
+                Rendering { reason: None },
+                true,
+                false,
+            ),
+            ("another element on the plane", true, ZeroCopy, false, false),
+            ("not fullscreen", false, ZeroCopy, true, false),
         ] {
-            let (id, states) = shown(RenderElementPresentationState::Rendering {
-                reason: Some(reason),
-            });
-            assert!(feedback.is_scanout(feedback.pick(true, id, &states)));
+            let (id, states) = shown(presentation);
+            let id = if its_own { id } else { Id::new() };
+            assert_eq!(
+                feedback.is_scanout(feedback.pick(fullscreen, id, &states)),
+                scanout,
+                "{label}"
+            );
         }
-    }
-
-    #[test]
-    fn composited_on_purpose_gets_the_renderers_formats() {
-        // Recording, or something drawn over it: the compositor chose to draw it.
-        let feedback = feedback();
-        let (id, states) = shown(RenderElementPresentationState::Rendering { reason: None });
-        assert!(!feedback.is_scanout(feedback.pick(true, id, &states)));
-        let (_, states) = shown(RenderElementPresentationState::ZeroCopy);
-        assert!(!feedback.is_scanout(feedback.pick(true, Id::new(), &states)));
-    }
-
-    #[test]
-    fn only_fullscreen_windows_are_offered_the_screens_formats() {
-        let feedback = feedback();
-        let (id, states) = shown(RenderElementPresentationState::ZeroCopy);
-        assert!(!feedback.is_scanout(feedback.pick(false, id, &states)));
     }
 }

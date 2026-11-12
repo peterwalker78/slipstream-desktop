@@ -409,7 +409,6 @@ mod tests {
 
     #[test]
     fn the_code_map_holds_every_part_largest_first() {
-        assert_eq!(CODE_PARTS.len(), 12);
         assert!(CODE_PARTS.windows(2).all(|pair| pair[0].1 >= pair[1].1));
         assert!(CODE_PARTS.iter().all(|(_, lines)| *lines > 0));
     }

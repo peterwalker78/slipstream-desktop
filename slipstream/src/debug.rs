@@ -643,18 +643,46 @@ mod tests {
     }
 
     #[test]
-    fn ignores_steps_it_does_not_understand() {
-        let mut script = Script::parse("100:fly:away;200:close;junk");
-        assert_eq!(script.due(Duration::from_secs(1)), vec![Step::Close]);
-    }
-
-    #[test]
-    fn moving_a_tile_takes_a_direction() {
-        let mut script = Script::parse("100:tile:up;200:tile:sideways");
-        assert_eq!(
-            script.due(Duration::from_secs(1)),
-            vec![Step::MoveTile(Direction::Up)]
-        );
+    fn each_step_reads_its_arguments_and_what_is_not_understood_is_skipped() {
+        for (case, text, steps) in [
+            (
+                "unknown steps and junk",
+                "100:fly:away;200:close;junk",
+                vec![Step::Close],
+            ),
+            (
+                "a tile moves in a direction",
+                "100:tile:up;200:tile:sideways",
+                vec![Step::MoveTile(Direction::Up)],
+            ),
+            (
+                "buttons and panel keys are named",
+                "100:button:middle;200:button:other;300:key:ctrl+BackSpace",
+                vec![Step::Button(0x112), Step::Key("ctrl+BackSpace".into())],
+            ),
+            (
+                "clicks take a point",
+                "100:qclick:1400, 90;200:bclick:nowhere;300:qkey:shift+Tab",
+                vec![
+                    Step::QuickClick(1400.0, 90.0),
+                    Step::QuickKey("shift+Tab".into()),
+                ],
+            ),
+            (
+                "the way out has its own steps",
+                "100:logout;200:xkey:Return;300:shutdown",
+                vec![Step::LogOut, Step::ExitKey("Return".into()), Step::ShutDown],
+            ),
+        ] {
+            assert_eq!(
+                Script::parse(text).due(Duration::from_secs(1)),
+                steps,
+                "{case}"
+            );
+        }
+        let (mods, key) = mods_and_key("ctrl+BackSpace");
+        assert!(mods.ctrl && !mods.shift);
+        assert_eq!(key, Keysym::BackSpace);
     }
 
     #[test]
@@ -677,39 +705,6 @@ mod tests {
         ] {
             assert!(!step.works_while_locked(), "{step:?}");
         }
-    }
-
-    #[test]
-    fn buttons_and_panel_keys_are_named() {
-        let mut script = Script::parse("100:button:middle;200:button:other;300:key:ctrl+BackSpace");
-        assert_eq!(
-            script.due(Duration::from_secs(1)),
-            vec![Step::Button(0x112), Step::Key("ctrl+BackSpace".into())]
-        );
-        let (mods, key) = mods_and_key("ctrl+BackSpace");
-        assert!(mods.ctrl && !mods.shift);
-        assert_eq!(key, Keysym::BackSpace);
-    }
-
-    #[test]
-    fn clicks_take_a_point() {
-        let mut script = Script::parse("100:qclick:1400, 90;200:bclick:nowhere;300:qkey:shift+Tab");
-        assert_eq!(
-            script.due(Duration::from_secs(1)),
-            vec![
-                Step::QuickClick(1400.0, 90.0),
-                Step::QuickKey("shift+Tab".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn the_way_out_has_its_own_steps() {
-        let mut script = Script::parse("100:logout;200:xkey:Return;300:shutdown");
-        assert_eq!(
-            script.due(Duration::from_secs(1)),
-            vec![Step::LogOut, Step::ExitKey("Return".into()), Step::ShutDown]
-        );
     }
 
     #[test]

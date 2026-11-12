@@ -307,8 +307,6 @@ mod tests {
             .join(" ")
     }
 
-    /// The promise in the guide: unless it says it needs them, a sandboxed plugin has no network,
-    /// no display and nothing of the person's home but its own folders and what it reads.
     #[test]
     fn bubblewrap_s_version_is_read_from_what_it_says() {
         assert_eq!(version("bubblewrap 0.12.0\n"), Some((0, 12)));
@@ -317,6 +315,8 @@ mod tests {
         assert_eq!(version(""), None);
     }
 
+    /// The promise in the guide: unless it says it needs them, a sandboxed plugin has no network,
+    /// no display and nothing of the person's home but its own folders and what it reads.
     #[test]
     fn a_sandboxed_plugin_gets_only_what_it_needs() {
         let dir = Path::new("/home/ada/.local/state/slipstream/plugins/ferry/ab12");

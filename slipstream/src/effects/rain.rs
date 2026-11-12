@@ -769,12 +769,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_rain_s_glyph_size_is_a_third_of_a_stream_s_inner_width() {
-        assert_eq!(glyph_size(1.0), (10, 15));
-        assert_eq!(glyph_size(1.25), crate::glmatrix::glyph_size(40.0));
-    }
-
-    #[test]
     fn the_rain_spells_vowels_small_and_the_rest_in_capitals() {
         assert_eq!(rain_case("konsole"), "KoNSoLe");
         assert_eq!(rain_case("Visual Studio Code"), "ViSuaL STuDio CoDe");

@@ -471,9 +471,7 @@ mod tests {
     #[test]
     fn a_popup_waits_for_the_ui() {
         let mut notices = Notices::default();
-        let waiting = Pop::for_arrival(false, false, -1, false, false, true, false);
-        assert_eq!(waiting, Pop::Later(POPUP_SHOWN));
-        notices.arrive(notice(1), waiting, 10.0, 10.0, true);
+        notices.arrive(notice(1), Pop::Later(POPUP_SHOWN), 10.0, 10.0, true);
         notices.arrive(notice(2), Pop::Later(8.0), 20.0, 20.0, true);
         assert!(
             notices.popups.is_empty(),
@@ -511,28 +509,51 @@ mod tests {
         assert!(notices.take_waiting(960.0).is_empty());
     }
 
+    /// When a notification pops up, for each way it can arrive: `arrival` names what holds of
+    /// it, and `timeout` is the app's own, in milliseconds.
+    #[test]
+    fn each_arrival_pops_up_now_later_at_the_pause_or_never() {
+        let check = |arrival: &str, timeout: i32, want: Pop| {
+            let is = |word| arrival.split(' ').any(|said| said == word);
+            let pop = Pop::for_arrival(
+                is("critical"),
+                is("transient"),
+                timeout,
+                is("centre-open"),
+                is("do-not-disturb"),
+                is("faded"),
+                is("typing"),
+            );
+            assert_eq!(pop, want, "{arrival:?}, timeout {timeout}");
+        };
+        // Awake, it pops up as always, passing news too.
+        check("", -1, Pop::Now(POPUP_SHOWN));
+        check("transient", -1, Pop::Now(POPUP_SHOWN));
+        // Never expiring still pops up for the usual time.
+        check("", 0, Pop::Now(POPUP_SHOWN));
+        // Faded, it waits for the UI, keeping the app's own time; passing news isn't kept.
+        check("faded", -1, Pop::Later(POPUP_SHOWN));
+        check("faded", 12_000, Pop::Later(12.0));
+        check("faded transient", -1, Pop::Never);
+        // The open centre shows it instead; do not disturb holds it back.
+        check("centre-open", -1, Pop::Never);
+        check("do-not-disturb faded", -1, Pop::Never);
+        // Typing holds it, passing news too, for the pause rather than losing it.
+        check("typing", -1, Pop::AtPause(POPUP_SHOWN));
+        check("typing transient", -1, Pop::AtPause(POPUP_SHOWN));
+        check("typing faded", -1, Pop::Later(POPUP_SHOWN));
+        // Critical ones never wait, and stay until dismissed, whatever else holds.
+        for arrival in [
+            "critical faded",
+            "critical do-not-disturb",
+            "critical typing",
+        ] {
+            check(arrival, -1, Pop::Now(f64::INFINITY));
+        }
+    }
+
     #[test]
     fn typing_holds_popups_for_the_pause_however_long_it_takes() {
-        assert_eq!(
-            Pop::for_arrival(false, false, -1, false, false, false, true),
-            Pop::AtPause(POPUP_SHOWN)
-        );
-        assert_eq!(
-            Pop::for_arrival(false, true, -1, false, false, false, true),
-            Pop::AtPause(POPUP_SHOWN),
-            "passing news waits a few seconds too, rather than being lost"
-        );
-        assert_eq!(
-            Pop::for_arrival(true, false, -1, false, false, false, true),
-            Pop::Now(f64::INFINITY),
-            "critical ones never wait"
-        );
-        assert_eq!(
-            Pop::for_arrival(false, false, -1, false, false, true, true),
-            Pop::Later(POPUP_SHOWN),
-            "faded, it waits for the UI"
-        );
-
         let mut notices = Notices::default();
         let passing = Notice {
             transient: true,
@@ -566,43 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_one_arriving_faded_is_not_popped() {
-        assert_eq!(
-            Pop::for_arrival(false, true, -1, false, false, true, false),
-            Pop::Never
-        );
-        assert_eq!(
-            Pop::for_arrival(false, true, -1, false, false, false, false),
-            Pop::Now(POPUP_SHOWN),
-            "awake, it pops up as always"
-        );
-        assert_eq!(
-            Pop::for_arrival(true, false, -1, false, false, true, false),
-            Pop::Now(f64::INFINITY),
-            "critical ones stay until dismissed, faded or not"
-        );
-        assert_eq!(
-            Pop::for_arrival(false, false, 0, false, false, false, false),
-            Pop::Now(POPUP_SHOWN),
-            "never expiring still pops up for the usual time"
-        );
-        assert_eq!(
-            Pop::for_arrival(false, false, 12_000, false, false, true, false),
-            Pop::Later(12.0)
-        );
-        assert_eq!(
-            Pop::for_arrival(false, false, -1, true, false, false, false),
-            Pop::Never
-        );
-        assert_eq!(
-            Pop::for_arrival(false, false, -1, false, true, true, false),
-            Pop::Never
-        );
-        assert_eq!(
-            Pop::for_arrival(true, false, -1, false, true, false, false),
-            Pop::Now(f64::INFINITY)
-        );
-
+    fn a_transient_one_nothing_holds_is_swept() {
         let mut notices = Notices::default();
         let passing = Notice {
             transient: true,

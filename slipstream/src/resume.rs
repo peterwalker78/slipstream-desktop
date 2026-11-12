@@ -491,16 +491,6 @@ mod tests {
     }
 
     #[test]
-    fn with_no_agent_leaving_a_note_nothing_is_resumed() {
-        let machine = one_terminal("resume-nothing");
-        assert_eq!(
-            machine.look(10),
-            None,
-            "nothing is guessed from what is running"
-        );
-    }
-
-    #[test]
     fn a_session_comes_back_by_its_note_in_its_shells_folder() {
         let machine = one_terminal("resume-note");
         machine.note(12, "agent --resume 7\n", 200);
@@ -569,15 +559,6 @@ mod tests {
     }
 
     #[test]
-    fn a_note_older_than_its_process_is_someone_elses() {
-        let machine = one_terminal("resume-stale");
-        // Written fifty seconds after boot, by whatever had the number before this process
-        // started at a hundred.
-        machine.note(12, "agent --resume 7", 50);
-        assert_eq!(machine.look(10), None);
-    }
-
-    #[test]
     fn a_note_is_one_plain_line_in_a_plain_file() {
         let machine = one_terminal("resume-plain");
         machine.note(12, "agent\u{1b}[2J --resume 7", 200);
@@ -592,14 +573,6 @@ mod tests {
         machine.note(99, "agent --resume 7", 200);
         symlink(machine.root.join("notes/99"), machine.root.join("notes/12")).unwrap();
         assert_eq!(command(&machine), None, "a link to another file");
-    }
-
-    #[test]
-    fn two_shells_in_one_terminal_are_left_alone() {
-        let machine = one_terminal("resume-tabs");
-        machine.note(12, "agent --resume 7", 200);
-        machine.process(13, 10, true, "/work/other");
-        assert_eq!(machine.look(10), None);
     }
 
     #[test]
@@ -624,13 +597,18 @@ mod tests {
     #[test]
     fn a_terminal_that_isnt_brought_back_says_why() {
         let machine = one_terminal("resume-why");
+        // With no agent leaving a note, nothing is guessed from what is running.
         assert_eq!(machine.why(10), Err(Miss::NoNote));
+        // Written fifty seconds after boot, by whatever had the number before this process
+        // started at a hundred: someone else's.
         machine.note(12, "agent --resume 7", 50);
         assert_eq!(
             machine.why(10),
             Err(Miss::Refused(12)),
             "older than its process"
         );
+        // Two shells in one terminal are left alone, even with a good note.
+        machine.note(12, "agent --resume 7", 200);
         machine.process(13, 10, true, "/work/other");
         assert_eq!(machine.why(10), Err(Miss::Shells(2)));
         assert_eq!(machine.why(4242), Err(Miss::NoShell));

@@ -917,23 +917,12 @@ mod tests {
     }
 
     #[test]
-    fn a_trace_takes_its_agent_s_new_name_while_active() {
+    fn a_trace_takes_its_agent_s_new_name_only_while_active() {
         let mut scope = Scope::new(false);
         scope.follow(&[agent(300, "robin: reading the brief")]);
         scope.follow(&[agent(300, "robin: mending the kiln door")]);
         assert_eq!(scope.traces.len(), 1);
         assert_eq!(scope.traces[0].name, "robin: mending the kiln door");
-        scope.follow(&[idle_agent(300, "robin: mending the kiln door")]);
-        assert_eq!(
-            scope.traces[0].name, "robin: mending the kiln door",
-            "idle keeps last name"
-        );
-    }
-
-    #[test]
-    fn a_non_active_trace_keeps_its_name() {
-        let mut scope = Scope::new(false);
-        scope.follow(&[agent(300, "robin: mending the kiln door")]);
         // Idle: keeps name from before.
         scope.follow(&[idle_agent(300, "robin: done")]);
         assert_eq!(

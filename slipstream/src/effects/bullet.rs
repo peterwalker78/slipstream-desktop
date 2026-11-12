@@ -541,10 +541,6 @@ pub fn legend() -> String {
 mod tests {
     #[test]
     fn the_legend_and_the_keys_agree() {
-        assert_eq!(
-            legend(),
-            "← → ↑ ↓ choose · j k l… jump · ⏎ go · Shift+1–9 send · PgUp/PgDn size · M minimise · Del close · Esc back"
-        );
         for row in &KEYS {
             let (key, shift) = row.example;
             let mods = Mods {

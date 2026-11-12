@@ -1539,13 +1539,7 @@ mod tests {
     #[test]
     fn the_overview_button_fits_the_name_budget() {
         let (_, targets) = paint_plain(&content(), 1536, 1.25).unwrap();
-        let area = |wanted: Target| {
-            targets
-                .iter()
-                .find(|(target, _)| *target == wanted)
-                .map(|(_, area)| *area)
-                .unwrap()
-        };
+        let area = |wanted: Target| area(&targets, wanted).unwrap();
         let (last, overview) = (area(Target::Workspace(4)), area(Target::Overview));
         assert!(
             overview.loc.x >= last.loc.x + last.size.w,
@@ -1560,85 +1554,30 @@ mod tests {
     }
 
     #[test]
-    fn the_awake_chip_shows_only_while_awake_and_sits_beside_caps_lock() {
+    fn the_status_chips_show_only_while_on_and_line_up_left_of_the_tray() {
         let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
-        assert!(!quiet.iter().any(|(target, _)| *target == Target::Awake));
-        let both = Content {
+        for chip in [Target::Sharing, Target::Awake, Target::Layout] {
+            assert_eq!(area(&quiet, chip), None, "{chip:?} while off");
+        }
+        let all = Content {
+            sharing: true,
             awake: true,
             caps_lock: true,
-            sharing: true,
-            ..content()
-        };
-        let (_, targets) = paint_plain(&both, 1536, 1.25).unwrap();
-        let area = |wanted: Target| {
-            targets
-                .iter()
-                .find(|(target, _)| *target == wanted)
-                .map(|(_, area)| *area)
-                .unwrap()
-        };
-        let (awake, dot, tray) = (
-            area(Target::Awake),
-            area(Target::Sharing),
-            area(Target::Tray),
-        );
-        assert!(awake.loc.x + awake.size.w <= tray.loc.x);
-        assert!(
-            dot.loc.x + dot.size.w <= awake.loc.x,
-            "the chips don't overlap"
-        );
-    }
-
-    #[test]
-    fn the_layout_shows_beside_the_tray_only_when_there_are_others() {
-        let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
-        assert!(!quiet.iter().any(|(target, _)| *target == Target::Layout));
-        let two = Content {
             layout: Some("GB".into()),
-            awake: true,
             ..content()
         };
-        let (_, targets) = paint_plain(&two, 1536, 1.25).unwrap();
-        let area = |wanted: Target| {
-            targets
-                .iter()
-                .find(|(target, _)| *target == wanted)
-                .map(|(_, area)| *area)
-                .unwrap()
-        };
-        let (layout, awake, tray) = (
-            area(Target::Layout),
-            area(Target::Awake),
-            area(Target::Tray),
-        );
-        assert!(layout.loc.x + layout.size.w <= tray.loc.x);
-        assert!(
-            awake.loc.x + awake.size.w <= layout.loc.x,
-            "{awake:?} {layout:?}"
-        );
-    }
-
-    #[test]
-    fn the_red_dot_shows_only_while_sharing_and_can_be_clicked() {
-        let (_, quiet) = paint_plain(&content(), 1536, 1.25).unwrap();
-        assert!(!quiet.iter().any(|(target, _)| *target == Target::Sharing));
-        let sharing = Content {
-            sharing: true,
-            ..content()
-        };
-        let (_, targets) = paint_plain(&sharing, 1536, 1.25).unwrap();
-        let (_, dot) = targets
-            .iter()
-            .find(|(target, _)| *target == Target::Sharing)
-            .expect("a red dot to click");
-        let (_, tray) = targets
-            .iter()
-            .find(|(target, _)| *target == Target::Tray)
-            .unwrap();
-        assert!(
-            dot.loc.x + dot.size.w <= tray.loc.x,
-            "left of the tray, not over it"
-        );
+        let (_, targets) = paint_plain(&all, 1536, 1.25).unwrap();
+        // The red dot, Awake and the layout, left to right, none over the next or the tray.
+        let order = [Target::Sharing, Target::Awake, Target::Layout, Target::Tray]
+            .map(|target| area(&targets, target).unwrap_or_else(|| panic!("{target:?} shows")));
+        for pair in order.windows(2) {
+            assert!(
+                pair[0].loc.x + pair[0].size.w <= pair[1].loc.x,
+                "{:?} {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
     }
 
     #[test]
@@ -1649,13 +1588,7 @@ mod tests {
             dock: Some(span),
             ..content()
         };
-        let area = |targets: &Targets, wanted: Target| {
-            targets
-                .iter()
-                .find(|(target, _)| *target == wanted)
-                .map(|(_, area)| *area)
-                .unwrap()
-        };
+        let area = |targets: &Targets, wanted: Target| area(targets, wanted).unwrap();
         // The slot stands just left of the tray, and stays there whatever size the pane is.
         let (pixmap, targets) = paint_plain(&docked((1000, 1536)), 1536, 1.25).unwrap();
         let (slot, tray) = (area(&targets, Target::Dock), area(&targets, Target::Tray));
@@ -1769,13 +1702,7 @@ mod tests {
             ..content()
         };
         let (pixmap, targets) = paint_plain(&looking, 1536, scale).unwrap();
-        let button = |index| {
-            targets
-                .iter()
-                .find(|(target, _)| *target == Target::Workspace(index))
-                .map(|(_, area)| *area)
-                .unwrap()
-        };
+        let button = |index| area(&targets, Target::Workspace(index)).unwrap();
         let cyan = |[r, g, b]: [u8; 3]| b > 120 && g > 90 && r < 100;
         let amber = |[r, g, b]: [u8; 3]| r > 120 && g > 80 && b < 100;
         // Clicks take the bar's whole height, but the buttons are drawn 7 to 33 of its 40 units

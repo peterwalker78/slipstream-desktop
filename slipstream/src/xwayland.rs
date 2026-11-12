@@ -668,45 +668,51 @@ mod tests {
     }
 
     #[test]
-    fn a_window_on_a_screen_stays_where_it_asked() {
-        let screens = [rect(0, 0, 1536, 960)];
-        assert_eq!(
-            into_screens(rect(1150, 870, 375, 75), &screens),
-            rect(1150, 870, 375, 75)
-        );
-    }
-
-    #[test]
-    fn a_popup_aimed_at_the_corner_of_a_larger_x11_screen_lands_in_the_real_corner() {
+    fn a_window_is_moved_into_the_screens_only_as_far_as_it_has_to() {
         // A 1920×1200 screen at 1.25: XWayland's X11 screen is 1920×1200, the desktop 1536×960.
-        let screens = [rect(0, 0, 1536, 960)];
-        let corner = rect(1920 - 375, 1200 - 75, 375, 75);
-        assert_eq!(
-            into_screens(corner, &screens),
-            rect(1536 - 375, 960 - 75, 375, 75)
-        );
-        // One partly off the edge moves in only as far as it has to.
-        let partly = rect(1400, 900, 375, 75);
-        assert_eq!(
-            into_screens(partly, &screens),
-            rect(1536 - 375, 960 - 75, 375, 75)
-        );
-    }
-
-    #[test]
-    fn with_two_screens_it_moves_onto_the_one_it_overlaps_most() {
-        let screens = [rect(0, 0, 1536, 960), rect(1536, 0, 1920, 1080)];
-        // Across the join, mostly on the right-hand screen, and off its bottom.
-        let window = rect(1500, 1050, 300, 100);
-        assert_eq!(into_screens(window, &screens), rect(1536, 980, 300, 100));
-        // A menu across the join, with both screens under it, stays.
-        let across = rect(1400, 100, 300, 100);
-        assert_eq!(into_screens(across, &screens), across);
-    }
-
-    #[test]
-    fn without_screens_nothing_moves() {
-        assert_eq!(into_screens(rect(5, 5, 10, 10), &[]), rect(5, 5, 10, 10));
+        let one = [rect(0, 0, 1536, 960)];
+        let two = [rect(0, 0, 1536, 960), rect(1536, 0, 1920, 1080)];
+        let corner = rect(1536 - 375, 960 - 75, 375, 75);
+        for (label, screens, window, placed) in [
+            (
+                "on a screen, it stays where it asked",
+                &one[..],
+                rect(1150, 870, 375, 75),
+                rect(1150, 870, 375, 75),
+            ),
+            (
+                "aimed at the X11 screen's corner, it lands in the real one",
+                &one[..],
+                rect(1920 - 375, 1200 - 75, 375, 75),
+                corner,
+            ),
+            (
+                "partly off the edge",
+                &one[..],
+                rect(1400, 900, 375, 75),
+                corner,
+            ),
+            (
+                "across the join and off the bottom: onto the one it overlaps most",
+                &two[..],
+                rect(1500, 1050, 300, 100),
+                rect(1536, 980, 300, 100),
+            ),
+            (
+                "a menu across the join, both screens under it",
+                &two[..],
+                rect(1400, 100, 300, 100),
+                rect(1400, 100, 300, 100),
+            ),
+            (
+                "without screens nothing moves",
+                &[][..],
+                rect(5, 5, 10, 10),
+                rect(5, 5, 10, 10),
+            ),
+        ] {
+            assert_eq!(into_screens(window, screens), placed, "{label}");
+        }
     }
 
     #[test]

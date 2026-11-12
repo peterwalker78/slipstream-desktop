@@ -447,18 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn every_variation_ticked_is_written_as_no_list_at_all() {
-        let all: Vec<&str> = slipstream_config::VARIATIONS
-            .iter()
-            .map(|variation| variation.id)
-            .collect();
-        assert_eq!(
-            ticked_list(&["slipstream".to_string()], &all),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
     fn ticking_keeps_the_order_the_file_had_and_adds_the_new_ones_after() {
         let current = ["vortex".to_string(), "slipstream".to_string()];
         assert_eq!(

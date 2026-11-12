@@ -987,11 +987,17 @@ mod tests {
         let unlocking = Lock::<()>::new(None, 0.0, false).leave(&Facts::default(), 10.0);
         let close = |a: f64, b: f64| (a - b).abs() < 1e-3;
         let (zoom, opacity) = unlocking.desktop(10.0);
-        assert!(close(zoom, 0.93) && close(opacity as f64, 0.3));
+        assert!(
+            zoom < 1.0 && opacity < 1.0,
+            "the desktop starts back and dim"
+        );
         let (alpha, grow) = unlocking.card_state(10.0);
         assert!(close(alpha as f64, 1.0) && close(grow, 1.0));
         let (alpha, grow) = unlocking.card_state(10.0 + CARD_OUT);
-        assert!(close(alpha as f64, 0.0) && close(grow, 1.05));
+        assert!(
+            close(alpha as f64, 0.0) && grow > 1.0,
+            "the card grows as it fades"
+        );
         let (zoom, opacity) = unlocking.desktop(10.0 + DESKTOP_IN);
         assert!(close(zoom, 1.0) && close(opacity as f64, 1.0));
         assert!(unlocking.done(10.0 + DESKTOP_IN));

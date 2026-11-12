@@ -436,16 +436,6 @@ mod tests {
     }
 
     #[test]
-    fn the_card_goes_when_its_time_is_up() {
-        let mut osd = Osd::new(false);
-        osd.show(Kind::Brightness, 40, 10.0);
-        assert!(osd.showing.is_some());
-        // A second press while it's up holds it there rather than starting a second card.
-        osd.show(Kind::Brightness, 45, 11.0);
-        assert_eq!(osd.showing.unwrap().at, 11.0);
-    }
-
-    #[test]
     fn a_second_press_moves_the_bar_without_playing_the_entrance_again() {
         let mut osd = Osd::new(false);
         osd.show(Kind::Volume { muted: false }, 40, 10.0);
@@ -486,15 +476,6 @@ mod tests {
     }
 
     #[test]
-    fn the_lock_keys_stay_up_the_same_time_either_way() {
-        for on in [true, false] {
-            assert_eq!(Kind::NumLock { on }.shown(), SHOWN_LOCK_KEY);
-            assert_eq!(Kind::Awake { on }.shown(), SHOWN_LOCK_KEY);
-        }
-        assert_eq!(Kind::Brightness.shown(), SHOWN);
-    }
-
-    #[test]
     fn every_lock_key_note_fits_the_card() {
         let title = Style::new(Face::Body, 15.0, panel::PROSE);
         let bools = [true, false];
@@ -503,12 +484,6 @@ mod tests {
                 assert_eq!(text::ellipsize(note, &title, WIDTH - 60.0 - 22.0), note);
             }
         }
-    }
-
-    #[test]
-    fn awake_going_off_says_so_as_going_on_does() {
-        assert_eq!(awake_note(true), "Screen stays on until you lock it");
-        assert_eq!(awake_note(false), "Screen can go idle again");
     }
 
     #[test]

@@ -768,13 +768,19 @@ mod tests {
 
     #[test]
     fn reduced_motion_holds_the_light_still() {
-        let mut streaks = Streaks::new("Foot", 0.5, W, H, 1.25, 5);
-        streaks.hold(0.5);
-        let before = lit(&mut streaks);
-        assert!(streaks.is_still());
-        assert_eq!(before, lit(&mut streaks));
-        let mut strip = Streaks::along("Foot", 0.5, 160, 20, 1.0, 5);
+        let mut card = Streaks::new("Foot", 0.0, W, H, 1.25, 5);
+        card.hold(0.5);
+        assert!(card.is_still());
+        assert_eq!(card.load, 0.5, "the load shows at once, not eased into");
+        assert_eq!(
+            lit(&mut card),
+            lit(&mut card),
+            "and stays put, frame after frame"
+        );
+        let mut strip = Streaks::along("Foot", 0.0, 160, 20, 1.0, 5);
         strip.hold(0.5);
+        assert!(strip.is_still());
+        assert_eq!(strip.load, 0.5);
         assert_eq!(along(&mut strip), along(&mut strip));
     }
 

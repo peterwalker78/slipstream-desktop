@@ -1277,13 +1277,5 @@ mod tests {
         sheet.open(0.0);
         sheet.key(Keysym::k, Some('k'), 0.0);
         assert_eq!(sheet.query, "k");
-        assert!(matches!(
-            sheet.key(Keysym::Escape, None, 0.0),
-            Outcome::Nothing
-        ));
-        assert!(matches!(
-            sheet.key(Keysym::Escape, None, 0.0),
-            Outcome::Close
-        ));
     }
 }

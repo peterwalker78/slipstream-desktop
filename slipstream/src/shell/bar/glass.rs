@@ -1379,13 +1379,6 @@ mod tests {
     }
 
     #[test]
-    fn the_shared_numbers_come_after_the_shaders_precision() {
-        let source = field_source();
-        let precision = source.find("precision highp float;").unwrap();
-        assert!(source.find("const float SHED = 12.0;").unwrap() > precision);
-    }
-
-    #[test]
     fn the_field_and_the_ink_map_sit_under_the_picture_a_cell_for_every_four_by_two_pixels() {
         let size = Size::<i32, Physical>::from((1920, 40));
         assert_eq!(Atlas::cells(size), (480, 20).into());
@@ -1396,9 +1389,15 @@ mod tests {
     }
 
     #[test]
-    fn the_shared_numbers_are_declared_in_both_shaders() {
-        assert!(source().contains("const float FIELD_X = 4.0;"));
-        assert!(source().contains("const float GRADIENT = 2.0;"));
-        assert!(field_source().contains("const float SHED = 12.0;"));
+    fn the_shared_numbers_are_declared_in_both_shaders_after_their_precision() {
+        for (source, name) in [
+            (source(), "FIELD_X"),
+            (source(), "GRADIENT"),
+            (field_source(), "SHED"),
+        ] {
+            let precision = source.find("precision highp float;").unwrap();
+            let declared = source.find(&format!("const float {name} = "));
+            assert!(declared.is_some_and(|at| at > precision), "{name}");
+        }
     }
 }

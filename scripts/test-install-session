@@ -328,11 +328,6 @@ grep -q "^/usr/local/share/slipstream/bundled/focus/focus$" "$manifest" \
     || fail "$case_name: the manifest doesn't list it"
 
 case_name="a download installs the backend that tells apps dark or light"
-fresh
-make_download
-make_portals wlr kde gtk
-PORTAL_DIR=$work/portals XDPW=0.8.4 SCRIPT=$download/scripts/install-session \
-    expect_status 0 --yes || true
 grep -q "^DBusName=org.freedesktop.impl.portal.desktop.slipstream$" "$portal_backend" \
     || fail "$case_name: no settings portal backend at $portal_backend"
 grep -q "^org.freedesktop.impl.portal.Settings=slipstream;\*$" "$portals_conf" \

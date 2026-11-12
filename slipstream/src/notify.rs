@@ -643,6 +643,12 @@ mod tests {
         assert_eq!(&image.rgba[8..], &[0, 0, 255, 255, 1, 2, 3, 255]);
         assert_eq!(decode(2, 2, 8, 8, 3, &data[..10]), None, "too short");
         assert_eq!(decode(2, 2, 8, 16, 3, &data), None, "16 bits a sample");
+        assert_eq!(decode(2, 2, -1, 8, 3, &[0; 16]), None, "a negative stride");
+        assert_eq!(
+            decode(1024, 1024, i32::MAX, 8, 4, &[]),
+            None,
+            "a stride that overflows"
+        );
     }
 
     #[test]
@@ -746,16 +752,6 @@ mod tests {
         assert_eq!(pid_hint(&Value::I64(1)), None, "init is never a window's");
         assert_eq!(pid_hint(&Value::I64(1 << 40)), None, "too large for a pid");
         assert_eq!(pid_hint(&Value::from("4242")), None, "text isn't a pid");
-    }
-
-    #[test]
-    fn a_negative_rowstride_is_refused() {
-        assert_eq!(decode(2, 2, -1, 8, 3, &[0; 16]), None);
-    }
-
-    #[test]
-    fn a_stride_that_overflows_is_refused() {
-        assert_eq!(decode(1024, 1024, i32::MAX, 8, 4, &[]), None);
     }
 
     /// An `image-data` hint as it comes off the bus.

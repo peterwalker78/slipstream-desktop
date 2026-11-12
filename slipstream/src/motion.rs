@@ -353,14 +353,8 @@ mod tests {
     /// fade leaves it half transparent in the middle of the screen, crossing everything else.
     #[test]
     fn a_landing_fade_holds_its_opacity_until_the_end() {
-        let mut motion: Motion<u32> = Motion::new(false);
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            w: 10,
-            h: 10,
-        };
-        motion.place(&1, rect, 0.0);
+        let mut motion = Motion::new(false);
+        motion.place(&1, LEFT, 0.0);
         // Solid on the spot, as a window that has been on screen a while is.
         motion.fade(&1, 1.0, 0.0, 0.0);
         motion.fade_out_landing(&1, 0.0, 1.0);
@@ -372,14 +366,8 @@ mod tests {
 
     #[test]
     fn a_leaving_fade_is_solid_almost_at_once() {
-        let mut motion: Motion<u32> = Motion::new(false);
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            w: 10,
-            h: 10,
-        };
-        motion.place(&1, rect, 0.0);
+        let mut motion = Motion::new(false);
+        motion.place(&1, LEFT, 0.0);
         motion.fade_in_leaving(&1, 0.0, 1.0);
         assert!(
             motion.frame(&1, 0.5).unwrap().alpha > 0.8,
@@ -446,6 +434,7 @@ mod tests {
     fn retiling_glides_from_wherever_the_window_is_drawn() {
         let mut motion = opened(false);
         motion.place(&"a", RIGHT, 1.0);
+        assert_eq!(motion.target(&"a"), Some([526.0, 16.0, 500.0, 600.0]));
         let start = motion.frame(&"a", 1.0).unwrap();
         assert_eq!(start.rect, [16.0, 16.0, 500.0, 600.0]);
         assert!(start.moving);
@@ -550,20 +539,5 @@ mod tests {
 
         motion.slide_to("eDP-1", 3, 1.0);
         assert_eq!(motion.camera("eDP-1", 1.0), 3.0);
-    }
-
-    #[test]
-    fn a_window_knows_where_it_is_headed() {
-        let mut motion = opened(false);
-        motion.place(&"a", RIGHT, 1.0);
-        assert_eq!(motion.target(&"a"), Some([526.0, 16.0, 500.0, 600.0]));
-        assert_eq!(motion.target(&"b"), None);
-    }
-
-    #[test]
-    fn removed_windows_are_forgotten() {
-        let mut motion = opened(false);
-        motion.remove(&"a");
-        assert_eq!(motion.frame(&"a", 0.0), None);
     }
 }

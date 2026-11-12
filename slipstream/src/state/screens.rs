@@ -830,7 +830,6 @@ mod tests {
             ("DP-2", 1920, 1080, Position::RightOf, Align::Centre),
         ]);
         assert_eq!(middles, at(&[("eDP-1", 0, 60), ("DP-2", 1536, 0)]));
-        assert_eq!(60 + 960 / 2, 1080 / 2, "the middles really are level");
         let bottoms = arranged(&[
             ("eDP-1", 1536, 960, Position::RightOf, Align::Start),
             ("DP-2", 1920, 1080, Position::RightOf, Align::End),

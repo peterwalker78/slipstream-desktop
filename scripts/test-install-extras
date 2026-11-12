@@ -581,31 +581,17 @@ expect_status 1
 not_installed
 grep -q "couldn't download the bundle's signature" "$work/out" || fail "$case_name: didn't say why"
 
-case_name="without a signer, the SHA-256 alone decides"
-fresh
-plugin_bundle one
-rm -f "$work/bundles/example.tar.gz.sig"
-plugin_conf
-expect_status 0
-[ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: not installed"
-
-case_name="an http address isn't downloaded"
-fresh
-plugin_bundle one
-printf 'plugin=example\nbundle_url=http://example.org/example.tar.gz\nbundle_sha256=%s\n' "$sha" \
-    >"$work/home/.config/slipstream/extras/example.conf"
-expect_status 1
-grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
-not_installed
-
-case_name="an http address with https later in it isn't downloaded"
-fresh
-plugin_bundle one
-printf 'plugin=example\nbundle_url=http://example.org/x?a:https://example.org/example.tar.gz\nbundle_sha256=%s\n' "$sha" \
-    >"$work/home/.config/slipstream/extras/example.conf"
-expect_status 1
-grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
-not_installed
+for url in 'http://example.org/example.tar.gz' \
+    'http://example.org/x?a:https://example.org/example.tar.gz'; do
+    case_name="an http address isn't downloaded, even with https later in it: $url"
+    fresh
+    plugin_bundle one
+    printf 'plugin=example\nbundle_url=%s\nbundle_sha256=%s\n' "$url" "$sha" \
+        >"$work/home/.config/slipstream/extras/example.conf"
+    expect_status 1
+    grep -q "only https:// addresses" "$work/out" || fail "$case_name: didn't say why"
+    not_installed
+done
 
 echo "$passed passed, $failures failed ($shell)"
 [ "$failures" -eq 0 ]

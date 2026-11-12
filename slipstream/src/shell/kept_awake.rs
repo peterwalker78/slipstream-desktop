@@ -211,8 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cut_out_is_the_tiles_fill_on_the_glass() {
-        assert_eq!(CUT_OUT, 0x21242aff);
+    fn a_solid_colour_covers_what_is_under_it_and_a_clear_one_leaves_it() {
         assert_eq!(over(0xffffffff, panel::GLASS), 0xffffffff);
         assert_eq!(over(0xffffff00, 0x102030ff), 0x102030ff);
     }

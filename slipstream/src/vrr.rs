@@ -79,32 +79,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_fullscreen_game_scanned_out_turns_it_on() {
-        let mut vrr = Adaptive::default();
-        assert!(vrr.next(VariableRefresh::Games, true, true, true));
-    }
-
-    #[test]
-    fn the_desktop_keeps_a_fixed_rate_for_games() {
-        let mut vrr = Adaptive::default();
-        assert!(!vrr.next(VariableRefresh::Games, true, false, false));
-        // A fullscreen window the compositor has to draw itself (a video under a translucent
-        // popup, say) doesn't turn it on.
-        assert!(!vrr.next(VariableRefresh::Games, true, true, false));
-    }
-
-    #[test]
-    fn a_screen_that_cant_never_turns_it_on() {
-        let mut vrr = Adaptive::default();
-        assert!(!vrr.next(VariableRefresh::Always, false, true, true));
-        assert!(!vrr.next(VariableRefresh::Games, false, true, true));
-    }
-
-    #[test]
-    fn off_and_always_ignore_what_is_on_screen() {
-        let mut vrr = Adaptive::default();
-        assert!(!vrr.next(VariableRefresh::Off, true, true, true));
-        assert!(vrr.next(VariableRefresh::Always, true, false, false));
+    fn a_first_frame_turns_it_on_only_for_a_game_on_the_plane_or_when_always() {
+        use VariableRefresh::{Always, Games, Off};
+        for (label, setting, capable, fullscreen, scanned_out, on) in [
+            (
+                "a fullscreen game scanned out",
+                Games,
+                true,
+                true,
+                true,
+                true,
+            ),
+            ("the desktop", Games, true, false, false, false),
+            // A video under a translucent popup, say: the compositor has to draw it itself.
+            (
+                "a fullscreen window composited",
+                Games,
+                true,
+                true,
+                false,
+                false,
+            ),
+            (
+                "a screen that can't, always",
+                Always,
+                false,
+                true,
+                true,
+                false,
+            ),
+            (
+                "a screen that can't, games",
+                Games,
+                false,
+                true,
+                true,
+                false,
+            ),
+            (
+                "off ignores what is on screen",
+                Off,
+                true,
+                true,
+                true,
+                false,
+            ),
+            (
+                "always ignores what is on screen",
+                Always,
+                true,
+                false,
+                false,
+                true,
+            ),
+        ] {
+            let mut vrr = Adaptive::default();
+            assert_eq!(
+                vrr.next(setting, capable, fullscreen, scanned_out),
+                on,
+                "{label}"
+            );
+        }
     }
 
     #[test]
