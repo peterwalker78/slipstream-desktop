@@ -2,23 +2,23 @@
 //! is drawn through one shader that bends it where the air does and lights what the air carries,
 //! so the effect is the bar itself rather than a layer laid over it.
 //!
-//! Slow air drifts along the bar from left to right, and through the glass it shows the way a
-//! wind tunnel's schlieren photographs do: as soft light and shade where it gathers and thins,
-//! with faint rims in the logo's colours, amber through mint to cyan. It drifts as soft billows of
-//! smoke with a fine, fluffy grain, which gather, swell, thin and clear over tens of seconds at
-//! any height in the glass. The workspace marker stands in the stream and sheds a curl of smoke
-//! every few seconds, alternately above and below it; each drifts downwind, rises, turns and
-//! breathes, and fades on its own clock. A laser projector at the bar's very middle, behind the
-//! clock, throws thin, straight beams out both ways, as at a show, in a pattern symmetrical left to
+//! Slow air drifts along the bar from left to right, and through the glass it shows the way a wind
+//! tunnel's schlieren photographs do: as soft light and shade where it gathers and thins, with
+//! faint rims in the logo's colours, amber through mint to cyan. It drifts as soft billows of smoke
+//! with a fine, fluffy grain, which gather, swell, thin and clear over tens of seconds at any
+//! height in the glass. The workspace marker stands in the stream and sheds a curl of smoke every
+//! few seconds, alternately above and below it; each drifts downwind, rises, turns and breathes,
+//! and fades on its own clock. A laser projector at the bar's very middle, behind the clock, throws
+//! sharp, vividly coloured beams out both ways, as at a show, in a pattern symmetrical left to
 //! right and top to bottom: two pairs each way that open and close against each other like
-//! scissors, never turning faster than eight degrees a minute, swelling and fading in turn; each beam is widest at the projector and thins with distance, and brightens where it
-//! crosses smoke. A broad sheen slides slowly along the frosted glass, and where it meets the polished
-//! foot and the top edge the light catches the glass at a point that glides with it, and a few
-//! nicks in the foot flare as it passes. The air bends the bar's picture behind it, more in the
-//! lower glass than over the text, with a hint of colour split, and round the text and icons its
-//! light is held back so they stay easy to read. The foot is a polished edge with an inner
-//! reflection, lit by the light running along it, brighter round the marker and where smoke sits
-//! against it.
+//! scissors, never turning faster than ten degrees a minute, and swell and fade in turn. Each beam
+//! is widest at the projector and thins with distance, and where it meets the glass's top edge or
+//! its foot it catches the glass in a glint of its own colour. A broad sheen slides slowly along
+//! the frosted glass, kept faint behind the clock as the smoke is. The air bends the bar's picture
+//! behind it, more in the lower glass than over the text, with a hint of colour split, and round
+//! the text and icons its light is held back so they stay easy to read. The foot is a polished edge
+//! with an inner reflection, lit by the light running along it, brighter round the marker and where
+//! smoke sits against it.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -358,82 +358,102 @@ vec2 inked(vec2 px) {
     return texture2D(tex, vec2(at.x, frame.y + cells.y + at.y) / frame.xw).rg;
 }
 
-// One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a thin, straight
-// line, the same brightness all along, with a whiter core and a faint glow, as the air it lights
-// is seen from the side. In perspective it is widest at its projector and thins as it goes away.
-// Smoke it crosses lights up more brightly.
+// Laser light's own colours: pure and saturated, as no paint or screen colour is.
+const vec3 LASER_GREEN = vec3(0.12, 1.0, 0.42);
+const vec3 LASER_AMBER = vec3(1.0, 0.58, 0.1);
+
+// `c` with its colour pushed further from grey, as laser light is.
+vec3 vivid(vec3 c) {
+    float grey = dot(c, vec3(0.3, 0.59, 0.11));
+    return clamp(mix(vec3(grey), c, 1.6), 0.0, 1.0);
+}
+
+// One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a straight
+// line with a sharp edge, in a vivid colour, with a thin white-hot line down its middle and only
+// a breath of glow round it, the same brightness all along. In perspective it is widest at its
+// projector and thins as it goes away. Smoke it crosses lights up a little more.
 vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     vec2 rel = p - from;
     float along = dot(rel, dir);
-    float width = max(1.6 * f * (1.0 - along / 2600.0), 0.5);
+    float width = max(1.6 * f * (1.0 - along / 2600.0), 0.8);
     float off = (rel.x * dir.y - rel.y * dir.x) * f;
-    if (along < 0.0 || abs(off) > 20.0 * width) return vec3(0.0);
-    float core = exp(-off * off / (0.5 * width * width));
-    float glow = exp(-off * off / (9.0 * width * width));
-    // In thick smoke the beam's light spreads into the haze round it.
-    float bloom = exp(-off * off / (60.0 * width * width)) * through;
+    if (along < 0.0 || abs(off) > 8.0 * width) return vec3(0.0);
+    // The edge falls off over well under a pixel, so it is sharp without stepping.
+    float body = 1.0 - smoothstep(0.5 * width - 0.35, 0.5 * width + 0.35, abs(off));
+    float hot = exp(-off * off / (0.06 * width * width + 0.04));
+    float glow = exp(-off * off / (6.0 * width * width));
+    // In thick smoke the beam's light spreads a little into the haze round it.
+    float bloom = exp(-off * off / (40.0 * width * width)) * through;
     // Seen mostly for its own light, smoke or not, and a little more where smoke is thick.
-    float seen = 0.5 + 0.6 * through;
-    // The projector sits behind the clock, so a beam is faint behind the clock, the date and the
-    // chip after them, and comes into its own once it is clear of them.
+    float seen = 0.6 + 0.5 * through;
+    // The projector sits behind the clock, so a beam is fainter behind the clock, the date and
+    // the chip after them, and comes into its own once it is clear of them.
     float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
     float clear = mix(0.6, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
-    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow + 0.06 * hue * bloom)
+    vec3 colour = vivid(hue);
+    return (colour * body + vec3(0.55) * hot * body + 0.08 * colour * glow + 0.04 * colour * bloom)
         * exp(-along / 1800.0) * seen * clear;
 }
 
 // The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
 // pattern is symmetrical, left to right and top to bottom: four beams each way, an inner pair in
-// the ring's colour and an outer pair turning slowly from mint to amber, which open and close
+// the ring's colour and an outer pair turning slowly from green to amber, which open and close
 // against each other like scissors, crossing in a diamond behind the clock. The pairs swell and
-// fade in turn, and the whole show breathes. No beam turns faster than eight degrees a minute.
+// fade in turn, and the whole show breathes. No beam turns faster than ten degrees a minute.
+const vec2 PROJECTOR_Y = vec2(0.5, 20.0);
+
+// Beam `i` of the eight at time `t`: which way it goes, how brightly it is lit, and its colour.
+void show(int i, float t, out vec2 dir, out float lit, out vec3 hue) {
+    float fi = float(i);
+    float side = i < 4 ? -1.0 : 1.0;
+    float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
+    bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
+    float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
+    float angle = up * (inner ? 0.022 + scissor : 0.05 - scissor);
+    float swell = sin(2.0 * PI * t / 23.0);
+    lit = (0.85 + 0.15 * sin(2.0 * PI * t / 41.0))
+        * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell));
+    hue = inner ? ring : mix(LASER_GREEN, LASER_AMBER, 0.5 + 0.5 * sin(2.0 * PI * t / 180.0));
+    dir = vec2(side * cos(angle), -sin(angle));
+}
+
 vec3 lasers(vec2 p, float t, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
-    vec2 from = vec2(wide * 0.5, 20.0);
-    float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
-    float show = 0.85 + 0.15 * sin(2.0 * PI * t / 41.0);
-    float swell = sin(2.0 * PI * t / 23.0);
-    vec3 outer_hue = mix(MINT, AMBER, 0.5 + 0.5 * sin(2.0 * PI * t / 180.0));
+    vec2 from = vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y);
     for (int i = 0; i < 8; i++) {
-        float fi = float(i);
-        float side = i < 4 ? -1.0 : 1.0;
-        float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
-        bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
-        float angle = up * (inner ? 0.022 + scissor : 0.05 - scissor);
-        float lit = show * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell));
-        vec3 hue = inner ? ring : outer_hue;
-        acc += beam(p, from, vec2(side * cos(angle), -sin(angle)), hue, f, through) * lit;
+        vec2 dir;
+        float lit;
+        vec3 hue;
+        show(i, t, dir, lit, hue);
+        acc += beam(p, from, dir, hue, f, through) * lit;
     }
     return acc;
 }
 
-// Light catching the glass at points, as it does on a real pane: where the sheen meets the
-// polished foot, and its top edge, the glass flares at one point that glides along with it, a
-// bright point drawn out a little along the edge with a soft bloom, swelling and fading as the
-// pane trims; and a few fixed nicks in the foot flare as the sheen passes over them. `crossing`
-// is where the sheen meets the foot, in the bar's units.
-vec3 glints(vec2 px, vec2 p, float t, float f, float wide, float crossing) {
-    float swell = 0.55 + 0.45 * sin(2.0 * PI * t / 37.0);
+// Light catching the glass where a beam meets it: at the top edge or the polished foot, each
+// beam lights a point in its own colour, white at the middle, drawn out a little along the edge
+// with a soft bloom, as bright as the beam is.
+vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
     vec3 acc = vec3(0.0);
-    for (int e = 0; e < 2; e++) {
-        // The foot, and the top edge, where the sheen meets it 37 units further on.
-        float y = e == 0 ? frame.y - 0.5 * f : 0.5;
-        float x = e == 0 ? crossing : crossing + 37.0;
-        vec2 d = vec2((p.x - x) * f, px.y - y);
-        if (abs(d.x) > 120.0 * f || abs(d.y) > 10.0 * f) continue;
+    vec2 from = vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y);
+    for (int i = 0; i < 8; i++) {
+        vec2 dir;
+        float lit;
+        vec3 hue;
+        show(i, t, dir, lit, hue);
+        // Up to the top edge, or down to the foot's middle.
+        float to = dir.y < 0.0 ? 0.5 * f : frame.y - 0.5 * f;
+        float along = abs((to / f - from.y) / dir.y);
+        vec2 hit = from + dir * along;
+        if (hit.x < 0.0 || hit.x > wide) continue;
+        vec2 d = vec2((p.x - hit.x) * f, px.y - to);
+        if (abs(d.x) > 60.0 * f || abs(d.y) > 8.0 * f) continue;
         float point = exp(-dot(d, d) / (1.2 * f * f));
-        float drawn = exp(-abs(d.x) / (18.0 * f)) * exp(-d.y * d.y / (0.35 * f * f));
-        float bloom = exp(-dot(d, d) / (36.0 * f * f));
-        acc += PALE * swell * (e == 0 ? 1.0 : 0.6) * (0.9 * point + 0.35 * drawn + 0.08 * bloom);
-    }
-    if (p.y > 33.0) {
-        for (int k = 0; k < 5; k++) {
-            float x = wide * (0.08 + 0.84 * hash2(vec2(float(k) * 7.31, 1.7)));
-            float flare = exp(-pow((x - crossing) / 70.0, 2.0));
-            vec2 d = vec2((p.x - x) * f, px.y - (frame.y - 0.5 * f));
-            acc += PALE * flare * (0.7 * exp(-dot(d, d) / (0.8 * f * f))
-                + 0.06 * exp(-dot(d, d) / (25.0 * f * f)));
-        }
+        float drawn = exp(-abs(d.x) / (14.0 * f)) * exp(-d.y * d.y / (0.35 * f * f));
+        float bloom = exp(-dot(d, d) / (30.0 * f * f));
+        vec3 colour = vivid(hue);
+        acc += (mix(colour, vec3(1.0), 0.6) * point + colour * (0.45 * drawn + 0.12 * bloom))
+            * lit * exp(-along / 1800.0);
     }
     return acc;
 }
@@ -488,10 +508,10 @@ void main() {
     // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
     // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
     // beam the smoke's own glow is a little darker, so the beam stands out.
-    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.4 * glass;
-    float beside = smoothstep(0.0, 0.08, dot(beams, vec3(0.33)));
+    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.55 * glass;
+    float beside = smoothstep(0.0, 0.1, dot(beams, vec3(0.33)));
     light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
-        * (1.0 - 0.3 * beside);
+        * (1.0 - 0.5 * beside);
     light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
 
     // Text and icons stay easy to read: round anything bright in the picture, the smoke's and
@@ -500,15 +520,15 @@ void main() {
     // or under the numbers and icons, never through them.
     vec2 ink = inked(px);
     light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x);
-    // Behind the clock and the chip, where the projector is, they show through rather more.
-    float behind_clock = smoothstep(clock.x - 6.0, clock.x + 6.0, p.x)
-        * (1.0 - smoothstep(clock.y - 6.0, clock.y + 6.0, p.x));
+    // Behind the clock and the chip, where the projector is, the beams show through rather more,
+    // and the smoke and the sheen less, so the clock never sits on a bright patch.
+    float behind_clock = smoothstep(clock.x - 12.0, clock.x + 12.0, p.x)
+        * (1.0 - smoothstep(clock.y - 12.0, clock.y + 12.0, p.x));
+    light *= 1.0 - 0.55 * behind_clock;
     beams *= 1.0 - mix(0.9, 0.5, behind_clock) * smoothstep(0.15, 0.4, ink.y);
-    light += beams;
 
-    // Where the light catches the glass, after that: it never sits on the text.
-    float crossing = sheen_at * wide - (39.5 - 20.0) * 1.9;
-    light += glints(px, p, t, f, wide, crossing);
+    // Where the beams catch the glass, after that: on its edges, never on the text.
+    beams += glints(px, p, t, f, wide);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
     // reflection, brighter round the marker and where fog sits against it. None where a docked
@@ -527,7 +547,9 @@ void main() {
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
-    vec4 color = vec4(behind.rgb + min(light, vec3(0.7, 0.9, 1.0)) * behind.a, behind.a) * alpha;
+    // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
+    vec3 added = min(min(light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
+    vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
         color = vec4(0.0, 0.2, 0.0, 0.2) + color * 0.8;
@@ -547,11 +569,11 @@ const FIELD_Y: f32 = 2.0;
 /// The largest gradient of the air the bar's shader takes, either way.
 const GRADIENT: f32 = 2.0;
 /// The lasers' scissors: how far the pairs open and close either way, in radians, and how long
-/// they take to open and close again, in seconds. It keeps the fastest beam under eight degrees a
-/// minute: a beam's far end creeps a pixel or two a second, which shows if you watch it for a few
+/// they take to open and close again, in seconds. It keeps the fastest beam under ten degrees a
+/// minute: a beam's far end moves a few pixels a second, which shows if you watch it for a few
 /// seconds and stays out of the way if you don't.
 const SCISSOR: f32 = 0.014;
-const SCISSOR_PERIOD: f32 = 60.0;
+const SCISSOR_PERIOD: f32 = 31.0;
 
 /// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
@@ -1111,11 +1133,11 @@ mod tests {
     }
 
     #[test]
-    fn no_laser_turns_faster_than_eight_degrees_a_minute() {
+    fn no_laser_turns_faster_than_ten_degrees_a_minute() {
         use std::f32::consts::TAU;
         let fastest = SCISSOR * TAU / SCISSOR_PERIOD;
         let per_minute = fastest.to_degrees() * 60.0;
-        assert!(per_minute <= 8.0, "{per_minute} degrees a minute");
+        assert!(per_minute <= 10.0, "{per_minute} degrees a minute");
     }
 
     #[test]
