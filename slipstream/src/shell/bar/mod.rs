@@ -316,7 +316,7 @@ impl Bar {
             if glassy {
                 self.glass.repainted(renderer, &painted.pixmap);
             } else {
-                self.glass.forget();
+                self.glass.forget(renderer);
             }
             self.buffer = Some((paint::buffer(&painted.pixmap), size));
             self.pill.repainted(

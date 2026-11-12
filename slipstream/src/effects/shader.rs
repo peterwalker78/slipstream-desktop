@@ -1,14 +1,15 @@
 //! Plumbing for the desktop's small shaders: the lit lines, the bar's lit edge and its workspace
 //! marker, and the closing windows' tube.
 //!
-//! Each program is compiled once for a GL context and kept with it (`program`). A shader's
+//! Each program is compiled once for a GL context and kept with it (`program`), until it is let go
+//! (`release`) when nothing will draw with it for a while. A shader's
 //! numbers are plain values (`Values`), listed for the renderer on the stack as it draws, so a
 //! frame allocates nothing for them. Each element is kept from frame to frame under one id
 //! (`Kept`), and its count moves only when its place or numbers change, so one that stands still
 //! costs the screen nothing. Constants a shader shares with the Rust side are written into its
 //! source from the Rust ones (`with_constants`), so the two can't drift apart.
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::{cell::RefCell, fmt::Debug, marker::PhantomData};
 
 use smithay::{
     backend::renderer::{
@@ -23,28 +24,42 @@ use smithay::{
     utils::{Buffer, Logical, Physical, Rectangle, Scale, Transform, user_data::UserDataMap},
 };
 
-/// A program kept in a renderer, marked by `K`: compiled once, or `None` if that failed.
-struct Compiled<K, P>(Option<P>, PhantomData<K>);
+/// A program kept in a renderer, marked by `K`: not compiled yet (or let go), compiled, or
+/// `Some(None)` if that failed.
+struct Compiled<K, P>(RefCell<Option<Option<P>>>, PhantomData<K>);
 
 /// The program marked by `K` for `renderer`, compiled by `compile` the first time it's asked
-/// for. One that doesn't compile is said once, as `what` shader, and not tried again.
+/// for. One that doesn't compile is said once, as `what` shader, and not tried again until it is
+/// let go.
 pub fn program<K: 'static, P: Clone + 'static>(
     renderer: &mut GlesRenderer,
     compile: impl FnOnce(&mut GlesRenderer) -> Result<P, GlesError>,
     what: &str,
 ) -> Option<P> {
-    if let Some(kept) = renderer.egl_context().user_data().get::<Compiled<K, P>>() {
-        return kept.0.clone();
+    let kept = |renderer: &GlesRenderer| {
+        let data = renderer.egl_context().user_data();
+        data.insert_if_missing(|| Compiled::<K, P>(RefCell::new(None), PhantomData));
+        data.get::<Compiled<K, P>>()
+            .and_then(|compiled| compiled.0.borrow().clone())
+    };
+    if let Some(kept) = kept(renderer) {
+        return kept;
     }
     let compiled = compile(renderer)
         .map_err(|err| tracing::warn!("{what} shader didn't compile, so it isn't drawn: {err}"))
         .ok();
-    let kept = compiled.clone();
-    renderer
-        .egl_context()
-        .user_data()
-        .insert_if_missing(move || Compiled::<K, P>(kept, PhantomData));
+    if let Some(slot) = renderer.egl_context().user_data().get::<Compiled<K, P>>() {
+        *slot.0.borrow_mut() = Some(compiled.clone());
+    }
     compiled
+}
+
+/// Lets the program marked by `K` go, if `renderer` keeps it, so the driver frees it; it is
+/// compiled again the next time it is asked for.
+pub fn release<K: 'static, P: 'static>(renderer: &GlesRenderer) {
+    if let Some(kept) = renderer.egl_context().user_data().get::<Compiled<K, P>>() {
+        kept.0.borrow_mut().take();
+    }
 }
 
 /// The line every shader here has once, after which shared constants are declared.
