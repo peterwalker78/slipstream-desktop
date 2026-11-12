@@ -1,7 +1,7 @@
 //! `wlr-screencopy-unstable-v1`: the screen, to a program that asks for it.
 //!
 //! This is what `grim`, `wf-recorder` and most of the screenshot scripts people already have
-//! speak. The portal path (`capture.rs`) serves `ext-image-copy-capture-v1` and is hidden from
+//! speak. The portal path (`capture`) serves `ext-image-copy-capture-v1` and is hidden from
 //! everything but the portal itself, which is right for a protocol the portal's own consent
 //! covers — but it leaves every ordinary tool with nothing to talk to, because this is the
 //! protocol they were written against.
@@ -21,7 +21,7 @@
 //!   and every frame already waiting is failed the moment the lock goes up.
 //! - **Nothing is rendered in a protocol handler.** A `copy` request only checks and waits; the
 //!   pixels come from the next frame the screen draws anyway, which is the same arrangement
-//!   `capture.rs` uses and for the same reason.
+//!   `capture` uses and for the same reason.
 //!
 //! Shared memory only. `wl-screenrec` wants dmabuf and will refuse; `grim` and `wf-recorder`
 //! work, the latter more slowly than it would with dmabuf. That path is still to come, and it is
