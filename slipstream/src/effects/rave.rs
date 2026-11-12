@@ -250,15 +250,7 @@ impl Knocks {
 fn player(path: &std::path::Path) -> Command {
     let mut command = slipstream_config::sounds::pw_play(crate::launch::command);
     command.arg(path);
-    // SAFETY: `prctl` is async-signal-safe, which is all `pre_exec` asks.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    crate::launch::dies_with_us(&mut command);
     command
 }
 

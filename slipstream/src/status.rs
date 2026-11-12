@@ -160,7 +160,9 @@ const FOLLOW_TRIES: usize = 20;
 fn follow_sound() {
     use std::io::BufRead;
     for _ in 0..FOLLOW_TRIES {
-        let child = crate::launch::command("pactl")
+        let mut command = crate::launch::command("pactl");
+        crate::launch::dies_with_us(&mut command);
+        let child = command
             .arg("subscribe")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

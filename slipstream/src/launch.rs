@@ -600,6 +600,21 @@ pub fn point_at_desktop(command: &mut Command) {
     }
 }
 
+/// Makes `command`'s process get SIGTERM when the thread that starts it ends, so a helper that
+/// runs for the whole session can't outlive Slipstream, however Slipstream stops. The thread
+/// must live as long as the helper should.
+pub fn dies_with_us(command: &mut Command) {
+    // SAFETY: `prctl` is async-signal-safe, which is all `pre_exec` asks.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
 /// A `Command` whose child starts with no signals blocked, pointed at Slipstream's display.
 /// Every program Slipstream runs goes through here.
 ///

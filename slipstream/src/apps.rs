@@ -383,7 +383,8 @@ pub fn score(app: &App, query: &str) -> Option<u8> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IconFile {
-    /// Lower is preferred: Breeze, then hicolor, then loose pixmaps.
+    /// Lower is preferred: the icon theme in use, the themes it inherits, hicolor, then loose
+    /// pixmaps.
     theme: u8,
     /// Pixels; 0 for scalable.
     size: u32,
@@ -398,11 +399,16 @@ pub struct Icons {
 
 impl Icons {
     pub fn scan() -> Self {
+        let dirs = data_dirs();
+        let read = |path: &Path| fs::read_to_string(path).ok();
+        let themes = theme_chain(gtk_icon_theme(&gtk_settings_bases(), &read).as_deref(), &dirs, &read);
         let mut icons = Self::default();
-        for dir in data_dirs() {
-            icons.add_theme(0, &dir.join("icons/breeze"));
-            icons.add_theme(1, &dir.join("icons/hicolor"));
-            icons.add_dir(2, 48, &dir.join("pixmaps"));
+        for dir in &dirs {
+            for (rank, theme) in (0..).zip(&themes) {
+                icons.add_theme(rank, &dir.join("icons").join(theme));
+            }
+            let rank = themes.len().min(u8::MAX as usize - 1) as u8;
+            icons.add_dir(rank, 48, &dir.join("pixmaps"));
         }
         icons
     }
@@ -615,6 +621,59 @@ fn unescape(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The folders GTK reads `settings.ini` from: the user's config folder, then the system's.
+fn gtk_settings_bases() -> Vec<PathBuf> {
+    let mut bases = vec![slipstream_config::xdg_home("XDG_CONFIG_HOME", ".config")];
+    bases.extend(slipstream_config::xdg_dirs("XDG_CONFIG_DIRS", "/etc/xdg"));
+    bases.push(PathBuf::from("/etc"));
+    bases
+}
+
+/// The icon theme GTK apps use, from the first `settings.ini` under `bases` that names one, GTK 4
+/// before GTK 3 in each. Nothing when none does.
+fn gtk_icon_theme(bases: &[PathBuf], read: &dyn Fn(&Path) -> Option<String>) -> Option<String> {
+    bases.iter().flat_map(|base| ["gtk-4.0", "gtk-3.0"].map(|gtk| base.join(gtk).join("settings.ini"))).find_map(|path| {
+        read(&path)?.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            let value = value.trim();
+            (key.trim() == "gtk-icon-theme-name" && is_theme_name(value)).then(|| value.to_string())
+        })
+    })
+}
+
+fn is_theme_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.starts_with('.')
+}
+
+/// `theme`, then the themes it inherits, each once and breadth first, as the icon theme spec
+/// looks them up, with hicolor last. Each theme's `Inherits` comes from the first `index.theme`
+/// for it under `dirs`.
+fn theme_chain(theme: Option<&str>, dirs: &[PathBuf], read: &dyn Fn(&Path) -> Option<String>) -> Vec<String> {
+    const MOST: usize = 16;
+    let mut chain: Vec<String> = theme.filter(|name| is_theme_name(name)).map(String::from).into_iter().collect();
+    let mut next = 0;
+    while next < chain.len() && chain.len() < MOST {
+        let index = dirs.iter().find_map(|dir| read(&dir.join("icons").join(&chain[next]).join("index.theme")));
+        next += 1;
+        let Some(index) = index else {
+            continue;
+        };
+        let inherits = index.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "Inherits").then(|| value.to_string())
+        });
+        for parent in inherits.iter().flat_map(|list| list.split(',')).map(str::trim) {
+            if is_theme_name(parent) && parent != "hicolor" && !chain.iter().any(|seen| seen == parent) {
+                chain.push(parent.to_string());
+            }
+        }
+    }
+    chain.retain(|name| name != "hicolor");
+    chain.truncate(MOST - 1);
+    chain.push("hicolor".into());
+    chain
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -824,6 +883,25 @@ Exec=firefox --new-window
         assert_eq!(Icons::in_theme_path(&dir, "../loose-1", 22), None);
         assert_eq!(Icons::in_theme_path(&dir, "missing", 22), None);
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn icons_follow_the_theme_in_use_and_what_it_inherits_with_hicolor_last() {
+        let files: HashMap<PathBuf, &str> = [
+            ("/home/u/.config/gtk-4.0/settings.ini", "[Settings]\ngtk-icon-theme-name = Papyrus-Dark\n"),
+            ("/usr/share/icons/Papyrus-Dark/index.theme", "[Icon Theme]\nInherits=Papyrus,hicolor\n"),
+            ("/usr/share/icons/Papyrus/index.theme", "[Icon Theme]\nInherits=Plain, Papyrus-Dark\n"),
+        ]
+        .into_iter()
+        .map(|(path, text)| (PathBuf::from(path), text))
+        .collect();
+        let read = |path: &Path| files.get(path).map(|text| text.to_string());
+        let dirs = [PathBuf::from("/home/u/.local/share"), PathBuf::from("/usr/share")];
+        let theme = gtk_icon_theme(&[PathBuf::from("/home/u/.config"), PathBuf::from("/etc/xdg")], &read);
+        assert_eq!(theme.as_deref(), Some("Papyrus-Dark"));
+        assert_eq!(theme_chain(theme.as_deref(), &dirs, &read), ["Papyrus-Dark", "Papyrus", "Plain", "hicolor"]);
+        assert_eq!(theme_chain(None, &dirs, &read), ["hicolor"]);
+        assert_eq!(theme_chain(Some("../etc"), &dirs, &read), ["hicolor"]);
     }
 
     #[test]
