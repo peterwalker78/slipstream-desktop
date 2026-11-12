@@ -6,7 +6,8 @@
 #
 #   scripts/weigh-session DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
 #
-# `slipstream-reduced` is Slipstream with reduced motion, whose wallpaper holds still.
+# `slipstream-reduced` is Slipstream with reduced motion, whose wallpaper holds still, and
+# `slipstream-wind-tunnel` is Slipstream with its bar in the wind tunnel style.
 #
 # Run where QEMU can use KVM, such as a GitHub runner. It prints a line of `desktop megabytes
 # percent`, the percent being of one processor, and leaves a screenshot of the desktop it
@@ -69,6 +70,7 @@ ticks() { awk '/^cpu / { print $2 + $3 + $4 + $7 + $8, $2 + $3 + $4 + $5 + $6 + 
 inside() {
     desktop=$1
     base=${desktop%-reduced}
+    base=${base%-wind-tunnel}
     case $2 in
         install)
             pacman-key --init >/dev/null 2>&1 || true
@@ -88,6 +90,12 @@ inside() {
             if [ "$desktop" = slipstream-reduced ]; then
                 su "$user" -c "mkdir -p ~/.config/slipstream \
                     && printf '[motion]\nreduced = true\n' >~/.config/slipstream/settings.toml"
+            fi
+            # Slipstream with its bar in the wind tunnel style, whose air moves all the time.
+            if [ "$desktop" = slipstream-wind-tunnel ]; then
+                su "$user" -c "mkdir -p ~/.config/slipstream \
+                    && printf '[appearance]\nbar-style = \"lit-edge\"\n' \
+                    >~/.config/slipstream/settings.toml"
             fi
             session=$(find /usr/local/share/wayland-sessions /usr/share/wayland-sessions \
                 /usr/share/xsessions -name "$base.desktop" 2>/dev/null | head -n1)
@@ -165,6 +173,7 @@ fi
 
 desktop=${1:?say which desktop: slipstream, gnome, plasma, xfce, cosmic, niri, sway or hyprland}
 base=${desktop%-reduced}
+base=${base%-wind-tunnel}
 wanted "$base" >/dev/null || { echo "weigh-session: $desktop isn't one this weighs." >&2; exit 2; }
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 work=${WEIGH_DIR:-$PWD/weigh-$desktop}
