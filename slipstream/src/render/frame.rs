@@ -401,7 +401,15 @@ pub fn output_elements(
     } else {
         None
     };
-    elements.extend(popup_elements(state, renderer, &v));
+    let (popups, osd) = popup_elements(state, renderer, &v);
+    elements.extend(popups);
+    // The volume and brightness display shows in front of the rave's club too.
+    let osd = if club.is_some() {
+        osd
+    } else {
+        elements.extend(osd);
+        None
+    };
     if v.first && v.zoomed_out > 0.0 && v.ui > 0.0 {
         elements.extend(bullet_border_elements(state, renderer, &v, &mut chrome));
     }
@@ -548,6 +556,7 @@ pub fn output_elements(
             elements = vec![OutputElement::Shaded(filmed)];
         }
         elements.insert(0, OutputElement::Bar(club));
+        elements.splice(0..0, osd);
     }
     elements
 }
@@ -652,14 +661,15 @@ fn pointer_elements(
     }
 }
 
-/// The notifications popping up at the top right, unless a window fills the screen, the toast,
-/// and the volume and brightness display. Where they are is kept for the pointer.
+/// The notifications popping up at the top right, unless a window fills the screen, and the toast;
+/// and, on its own, the volume and brightness display. Where they are is kept for the pointer.
 fn popup_elements(
     state: &mut Slipstream,
     renderer: &mut GlesRenderer,
     v: &View,
-) -> Vec<OutputElement> {
+) -> (Vec<OutputElement>, Option<OutputElement>) {
     let mut elements = Vec::new();
+    let mut shown = None;
     let mut over_windows = Vec::new();
     let (size, scale) = (v.geo.size, v.scale);
     if v.first && v.ui > 0.0 && !state.fullscreen_on(v.active) {
@@ -686,7 +696,7 @@ fn popup_elements(
         let inks = (ring, state.panel_accent());
         let osd = state.osd.element(renderer, size, scale.x, inks, v.now);
         over_windows.extend(osd.iter().map(|osd| osd.geometry(scale)));
-        elements.extend(osd.map(OutputElement::Memory));
+        shown = osd.map(OutputElement::Memory);
     }
     if v.first {
         state.drawn.chrome_areas = over_windows
@@ -698,7 +708,7 @@ fn popup_elements(
             })
             .collect();
     }
-    elements
+    (elements, shown)
 }
 
 /// Bullet time's amber border round the whole screen, in front of the bar: the bar is part of

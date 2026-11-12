@@ -14,10 +14,10 @@
 //! the truss's ends. Each beam is a line through the smoke, a core that spreads with distance in a
 //! shaft of lit haze, hidden behind the stage or a wall; it lands on the room as a spot and spills a
 //! glow round it. A projector can also scan beams round a cone, a tunnel you stand inside, or a line
-//! into a sheet of light overhead, a "liquid sky". The camera arrives looking straight at the centre
-//! projector, where the bar's middle was, then rises to its place in the crowd and drifts a little
-//! as a hand-held one does. It sees as a film camera does: highlights roll off to white, with a
-//! little grain.
+//! into a sheet of light overhead, a "liquid sky". The camera arrives in its place in the crowd and
+//! drifts a little as a hand-held one does. The bar's smoke streams out of where the camera dived
+//! in, and gives way to the room's own: slow billows drifting out from the stage over the crowd.
+//! It sees as a film camera does: highlights roll off to white, with a little grain.
 //!
 //! The show is programmed to the track as a laser show is: one routine to a phrase of a few bars,
 //! moving smoothly within it and easing into the next so it arrives on the downbeat. The fans open
@@ -106,15 +106,19 @@ const LEAD: f64 = 1.0 / 60.0;
 /// How long the music's build-up runs before its drop, seconds: the dive less the latency, so the
 /// drop lands as the camera does.
 const INTRO_SECS: f64 = 1.96;
-/// How many beats after the drop the camera takes to rise from looking straight at the centre
-/// projector, where the bar's middle was, to its place in the crowd.
-const ARRIVAL: f64 = 6.0;
 /// The beat the show is held at with reduced motion: the fans, a bar into the second.
 const STILL_BEAT: f64 = 21.0;
 /// How quickly each kind of hit dies away, seconds: kicks, snares, hi-hats.
 const KICK_DECAY: f64 = 0.14;
 const SNARE_DECAY: f64 = 0.11;
 const HAT_DECAY: f64 = 0.06;
+/// How far a sixteenth must jump in loudness, in the steps it's measured in, to count as a hit of
+/// each kind: only the strongest third of them do, so the show moves on fewer hits and each one
+/// shows; and how much harder a hit moves and lights the show than the music measures it.
+const KICK_LEAST: u8 = 3;
+const SNARE_LEAST: u8 = 4;
+const HAT_LEAST: u8 = 3;
+const HIT_GAIN: f64 = 3.0;
 /// The bar's height in the units its glass is drawn in.
 const BAR_UNITS: f64 = 40.0;
 
@@ -505,20 +509,20 @@ impl Rave {
             .fill
             .powf(CAMERA_SHARE * w.min(0.5) + SEEN_SHARE * (w - 0.5).max(0.0));
         let f = (f64::from(crate::shell::bar::HEIGHT) * s).round() / BAR_UNITS;
-        // The camera arrives looking straight at the centre projector, with the bar's own fan over
-        // it, and rises to its place in the crowd as the club's fans take over; pulling out, it
-        // sinks back and the bar's fan comes back as the club goes.
+        // The bar's own fan shows until the club's fans take over, and its smoke gives way to the
+        // room's as the camera comes through the glass; pulling out, both come back as the club
+        // goes.
         let leaving = if self.ending.is_some() {
             1.0 - smooth(0.5, 1.0, w)
         } else {
             0.0
         };
-        let (arrival, fan, air) = if self.still {
+        let (room, fan, air) = if self.still {
             (1.0, 0.0, self.air)
         } else {
             let landed = self.landed(now);
             (
-                smooth(0.0, ARRIVAL, landed) * (1.0 - leaving),
+                smooth(0.6, 1.0, w) * (1.0 - leaving),
                 (1.0 - smooth(0.0, 0.5, landed)).max(leaving),
                 self.air + now - self.began,
             )
@@ -541,7 +545,7 @@ impl Rave {
                 // The bar's text fades as its glass comes in, and the club comes from far off.
                 smooth(0.1, 0.5, w) as f32,
                 (CLUB_FAR + (1.0 - CLUB_FAR) * w * w) as f32,
-                arrival as f32,
+                room as f32,
             ],
             bar: [air as f32, f as f32, seen as f32, fan as f32],
             hits: [kick, snare, hat, moves.converge as f32],
@@ -630,8 +634,19 @@ fn onset(band: &[u8; STEPS], step: usize) -> f64 {
     ((level(step) - level(step + STEPS - 1)) / 9.0).max(0.0)
 }
 
-/// How much of `band`'s hits is still ringing at `beat`, each dying away over `decay` seconds.
-fn ringing(band: &[u8; STEPS], beat: f64, decay: f64) -> f64 {
+/// How hard sixteenth `step` of `band` hits, if it jumps by at least `least` steps, else 0.
+fn hit(band: &[u8; STEPS], step: usize, least: u8) -> f64 {
+    let jump = onset(band, step);
+    if jump * 9.0 + 1e-6 >= f64::from(least) {
+        jump
+    } else {
+        0.0
+    }
+}
+
+/// How much of `band`'s hits of at least `least` steps is still ringing at `beat`, each dying away
+/// over `decay` seconds.
+fn ringing(band: &[u8; STEPS], least: u8, beat: f64, decay: f64) -> f64 {
     if beat < 0.0 {
         return 0.0;
     }
@@ -643,7 +658,7 @@ fn ringing(band: &[u8; STEPS], beat: f64, decay: f64) -> f64 {
         .map(|back| {
             let step = now - back;
             let ago = (sixteenths - step as f64) * step_secs;
-            onset(band, step) * (-ago / decay).exp()
+            hit(band, step, least) * (-ago / decay).exp()
         })
         .fold(0.0, f64::max)
 }
@@ -708,9 +723,9 @@ fn part(beat: f64) -> Part {
 /// The kicks, snares and hi-hats ringing at `beat`.
 fn hits(beat: f64) -> [f32; 3] {
     [
-        ringing(KICKS, beat, KICK_DECAY) as f32,
-        ringing(SNARES, beat, SNARE_DECAY) as f32,
-        ringing(HATS, beat, HAT_DECAY) as f32,
+        (HIT_GAIN * ringing(KICKS, KICK_LEAST, beat, KICK_DECAY)) as f32,
+        (HIT_GAIN * ringing(SNARES, SNARE_LEAST, beat, SNARE_DECAY)) as f32,
+        (HIT_GAIN * ringing(HATS, HAT_LEAST, beat, HAT_DECAY)) as f32,
     ]
 }
 
@@ -1382,8 +1397,8 @@ uniform vec4 place;
 // The screen's size in screen pixels, and the bar's middle on it, which the camera dives into.
 uniform vec4 screen;
 // The beat in the music's loop (below zero before the drop), how far the club has faded in over
-// the bar, how near it has come (it starts far off), and how far the camera has risen from looking
-// straight at the centre projector to its place in the crowd.
+// the bar, how near it has come (it starts far off), and how much of the smoke is the room's own
+// rather than the bar's.
 uniform vec4 beat;
 // The bar's air clock in seconds, screen pixels to one of the bar's units, how far the bar's lasers
 // and smoke are magnified about its middle, and how much of the bar's own fan shows.
@@ -1537,7 +1552,7 @@ float grain(vec3 at, float t) {
 // same way, so the smoke streams out in every direction. While the club fades in over the bar,
 // the smoke keeps to the bar's glass, `in_glass`; once in, it fills the room.
 float smoke(vec2 q, float t, float in_glass) {
-    vec2 d = (q - mix(screen.zw, 0.5 * screen.xy, beat.w)) / (bar.y * bar.z);
+    vec2 d = (q - screen.zw) / (bar.y * bar.z);
     // The bar's tunnel is level across its middle, behind its clock; out here it eases in, so the
     // middle has no edge.
     float r = length(d);
@@ -1561,6 +1576,23 @@ float smoke(vec2 q, float t, float in_glass) {
     float y = 20.0 + d.y;
     float edges = smoothstep(0.0, 7.0, y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, y));
     return thick * far * mix(1.0, edges, in_glass);
+}
+
+// The room's own smoke along `ray` up to the nearest surface, `wall` away, at the air clock `t`:
+// billows from the stage drifting out over the crowd, rising and sliding sideways, looked through
+// at a few depths. Its layers slide at different speeds, so the billows turn over as they go.
+float room_smoke(vec3 ray, float wall, float t) {
+    vec3 flow = vec3(0.3 * t, 0.08 * t, -0.45 * t);
+    float sum = 0.0;
+    for (int k = 0; k < 4; k++) {
+        float d = min(2.5 * pow(1.85, float(k)), wall * 0.95);
+        vec3 s = (eye + ray * d - flow) * 0.24;
+        float n = 0.6 * snoise(s)
+            + 0.28 * snoise(s * 2.03 + vec3(7.1, 0.06 * t, 0.0))
+            + 0.12 * snoise(s * 4.1 + vec3(3.3, 0.0, -0.11 * t));
+        sum += smoothstep(-0.25, 0.6, n);
+    }
+    return HAZE + (1.0 - HAZE) * sum * 0.25;
 }
 
 // `c` with its colour pushed further from grey, as laser light is.
@@ -1770,33 +1802,36 @@ void main() {
         + peak * TEAR_PEAK * (2.0 * hash1(band * 3.1 + crt.w * 13.0) - 1.0)
             * step(0.55, hash1(band + crt.w * 7.0 + 50.0));
     // Where it is in the club, which comes from far off about the bar's middle as the glass comes
-    // in. The view's middle is the bar's middle as the camera arrives, looking straight at the
-    // centre projector there, and the screen's as it rises to its place.
+    // in.
     vec2 focus = screen.zw;
     vec2 club = focus + (q - focus) / beat.z;
-    vec2 middle = mix(focus, 0.5 * screen.xy, beat.w);
+    vec2 middle = 0.5 * screen.xy;
     vec2 n = vec2(club.x - middle.x, middle.y - club.y) / (0.5 * screen.y);
     float b = beat.x;
     float drop = mood.y;
     float t = max(b, 0.0) * 60.0 / 118.0;
     float clock = b * 60.0 / 118.0;
 
-    // The camera arrives at the projectors' height looking straight at the centre one; in its place
-    // in the crowd it looks a little up, drifts and sways as a hand-held one does, and kicks with
-    // the drop.
-    float arrive = beat.w;
-    vec3 crowd = vec3(0.3 * sin(clock * 0.27), 1.75 + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
-    eye = mix(vec3(0.0, STAGE_TOP + 0.5, 0.0), crowd, arrive);
-    float yaw = (0.025 * sin(clock * 0.21) + 0.004 * drop * sin(b * 97.0)) * arrive;
-    float pitch = (0.14 + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0)) * arrive;
+    // The camera, in its place in the crowd, looks a little up, drifts and sways as a hand-held one
+    // does, and kicks with the drop.
+    eye = vec3(0.3 * sin(clock * 0.27), 1.75 + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
+    float yaw = 0.025 * sin(clock * 0.21) + 0.004 * drop * sin(b * 97.0);
+    float pitch = 0.14 + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0);
     vec3 forward = normalize(vec3(sin(yaw), pitch, cos(yaw)));
     vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
     vec3 up = cross(forward, right);
     vec3 ray = normalize(forward + n.x * VIEW * right + n.y * VIEW * up);
     float pix = 2.0 * VIEW / screen.y / beat.z;
 
-    // The bar's smoke, which every beam lights, a little more where it is thick.
-    float here = clamp(smoke(q, bar.x, 1.0 - beat.y), 0.0, 1.0);
+    vec3 normal;
+    float what;
+    float wall = surface(ray, normal, what);
+
+    // The smoke, which every beam lights, a little more where it is thick: the bar's, which its
+    // own fan goes on lighting, giving way to the room's own.
+    float bars_own = beat.w < 1.0 || bar.w > 0.0 ? clamp(smoke(q, bar.x, 1.0 - beat.y), 0.0, 1.0) : 0.0;
+    float here = beat.w > 0.0 ? mix(bars_own, room_smoke(ray, wall, bar.x), beat.w) : bars_own;
+    here = clamp(here, 0.0, 1.0);
     float through = smoothstep(0.05, 0.9, here);
     float seen = 0.6 + 0.5 * through;
 
@@ -1810,9 +1845,6 @@ void main() {
     vec3 c2 = turn < 0.5 ? secondary : (turn < 1.5 ? tertiary : ring);
     vec3 c3 = turn < 0.5 ? tertiary : (turn < 1.5 ? ring : secondary);
 
-    vec3 normal;
-    float what;
-    float wall = surface(ray, normal, what);
     vec3 on_surface = eye + ray * wall;
     vec3 lands = vec3(0.0);
     vec3 air = vec3(0.0);
@@ -1935,7 +1967,7 @@ void main() {
 
     // Over it, the bar's smoke lit as the bar lights it, as thick as the cue says, and the bar's own
     // fan, so both carry on from the bar unchanged.
-    vec3 fan = bar.w > 0.0 ? bar_fan(q, through) * bar.w : vec3(0.0);
+    vec3 fan = bar.w > 0.0 ? bar_fan(q, smoothstep(0.05, 0.9, bars_own)) * bar.w : vec3(0.0);
     float beside = smoothstep(0.0, 0.1, dot(fan, vec3(0.33)));
     float y = 20.0 + (q.y - screen.w) / (bar.y * bar.z);
     float lower = mix(smoothstep(14.0, 39.0, y), 0.5, beat.y);
@@ -2113,10 +2145,7 @@ mod tests {
         let at = |rave: &Rave, t: f64| rave.uniforms(&look(), t).1;
         let diving = at(&rave, 10.0 + DIVE * 0.4);
         assert_eq!(diving.bar[3], 1.0, "the bar's own fan");
-        assert_eq!(
-            diving.beat[3], 0.0,
-            "looking straight at the centre projector"
-        );
+        assert_eq!(diving.beat[3], 0.0, "and its smoke");
         assert_eq!(diving.screen[2..], [768.0, 16.0], "about the bar's middle");
         assert_eq!(
             diving.bar[0],
@@ -2129,11 +2158,7 @@ mod tests {
         let beat = 60.0 / BPM;
         let landed = at(&rave, 10.0 + DIVE + beat);
         assert_eq!(landed.bar[3], 0.0, "the club's own a beat after the drop");
-        assert!(
-            landed.beat[3] > 0.0 && landed.beat[3] < 1.0,
-            "rising to its place"
-        );
-        assert_eq!(at(&rave, 10.0 + DIVE + beat * ARRIVAL * 1.1).beat[3], 1.0);
+        assert_eq!(landed.beat[3], 1.0, "and the room's own smoke");
         rave.end(30.0);
         let leaving = at(&rave, 30.0 + PULL_OUT * 0.8);
         assert_eq!(leaving.bar[3], 1.0, "and back as it pulls out");
@@ -2283,7 +2308,7 @@ mod tests {
         assert!(rave.shot(10.0).is_none());
         assert_eq!(rave.beat(10.0), rave.beat(99.0));
         let (_, numbers) = rave.uniforms(&look(), 50.0);
-        assert_eq!(numbers.beat[3], 1.0, "the camera in its place");
+        assert_eq!(numbers.beat[3], 1.0, "the room's own smoke");
         assert_eq!(numbers.bar[3], 0.0, "no fan carried over from the bar");
         assert_eq!(numbers, rave.uniforms(&look(), 80.0).1, "held still");
         rave.end(20.0);
