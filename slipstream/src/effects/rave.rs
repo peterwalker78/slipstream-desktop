@@ -12,14 +12,16 @@
 //! The club is a room rendered in 3D, seen only by its lasers: a floor, walls, a stage and a truss
 //! over it, five projectors along the stage and two hung at the truss's ends. The room is full of
 //! smoke, soft clouds drifting out from the stage over the crowd, which shows only where a laser
-//! lights it, brightest looking back towards the projector. Each beam is a thin line through it,
-//! hidden behind the stage or a wall, and lands on the room as a spot. In the slower routines a
+//! lights it, brightest looking back towards the projector, and glows faintly between them. Each
+//! beam is a thin line through it, hidden behind the stage or a wall, kept over the crowd's heads
+//! as a show keeps them, and lands on the room as a spot. In the slower routines a
 //! projector scans a sheet of light between its beams, a wedge that thins with distance, its edges
 //! bright where the scan turns, the smoke's clouds showing in it as a slice through them. A
 //! projector can also scan beams round a cone, a tunnel you stand inside, or a sheet of light
 //! overhead, a "liquid sky". The camera arrives in its place in the crowd and drifts a little as a
 //! hand-held one does. The bar's smoke streams out of where the camera dived in, and gives way to
 //! the room's own. It sees as a film camera does: highlights roll off to white, with a little grain.
+//! It is drawn at half the screen's resolution and scaled up, so it runs smoothly on a laptop.
 //!
 //! The show is programmed to the track as a laser show is: one routine to a phrase of a few bars,
 //! moving smoothly within it and easing into the next so it arrives on the downbeat. The fans open
@@ -67,7 +69,7 @@ use smithay::{
 
 use crate::{
     effects::{
-        shader::{self, Shaded, Values},
+        shader::{self, Values},
         tilt,
     },
     render::OutputElement,
@@ -121,6 +123,10 @@ const KICK_LEAST: u8 = 3;
 const SNARE_LEAST: u8 = 4;
 const HAT_LEAST: u8 = 3;
 const HIT_GAIN: f64 = 3.0;
+/// How much of the screen's resolution the club is drawn at, across and down: a quarter of the
+/// pixels, scaled up. Its light is soft and every beam is at least a pixel wide, so it shows
+/// little, and it keeps the show smooth on a laptop's graphics.
+const RESOLUTION: f64 = 0.5;
 /// The bar's height in the units its glass is drawn in.
 const BAR_UNITS: f64 = 40.0;
 
@@ -311,6 +317,9 @@ pub struct Rave {
     still: bool,
     kept: shader::Kept,
     camera: Camera,
+    /// The club drawn at a fraction of the screen's resolution, and whether it can't be.
+    canvas: Option<tilt::Canvas>,
+    canvas_broken: bool,
 }
 
 /// The camera's move at one moment of the dive: how far it magnifies about the bar's middle, how
@@ -348,6 +357,8 @@ impl Rave {
             still,
             kept: shader::Kept::default(),
             camera: Camera::default(),
+            canvas: None,
+            canvas_broken: false,
         };
         rave.tick(now);
         rave
@@ -447,17 +458,54 @@ impl Rave {
         (now - self.began - DIVE + LEAD) * BPM / 60.0
     }
 
+    /// Where the bar's middle is shown at `now` on a screen `size` logical pixels: the camera dives
+    /// in on it, carrying it to the screen's middle by the time it lands.
+    fn held(&self, now: f64, size: Size<f64, Logical>) -> Point<f64, Logical> {
+        let bar = self.bar_middle();
+        let travel = smooth(0.0, 1.0, self.dived(now));
+        (
+            bar.x + (size.w / 2.0 - bar.x) * travel,
+            bar.y + (size.h / 2.0 - bar.y) * travel,
+        )
+            .into()
+    }
+
     /// The club as `look` says at `now`, over the screen or, during the dive, over the bar's glass
-    /// coming nearer. `None` if the shader didn't compile.
+    /// coming nearer, drawn at `RESOLUTION` and scaled up, or at the screen's own if it can't be.
+    /// `None` if the shader didn't compile.
     pub fn element(
         &mut self,
         renderer: &mut GlesRenderer,
         look: &Look,
         now: f64,
-    ) -> Option<Shaded> {
+    ) -> Option<OutputElement> {
         let program = program(renderer)?;
+        if !self.canvas_broken {
+            let scale = look.scale.x * RESOLUTION;
+            let sizes = tilt::Sizes {
+                logical: look.screen.to_i32_round(),
+                physical: look.screen.to_physical(scale).to_i32_round(),
+                scale,
+            };
+            let small = Look {
+                scale: Scale::from(scale),
+                ..*look
+            };
+            let (area, uniforms) = self.uniforms(&small, now);
+            let club = OutputElement::Bar(self.kept.pixel(program.clone(), area, &uniforms));
+            if let Some(drawn) = tilt::draw_offscreen(
+                renderer,
+                &mut self.canvas,
+                &mut self.canvas_broken,
+                &[club],
+                sizes,
+                "the rave",
+            ) {
+                return Some(OutputElement::Texture(drawn));
+            }
+        }
         let (area, uniforms) = self.uniforms(look, now);
-        Some(self.kept.pixel(program, area, &uniforms))
+        Some(OutputElement::Bar(self.kept.pixel(program, area, &uniforms)))
     }
 
     /// `elements`, everything else on the screen, as the camera shows them diving into the bar at
@@ -472,7 +520,11 @@ impl Rave {
     ) -> Option<TextureShaderElement> {
         let shot = self.shot(now)?;
         let centre = self.bar_middle().to_physical(sizes.scale);
-        self.camera.shot(renderer, elements, sizes, centre, shot)
+        let held = self
+            .held(now, sizes.logical.to_f64())
+            .to_physical(sizes.scale);
+        self.camera
+            .shot(renderer, elements, sizes, (centre, held), shot)
     }
 
     /// Where the club is drawn and its shader's numbers, as `look` says at `now`.
@@ -481,7 +533,7 @@ impl Rave {
         let w = if self.still { 1.0 } else { rocket(u) };
         let s = look.scale.x;
         let screen = look.screen;
-        let middle = self.bar_middle();
+        let middle = self.held(now, screen);
         // During the dive, the bar's glass, nearer about its middle, magnified with the camera;
         // once landed, the screen itself.
         let shot = self.shot(now);
@@ -588,6 +640,7 @@ fn looped(beats: f64, again: bool) -> f64 {
 }
 
 /// What the club is drawn with.
+#[derive(Clone, Copy)]
 pub struct Look {
     /// The screen's size in logical pixels, and its scale.
     pub screen: Size<f64, Logical>,
@@ -1219,13 +1272,17 @@ struct Camera {
 }
 
 impl Camera {
-    /// `elements` drawn off screen and shown as `shot` sees them, about `centre` in screen pixels.
+    /// `elements` drawn off screen and shown as `shot` sees them, about the bar's middle in screen
+    /// pixels, which shows at `held`.
     fn shot(
         &mut self,
         renderer: &mut GlesRenderer,
         elements: &[OutputElement],
         sizes: tilt::Sizes,
-        centre: Point<f64, smithay::utils::Physical>,
+        (centre, held): (
+            Point<f64, smithay::utils::Physical>,
+            Point<f64, smithay::utils::Physical>,
+        ),
         shot: Shot,
     ) -> Option<TextureShaderElement> {
         if self.broken {
@@ -1235,6 +1292,7 @@ impl Camera {
             let names = [
                 UniformName::new("size", UniformType::_2f),
                 UniformName::new("centre", UniformType::_2f),
+                UniformName::new("held", UniformType::_2f),
                 UniformName::new("view", UniformType::_3f),
                 UniformName::new("crt", UniformType::_4f),
             ];
@@ -1276,6 +1334,7 @@ impl Camera {
             vec![
                 Uniform::new("size", (w, h)),
                 Uniform::new("centre", (centre.x as f32, centre.y as f32)),
+                Uniform::new("held", (held.x as f32, held.y as f32)),
                 Uniform::new(
                     "view",
                     (shot.level as f32, shot.blur as f32, shot.dark as f32),
@@ -1311,10 +1370,12 @@ varying vec2 v_coords;
 uniform float tint;
 #endif
 
-// The screen in screen pixels, the bar's middle in the same, and how far the camera magnifies, how
-// much the world streaks and how far it has sunk into the dark.
+// The screen in screen pixels, the bar's middle in the same and where it shows now, carried to the
+// screen's middle as the camera dives in, and how far the camera magnifies, how much the world
+// streaks and how far it has sunk into the dark.
 uniform vec2 size;
 uniform vec2 centre;
+uniform vec2 held;
 uniform vec3 view;
 // The desktop's CRT look over the middle of the transition: how strong, the tube's brightness
 // this frame, how far it is torn, and which frame it is.
@@ -1362,7 +1423,7 @@ void main() {
         + peak * TEAR_PEAK * (2.0 * hash1(band * 3.1 + crt.w * 13.0) - 1.0)
             * step(0.55, hash1(band + crt.w * 7.0 + 50.0));
     float split = SPLIT * k + SPLIT_PEAK * peak;
-    vec2 rel = p - centre;
+    vec2 rel = p - held;
     float fringe = 0.012 * view.y * length(rel) / size.y;
     vec3 sum = vec3(0.0);
     for (int i = 0; i < 12; i++) {
@@ -1603,6 +1664,15 @@ float haze(vec3 p) {
     return 0.14 + 0.86 * thick * (0.82 + 0.18 * grain);
 }
 
+// The smoke at `p` as `haze` has it, its clouds without their fine grain or turning over: enough
+// for a thin beam or a faint glow, at half the cost.
+float thin_haze(vec3 p) {
+    float t = bar.x;
+    vec3 s = (p - vec3(0.25 * t, 0.06 * t, -0.4 * t)) * 0.3;
+    float clouds = 0.65 * snoise(s) + 0.35 * snoise(s * 2.3 + vec3(7.1, 0.0, 0.05 * t));
+    return 0.14 + 0.86 * smoothstep(-0.55, 0.6, clouds) * 0.82;
+}
+
 // How much more light smoke scatters towards the eye than side on, where the light travelling
 // `towards` a way makes that angle with the way back to the eye: smoke throws most of it on
 // forwards, so a beam or sheet is brightest looking back along it to its projector.
@@ -1628,13 +1698,15 @@ vec3 sheet(vec3 ray, float wall, vec3 from, vec3 a, vec3 b, vec3 hue, float lit,
     if (hit < 0.3 || hit > wall) return vec3(0.0);
     vec3 at = eye + ray * hit;
     vec3 v = at - from;
+    if (dot(v, a + b) <= 0.0) return vec3(0.0);
+    // How far inside each edge it is, in metres, softened over a pixel.
+    float soft = max(pix * hit, 1e-3);
+    float inside = smoothstep(-soft, soft, dot(cross(a, v), normal))
+        * smoothstep(-soft, soft, dot(cross(v, b), normal));
+    if (inside <= 0.0) return vec3(0.0);
     float r = length(v);
     vec3 u = v / max(r, 1e-4);
-    float angle = atan(span, dot(a, b));
-    float round_to = atan(dot(u, cross(normal, a)), dot(u, a));
-    float soft = max(pix * hit / max(r, 0.1), 3e-4);
-    float inside = smoothstep(-soft, soft, round_to) * smoothstep(-soft, soft, angle - round_to);
-    if (inside <= 0.0) return vec3(0.0);
+    float angle = span;
     float through = min(1.0 / abs(facing), 10.0);
     float spread = 1.0 / max(r * max(angle, 0.004), 0.3);
     float fade = smoothstep(0.5, 3.0, hit) * exp(-hit * 0.02);
@@ -1762,29 +1834,31 @@ float landing(vec3 from, vec3 dir) {
     return best;
 }
 
+// How much of a beam from `from` along `dir` is shown: as a show keeps its lasers over the
+// audience's heads, one that would come out over the crowd lower than a little above your head, or
+// come down on the floor among it, fades out, so nothing streaks down under the projectors. One
+// that goes off to a side wall is left alone.
+float over_crowd(vec3 from, vec3 dir) {
+    float ends = landing(from, dir);
+    if (dir.z < 0.0) ends = min(ends, (eye.z - from.z) / dir.z);
+    vec3 end = from + dir * ends;
+    if (end.z > STAGE_FRONT || abs(end.x) > SIDE - 1.0) return 1.0;
+    return smoothstep(eye.y + 0.3, eye.y + 1.2, end.y);
+}
+
 // A beam from `from` along `dir`, `lit` bright, seen along `ray` from the eye up to the surface
-// `wall` away, at `on`, facing `normal`, through the smoke it lights. Adds to `lands`
-// the light it throws on that surface: the spot where it lands, if that's here, and the glow its
-// lit smoke spills round it. Returns the light the smoke scatters towards the eye along the beam:
+// `wall` away, at `on`, through the smoke it lights. Adds to `lands` the spot it throws on that
+// surface, if it lands here. Returns the light the smoke scatters towards the eye along the beam:
 // a core a few millimetres across, widening as the beam spreads with distance and drawn no thinner
 // than a pixel, dimmer in step, so it never steps; a shaft of lit smoke round it; hidden where the
 // stage or a wall is in front of it. It shows only as bright as the smoke it passes through, and
 // brightest looking back along it. A beam seen end on crowds into a short line, held to a little
 // brighter than one seen side on, and one passing the lens fades out of focus, so a beam aimed near
 // you never swells into a disc.
-vec3 beam(vec3 ray, float wall, vec3 on, vec3 normal, inout vec3 lands, vec3 from, vec3 dir,
+vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
           vec3 hue, float lit, float pix) {
     if (lit <= 0.002) return vec3(0.0);
-    vec3 colour = vivid(hue);
-    float reach = landing(from, dir);
-    vec3 end = from + dir * reach;
-    vec3 off_end = on - end;
-    lands += colour * lit * exp(-dot(off_end, off_end) / 0.004) * 2.5;
-    vec3 to_surface = on - from;
-    float near_beam = clamp(dot(to_surface, dir), 0.0, reach);
-    vec3 spill = on - (from + dir * near_beam);
-    lands += colour * lit * 0.06 / (1.0 + 1.2 * dot(spill, spill)) * max(dot(normal, -normalize(spill + 1e-4)), 0.0);
-
+    // Where the ray passes nearest the beam: most pixels are nowhere near it, so they stop here.
     vec3 w = eye - from;
     float b = dot(ray, dir);
     float d = dot(ray, w);
@@ -1792,19 +1866,25 @@ vec3 beam(vec3 ray, float wall, vec3 on, vec3 normal, inout vec3 lands, vec3 fro
     float den = max(1.0 - b * b, 1e-4);
     float along_ray = (b * e - d) / den;
     float along_beam = (e - b * d) / den;
-    if (along_ray < 0.2 || along_ray > wall || along_beam < 0.0 || along_beam > reach) return vec3(0.0);
+    if (along_ray < 0.2 || along_beam < 0.0) return vec3(0.0);
     vec3 off = (eye + ray * along_ray) - (from + dir * along_beam);
     float gap = length(off);
     float radius = 0.006 + along_beam * 0.0012;
     float sigma = max(radius, pix * along_ray * 0.6);
     float shaft = 0.1 + along_beam * 0.006;
-    if (gap > max(4.0 * sigma, 5.0 * shaft)) return vec3(0.0);
+    if (gap > max(4.0 * sigma, 3.0 * shaft)) return vec3(0.0);
+
+    vec3 colour = vivid(hue);
+    float reach = landing(from, dir);
+    vec3 off_end = on - (from + dir * reach);
+    lands += colour * lit * exp(-dot(off_end, off_end) / 0.004) * 2.5;
+    if (along_ray > wall || along_beam > reach) return vec3(0.0);
     float core = exp(-gap * gap / (sigma * sigma)) * radius / sigma;
     float glow = exp(-gap / shaft) * 0.012;
     float lens = 1.0 / max(sqrt(den), 0.7);
     float fade = exp(-along_ray * 0.018) / (1.0 + along_beam * along_beam / 900.0)
         * smoothstep(1.5, 6.0, along_ray);
-    float seen = 0.15 + 1.3 * haze(from + dir * along_beam);
+    float seen = 0.15 + 1.3 * thin_haze(from + dir * along_beam);
     return (colour * (1.8 * core + glow) + vec3(0.9) * core * core) * seen * min(phase(-b), 2.5)
         * lens * fade * lit;
 }
@@ -1870,7 +1950,7 @@ void main() {
     // The smoke: the bar's, which its own fan goes on lighting, giving way to the room's own, which
     // the lasers light where they pass through it.
     float bars_own = beat.w < 1.0 || bar.w > 0.0 ? clamp(smoke(q, bar.x, 1.0 - beat.y), 0.0, 1.0) : 0.0;
-    float here = beat.w > 0.0 ? mix(bars_own, haze(eye + ray * min(wall, 7.0)), beat.w) : bars_own;
+    float here = beat.w > 0.0 ? mix(bars_own, thin_haze(eye + ray * min(wall, 7.0)), beat.w) : bars_own;
     here = clamp(here, 0.0, 1.0);
 
     float kick = hits.x;
@@ -1899,7 +1979,7 @@ void main() {
             float round_about = 2.0 * PI * float(i) / 12.0 + b * PI * 0.0625;
             vec3 dir = normalize(axis + open * (side * cos(round_about) + lift * sin(round_about)));
             vec3 hue = mod(float(i), 2.0) < 0.5 ? c1 : c2;
-            air += beam(ray, wall, on_surface, normal, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick), pix);
+            air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir), pix);
         }
     }
 
@@ -1931,11 +2011,11 @@ void main() {
                 float apart = mod(float(j) * 8.0 + fi - motion.z, 20.0);
                 apart = min(apart, 20.0 - apart);
                 float chased = 0.12 + 0.88 * exp(-apart * apart / 3.0);
-                float lit = look.w * mix(1.0, chased, shape.w);
+                float lit = look.w * mix(1.0, chased, shape.w) * over_crowd(from, dir);
                 // Scanning a sheet, the light is spread between the beams, and only the edges,
                 // where the scan turns, stay as bright lines.
                 float edge = i == 0 || i == 7 ? 1.0 : 1.0 - 0.85 * scanned;
-                air += beam(ray, wall, on_surface, normal, lands, from, dir, hue, lit * edge, pix);
+                air += beam(ray, wall, on_surface, lands, from, dir, hue, lit * edge, pix);
                 if (i > 0 && scanned > 0.0)
                     air += sheet(ray, wall, from, last, dir, hue, 0.5 * (lit + last_lit) * scanned, pix);
                 last = dir;
@@ -1955,7 +2035,7 @@ void main() {
                     float fi = float(i);
                     vec3 dir = aimed(-side * reach_over + (fi - 1.5) * 0.06, -0.14 - 0.03 * fi);
                     float edge = i == 0 || i == 3 ? 1.0 : 1.0 - 0.85 * scanned;
-                    air += beam(ray, wall, on_surface, normal, lands, from, dir, c3, motion.w * edge, pix);
+                    air += beam(ray, wall, on_surface, lands, from, dir, c3, motion.w * edge, pix);
                     if (i > 0 && scanned > 0.0)
                         air += sheet(ray, wall, from, last, dir, c3, motion.w * scanned, pix);
                     last = dir;
@@ -1979,7 +2059,8 @@ void main() {
             float angle = bar_beam(i, bar.x, side, lit);
             float across = mix(1.2, 0.3 + 0.1 * fi, swing);
             float rise = atan(tan(angle) * sin(across)) * (1.0 + 2.0 * swing);
-            air += beam(ray, wall, on_surface, normal, lands, from, aimed(side * across, rise), ring, handed * lit * 1.4, pix);
+            vec3 dir = aimed(side * across, rise);
+            air += beam(ray, wall, on_surface, lands, from, dir, ring, handed * lit * 1.4 * over_crowd(from, dir), pix);
         }
     }
 
@@ -1989,18 +2070,19 @@ void main() {
         air += sky(ray, wall, height, c2) * cue.z * (0.8 + 0.6 * hat);
     }
 
-    // The room, lit only by what the lasers throw on it, and the smoke glowing faintly with the
-    // light scattered through it.
-    vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : (what < 1.5 ? vec3(0.22) : vec3(0.4));
-    vec3 room = albedo * (vec3(0.01) + lands);
-    float busy = (cue.x + cue.y + cue.z + shape.w);
-    air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * 0.006 * busy;
+    // The room, lit only by the spots the lasers throw on its walls, floor and truss, the stage
+    // left dark under its projectors; and the smoke between the lasers glowing faintly with the
+    // light scattered through it, so its clouds show a little everywhere.
+    vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : vec3(0.4);
+    vec3 room = albedo * (vec3(0.01) + (abs(what - 1.0) < 0.5 ? vec3(0.0) : lands));
+    float busy = min(cue.x + cue.y + cue.z + shape.w, 1.5);
+    air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.03 * busy;
 
-    // The projectors' lenses, bright points on the stage with a streak of flare.
+    // The projectors' lenses, bright points on the stage.
     vec3 colour = room + air;
     for (int j = 0; j < 5; j++) {
         vec2 d = n - shown(vec3((float(j) - 2.0) * 4.5, STAGE_TOP + 0.5, STAGE_FRONT + 1.5), forward, right, up);
-        float flare = exp(-dot(d, d) * 20000.0) + exp(-abs(d.y) * 220.0) * exp(-abs(d.x) * 4.0) * 0.05;
+        float flare = exp(-dot(d, d) * 20000.0);
         colour += mix(j == 2 ? c1 : c2, vec3(1.0), 0.6) * flare * (cue.y + shape.w + 0.4 * cue.x) * (1.0 - 0.8 * calm);
     }
 
@@ -2092,6 +2174,8 @@ mod tests {
             still,
             kept: shader::Kept::default(),
             camera: Camera::default(),
+            canvas: None,
+            canvas_broken: false,
         }
     }
 
@@ -2198,7 +2282,11 @@ mod tests {
         let diving = at(&rave, 10.0 + DIVE * 0.4);
         assert_eq!(diving.bar[3], 1.0, "the bar's own fan");
         assert_eq!(diving.beat[3], 0.0, "and its smoke");
-        assert_eq!(diving.screen[2..], [768.0, 16.0], "about the bar's middle");
+        // About the bar's middle, carried down to the screen's middle as the camera lands.
+        assert_eq!(at(&rave, 10.0).screen[2..], [768.0, 16.0]);
+        assert_eq!(diving.screen[2], 768.0);
+        assert!(diving.screen[3] > 16.0 && diving.screen[3] < 480.0);
+        assert_eq!(at(&rave, 10.0 + DIVE).screen[2..], [768.0, 480.0]);
         assert_eq!(
             diving.bar[0],
             100.0 + (DIVE * 0.4) as f32,

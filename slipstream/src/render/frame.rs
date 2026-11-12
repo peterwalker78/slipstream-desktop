@@ -555,7 +555,7 @@ pub fn output_elements(
         if let Some(filmed) = filmed {
             elements = vec![OutputElement::Shaded(filmed)];
         }
-        elements.insert(0, OutputElement::Bar(club));
+        elements.insert(0, club);
         elements.splice(0..0, osd);
     }
     elements
