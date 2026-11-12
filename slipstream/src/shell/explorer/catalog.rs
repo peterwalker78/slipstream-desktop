@@ -18,7 +18,7 @@ pub(super) struct Catalog {
     /// They were asked for again while being read, so that thread reads them once more.
     pub(super) recent_stale: bool,
     /// The home folder's files and folders, as last walked.
-    pub(super) home: Vec<super::index::Entry>,
+    pub(super) home: super::index::Index,
     /// The home folder is being walked on a thread of its own.
     pub(super) indexing: bool,
     /// Goes up with every scan, and whenever the recent or home files change, so the explorer
@@ -34,15 +34,29 @@ pub(super) struct Catalog {
     /// The icons are being rasterised, and were asked for again meanwhile.
     pub(super) warming: bool,
     pub(super) warm_stale: bool,
+    /// Every app's icon is wanted, not only the first page's: the explorer has opened since they
+    /// were last let go.
+    pub(super) warm_all: bool,
     /// A Run query that starts with a path, and whether that path is a program: looked at on a
     /// thread, since the path can be on a mount that doesn't answer.
     pub(super) run_program: Option<(String, bool)>,
 }
 
+impl Catalog {
+    /// How many apps, in the grid's order, have their icons warmed.
+    fn warm_count(&self) -> usize {
+        if self.warm_all {
+            usize::MAX
+        } else {
+            ROWS * COLUMNS
+        }
+    }
+}
+
 /// Reads the recent files: the list on disk in the session, a stand-in in tests.
 pub(super) type RecentReader = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
 /// Walks the home folder: the real one in the session, a stand-in in tests.
-pub(super) type HomeWalker = Arc<dyn Fn() -> Vec<super::index::Entry> + Send + Sync>;
+pub(super) type HomeWalker = Arc<dyn Fn() -> super::index::Index + Send + Sync>;
 
 impl Explorer {
     /// Whether the installed apps have been read yet. They are scanned on another thread at
@@ -181,22 +195,25 @@ impl Explorer {
         self.rescan();
     }
 
-    /// Rasterises every app's icon at the grid's size for a screen at `scale`, on a thread of its
-    /// own, so neither opening the explorer nor typing into it waits for SVGs. Cheap to call every
-    /// frame: it only starts work when the apps or the size have changed.
+    /// Rasterises the apps' icons at the grid's size for a screen at `scale`, on a thread of its
+    /// own, so neither opening the explorer nor typing into it waits for SVGs: the first page's
+    /// while it is closed, so it opens with them drawn, and every app's once it opens. Cheap to
+    /// call every frame: it only starts work when the apps, the size or that choice have changed.
     pub fn warm_icons(&mut self, scale: f64) {
         let px = (ICON * scale as f32 * DESIGN_PX).round() as u32;
         let version = self.catalog.lock().unwrap().version;
-        if version == 0 || self.warmed == Some((version, px)) {
+        let all = self.open;
+        if version == 0 || self.warmed == Some((version, px, all)) {
             return;
         }
-        self.warmed = Some((version, px));
+        self.warmed = Some((version, px, all));
         {
             let mut catalog = self.catalog.lock().unwrap();
             if catalog.tile_px != px {
                 catalog.tile_icons.clear();
                 catalog.tile_px = px;
             }
+            catalog.warm_all |= all;
             if catalog.warming {
                 catalog.warm_stale = true;
                 return;
@@ -213,6 +230,7 @@ impl Explorer {
                     let mut seen = std::collections::HashSet::new();
                     let todo = apps::search(&catalog.apps, "")
                         .into_iter()
+                        .take(catalog.warm_count())
                         .filter_map(|app| app.icon.clone())
                         .filter(|name| !catalog.tile_icons.contains_key(name))
                         .filter(|name| seen.insert(name.clone()))
@@ -245,6 +263,30 @@ impl Explorer {
                 }
             }
         });
+    }
+
+    /// Lets go of the icons past the first page once the explorer has been closed a while; they
+    /// are drawn again as it next opens.
+    pub fn let_go_of_icons(&mut self) {
+        if self.open {
+            return;
+        }
+        let mut catalog = self.catalog.lock().unwrap();
+        if !catalog.warm_all {
+            return;
+        }
+        catalog.warm_all = false;
+        let first: std::collections::HashSet<String> = apps::search(&catalog.apps, "")
+            .into_iter()
+            .take(ROWS * COLUMNS)
+            .filter_map(|app| app.icon.clone())
+            .collect();
+        catalog.tile_icons.retain(|name, _| first.contains(name));
+        catalog.tile_icons.shrink_to_fit();
+        drop(catalog);
+        // Asked again on the next frame, for the first page only.
+        self.warmed = None;
+        crate::heap::trim_soon();
     }
 
     /// An app's icon for the grid: drawn, known to be missing (`Some(None)`), or not rasterised

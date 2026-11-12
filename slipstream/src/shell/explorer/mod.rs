@@ -100,6 +100,8 @@ const ANSWER_DECODE: f64 = 0.32;
 const RECENT: usize = 24;
 /// How often the home folder is walked again for the search, at most.
 const REINDEX: Duration = Duration::from_secs(120);
+/// How long every app's icon is kept after the explorer closes, for opening it again soon.
+const ICONS_KEPT: Duration = Duration::from_secs(120);
 
 /// The keys the explorer names, as the current keyboard style binds them. Empty for an action
 /// with no key.
@@ -151,8 +153,10 @@ pub struct Explorer {
     caret: Option<draw::Caret>,
     /// The caret's corner, in logical pixels from the painted area's.
     caret_at: Point<f64, Logical>,
-    /// The catalog version and icon size last asked to be warmed.
-    warmed: Option<(u64, u32)>,
+    /// The catalog version and icon size last asked to be warmed, and whether for every app.
+    warmed: Option<(u64, u32, bool)>,
+    /// Goes up with every close, so a late timer can tell it has been opened since.
+    closes: u64,
     /// The last Run query whose first word was sent to be looked at.
     run_asked: Option<String>,
     /// The painted area's corner and the frame, in logical pixels from the output's corner.
@@ -198,7 +202,9 @@ impl Explorer {
             walk_home: Arc::new(|| {
                 std::env::var_os("HOME")
                     .filter(|home| !home.is_empty())
-                    .map_or_else(Vec::new, |home| index::walk(std::path::Path::new(&home)))
+                    .map_or_else(index::Index::default, |home| {
+                        index::walk(std::path::Path::new(&home))
+                    })
             }),
             indexed: None,
             grid_at: 0,
@@ -208,6 +214,7 @@ impl Explorer {
             caret: None,
             caret_at: Point::default(),
             warmed: None,
+            closes: 0,
             run_asked: None,
             origin: Point::default(),
             frame: Rectangle::from_size((0.0, 0.0).into()),
@@ -255,6 +262,19 @@ impl Explorer {
         self.open = false;
         self.shown = None;
         self.targets.clear();
+        self.closes += 1;
+        let closes = self.closes;
+        crate::heap::with_loop(|handle| {
+            let _ = handle.insert_source(
+                smithay::reexports::calloop::timer::Timer::from_duration(ICONS_KEPT),
+                move |_, _, state| {
+                    if state.explorer.closes == closes {
+                        state.explorer.let_go_of_icons();
+                    }
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                },
+            );
+        });
     }
 
     /// What is typed.
@@ -432,7 +452,7 @@ mod tests {
             scanned: Some(Instant::now()),
             indexed: Some(Instant::now()),
             read_recent_files: Arc::new(Vec::new),
-            walk_home: Arc::new(Vec::new),
+            walk_home: Arc::new(index::Index::default),
             ..Explorer::idle(true)
         };
         explorer.catalog.lock().unwrap().apps = names
@@ -661,11 +681,11 @@ mod tests {
     #[test]
     fn enter_opens_a_matching_app_before_anything_else() {
         let mut explorer = with_apps(&["Budgie Settings", "Notes", "Wallpaper Downloader"]);
-        explorer.catalog.lock().unwrap().home = vec![
-            index::entry("/home/sam/budget.ods", 0, false),
-            index::entry("/home/sam/notes.txt", 0, false),
-            index::entry("/home/sam/downloads", 0, true),
-        ];
+        explorer.catalog.lock().unwrap().home = index::made_up(&[
+            ("/home/sam/budget.ods", 0, false),
+            ("/home/sam/notes.txt", 0, false),
+            ("/home/sam/downloads", 0, true),
+        ]);
         explorer.open(0.0);
         let enter = |explorer: &mut Explorer| match explorer.key(Keysym::Return, None, NONE) {
             Outcome::Activate(item, _) => Some(item),
@@ -719,9 +739,9 @@ mod tests {
     #[test]
     fn the_side_column_never_lists_more_than_fits() {
         let mut explorer = with_apps(&["Settings Manager"]);
-        explorer.catalog.lock().unwrap().home = (0..10)
-            .map(|n| index::entry(&format!("/home/sam/s{n}.txt"), 0, false))
-            .collect();
+        let names: Vec<String> = (0..10).map(|n| format!("/home/sam/s{n}.txt")).collect();
+        let found: Vec<(&str, u8, bool)> = names.iter().map(|name| (&name[..], 0, false)).collect();
+        explorer.catalog.lock().unwrap().home = index::made_up(&found);
         explorer.open(0.0);
         typed(&mut explorer, "s");
         let results = explorer.results();
@@ -859,6 +879,35 @@ mod tests {
         assert_eq!(explorer.catalog.lock().unwrap().tile_icons_landed, landed);
         // Another scale needs another size.
         assert_eq!(explorer.tile_icon(&foot, px + 1), None);
+    }
+
+    #[test]
+    fn the_first_page_of_icons_is_warm_before_it_opens_and_the_rest_go_after_it_closes() {
+        let names: Vec<String> = (0..20).map(|n| format!("App {n:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut explorer = with_apps(&names);
+        {
+            let mut catalog = explorer.catalog.lock().unwrap();
+            for app in &mut catalog.apps {
+                app.icon = Some(format!("made-up-{}", app.id));
+            }
+            catalog.version = 1;
+        }
+        let settle = |explorer: &Explorer| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while explorer.catalog.lock().unwrap().warming && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            explorer.catalog.lock().unwrap().tile_icons.len()
+        };
+        explorer.warm_icons(1.25);
+        assert_eq!(settle(&explorer), ROWS * COLUMNS, "the first page only");
+        explorer.open(0.0);
+        explorer.warm_icons(1.25);
+        assert_eq!(settle(&explorer), 20, "every app's once it opens");
+        explorer.close();
+        explorer.let_go_of_icons();
+        assert_eq!(settle(&explorer), ROWS * COLUMNS, "the first page stays");
     }
 
     #[test]

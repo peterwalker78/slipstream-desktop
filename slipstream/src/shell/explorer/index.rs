@@ -16,14 +16,55 @@ pub(super) const KEPT: usize = 20_000;
 /// The most folders opened in one walk, so a home of many small folders can't keep it going.
 const FOLDERS: usize = 5_000;
 
+/// The files and folders found under one folder, each by its path from there.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Index {
+    root: PathBuf,
+    entries: Vec<Entry>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Entry {
-    pub(super) path: PathBuf,
-    /// Its name in lower case, which is what a query is matched against.
-    name: Box<str>,
+    /// Its path from the folder walked.
+    path: Box<Path>,
+    /// Where its name starts in `path`, in bytes.
+    name_at: u16,
     /// Folders between it and the home folder.
     depth: u8,
     folder: bool,
+}
+
+impl Entry {
+    fn new(path: &Path, depth: u8, folder: bool) -> Option<Self> {
+        let bytes = path.as_os_str().as_encoded_bytes().len();
+        let name = path.file_name()?.as_encoded_bytes().len();
+        Some(Self {
+            path: path.into(),
+            name_at: u16::try_from(bytes - name).ok()?,
+            depth,
+            folder,
+        })
+    }
+
+    /// Its name in lower case, which is what a query is matched against, written into `out`.
+    fn lower_name<'a>(&self, out: &'a mut String) -> &'a str {
+        let bytes = &self.path.as_os_str().as_encoded_bytes()[self.name_at as usize..];
+        let name = String::from_utf8_lossy(bytes);
+        if name.is_ascii() {
+            out.clear();
+            out.push_str(&name);
+            out.make_ascii_lowercase();
+        } else {
+            *out = name.to_lowercase();
+        }
+        out
+    }
+}
+
+impl Index {
+    pub(super) fn len(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 /// A file or folder the explorer shows.
@@ -38,11 +79,11 @@ pub(super) struct Found {
 /// Every file and folder under `home` worth finding, breadth first so the caps keep the nearest.
 /// Hidden folders and files, symbolic links, `node_modules` and cache folders (tagged with
 /// `CACHEDIR.TAG`, as build tools tag their output) are left out.
-pub(super) fn walk(home: &Path) -> Vec<Entry> {
+pub(super) fn walk(home: &Path) -> Index {
     let mut found = Vec::new();
     let mut folders = VecDeque::from([(home.to_path_buf(), 0u8)]);
     let mut opened = 0;
-    while let Some((dir, depth)) = folders.pop_front() {
+    'walk: while let Some((dir, depth)) = folders.pop_front() {
         if opened == FOLDERS {
             break;
         }
@@ -73,18 +114,24 @@ pub(super) fn walk(home: &Path) -> Vec<Entry> {
             } else if !kind.is_file() {
                 continue;
             }
-            found.push(Entry {
-                path,
-                name: name.to_lowercase().into(),
-                depth,
-                folder,
-            });
+            let Some(entry) = path
+                .strip_prefix(home)
+                .ok()
+                .and_then(|path| Entry::new(path, depth, folder))
+            else {
+                continue;
+            };
+            found.push(entry);
             if found.len() == KEPT {
-                return found;
+                break 'walk;
             }
         }
     }
-    found
+    found.shrink_to_fit();
+    Index {
+        root: home.to_path_buf(),
+        entries: found,
+    }
 }
 
 /// How well a lower-case name matches a lower-case query: 0 when it starts with it, 1 when a
@@ -108,7 +155,7 @@ pub(super) fn name_score(name: &str, query: &str) -> Option<u8> {
 /// The files and folders whose names match `query` (lower case), at most `most` of them, best
 /// first: the better match, then a recent file ahead of the rest, then the one nearer the home
 /// folder, then the shorter name.
-pub(super) fn search(recent: &[PathBuf], index: &[Entry], query: &str, most: usize) -> Vec<Found> {
+pub(super) fn search(recent: &[PathBuf], index: &Index, query: &str, most: usize) -> Vec<Found> {
     let lower = |path: &Path| {
         path.file_name()
             .map(|name| name.to_string_lossy().to_lowercase())
@@ -126,16 +173,22 @@ pub(super) fn search(recent: &[PathBuf], index: &[Entry], query: &str, most: usi
             hits.push(((score, 0, 0, name.len()), found));
         }
     }
-    for entry in index {
-        if let Some(score) = name_score(&entry.name, query)
-            && !recent.contains(&entry.path)
+    let recent: Vec<&Path> = recent
+        .iter()
+        .filter_map(|path| path.strip_prefix(&index.root).ok())
+        .collect();
+    let mut name = String::new();
+    for entry in &index.entries {
+        let name = entry.lower_name(&mut name);
+        if let Some(score) = name_score(name, query)
+            && !recent.contains(&&*entry.path)
         {
             let found = Found {
-                path: entry.path.clone(),
+                path: index.root.join(&entry.path),
                 folder: entry.folder,
                 score,
             };
-            hits.push(((score, 1, entry.depth, entry.name.len()), found));
+            hits.push(((score, 1, entry.depth, name.len()), found));
         }
     }
     hits.sort_by_key(|(key, _)| *key);
@@ -145,17 +198,18 @@ pub(super) fn search(recent: &[PathBuf], index: &[Entry], query: &str, most: usi
         .collect()
 }
 
-/// A made-up file or folder, as a walk would have found it.
+/// A made-up home folder, `/home/sam`, holding these files and folders (full paths), each with
+/// its depth and whether it is a folder, as a walk would have found them.
 #[cfg(test)]
-pub(super) fn entry(path: &str, depth: u8, folder: bool) -> Entry {
-    let path = PathBuf::from(path);
-    let name = path.file_name().unwrap().to_string_lossy().to_lowercase();
-    Entry {
-        path,
-        name: name.into(),
-        depth,
-        folder,
-    }
+pub(super) fn made_up(found: &[(&str, u8, bool)]) -> Index {
+    let root = PathBuf::from("/home/sam");
+    let entries = found
+        .iter()
+        .map(|&(path, depth, folder)| {
+            Entry::new(Path::new(path).strip_prefix(&root).unwrap(), depth, folder).unwrap()
+        })
+        .collect();
+    Index { root, entries }
 }
 
 #[cfg(test)]
@@ -183,16 +237,12 @@ mod tests {
             fs::write(path, "").unwrap();
         }
         std::os::unix::fs::symlink(&home, home.join("loop")).unwrap();
-        let names: Vec<String> = walk(&home)
+        let index = walk(&home);
+        assert_eq!(index.root, home);
+        let names: Vec<String> = index
+            .entries
             .iter()
-            .map(|entry| {
-                entry
-                    .path
-                    .strip_prefix(&home)
-                    .unwrap()
-                    .display()
-                    .to_string()
-            })
+            .map(|entry| entry.path.display().to_string())
             .collect();
         for wanted in [
             "notes.txt",
@@ -227,14 +277,14 @@ mod tests {
 
     #[test]
     fn a_search_ranks_the_name_then_recent_use_then_nearness() {
-        let index = [
-            entry("/home/sam/old/a/my budget notes.txt", 2, false),
-            entry("/home/sam/Budget", 0, true),
-            entry("/home/sam/old/budget.ods", 1, false),
-            entry("/home/sam/Documents/budget.ods", 1, false),
-            entry("/home/sam/rebudgeted.txt", 0, false),
-            entry("/home/sam/holiday.jpg", 0, false),
-        ];
+        let index = made_up(&[
+            ("/home/sam/old/a/my budget notes.txt", 2, false),
+            ("/home/sam/Budget", 0, true),
+            ("/home/sam/old/budget.ods", 1, false),
+            ("/home/sam/Documents/budget.ods", 1, false),
+            ("/home/sam/rebudgeted.txt", 0, false),
+            ("/home/sam/holiday.jpg", 0, false),
+        ]);
         let recent = [PathBuf::from("/home/sam/Documents/budget.ods")];
         let found = search(&recent, &index, "budget", 10);
         let paths: Vec<&str> = found.iter().map(|f| f.path.to_str().unwrap()).collect();
