@@ -345,6 +345,10 @@ pub fn output_elements(
         chrome.glass.settle();
         chrome.glass_bar.settle();
     }
+    // Bullet time's overview is drawn at up to twice the screen's density; it goes once zoomed in.
+    if v.zoomed_out <= 0.0 {
+        chrome.stage.settle();
+    }
     // The rave's club, in front of everything on its screen, the pointer too; put in at the end,
     // where the camera diving into it shows the rest.
     let mut club = None;

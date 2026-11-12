@@ -261,6 +261,12 @@ impl Stage {
         !self.broken
     }
 
+    /// Lets go of the overview's picture once bullet time has zoomed back in, leaving the shader
+    /// compiled. The next zoom draws its first frame whole.
+    pub fn settle(&mut self) {
+        self.texture = None;
+    }
+
     /// `elements`, drawn flat `dense` times the screen's own resolution, then shown turned by
     /// `tilt`. The caller builds `elements` at `scale * dense` to match (see `supersample`).
     pub fn element(
