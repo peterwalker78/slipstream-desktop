@@ -275,6 +275,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     end_session();
     tracing::info!("stopped cleanly");
     drop(owner);
+    heap::forget_loop();
     Ok(())
 }
 

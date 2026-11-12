@@ -59,11 +59,24 @@ pub fn set_loop(handle: LoopHandle<'static, Slipstream>) {
 
 /// Runs `f` with the event loop, if this is its thread.
 pub fn with_loop(f: impl FnOnce(&LoopHandle<'static, Slipstream>)) {
-    LOOP.with_borrow(|slot| {
-        if let Some(handle) = slot {
+    // Thread-locals are torn down at exit, and what the loop owned can still ask on the way out.
+    let _ = LOOP.try_with(|slot| {
+        if let Ok(slot) = slot.try_borrow()
+            && let Some(handle) = slot.as_ref()
+        {
             f(handle);
         }
     });
+}
+
+/// Lets go of the event loop's handle, so the loop and everything it owns are dropped with it
+/// rather than while this thread's locals are being torn down.
+pub fn forget_loop() {
+    let handle = LOOP
+        .try_with(|slot| slot.borrow_mut().take())
+        .ok()
+        .flatten();
+    drop(handle);
 }
 
 /// Trims the heap a little later, once whatever is closing has gone. Asking again while one
