@@ -527,10 +527,9 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
 void main() {
     float f = frame.z;
     vec2 px = v_coords * frame.xw;
-    // The pane's edges are bevelled: over the last few units to each edge its face curves away,
-    // and everything seen through that band, the smoke, the lasers and the picture, is bent in
-    // from nearer the middle, as thick glass bends what is behind its edge. None along the foot
-    // where a docked pane's frame carries the bar on down.
+    // The pane's edges are bevelled: over the last few units to each edge its face curves away
+    // and catches the light in the glass, so the smoke and the lasers brighten as they reach an
+    // edge. Nothing behind it is bent, so no light folds back on itself there.
     // At a corner the two faces meet in a mitre, a clean diagonal seam: the way the surface
     // turns there swings from one face's to the other's over about a pixel, so each keeps its
     // own light up to the seam. Where a docked pane's frame carries the bar on down, the foot's
@@ -547,11 +546,6 @@ void main() {
     vec2 out_way = normalize(mix(way_y, way_x, end_share));
     float bevelled = clamp(edge_d / bevel_w, 0.0, 1.0);
     vec2 uv = v_coords;
-    if (bevelled < 1.0) {
-        float bent = (1.0 - bevelled) * (1.0 - bevelled) * bevel_w * 1.6;
-        px -= out_way * bent;
-        uv = px / frame.xw;
-    }
     vec2 p = px / f;
     float wide = frame.x / f;
     float t = air.x;
@@ -653,8 +647,10 @@ void main() {
     // pane flares as it passes, and elsewhere the bevel holds faint streaks of light and dark. It
     // catches more from above: most on the top, less on the ends, little on the foot, which faces
     // away and shades the picture a little. A fine line runs where it meets the flat face and
-    // another at the very edge, and through it shows the glass's own cool green.
+    // another at the very edge, and through it shows the glass's own cool green. The smoke's
+    // light and the beams brighten across the bevel, most at the very edge.
     vec3 bevel_colour = vec3(0.0);
+    float catches = 0.0;
     if (edge_d < bevel_w + 2.0 * f) {
         float lit_from = 0.5 - 0.5 * out_way.y;
         float run = mix(p.x, p.y * 4.0, end_share);
@@ -667,11 +663,13 @@ void main() {
         float caught = (slope * 0.22 + ridge * 0.12 + outer * 0.22) * mix(0.3, 1.0, lit_from) * reflects;
         behind.rgb *= 1.0 - 0.4 * slope * (1.0 - lit_from);
         bevel_colour = mix(PALE, GLASS_GREEN, 0.35 + 0.3 * (1.0 - bevelled)) * caught;
+        catches = 1.3 * slope + 0.6 * outer;
     }
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
     // The glass's own light is kept low, so the bar reads dark.
-    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams + bevel_colour, vec3(1.0));
+    vec3 glow = min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams;
+    vec3 added = min(glow * (1.0 + catches) + bevel_colour, vec3(1.0));
     vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
