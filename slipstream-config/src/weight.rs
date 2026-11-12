@@ -50,10 +50,10 @@ const fn desktop(
 }
 
 /// Slipstream as it comes, with the living wallpaper moving.
-pub const SLIPSTREAM: Desktop = desktop("Slipstream", 104, 287.0, 118.0, 11.1);
+pub const SLIPSTREAM: Desktop = desktop("Slipstream", 104, 294.0, 140.0, 8.3);
 /// Slipstream with reduced motion, where the wallpaper holds still.
 pub const SLIPSTREAM_REDUCED: Desktop =
-    desktop("Slipstream, reduced motion", 104, 287.0, 118.0, 1.7);
+    desktop("Slipstream, reduced motion", 104, 294.0, 140.0, 1.3);
 
 /// The desktops Slipstream is weighed against, each complete: with a bar, launcher,
 /// notifications, lock screen and portals where it doesn't have its own.
@@ -118,14 +118,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slipstream_scores_about_24_and_about_21_with_reduced_motion() {
+    fn slipstream_scores_about_23_and_about_22_with_reduced_motion() {
         assert!(
-            (SLIPSTREAM.score() - 24.2).abs() < 0.5,
+            (SLIPSTREAM.score() - 22.7).abs() < 0.5,
             "{}",
             SLIPSTREAM.score()
         );
         assert!(
-            (SLIPSTREAM_REDUCED.score() - 20.8).abs() < 0.5,
+            (SLIPSTREAM_REDUCED.score() - 22.3).abs() < 0.5,
             "{}",
             SLIPSTREAM_REDUCED.score()
         );
