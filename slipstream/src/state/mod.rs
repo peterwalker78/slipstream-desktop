@@ -894,16 +894,6 @@ impl Slipstream {
     /// How `output` is magnified now. Only the screen with the pointer on it is: the zoom is
     /// centred on the pointer, and goes with it from screen to screen.
     pub fn zoom_view(&self, output: &Output) -> crate::zoom::View {
-        // The rave zooms in on its bar, whatever the zoom is.
-        let scale = output.current_scale().fractional_scale();
-        if let Some(view) = self
-            .rave
-            .as_ref()
-            .filter(|rave| rave.screen == output.name())
-            .and_then(|rave| rave.zoom(self.clock.wall(), scale))
-        {
-            return view;
-        }
         let level = self.zoom.level(self.clock.wall());
         let pointer = self.pointer_location();
         match self.space.output_geometry(output) {

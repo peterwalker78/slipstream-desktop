@@ -338,7 +338,9 @@ pub fn output_elements(
         chrome.unlock = None;
     }
     let v = View::new(state, renderer, &mut chrome, output, geo, now);
-    // The rave covers everything on its screen, the pointer too.
+    // The rave's club, in front of everything on its screen, the pointer too; put in at the end,
+    // where the camera diving into it shows the rest.
+    let mut club = None;
     if let Some(rave) = state.rave.as_mut().filter(|rave| rave.screen == name) {
         if rave.tick(v.wall) {
             let look = crate::effects::rave::Look {
@@ -348,10 +350,7 @@ pub fn output_elements(
                 secondary: state.bullet_rgb,
                 tertiary: state.accent_rgb,
             };
-            elements.extend(
-                rave.element(renderer, &look, v.wall)
-                    .map(OutputElement::Bar),
-            );
+            club = rave.element(renderer, &look, v.wall);
         } else {
             state.rave = None;
         }
@@ -539,6 +538,17 @@ pub fn output_elements(
     chrome.panes.finish();
     state.drawn.chromes.insert(name.clone(), chrome);
     state.savers.insert(name, saver);
+    if let Some(club) = club {
+        // Diving in, the camera shows everything else through its lens, behind the club.
+        let filmed = state
+            .rave
+            .as_mut()
+            .and_then(|rave| rave.camera(renderer, &elements, v.sizes(), v.wall));
+        if let Some(filmed) = filmed {
+            elements = vec![OutputElement::Shaded(filmed)];
+        }
+        elements.insert(0, OutputElement::Bar(club));
+    }
     elements
 }
 

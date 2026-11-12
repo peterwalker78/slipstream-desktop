@@ -265,9 +265,15 @@ impl Slipstream {
     ) {
         self.own_keymap();
         let pressed = key_state == KeyState::Pressed;
-        // The rave takes every key while it's on, and a press ends it.
+        // The rave takes every key while it's on, and a press ends it; the machine's own keys,
+        // volume, brightness and media, go on doing their jobs. Key codes are the kernel's plus 8.
         let wall = self.wall();
-        if let Some(rave) = self.rave.as_mut() {
+        let raw = keycode.raw().saturating_sub(8);
+        if let Some(rave) = self
+            .rave
+            .as_mut()
+            .filter(|_| !crate::effects::rave::passes_through(raw))
+        {
             if pressed {
                 rave.end(wall);
             }
