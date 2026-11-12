@@ -1,6 +1,6 @@
 //! The session's notification server: `org.freedesktop.Notifications` on the session bus, as the
 //! Desktop Notifications spec (1.2) describes it. Apps call `Notify`; each notification goes to
-//! the main loop, which pops it up and keeps it for the notification centre (`notices.rs`).
+//! the main loop, which pops it up and keeps it for the notification centre (`shell::notices`).
 //!
 //! zbus serves the bus from its own thread, so a slow client never holds up a frame.
 //!

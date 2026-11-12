@@ -1,6 +1,6 @@
 //! What bullet time draws over the zoomed-out workspaces: each workspace's frame and number, a
 //! note on empty ones, letter hints on windows and streams, the selection ring, the vignette and
-//! the amber border. `render.rs` places them; this paints and caches them.
+//! the amber border. `render::frame` places them; this paints and caches them.
 
 use std::collections::{HashMap, hash_map::Entry};
 

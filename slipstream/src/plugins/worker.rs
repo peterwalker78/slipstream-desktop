@@ -628,10 +628,15 @@ pub fn program(plugin: &Plugin, state: &Path, args: &[&str]) -> Result<Command, 
     let mut reads = plugins::read_folders(manifest)?;
     let mut writes = plugins::write_folders(manifest)?;
     let mut command = if manifest.unconfined() {
-        Command::new(program)
+        let mut command = Command::new(program);
+        crate::launch::point_at_desktop(&mut command);
+        command
     } else {
         let bwrap = sandbox::bwrap()?;
-        let session = sandbox::Session::now();
+        let mut session = sandbox::Session::now();
+        if let Some(socket) = crate::launch::own_wayland_display() {
+            session.wayland = Some(socket);
+        }
         let mut command = Command::new(bwrap);
         // Local sockets are for the display, and for looking names up online; a plugin with
         // neither has no use for them.

@@ -1,10 +1,6 @@
 //! The volume, and the sounds Slipstream makes itself.
 
-use std::{
-    path::Path,
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::{path::Path, process::Command, time::Duration};
 
 use slipstream_config::sounds::{self, Preset};
 
@@ -269,16 +265,12 @@ fn set_volume(percent: u8, click: Option<String>) {
 /// sound playing, and a stuck one is stopped soon after.
 fn play(choice: &str, presets: &[Preset], theme: &str) {
     let path = match sounds::themed(choice) {
-        Some(name) => sounds::find(name, theme, &sounds::theme_bases(), &read_index),
+        Some(name) => sounds::find(name, theme, &sounds::theme_bases(), &sounds::read_index),
         None => sounds::file(choice, presets),
     };
     if let Some(path) = path {
-        let mut command = Command::new("pw-play");
-        command
-            .arg(path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        let mut command = sounds::pw_play(Command::new);
+        command.arg(path);
         if let Err(err) = PLAYER.play(command) {
             eprintln!("slipstream-settings: couldn't play a sound: {err}");
         }
@@ -287,14 +279,6 @@ fn play(choice: &str, presets: &[Preset], theme: &str) {
 
 /// Every sound Settings plays. As long as the desktop lets a notification sound go on.
 static PLAYER: sounds::Player = sounds::Player::new(Duration::from_secs(8));
-
-/// A sound theme's index, if it's a small regular file.
-fn read_index(path: &Path) -> Option<String> {
-    std::fs::metadata(path)
-        .ok()
-        .filter(|meta| meta.is_file() && meta.len() <= 1 << 20)?;
-    std::fs::read_to_string(path).ok()
-}
 
 /// What the list of sounds holds, row by row, as the settings file says each.
 const PICK_A_FILE: &str = "";

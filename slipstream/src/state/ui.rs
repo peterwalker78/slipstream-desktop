@@ -444,12 +444,10 @@ impl Slipstream {
                 // Off means no record sitting in the state directory at all, not a stale one.
                 self.record.record_due = None;
                 self.record.saved_record = None;
-                let path = session::path();
-                // A record in a folder another Slipstream owns isn't this one's to delete.
-                if self.owns_state
-                    && let Err(err) = session::forget(&path)
-                {
-                    tracing::warn!(path = %path.display(), "couldn't forget the layout: {err}");
+                // A record in a folder another Slipstream owns isn't this one's to delete. Through
+                // the writer, so a record still being written can't land after it.
+                if self.owns_state {
+                    self.record.writer.forget(session::path());
                 }
             }
         }

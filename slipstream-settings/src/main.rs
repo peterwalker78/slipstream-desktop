@@ -95,11 +95,13 @@ impl Store {
 
     /// Changes the settings and saves them. Slipstream picks the change up from the file.
     ///
-    /// The file is read again first, so a change made elsewhere meanwhile (in quick settings, say)
-    /// isn't written back over. A file that can't be read isn't written at all, as quick settings
-    /// refuses too: saving would replace everything in it with the defaults. The note says so,
-    /// and goes as soon as a change finds the file readable again.
+    /// The file is read again first, under the settings file's lock until the write, so a change
+    /// made elsewhere (in quick settings, say) isn't written back over. A file that can't be read
+    /// isn't written at all, as quick settings refuses too: saving would replace everything in
+    /// it with the defaults. The note says so, and goes as soon as a change finds the file
+    /// readable again.
     pub fn change(&self, change: impl FnOnce(&mut Settings)) {
+        let _lock = slipstream_config::lock(&self.path);
         let on_disk = match slipstream_config::read(&self.path) {
             Ok(on_disk) => on_disk,
             Err(err) => {

@@ -264,12 +264,8 @@ pub fn blip(choice: &str) {
     };
     // Without waiting, since the keypress has already done its work. A click still going when the
     // next key comes, which is a stuck one when PipeWire has lost its sink, means no new click.
-    let mut command = crate::launch::command("pw-play");
-    command
-        .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    let mut command = sounds::pw_play(crate::launch::command);
+    command.arg(path);
     match CLICK.play(command) {
         Ok(true) => {}
         Ok(false) => tracing::debug!("the last volume click hasn't finished"),

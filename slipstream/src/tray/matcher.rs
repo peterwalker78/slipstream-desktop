@@ -40,7 +40,7 @@ impl Process {
             return None;
         }
         let name_of = |pid: u32| {
-            crate::files::read_small_text(&proc.join(pid.to_string()).join("comm"), 64)
+            slipstream_config::files::read_small_text(&proc.join(pid.to_string()).join("comm"), 64)
                 .map(|name| name.trim_end().to_string())
         };
         Some(Self {

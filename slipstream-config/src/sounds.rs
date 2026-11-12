@@ -208,20 +208,27 @@ const EXTENSIONS: [&str; 3] = ["oga", "ogg", "wav"];
 /// Where sound themes live: `$XDG_DATA_HOME/sounds`, then `sounds` under each of
 /// `$XDG_DATA_DIRS`, with the spec's defaults for either when unset.
 pub fn theme_bases() -> Vec<PathBuf> {
-    let system = std::env::var("XDG_DATA_DIRS")
-        .ok()
-        .filter(|dirs| !dirs.is_empty())
-        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
     std::iter::once(crate::xdg_home("XDG_DATA_HOME", ".local/share"))
-        .chain(
-            system
-                .split(':')
-                .filter(|dir| !dir.is_empty())
-                .map(PathBuf::from),
-        )
+        .chain(crate::xdg_data_dirs())
         .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join("sounds"))
         .collect()
+}
+
+/// A sound theme's `index.theme`, if it's a small regular file.
+pub fn read_index(path: &Path) -> Option<String> {
+    crate::files::read_small_text(path, crate::files::DESKTOP_ENTRY_LIMIT)
+}
+
+/// `pw-play`, made with `new` (the compositor's `launch::command`, or `Command::new`), with
+/// nothing to read and its output dropped. The sound's file and options are the caller's to add.
+pub fn pw_play(new: impl FnOnce(&'static str) -> Command) -> Command {
+    let mut command = new("pw-play");
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    command
 }
 
 /// A name or theme that is one plain path component, so nothing sent over the bus can reach

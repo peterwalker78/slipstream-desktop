@@ -13,7 +13,7 @@
 
 use std::{
     path::{Path, PathBuf},
-    process::{Child, Stdio},
+    process::Child,
     sync::{Mutex, OnceLock, mpsc},
     thread,
     time::{Duration, Instant},
@@ -97,13 +97,10 @@ fn player(asks: mpsc::Receiver<(Sound, String)>) {
             tracing::debug!(?sound, theme, "no notification sound to play");
             continue;
         };
-        let child = crate::launch::command("pw-play")
+        let child = slipstream_config::sounds::pw_play(crate::launch::command)
             .args(["--media-role", "Notification", "-P"])
             .arg(r#"{ application.name = "Slipstream" media.name = "Notification" }"#)
             .arg(&path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .spawn();
         match child {
             Ok(child) => {
@@ -119,7 +116,12 @@ fn player(asks: mpsc::Receiver<(Sound, String)>) {
 fn resolve(sound: &Sound, theme: &str, bases: &[PathBuf]) -> Option<PathBuf> {
     let path = match sound {
         Sound::File(path) => path.clone(),
-        Sound::Name(name) => slipstream_config::sounds::find(name, theme, bases, &read_index)?,
+        Sound::Name(name) => slipstream_config::sounds::find(
+            name,
+            theme,
+            bases,
+            &slipstream_config::sounds::read_index,
+        )?,
     };
     playable(&path).then_some(path)
 }
@@ -168,11 +170,6 @@ fn decode_uri_path(text: &str) -> Option<String> {
 /// Where sound themes live.
 fn bases() -> Vec<PathBuf> {
     slipstream_config::sounds::theme_bases()
-}
-
-/// `path` read as a theme's index, if it's a small regular file.
-fn read_index(path: &Path) -> Option<String> {
-    crate::files::read_small_text(path, crate::files::DESKTOP_ENTRY_LIMIT)
 }
 
 #[cfg(test)]

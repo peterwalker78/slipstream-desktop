@@ -145,6 +145,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "power",
             "logind",
             "session",
+            "record_writer",
             "restore",
             "resume",
             "polkit",

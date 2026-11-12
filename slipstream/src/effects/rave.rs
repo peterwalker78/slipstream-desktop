@@ -52,7 +52,7 @@
 use std::{
     os::unix::process::CommandExt,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, Command},
 };
 
 use smithay::{
@@ -233,17 +233,23 @@ impl Knocks {
         self.hint = written("slipstream-rave-hint.opus", HINT)
             .and_then(|path| spawn(player(&path).arg(format!("--volume={volume:.3}")), "hint"));
     }
+
+    /// Reaps the hint once it has played to its end, so a hint with no knock after it doesn't
+    /// stay behind as a zombie. Called on every pass of the event loop.
+    pub fn reap(&mut self) {
+        if let Some(hint) = &mut self.hint
+            && !matches!(hint.try_wait(), Ok(None))
+        {
+            self.hint = None;
+        }
+    }
 }
 
 /// `pw-play` for the sound at `path`, unless this is a nested run, whose sound would come out of
 /// the desktop around it. It stops when Slipstream does, however it goes.
 fn player(path: &std::path::Path) -> Command {
-    let mut command = crate::launch::command("pw-play");
-    command
-        .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    let mut command = slipstream_config::sounds::pw_play(crate::launch::command);
+    command.arg(path);
     // SAFETY: `prctl` is async-signal-safe, which is all `pre_exec` asks.
     unsafe {
         command.pre_exec(|| {

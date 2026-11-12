@@ -91,7 +91,13 @@ impl Cursor {
             let images = self
                 .theme
                 .load_icon(name)
-                .and_then(|path| crate::files::read_small(&path, crate::files::CURSOR_LIMIT).ok())
+                .and_then(|path| {
+                    slipstream_config::files::read_small(
+                        &path,
+                        slipstream_config::files::CURSOR_LIMIT,
+                    )
+                    .ok()
+                })
                 .and_then(|data| parse_xcursor(&data))
                 .filter(|images| !images.is_empty());
             if images.is_none() {

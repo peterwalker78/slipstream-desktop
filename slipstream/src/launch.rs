@@ -168,19 +168,12 @@ pub fn web_browser_id(text: &str) -> Option<String> {
 
 /// Where the desktop's default applications are written down, most specific first.
 fn mimeapps_files() -> Vec<PathBuf> {
-    let config_home = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config")
-        });
+    let config_home = slipstream_config::xdg_home("XDG_CONFIG_HOME", ".config");
     let mut files = vec![config_home.join("mimeapps.list")];
-    let config_dirs = std::env::var("XDG_CONFIG_DIRS").unwrap_or_else(|_| "/etc/xdg".to_string());
     files.extend(
-        config_dirs
-            .split(':')
-            .filter(|dir| !dir.is_empty())
-            .map(|dir| PathBuf::from(dir).join("mimeapps.list")),
+        slipstream_config::xdg_dirs("XDG_CONFIG_DIRS", "/etc/xdg")
+            .into_iter()
+            .map(|dir| dir.join("mimeapps.list")),
     );
     files.extend(
         crate::apps::application_dirs()
@@ -199,8 +192,10 @@ fn default_browser() -> Option<Vec<String>> {
         .map(String::from)
         .collect();
     for file in mimeapps_files() {
-        let Some(text) = crate::files::read_small_text(&file, crate::files::DESKTOP_ENTRY_LIMIT)
-        else {
+        let Some(text) = slipstream_config::files::read_small_text(
+            &file,
+            slipstream_config::files::DESKTOP_ENTRY_LIMIT,
+        ) else {
             continue;
         };
         let Some(id) = web_browser_id(&text).filter(|id| !id.contains('/')) else {
@@ -209,9 +204,10 @@ fn default_browser() -> Option<Vec<String>> {
         let stem = id.strip_suffix(".desktop").unwrap_or(&id);
         for dir in crate::apps::application_dirs() {
             let path = dir.join(format!("{stem}.desktop"));
-            let Some(entry) =
-                crate::files::read_small_text(&path, crate::files::DESKTOP_ENTRY_LIMIT)
-            else {
+            let Some(entry) = slipstream_config::files::read_small_text(
+                &path,
+                slipstream_config::files::DESKTOP_ENTRY_LIMIT,
+            ) else {
                 continue;
             };
             if let Some(app) = crate::apps::parse(stem, &entry, &desktops, installed)
@@ -573,8 +569,39 @@ pub fn installed(program: &str) -> bool {
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| executable(&dir.join(program))))
 }
 
-/// A `Command` whose child starts with no signals blocked. Every program Slipstream runs goes
-/// through here.
+/// Slipstream's own Wayland socket, and whether this is the session on the real screens, once
+/// the socket is listening. Children are pointed at it one by one (`point_at_desktop`) rather
+/// than through Slipstream's own environment, which can't safely change once threads are
+/// running: C code on them (NSS, Mesa, libudev) reads it without Rust's lock.
+static OWN_DISPLAY: OnceLock<(std::ffi::OsString, bool)> = OnceLock::new();
+
+/// Points every child started from here on at `socket`. On the real screens (`live`), children
+/// also learn that it is a live session, and have no X11 display but XWayland's.
+pub fn set_own_display(socket: &OsStr, live: bool) {
+    let _ = OWN_DISPLAY.set((socket.to_owned(), live));
+}
+
+/// Slipstream's own `WAYLAND_DISPLAY`, once it is listening.
+pub fn own_wayland_display() -> Option<std::ffi::OsString> {
+    OWN_DISPLAY.get().map(|(socket, _)| socket.clone())
+}
+
+/// Sets `command`'s child up to connect to Slipstream rather than to whatever display
+/// Slipstream itself was started on.
+pub fn point_at_desktop(command: &mut Command) {
+    let Some((socket, live)) = OWN_DISPLAY.get() else {
+        return;
+    };
+    command.env("WAYLAND_DISPLAY", socket);
+    if *live {
+        command
+            .env(crate::live::LIVE_SOCKET, socket)
+            .env_remove("DISPLAY");
+    }
+}
+
+/// A `Command` whose child starts with no signals blocked, pointed at Slipstream's display.
+/// Every program Slipstream runs goes through here.
 ///
 /// The SIGTERM watch in `main.rs` blocks SIGTERM for the whole compositor, and a blocked signal
 /// stays blocked across fork and exec, so without this every app would ignore SIGTERM for good and
@@ -593,6 +620,7 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
             Ok(())
         });
     }
+    point_at_desktop(&mut command);
     command
 }
 

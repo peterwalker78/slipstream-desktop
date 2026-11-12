@@ -60,6 +60,7 @@ mod polkit;
 mod portal;
 mod portal_inhibit;
 mod power;
+mod record_writer;
 mod render;
 mod restore;
 mod resume;
@@ -266,6 +267,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Nothing a plugin's program started outlives the compositor.
     state.plugins.stop_all();
     state.leave_screens_lit();
+    // A layout record still being written gets to disk before the process goes.
+    state.record.writer.flush();
     end_session();
     tracing::info!("stopped cleanly");
     drop(owner);
@@ -455,13 +458,7 @@ fn start_on_hardware(
     // Before anything starts, so every child connects here and none reaches for X11.
     // The socket's name also goes in SLIPSTREAM_LIVE_SOCKET, so a Slipstream started from
     // inside this session knows not to nest on it.
-    // SAFETY: the threads already running reach the environment only through `std::env` and
-    // `Command`, which take the same lock as these writes.
-    unsafe {
-        std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
-        std::env::set_var(live::LIVE_SOCKET, &state.socket_name);
-        std::env::remove_var("DISPLAY");
-    }
+    launch::set_own_display(&state.socket_name, true);
     udev::run(event_loop, state)?;
     tracing::info!(
         "Slipstream is running on WAYLAND_DISPLAY={}. Super+Return opens a terminal, Super+E \
@@ -505,9 +502,8 @@ fn start_nested(
     state.nested = true;
     crate::winit::init_winit(event_loop, state)?;
 
-    // After the window has connected to the host, so that children connect here instead.
-    // SAFETY: as above, the other threads reach the environment only through `std`.
-    unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
+    // Children connect here, while the window stays connected to the host.
+    launch::set_own_display(&state.socket_name, false);
     tracing::info!(
         "listening on WAYLAND_DISPLAY={}. The focused window holds the keyboard, Super included: \
          Super+arrows move focus, Super+1–9 and Super+Ctrl+←/→ switch workspace, Super+Shift+1–9 \
@@ -529,6 +525,8 @@ fn pass(state: &mut Slipstream) {
     state.tick_restore();
     // The layout goes to disk here once the desktop has settled, so a crash still leaves one.
     state.tick_record();
+    // A knock's hint sound that has played to its end.
+    state.knocks.reap();
     // The lock by itself after idle, and a sleep waiting for the lock to be drawn.
     state.tick_lock();
     // Low battery: the wallpaper's pace, the warnings and the countdown to sleep.

@@ -215,24 +215,11 @@ pub fn data_home() -> PathBuf {
     slipstream_config::xdg_home("XDG_DATA_HOME", ".local/share")
 }
 
-/// `$XDG_DATA_DIRS`, or the spec's default when it is unset.
-pub fn system_data_dirs() -> Vec<PathBuf> {
-    let system = std::env::var("XDG_DATA_DIRS")
-        .ok()
-        .filter(|dirs| !dirs.is_empty())
-        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
-    system
-        .split(':')
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .collect()
-}
-
 /// The XDG data directories in order of precedence, with the Flatpak exports even if the
 /// session didn't add them.
 fn data_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![data_home()];
-    dirs.extend(system_data_dirs());
+    dirs.extend(slipstream_config::xdg_data_dirs());
     dirs.push(data_home().join("flatpak/exports/share"));
     dirs.push(PathBuf::from("/var/lib/flatpak/exports/share"));
     let mut seen = HashSet::new();
@@ -263,7 +250,9 @@ pub fn find(id: &str) -> Option<App> {
         .into_iter()
         .map(|dir| dir.join("applications").join(format!("{id}.desktop")))
         .find(|path| path.is_file())?;
-    let bytes = crate::files::read_small(&path, crate::files::DESKTOP_ENTRY_LIMIT).ok()?;
+    let bytes =
+        slipstream_config::files::read_small(&path, slipstream_config::files::DESKTOP_ENTRY_LIMIT)
+            .ok()?;
     parse(
         id,
         &String::from_utf8(bytes).ok()?,
@@ -288,9 +277,12 @@ pub fn scan() -> Vec<App> {
             }
             // Whatever sits in an applications folder with a `.desktop` name, a FIFO included,
             // mustn't stall the scan the explorer and the layout restore wait for.
-            let text = crate::files::read_small(&path, crate::files::DESKTOP_ENTRY_LIMIT)
-                .ok()
-                .and_then(|bytes| String::from_utf8(bytes).ok());
+            let text = slipstream_config::files::read_small(
+                &path,
+                slipstream_config::files::DESKTOP_ENTRY_LIMIT,
+            )
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok());
             if let Some(text) = text {
                 apps.extend(parse(&id, &text, &desktops, launch::installed));
             }
@@ -559,7 +551,7 @@ const RECENT_LIST_LIMIT: u64 = 16 << 20;
 /// entry, and on a hung network mount it waits as long as the mount does, so this never runs on
 /// the event loop.
 pub fn recent_files(limit: usize, is_file: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
-    match crate::files::read_small(&data_home().join(RECENT_LIST), RECENT_LIST_LIMIT) {
+    match slipstream_config::files::read_small(&data_home().join(RECENT_LIST), RECENT_LIST_LIMIT) {
         Ok(bytes) => recent_in(&String::from_utf8_lossy(&bytes), limit, is_file),
         Err(_) => Vec::new(),
     }

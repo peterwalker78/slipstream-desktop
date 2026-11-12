@@ -201,7 +201,7 @@ pub fn clean(text: &str, chars: usize) -> String {
     let mut out = String::new();
     let (mut kept, mut space) = (0, false);
     for ch in text.chars() {
-        if is_hidden(ch) {
+        if slipstream_config::text::hidden(ch) {
             continue;
         }
         if ch.is_control() || ch.is_whitespace() {
@@ -219,12 +219,6 @@ pub fn clean(text: &str, chars: usize) -> String {
         kept += 1;
     }
     out
-}
-
-/// Bidirectional overrides and isolates, zero-width characters and the byte order mark: none
-/// belongs in a label, and each can make one read as something else.
-fn is_hidden(ch: char) -> bool {
-    matches!(ch, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}')
 }
 
 #[cfg(test)]
@@ -272,6 +266,7 @@ mod tests {
         assert_eq!(clean("  Sync\n\tnow  ", 64), "Sync now");
         assert_eq!(clean("pay\u{202e}lmth.exe", 64), "paylmth.exe");
         assert_eq!(clean("a\u{200b}b\u{feff}", 64), "ab");
+        assert_eq!(clean("\u{061c}Mail\u{061c}", 64), "Mail");
         assert_eq!(clean("Nextcloud", 4), "Next");
         assert_eq!(clean("\u{7}\u{1b}[31m", 64), "[31m");
     }

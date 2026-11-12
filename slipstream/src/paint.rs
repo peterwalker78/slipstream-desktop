@@ -817,7 +817,8 @@ impl Painted {
 /// An SVG or PNG file drawn into a `px`-pixel square, keeping its proportions.
 pub fn load_image(path: &Path, px: u32) -> Option<Pixmap> {
     // The path comes from an app or a desktop entry, so it may name anything at all.
-    let data = crate::files::read_small(path, crate::files::IMAGE_LIMIT).ok()?;
+    let data =
+        slipstream_config::files::read_small(path, slipstream_config::files::IMAGE_LIMIT).ok()?;
     if path.extension().is_some_and(|ext| ext == "svg") {
         let mut out = Pixmap::new(px, px)?;
         let side = px as f32;

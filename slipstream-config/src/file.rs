@@ -4,7 +4,7 @@ use std::{
     ffi::OsString,
     fs::{self, File},
     io::{self, Write},
-    os::unix::fs::PermissionsExt,
+    os::{fd::AsRawFd, unix::fs::PermissionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -34,6 +34,30 @@ pub fn xdg_home(var: &str, fallback: &str) -> PathBuf {
         })
 }
 
+/// An XDG search path: the absolute folders listed in `$var`, else those in `fallback`.
+/// `xdg_dirs("XDG_DATA_DIRS", "/usr/local/share:/usr/share")` is the system's data folders.
+pub fn xdg_dirs(var: &str, fallback: &str) -> Vec<PathBuf> {
+    let absolute = |list: &str| -> Vec<PathBuf> {
+        list.split(':')
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .collect()
+    };
+    let listed = std::env::var(var)
+        .map(|list| absolute(&list))
+        .unwrap_or_default();
+    if listed.is_empty() {
+        absolute(fallback)
+    } else {
+        listed
+    }
+}
+
+/// `$XDG_DATA_DIRS`, or the spec's default when it names no folder.
+pub fn xdg_data_dirs() -> Vec<PathBuf> {
+    xdg_dirs("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+}
+
 /// `$XDG_CONFIG_HOME/slipstream/settings.toml`, else `~/.config/slipstream/settings.toml`.
 pub fn path() -> PathBuf {
     xdg_home("XDG_CONFIG_HOME", ".config")
@@ -57,6 +81,44 @@ pub fn read(path: &Path) -> io::Result<Settings> {
 
 pub(crate) fn parse(text: &str) -> io::Result<Settings> {
     toml::from_str(text).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
+/// An advisory lock on a file, held until it's dropped.
+pub struct FileLock {
+    _file: Option<File>,
+}
+
+/// Takes the advisory lock on `path` (on `<path>.lock` beside it), waiting while another process
+/// holds it. The compositor's quick settings and the Settings app both read the settings file,
+/// change it and write it whole; holding this across all three keeps one from writing over a
+/// change the other made in between. A lock that can't be taken (a read-only folder, say) is no
+/// lock, and the write that follows says what's wrong itself.
+pub fn lock(path: &Path) -> FileLock {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".lock");
+    let folder = path.parent().filter(|dir| !dir.as_os_str().is_empty());
+    let file = folder
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| {
+            File::options()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&name)
+        })
+        .and_then(|file| {
+            loop {
+                // SAFETY: `flock` on a descriptor this function owns and keeps open.
+                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                    return Ok(file);
+                }
+                let err = io::Error::last_os_error();
+                if err.kind() != io::ErrorKind::Interrupted {
+                    return Err(err);
+                }
+            }
+        });
+    FileLock { _file: file.ok() }
 }
 
 /// Writes `settings` to `path`, creating its folder, as `replace` does.
@@ -170,6 +232,7 @@ fn remove_abandoned_partials(dir: &Path, name: &std::ffi::OsStr) {
 /// (UTC) beside itself, so none of it is lost, and writes the defaults in its place. Returns
 /// where the old file went.
 pub fn move_aside(path: &Path) -> io::Result<PathBuf> {
+    let _lock = lock(path);
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs() as i64);
@@ -372,6 +435,25 @@ mod tests {
         replace_private(&path, b"x = 1\n").unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_held_lock_keeps_the_next_writer_waiting() {
+        let scratch = Scratch::new("lock");
+        let path = scratch.0.join(FILE_NAME);
+        let held = lock(&path);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let waiter = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let _lock = lock(&path);
+                sender.send(()).unwrap();
+            })
+        };
+        assert!(receiver.recv_timeout(Duration::from_millis(200)).is_err());
+        drop(held);
+        receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        waiter.join().unwrap();
     }
 
     #[test]
