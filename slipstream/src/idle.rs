@@ -235,6 +235,8 @@ impl Idle {
     pub fn fade(&mut self, now: f64) {
         if !self.faded {
             self.faded = true;
+            // Nothing much is drawn while faded, so the heap can let go of what it isn't using.
+            crate::heap::trim_soon();
             let duration = self.duration();
             self.opacity
                 .retarget([0.0], now, duration, Easing::InOutCubic);
