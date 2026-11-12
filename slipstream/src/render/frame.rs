@@ -820,7 +820,10 @@ fn bar_elements(
             elements.extend(element.map(OutputElement::Memory));
         }
     }
-    elements.extend(picture.map(OutputElement::Memory));
+    elements.extend(picture.map(|picture| match picture {
+        crate::bar::Picture::Painted(painted) => OutputElement::Memory(painted),
+        crate::bar::Picture::Glass(glass) => OutputElement::Bar(glass),
+    }));
     elements
 }
 

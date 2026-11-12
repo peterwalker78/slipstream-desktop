@@ -233,8 +233,8 @@ pub enum Step {
     Screens,
     /// Writes each animating part's reduced-motion flag into the log.
     Motion,
-    /// Sends the lit edge's gust off now, rather than waiting for one.
-    Gust,
+    /// Sends the lit edge's air rushing, as a change of workspace does.
+    Rush,
     /// Super+P and Super+Shift+P.
     NextScreen,
     MoveToNextScreen,
@@ -510,7 +510,7 @@ impl Script {
                     ("screens", None) => Step::Screens,
                     ("windows", None) => Step::Windows,
                     ("motion", None) => Step::Motion,
-                    ("gust", None) => Step::Gust,
+                    ("rush", None) => Step::Rush,
                     ("nextscreen", None) => Step::NextScreen,
                     ("movescreen", None) => Step::MoveToNextScreen,
                     ("swapscreens", None) => Step::SwapScreens,

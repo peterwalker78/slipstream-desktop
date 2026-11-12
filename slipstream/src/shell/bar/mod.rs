@@ -5,11 +5,12 @@
 //!
 //! It's laid out in design pixels, painted into a pixmap at the screen's own resolution so text
 //! stays sharp at fractional scales, and repainted only when what it shows changes. What moves
-//! on it is drawn over that picture rather than into it: the workspace marker (`marker`), and
-//! each style's own touch, the focus bar's breath while you type (`breath`) and the lit edge's
-//! charge (`light`).
+//! on it is drawn over that picture rather than into it: the workspace marker (`marker`), a
+//! panel's slot in its foot line (`light`), and the focus bar's breath while you type (`breath`).
+//! The lit edge's bar is that picture drawn through glass with air moving in it (`glass`).
 
 pub mod breath;
+pub mod glass;
 pub mod light;
 mod marker;
 pub mod place;
@@ -238,8 +239,15 @@ pub struct BarDraw {
 pub enum Over {
     /// The focus bar's breath: its contents dimmed while you type.
     Dim(SolidColorRenderElement),
-    /// The lit edge, a panel's slot, or the workspace marker.
+    /// A panel's slot, or the workspace marker.
     Shaded(Shaded),
+}
+
+/// The bar's picture as drawn: as painted, or through the lit edge's glass.
+#[allow(clippy::large_enum_variant)]
+pub enum Picture {
+    Painted(MemoryRenderBufferRenderElement<GlesRenderer>),
+    Glass(Shaded),
 }
 
 /// What the bar's picture was painted for.
@@ -265,8 +273,8 @@ pub struct Bar {
     attention: Vec<(f64, f64)>,
     breath: breath::Breath,
     light: light::Light,
-    /// The lit edge's pulses and gusts on this screen, its own.
-    charge: light::Charge,
+    /// The lit edge's glass on this screen, with its own air.
+    glass: glass::Glass,
 }
 
 impl Bar {
@@ -275,8 +283,8 @@ impl Bar {
         self.shown = None;
     }
 
-    /// The bar showing `content` as `draw` says, with the lit edge moving when it moves: its
-    /// picture, after handing `over` what goes over it, front to back. A new current
+    /// The bar showing `content` as `draw` says, with the lit edge's air moving when it moves:
+    /// its picture, after handing `over` what goes over it, front to back. A new current
     /// workspace sends the marker sliding over to it from where it's drawn, unless motion is
     /// reduced; the slide moves the marker alone, never the picture.
     pub fn draw(
@@ -285,13 +293,19 @@ impl Bar {
         content: Content,
         draw: &BarDraw,
         mut over: impl FnMut(Over),
-    ) -> Option<MemoryRenderBufferRenderElement<GlesRenderer>> {
+    ) -> Option<Picture> {
         let rect = Place::of(draw.style).rect(draw.width);
+        let glassy = draw.style == BarStyle::LitEdge;
         if let Some(painted) = self.lay_out(content, draw) {
             let size = Size::from((
                 painted.pixmap.width() as i32,
                 painted.pixmap.height() as i32,
             ));
+            if glassy {
+                self.glass.repainted(renderer, &painted.pixmap);
+            } else {
+                self.glass.forget();
+            }
             self.buffer = Some((paint::buffer(&painted.pixmap), size));
             self.pill.repainted(
                 renderer,
@@ -300,29 +314,10 @@ impl Bar {
                 draw.scale,
             );
         }
-        let (buffer, size) = self.buffer.as_ref()?;
-        // One buffer pixel per screen pixel, however fractional the scale.
-        let corner = Point::<f64, Logical>::from((rect.x as f64, rect.y as f64))
-            .to_physical(draw.scale)
-            .to_i32_round::<i32>()
-            .to_f64();
-        let picture = MemoryRenderBufferRenderElement::from_buffer(
-            renderer,
-            corner,
-            buffer,
-            Some(draw.alpha),
-            Some(Rectangle::from_size((size.w as f64, size.h as f64).into())),
-            Some((rect.w, HEIGHT).into()),
-            Kind::Unspecified,
-        )
-        .ok();
-
-        if let Some(edge) = self.edge(draw) {
-            let cadence = self.cadence();
-            let charge = self.moves(draw).then_some((&mut self.charge, cadence));
-            if let Some(strip) = self.light.element(renderer, &edge, charge, draw.now) {
-                over(Over::Shaded(strip));
-            }
+        if let Some(edge) = self.edge(draw)
+            && let Some(strip) = self.light.element(renderer, &edge)
+        {
+            over(Over::Shaded(strip));
         }
         if draw.style == BarStyle::Plain {
             let strength =
@@ -340,7 +335,27 @@ impl Bar {
         {
             over(Over::Shaded(pill));
         }
-        picture
+        if glassy {
+            let look = self.look(draw)?;
+            return self.glass.element(renderer, &look).map(Picture::Glass);
+        }
+        let (buffer, size) = self.buffer.as_ref()?;
+        // One buffer pixel per screen pixel, however fractional the scale.
+        let corner = Point::<f64, Logical>::from((rect.x as f64, rect.y as f64))
+            .to_physical(draw.scale)
+            .to_i32_round::<i32>()
+            .to_f64();
+        MemoryRenderBufferRenderElement::from_buffer(
+            renderer,
+            corner,
+            buffer,
+            Some(draw.alpha),
+            Some(Rectangle::from_size((size.w as f64, size.h as f64).into())),
+            Some((rect.w, HEIGHT).into()),
+            Kind::Unspecified,
+        )
+        .ok()
+        .map(Picture::Painted)
     }
 
     /// Lays the bar out for `content` as `draw` says, and sends the marker after a new current
@@ -388,64 +403,55 @@ impl Bar {
         Some(painted)
     }
 
-    /// The strip along the bar's foot as `draw` says: the lit edge in its own style, and in the
-    /// others a panel's slot alone, over the foot line the bar's picture has. `None` when there
-    /// is nothing to draw there.
+    /// The strip along the bar's foot lighting the slot of a panel coming out of it, if one is.
     fn edge(&self, draw: &BarDraw) -> Option<light::Edge> {
         let content = &self.shown.as_ref()?.content;
-        let charged = draw.style == BarStyle::LitEdge;
-        if !charged && draw.slot.is_none() {
-            return None;
-        }
-        let f = (HEIGHT as f64 * draw.scale).round() / TALL as f64;
-        // Logical pixels to the bar's units.
-        let units = |logical: i32| (logical as f64 * draw.scale / f) as f32;
         Some(light::Edge {
             bar: self.at,
             scale: draw.scale,
+            ring: content.ring,
+            slot: draw.slot?,
+            alpha: draw.alpha,
+        })
+    }
+
+    /// What the lit edge's glass is drawn with as `draw` says.
+    fn look(&self, draw: &BarDraw) -> Option<glass::Look> {
+        let content = &self.shown.as_ref()?.content;
+        let f = ((HEIGHT as f64 * draw.scale).round() / TALL as f64) as f32;
+        // Logical pixels across the bar to its units.
+        let units = |logical: i32| logical as f32 * draw.scale as f32 / f;
+        Some(glass::Look {
+            area: Rectangle::new(
+                (self.at.loc.x as i32, self.at.loc.y as i32).into(),
+                (self.at.size.w as i32, HEIGHT).into(),
+            ),
+            f,
             marker: self.marker.map(|marker| {
                 let (left, right) = marker.edges(draw.wall);
                 (left + right) / 2.0
             }),
             strength: if content.keyboard_here { 1.0 } else { 0.5 },
             ring: content.ring,
-            line: if charged {
-                Place::of(BarStyle::LitEdge).material().edge
-            } else {
-                0
-            },
-            charged,
             gap: content
                 .dock
                 .map(|(left, right)| (units(left), units(right))),
-            slot: draw.slot,
             alpha: draw.alpha,
+            moves: self.moves(draw),
+            now: draw.now,
         })
     }
 
-    /// Whether the lit edge moves as `draw` says: while the desktop is fully shown, and never
-    /// with reduced motion or while the power mode is set to save power. Otherwise it stands
-    /// still.
+    /// Whether the lit edge's air moves as `draw` says: while the desktop is fully shown, and
+    /// never with reduced motion or while the power mode is set to save power. Otherwise it
+    /// stands still.
     fn moves(&self, draw: &BarDraw) -> bool {
         draw.style == BarStyle::LitEdge && draw.shown && !draw.reduced_motion && !draw.power_saver
     }
 
-    /// How the lit edge moves here: in full on the screen with the keyboard, calmly elsewhere.
-    fn cadence(&self) -> light::Cadence {
-        if self
-            .shown
-            .as_ref()
-            .is_some_and(|shown| shown.content.keyboard_here)
-        {
-            light::Cadence::Full
-        } else {
-            light::Cadence::Calm
-        }
-    }
-
-    /// Sends a gust along the lit edge on the next frame it moves in full.
-    pub fn gust_now(&mut self) {
-        self.charge.gust_now();
+    /// Sends the lit edge's air rushing, as a change of workspace does.
+    pub fn rush_now(&mut self) {
+        self.glass.air.rush_now();
     }
 
     /// Sends the marker towards the current workspace when that changes.
@@ -477,6 +483,8 @@ impl Bar {
                     .right
                     .retarget([right], wall, right_takes, Easing::Glide);
                 marker.to = content.active;
+                // The lit edge's air rushes as the view changes.
+                self.glass.air.rush_now();
             }
             _ => self.marker = Some(Marker::at(content.active, (x, x + w))),
         }
@@ -689,7 +697,8 @@ fn paint_strip(bar: &mut Strip, place: Place, span: Option<(f32, f32)>, (top, fo
 }
 
 /// The lit edge's picture: a faint light along the bar's top. The line along its foot is the
-/// lit edge's own strip (`light.rs`), drawn over the bar each frame, so the picture leaves it out.
+/// glass's own polished edge (`glass.rs`), drawn with the picture each frame, so the picture
+/// leaves it out.
 fn paint_top_light(bar: &mut Strip) {
     let wide = bar.wide;
     bar.p.fill(0.0, 0.0, wide, 1.0, 0.0, TOP_LIGHT);
@@ -1338,16 +1347,13 @@ mod tests {
                 &on_monitor,
             );
             let lit = laptop.edge(&on_laptop).expect("the slot's strip");
-            assert_eq!(lit.slot, Some(slot), "{style:?}");
-            assert_eq!(lit.charged, style == BarStyle::LitEdge);
-            let other = monitor.edge(&on_monitor);
-            assert_eq!(other.is_some(), style == BarStyle::LitEdge, "{style:?}");
-            assert!(other.is_none_or(|edge| edge.slot.is_none()));
+            assert_eq!(lit.slot, slot, "{style:?}");
+            assert!(monitor.edge(&on_monitor).is_none(), "{style:?}");
         }
     }
 
     #[test]
-    fn the_lit_edge_moves_on_every_screen_in_full_where_the_keyboard_is() {
+    fn the_lit_edges_air_moves_on_every_screen_with_its_marker_brighter_where_the_keyboard_is() {
         let mut here = Bar::default();
         let mut elsewhere = Bar::default();
         let lit = draw(1536, BarStyle::LitEdge);
@@ -1360,10 +1366,11 @@ mod tests {
             &lit,
         );
         assert!(here.moves(&lit) && elsewhere.moves(&lit));
-        assert_eq!(here.cadence(), light::Cadence::Full);
-        assert_eq!(elsewhere.cadence(), light::Cadence::Calm);
+        let (here, elsewhere) = (here.look(&lit).unwrap(), elsewhere.look(&lit).unwrap());
+        assert!(here.moves && elsewhere.moves);
+        assert!(here.strength > elsewhere.strength);
         // Fading to the wallpaper, it stands still too.
-        assert!(!here.moves(&BarDraw {
+        assert!(!Bar::default().moves(&BarDraw {
             shown: false,
             ..lit
         }));
@@ -1396,7 +1403,7 @@ mod tests {
             ..draw(1536, BarStyle::LitEdge)
         };
         bar.lay_out(content(), &reduced);
-        assert!(!bar.moves(&reduced), "no pulses and no gusts");
+        assert!(!bar.moves(&reduced), "the air holds still");
         // The marker jumps to a new workspace rather than sliding.
         bar.lay_out(
             Content {
@@ -1406,6 +1413,27 @@ mod tests {
             &reduced,
         );
         assert_eq!(bar.marker.unwrap().sliding(reduced.wall), None);
+    }
+
+    #[test]
+    fn a_change_of_workspace_sends_the_lit_edges_air_rushing_unless_motion_is_reduced() {
+        for reduced_motion in [false, true] {
+            let lit = BarDraw {
+                reduced_motion,
+                ..draw(1536, BarStyle::LitEdge)
+            };
+            let mut bar = Bar::default();
+            bar.lay_out(content(), &lit);
+            assert!(!bar.glass.air.asked_to_rush(), "not on first showing");
+            bar.lay_out(
+                Content {
+                    active: 3,
+                    ..content()
+                },
+                &lit,
+            );
+            assert_eq!(bar.glass.air.asked_to_rush(), !reduced_motion);
+        }
     }
 
     fn content() -> Content {
