@@ -2,23 +2,25 @@
 //! is drawn through one shader that bends it where the air does and lights what the air carries,
 //! so the effect is the bar itself rather than a layer laid over it.
 //!
-//! Slow air drifts along the bar from left to right, and through the glass it shows the way a wind
-//! tunnel's schlieren photographs do: as soft light and shade where it gathers and thins, with
-//! faint rims in the logo's colours, amber through mint to cyan. It drifts as soft billows of smoke
-//! with a fine, fluffy grain, which gather, swell, thin and clear over tens of seconds at any
-//! height in the glass. The workspace marker stands in the stream and sheds a curl of smoke every
-//! few seconds, alternately above and below it; each drifts downwind, rises, turns and breathes,
-//! and fades on its own clock. A laser projector at the bar's very middle, behind the clock, throws
-//! sharp, vividly coloured beams out both ways, as at a show, in a pattern symmetrical left to
-//! right and top to bottom: two pairs each way that open and close against each other like
-//! scissors, never turning faster than ten degrees a minute, and swell and fade in turn. Each beam
-//! is widest at the projector and thins with distance, and where it meets the glass's top edge or
-//! its foot it catches the glass in a glint of its own colour. A broad sheen slides slowly along
-//! the frosted glass, kept faint behind the clock as the smoke is. The air bends the bar's picture
-//! behind it, more in the lower glass than over the text, with a hint of colour split, and round
-//! the text and icons its light is held back so they stay easy to read. The foot is a polished edge
-//! with an inner reflection, lit by the light running along it, brighter round the marker and where
-//! smoke sits against it.
+//! The wind comes down the tunnel towards you from the bar's middle, and through the glass it shows
+//! the way a wind tunnel's schlieren photographs do: as soft light and shade where it gathers and
+//! thins, with faint rims in the logo's colours, amber through mint to cyan. It carries soft
+//! billows of smoke with a fine, fluffy grain, which come from far off at the middle, small and
+//! faint, and grow and speed up as they stream out to either end towards you, gathering, swelling,
+//! thinning and clearing over tens of seconds at any height in the glass. The workspace marker
+//! stands in the stream and sheds a curl of smoke every few seconds, alternately above and below
+//! it; each comes towards you, swelling, drifts outwards, rises, turns and breathes, and fades on
+//! its own clock. A laser projector at the bar's very middle, behind the clock, throws sharp, vivid
+//! beams in the primary colour out both ways, as at a show, in a pattern symmetrical left to right
+//! and top to bottom: two pairs each way that open and close against each other like scissors,
+//! never turning faster than ten degrees a minute, and swell and fade in turn. Each beam is widest
+//! at the projector and thins with distance, and where it meets the glass's top edge or its foot it
+//! catches the glass in a glint. A broad sheen slides slowly along the frosted glass, kept faint
+//! behind the clock as the smoke is. The air bends the bar's picture behind it, more in the lower
+//! glass than over the text, with a hint of colour split, and round the text and icons its light is
+//! held back so they stay easy to read: a beam nearing text fades and bends away from it, as the
+//! glass round the text were a lens. The foot is a polished edge with an inner reflection, lit by
+//! the light running along it, brighter round the marker and where smoke sits against it.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -93,9 +95,10 @@ uniform vec3 origins_more;
 const float PI = 3.14159265;
 // The thin haze everywhere, as a share of the thickest smoke.
 const float HAZE = 0.12;
-// How fast the air drifts and the curls with it, units a second.
-const float AIR = 5.0;
-const float DRIFT = 6.0;
+// How fast the smoke comes down the tunnel towards you, in its depth a second, and how fast the
+// curls drift outwards, units a second.
+const float TOWARDS = 0.08;
+const float OUTWARDS = 1.5;
 // The height of the marker's line, which the curls leave from.
 const float WAKE_Y = 31.5;
 
@@ -167,27 +170,41 @@ float hash2(vec2 c) {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-// The fine grain smoke is made of: small soft lumps, the same size every way, carried a little
-// faster than the billows they sit in, from 0 to 1.
-float grain(vec2 p, float t) {
-    vec2 q = vec2(p.x - 1.1 * AIR * t, p.y) / 9.0;
-    return 0.5 + 0.5 * (0.65 * snoise(vec3(q, t * 0.08)) + 0.35 * snoise(vec3(q * 2.3 + 4.1, t * 0.11)));
+// Where `p` lies in the tunnel, the wind coming down it towards you from the bar's middle: how
+// deep it is (far at the middle, near at the ends, as in perspective), how high, and which side of
+// the middle. The smoke is drawn in these, so it comes from far off at the middle, small, and grows
+// and speeds up as it streams out to either end towards you.
+vec3 tunnel(vec2 p) {
+    float centre = 0.5 * frame.x / frame.z;
+    float out_from = max(abs(p.x - centre), 40.0);
+    float depth = 1000.0 / out_from;
+    return vec3(depth, (p.y - 20.0) * depth / 40.0, sign(p.x - centre));
 }
 
-// The fog at `p`, given its grain: soft billows carried downwind and curled by the air, gathering
-// here and clearing there over tens of seconds, at any height in the glass. It thins softly at
-// its edges, and the grain gives it the fluffy texture of real smoke.
-float fog(vec2 p, float t, float grained) {
-    vec2 q = vec2((p.x - AIR * t) / 150.0, p.y / 18.0);
-    vec2 w = vec2(snoise(vec3(q * 0.6, t * 0.025)), snoise(vec3(q * 0.6 + 5.2, t * 0.025 + 3.0)));
-    float body = 0.5 + 0.5 * fbm(vec3(q + 1.2 * w, t * 0.03));
-    float life = snoise(vec3((p.x - 0.8 * AIR * t) / 380.0, 1.7, t * 0.033));
+// The fine grain smoke is made of: small soft lumps that come down the tunnel with it, from 0 to
+// 1.
+float grain(vec3 at, float t) {
+    vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 2.2, at.y * 6.0, at.z * 11.0 + t * 0.05);
+    return 0.5 + 0.5 * (0.65 * snoise(q) + 0.35 * snoise(q * 2.3 + 4.1));
+}
+
+// The fog at `p`, given where it lies in the tunnel and its grain: soft billows coming towards
+// you, curled by the air, gathering here and clearing there over tens of seconds, at any height in
+// the glass. It thins softly at its edges, the grain gives it the fluffy texture of real smoke, and
+// far off down the tunnel it is fainter.
+float fog(vec2 p, vec3 at, float t, float grained) {
+    vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 0.5, at.y * 1.6, at.z * 5.0);
+    vec2 w = vec2(snoise(q * 0.6 + vec3(0.0, 0.0, t * 0.02)),
+                  snoise(q * 0.6 + vec3(5.2, 0.0, t * 0.02 + 3.0)));
+    float body = 0.5 + 0.5 * fbm(q + vec3(1.2 * w, t * 0.03));
+    float life = snoise(vec3((at.x * 5.4 + TOWARDS * t) * 0.12, at.z * 3.0, t * 0.033));
     float d = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
     d *= 0.6 + 0.8 * grained;
     // A thin haze fills the whole glass between the billows, as in a club, so the beams always
     // have something to light.
     d = HAZE + (1.0 - HAZE) * d;
-    return d * smoothstep(0.0, 7.0, p.y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, p.y));
+    float far = mix(0.5, 1.0, smoothstep(1.5, 8.0, 1000.0 / max(at.x, 0.1) / 40.0));
+    return d * far * smoothstep(0.0, 7.0, p.y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, p.y));
 }
 
 float origin(int k) {
@@ -200,8 +217,8 @@ float origin(int k) {
     return origins_more.z;
 }
 
-// The marker's curls as smoke: each one drifts downwind and rises from where it left, swells,
-// breathes, turns and fades on its own clock.
+// The marker's curls as smoke: each one comes towards you, swelling as it does, drifts outwards
+// from the middle and rises from where it left, breathes, turns and fades on its own clock.
 float curls(vec2 p, float t) {
     float acc = 0.0;
     for (int k = 0; k < 7; k++) {
@@ -211,13 +228,14 @@ float curls(vec2 p, float t) {
         float a = t - n * SHED;
         float life = 45.0 + 30.0 * hash(n);
         float side = mod(n, 2.0) < 0.5 ? 1.0 : -1.0;
-        float across = from + 22.0 + DRIFT * a;
+        float away = from < 0.5 * frame.x / frame.z ? -1.0 : 1.0;
+        float across = from + away * (12.0 + OUTWARDS * a);
         // Too far along the bar to reach here at its widest breath: skip its noise.
-        if (abs(p.x - across) > 5.2 * (4.0 + 0.16 * a)) continue;
+        if (abs(p.x - across) > 5.2 * (4.0 + 0.22 * a)) continue;
         float lift = -0.22 * a + 10.0 * snoise(vec3(n * 1.7, a * 0.03, 5.0));
         vec2 c = vec2(across, clamp(WAKE_Y + side * 3.0 + lift, 7.0, 35.0));
         float breathe = 1.0 + 0.3 * snoise(vec3(n * 3.1, a * 0.12, 0.0));
-        float r0 = (4.0 + 0.16 * a) * breathe;
+        float r0 = (4.0 + 0.22 * a) * breathe;
         float fade = smoothstep(0.0, 6.0, a) * smoothstep(life, life * 0.45, a);
         vec2 d = p - c;
         float r = length(d);
@@ -229,8 +247,9 @@ float curls(vec2 p, float t) {
 
 // All the smoke at `p`: the fog, and the curls, with the same grain.
 float smoke(vec2 p, float t) {
-    float grained = grain(p, t);
-    return fog(p, t, grained) + 1.2 * curls(p, t) * (0.6 + 0.4 * grained);
+    vec3 at = tunnel(p);
+    float grained = grain(at, t);
+    return fog(p, at, t, grained) + 1.2 * curls(p, t) * (0.6 + 0.4 * grained);
 }
 
 // The smoke here, for the picture's pixels under this one of the field's.
@@ -246,8 +265,9 @@ void main() {
 
 /// The ink map: how near each spot of the bar is to its text and icons, worked out from the
 /// picture once each time it is painted, at the field's resolution, into rows of the same texture
-/// under the field. Red is the nearest bright pixel a few pixels round, green along a stretch of
-/// its line, which is what a beam has to stay clear of not to strike text through. Its numbers
+/// under the field. Red is how near a bright pixel is, a few pixels round, and green how near one is
+/// along a stretch of its line, which is what a beam has to stay clear of not to strike text
+/// through; both fade smoothly with distance. Its numbers
 /// are in the bar's units unless they say otherwise.
 const INK: &str = r#"#version 100
 
@@ -278,12 +298,14 @@ void main() {
     vec2 px = v_coords * frame.xy;
     float near = 0.0;
     float along = 0.0;
-    for (int j = -2; j <= 2; j++) {
-        for (int i = -9; i <= 9; i++) {
-            vec2 at = (px + vec2(float(i) * 2.0, float(j) * 1.5) * frame.z) / frame.xy;
-            float ink = dot(texture2D(tex, at).rgb, vec3(0.33));
-            along = max(along, ink);
-            if (i >= -1 && i <= 1) near = max(near, ink);
+    // Each bright pixel counts for less the further off it is, so both fade smoothly with
+    // distance rather than stopping at an edge.
+    for (int j = -3; j <= 3; j++) {
+        for (int i = -14; i <= 14; i++) {
+            vec2 off = vec2(float(i) * 2.0, float(j) * 1.5);
+            float ink = dot(texture2D(tex, (px + off * frame.z) / frame.xy).rgb, vec3(0.33));
+            along = max(along, ink * exp(-off.x * off.x / 256.0 - off.y * off.y / 16.0));
+            near = max(near, ink * exp(-dot(off, off) / 9.0));
         }
     }
     gl_FragColor = vec4(near, along, 0.0, 1.0) * alpha;
@@ -332,6 +354,8 @@ uniform vec2 gap;
 uniform vec2 clock;
 
 const float PI = 3.14159265;
+// How far a beam bends away from text for each step in the ink map, units.
+const float BEND = 30.0;
 const vec3 AMBER = vec3(0.96, 0.66, 0.30);
 const vec3 MINT = vec3(0.42, 0.90, 0.70);
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
@@ -357,10 +381,6 @@ vec2 inked(vec2 px) {
     vec2 at = clamp(px / vec2(FIELD_X, FIELD_Y), vec2(0.5), cells - 0.5);
     return texture2D(tex, vec2(at.x, frame.y + cells.y + at.y) / frame.xw).rg;
 }
-
-// Laser light's own colours: pure and saturated, as no paint or screen colour is.
-const vec3 LASER_GREEN = vec3(0.12, 1.0, 0.42);
-const vec3 LASER_AMBER = vec3(1.0, 0.58, 0.1);
 
 // `c` with its colour pushed further from grey, as laser light is.
 vec3 vivid(vec3 c) {
@@ -389,16 +409,15 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     // The projector sits behind the clock, so a beam is fainter behind the clock, the date and
     // the chip after them, and comes into its own once it is clear of them.
     float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
-    float clear = mix(0.6, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
+    float clear = mix(0.56, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
     vec3 colour = vivid(hue);
     return (colour * body + vec3(0.55) * hot * body + 0.08 * colour * glow + 0.04 * colour * bloom)
         * exp(-along / 1800.0) * seen * clear;
 }
 
 // The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
-// pattern is symmetrical, left to right and top to bottom: four beams each way, an inner pair in
-// the ring's colour and an outer pair turning slowly from green to amber, which open and close
-// against each other like scissors, crossing in a diamond behind the clock. The pairs swell and
+// pattern is symmetrical, left to right and top to bottom: four beams each way in the primary
+// colour, an inner pair and an outer pair, which open and close against each other like scissors, crossing in a diamond behind the clock. The pairs swell and
 // fade in turn, and the whole show breathes. No beam turns faster than ten degrees a minute.
 const vec2 PROJECTOR_Y = vec2(0.5, 20.0);
 
@@ -413,7 +432,7 @@ void show(int i, float t, out vec2 dir, out float lit, out vec3 hue) {
     float swell = sin(2.0 * PI * t / 23.0);
     lit = (0.85 + 0.15 * sin(2.0 * PI * t / 41.0))
         * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell));
-    hue = inner ? ring : mix(LASER_GREEN, LASER_AMBER, 0.5 + 0.5 * sin(2.0 * PI * t / 180.0));
+    hue = ring;
     dir = vec2(side * cos(angle), -sin(angle));
 }
 
@@ -431,7 +450,7 @@ vec3 lasers(vec2 p, float t, float wide, float f, float through) {
 }
 
 // Light catching the glass where a beam meets it: at the top edge or the polished foot, each
-// beam lights a point in its own colour, white at the middle, drawn out a little along the edge
+// beam lights a point in its colour, white at the middle, drawn out a little along the edge
 // with a soft bloom, as bright as the beam is.
 vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
     vec3 acc = vec3(0.0);
@@ -508,7 +527,11 @@ void main() {
     // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
     // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
     // beam the smoke's own glow is a little darker, so the beam stands out.
-    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.55 * glass;
+    // Nearing text, a beam bends away from it, as though the glass round the text were a lens:
+    // the beams are drawn as if this pixel lay a little further from the text than it does.
+    float lens = (inked(px + vec2(0.0, 2.0 * f)).y - inked(px - vec2(0.0, 2.0 * f)).y) / 4.0;
+    vec2 bent = p - vec2(0.0, clamp(lens * BEND, -4.0, 4.0));
+    vec3 beams = lasers(bent, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
     float beside = smoothstep(0.0, 0.1, dot(beams, vec3(0.33)));
     light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
         * (1.0 - 0.5 * beside);
@@ -525,7 +548,7 @@ void main() {
     float behind_clock = smoothstep(clock.x - 12.0, clock.x + 12.0, p.x)
         * (1.0 - smoothstep(clock.y - 12.0, clock.y + 12.0, p.x));
     light *= 1.0 - 0.55 * behind_clock;
-    beams *= 1.0 - mix(0.9, 0.5, behind_clock) * smoothstep(0.15, 0.4, ink.y);
+    beams *= 1.0 - mix(0.92, 0.54, behind_clock) * smoothstep(0.05, 0.5, ink.y);
 
     // Where the beams catch the glass, after that: on its edges, never on the text.
     beams += glints(px, p, t, f, wide);
