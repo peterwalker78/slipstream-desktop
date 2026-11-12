@@ -378,9 +378,9 @@ uniform vec2 stage;
 
 // How far a beam reaches once the projector has fully powered up, units: past either end.
 const float POWER_REACH = 1400.0;
-// How bright the glass's edges are with no smoke against them, so the pane's outline is always
-// faintly there.
-const float EDGE_SEEN = 0.12;
+// How wide the pane's bevelled edge is, in the bar's units, and the green its cut edge shows.
+const float BEVEL = 4.0;
+const vec3 GLASS_GREEN = vec3(0.5, 0.9, 0.78);
 
 const float PI = 3.14159265;
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
@@ -413,6 +413,14 @@ vec3 vivid(vec3 c) {
     return clamp(mix(vec3(grey), c, 1.6), 0.0, 1.0);
 }
 
+// How much of a beam's light shows `x` units along the bar, its projector at `middle`: the
+// projector sits behind the clock, so from just clear of the clock, the date and the chip after
+// them, a beam fades steadily the nearer it is to the middle, and is gone there.
+float clear_of_clock(float x, float middle) {
+    float reach = (x < middle ? middle - clock.x : clock.y - middle) + 30.0;
+    return smoothstep(0.0, reach, abs(x - middle));
+}
+
 // One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a straight
 // line with a sharp edge, in a vivid colour, with a thin white-hot line down its middle and only
 // a breath of glow round it, the same brightness all along. In perspective it is widest at its
@@ -431,10 +439,7 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     float bloom = exp(-off * off / (40.0 * width * width)) * through;
     // Seen mostly for its own light, smoke or not, and a little more where smoke is thick.
     float seen = 0.6 + 0.5 * through;
-    // The projector sits behind the clock, so a beam is fainter behind the clock, the date and
-    // the chip after them, and comes into its own once it is clear of them.
-    float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
-    float clear = mix(0.56, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
+    float clear = clear_of_clock(from.x + dir.x * along, from.x);
     // Powering up, the beam draws out from the projector.
     float front = stage.x * POWER_REACH;
     float drawn_out = 1.0 - smoothstep(front - 40.0, front, along);
@@ -509,7 +514,7 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
         float bloom = exp(-dot(d, d) / (30.0 * f * f));
         vec3 colour = vivid(hue);
         acc += (mix(colour, vec3(1.0), 0.6) * point + colour * (0.45 * drawn + 0.12 * bloom))
-            * lit * exp(-along / 1800.0) * arrives;
+            * lit * exp(-along / 1800.0) * arrives * clear_of_clock(hit.x, from.x);
     }
     return acc;
 }
@@ -517,6 +522,25 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
 void main() {
     float f = frame.z;
     vec2 px = v_coords * frame.xw;
+    // The pane's edges are bevelled: over the last few units to each edge its face curves away,
+    // and everything seen through that band, the smoke, the lasers and the picture, is bent in
+    // from nearer the middle, as thick glass bends what is behind its edge. None along the foot
+    // where a docked pane's frame carries the bar on down.
+    float bevel_w = BEVEL * f;
+    bool docked = px.x > gap.x * f && px.x < gap.y * f;
+    float edge_d = px.y;
+    vec2 out_way = vec2(0.0, -1.0);
+    float to_foot = docked ? 1e4 : frame.y - px.y;
+    if (to_foot < edge_d) { edge_d = to_foot; out_way = vec2(0.0, 1.0); }
+    if (px.x < edge_d) { edge_d = px.x; out_way = vec2(-1.0, 0.0); }
+    if (frame.x - px.x < edge_d) { edge_d = frame.x - px.x; out_way = vec2(1.0, 0.0); }
+    float bevelled = clamp(edge_d / bevel_w, 0.0, 1.0);
+    vec2 uv = v_coords;
+    if (bevelled < 1.0) {
+        float bent = (1.0 - bevelled) * (1.0 - bevelled) * bevel_w * 1.6;
+        px -= out_way * bent;
+        uv = px / frame.xw;
+    }
     vec2 p = px / f;
     float wide = frame.x / f;
     float t = air.x;
@@ -539,14 +563,14 @@ void main() {
     // a hint of colour split.
     float bending = glass * smoothstep(8.0, 30.0, p.y) * mix(0.45, 1.0, smoothstep(24.0, 32.0, p.y));
     // Clear of the text it isn't bent at all, so takes a single read.
-    vec4 behind = texture2D(tex, v_coords);
+    vec4 behind = texture2D(tex, uv);
     if (bending > 0.0) {
         vec2 bend = clamp(g, -1.5, 1.5) * bending * f / frame.xw;
         // Never into the field's rows under the picture.
         float floor_y = (frame.y - 0.5) / frame.w;
-        behind = texture2D(tex, vec2(v_coords.x + bend.x, min(v_coords.y + bend.y, floor_y)));
-        behind.r = texture2D(tex, vec2(v_coords.x + 1.45 * bend.x, min(v_coords.y + 1.45 * bend.y, floor_y))).r;
-        behind.b = texture2D(tex, vec2(v_coords.x + 0.55 * bend.x, min(v_coords.y + 0.55 * bend.y, floor_y))).b;
+        behind = texture2D(tex, vec2(uv.x + bend.x, min(uv.y + bend.y, floor_y)));
+        behind.r = texture2D(tex, vec2(uv.x + 1.45 * bend.x, min(uv.y + 1.45 * bend.y, floor_y))).r;
+        behind.b = texture2D(tex, vec2(uv.x + 0.55 * bend.x, min(uv.y + 0.55 * bend.y, floor_y))).b;
     }
 #if defined(NO_ALPHA)
     behind = vec4(behind.rgb, 1.0);
@@ -606,34 +630,33 @@ void main() {
     // Only the rows round the foot have an edge to light.
     float lit = 0.0;
     if (p.y > 35.0) {
-        lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
+        lit = 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
     }
     float in_gap = clamp(min(px.x + 0.5, gap.y * f) - max(px.x - 0.5, gap.x * f), 0.0, 1.0);
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
-    // The top and both ends show their edges as the foot does, as a pane of glass carries light
-    // out to its edges: a bright face and its reflection across the glass's thickness, wavering
-    // with the air, always faintly there and lit up where smoke sits against them.
-    if (p.y < 5.0) {
-        float top_lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 2.0 * f)));
-        float t1 = (px.y - (0.5 * f - waver)) / f;
-        float t2 = (px.y - (2.7 * f - 0.6 * waver)) / f;
-        light += mix(ring, PALE, 0.18) * (exp(-t1 * t1 / 0.38) + 0.34 * exp(-t2 * t2 / 0.5)) * top_lit;
-    }
-    float end = min(p.x, wide - p.x);
-    if (end < 5.0) {
-        float at_end = p.x < wide * 0.5 ? 2.0 * f : frame.x - 2.0 * f;
-        float end_lit = EDGE_SEEN + 0.45 * smoothstep(0.0, 0.8, field(vec2(at_end, px.y)));
-        float side_waver = clamp(g.x * 5.0 / 7.0, -0.8, 0.8);
-        float e1 = end - 0.5 - side_waver;
-        float e2 = end - 2.7 - 0.6 * side_waver;
-        light += mix(ring, PALE, 0.18) * (exp(-e1 * e1 / 0.38) + 0.34 * glass * exp(-e2 * e2 / 0.5)) * end_lit;
+    // The pane's cut edge, as a sheet of glass shows its own: a narrow band of the glass's cool
+    // green all round, with a bright line at the very edge and a finer one where the band meets
+    // the face, glowing where the smoke inside carries light out to it.
+    vec3 bevel_colour = vec3(0.0);
+    {
+        float band = 3.0 * f;
+        float in_band = 1.0 - smoothstep(band - 0.7, band + 0.7, edge_d);
+        float outer = exp(-pow(edge_d - 0.5, 2.0) / 0.45);
+        float inner = exp(-pow(edge_d - band, 2.0) / 0.5);
+        if (in_band > 0.0 || inner > 0.01) {
+            float near_x = out_way.y != 0.0 ? px.x : (out_way.x < 0.0 ? 6.0 * f : frame.x - 6.0 * f);
+            float near_y = out_way.y < 0.0 ? 6.0 * f : (out_way.y > 0.0 ? frame.y - 6.0 * f : px.y);
+            float carried = smoothstep(0.0, 0.8, field(vec2(near_x, near_y)));
+            float glow = in_band * (0.06 + 0.16 * carried) + outer * 0.2 + inner * 0.1;
+            bevel_colour = GLASS_GREEN * glow + PALE * outer * 0.05;
+        }
     }
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
     // The glass's own light is kept low, so the bar reads dark.
-    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams, vec3(1.0));
+    vec3 added = min(min(0.64 * light, vec3(0.7, 0.9, 1.0)) + beams + bevel_colour, vec3(1.0));
     vec4 color = vec4(behind.rgb + added * behind.a, behind.a) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)

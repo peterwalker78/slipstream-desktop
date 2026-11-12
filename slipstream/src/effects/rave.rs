@@ -1916,6 +1916,37 @@ vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
         * lens * fade * lit;
 }
 
+// The smoke lit all through the cone a projector at `from` throws along `axis` towards you, seen
+// along `ray` up to the surface `wall` away: a round glow about the projector, brightest at its
+// middle and looking back into it, fading out to the cone's edge. The smoke in it curls slowly
+// round the cone's axis as it drifts, turning faster near the middle, so it lies in arcs round
+// the light. Taken at three depths through the cone.
+vec3 aura(vec3 ray, float wall, vec3 from, vec3 axis, vec3 hue, float lit) {
+    float facing = dot(ray, axis);
+    if (lit <= 0.002 || facing > -0.05) return vec3(0.0);
+    vec3 side = normalize(cross(axis, vec3(0.0, 1.0, 0.0)));
+    vec3 lift = cross(side, axis);
+    float glowing = 0.0;
+    for (int k = 0; k < 3; k++) {
+        float depth = 5.0 + 6.0 * float(k);
+        vec3 centre = from + axis * depth;
+        float hit = dot(centre - eye, axis) / facing;
+        // Thinning out towards the floor, the ceiling or a wall rather than stopping at it.
+        float inside = smoothstep(0.0, 2.5, wall - hit);
+        if (hit < 0.5 || inside <= 0.0) continue;
+        vec3 off = eye + ray * hit - centre;
+        vec2 round_axis = vec2(dot(off, side), dot(off, lift));
+        float out_from = length(round_axis);
+        float reach = depth * 0.28;
+        float glow = exp(-out_from * out_from / (reach * reach));
+        if (glow < 0.01) continue;
+        float turn = atan(round_axis.y, round_axis.x) + 2.4 * exp(-out_from / reach) + 0.04 * bar.x;
+        vec3 curled = centre + (side * cos(turn) + lift * sin(turn)) * out_from;
+        glowing += glow * inside * haze(curled) / (1.0 + 0.012 * depth * depth);
+    }
+    return vivid(hue) * (glowing * lit * phase(-facing) * 0.35);
+}
+
 // The liquid sky: a sheet of light scanned out from the stage over the room at `height`, the
 // smoke drifting through it, rolling slowly with the smoke's own currents. Its light spreads as it
 // fans out, so it is brightest near the stage and fades over you, and brightest looking back
@@ -2017,6 +2048,8 @@ void main() {
             vec3 hue = mod(float(i), 2.0) < 0.5 ? c1 : c2;
             air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir), pix);
         }
+        // Aimed at you, it lights the smoke all through its cone in a round glow.
+        air += aura(ray, wall, apex, axis, c1, cue.x);
     }
 
     // The fans: five projectors along the stage, eight beams each, mirror images either side of the
@@ -2066,15 +2099,10 @@ void main() {
             for (int s = 0; s < 2; s++) {
                 float side = s == 0 ? -1.0 : 1.0;
                 vec3 from = vec3(side * 12.5, TRUSS_Y - 0.4, TRUSS_Z);
-                vec3 last = vec3(0.0);
                 for (int i = 0; i < 4; i++) {
                     float fi = float(i);
                     vec3 dir = aimed(-side * reach_over + (fi - 1.5) * 0.06, -0.14 - 0.03 * fi);
-                    float edge = i == 0 || i == 3 ? 1.0 : 1.0 - 0.85 * scanned;
-                    air += beam(ray, wall, on_surface, lands, from, dir, c3, motion.w * edge, pix);
-                    if (i > 0 && scanned > 0.0)
-                        air += sheet(ray, wall, from, last, dir, c3, motion.w * scanned, pix);
-                    last = dir;
+                    air += beam(ray, wall, on_surface, lands, from, dir, c3, motion.w, pix);
                 }
             }
         }
