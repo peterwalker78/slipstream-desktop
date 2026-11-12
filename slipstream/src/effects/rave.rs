@@ -1305,10 +1305,69 @@ fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
     )
 }
 
+/// Marks the camera's program in a renderer's keeping.
+struct CameraProgram;
+
+fn camera_program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
+    shader::program::<CameraProgram, _>(
+        renderer,
+        |renderer| {
+            let names = [
+                UniformName::new("size", UniformType::_2f),
+                UniformName::new("centre", UniformType::_2f),
+                UniformName::new("held", UniformType::_2f),
+                UniformName::new("view", UniformType::_3f),
+                UniformName::new("crt", UniformType::_4f),
+            ];
+            renderer.compile_custom_texture_shader(CAMERA, &names)
+        },
+        "the rave's camera",
+    )
+}
+
+/// Marks a renderer whose rave is ready.
+struct Warmed;
+
+/// Gets the rave ready on `renderer` before the session's first frame is shown, where a pause
+/// goes unseen: compiles its shaders and draws the club once, small, so the graphics driver has
+/// built all it needs. Otherwise that work falls on the first frames of the dive, the first time
+/// it's started, and the camera stutters. Does nothing once done.
+pub fn warm(renderer: &mut GlesRenderer) {
+    if renderer.egl_context().user_data().get::<Warmed>().is_some() {
+        return;
+    }
+    renderer
+        .egl_context()
+        .user_data()
+        .insert_if_missing(|| Warmed);
+    let _ = camera_program(renderer);
+    let Some(club) = program(renderer) else {
+        return;
+    };
+    let size = Size::from((8, 8));
+    let element = OutputElement::Bar(shader::Kept::default().pixel(
+        club,
+        Rectangle::from_size(size),
+        &Uniforms::default(),
+    ));
+    let sizes = tilt::Sizes {
+        logical: size,
+        physical: (8, 8).into(),
+        scale: 1.0,
+    };
+    let _ = tilt::draw_offscreen(
+        renderer,
+        &mut None,
+        &mut false,
+        &[element],
+        sizes,
+        "the rave's warm-up",
+    );
+}
+
 /// The camera: the screen drawn off screen and shown through a lens that dives into the bar.
 #[derive(Default)]
 struct Camera {
-    program: Option<GlesTexProgram>,
     canvas: Option<tilt::Canvas>,
     /// The shader or the texture failed, so the screen is shown as it is.
     broken: bool,
@@ -1331,23 +1390,10 @@ impl Camera {
         if self.broken {
             return None;
         }
-        if self.program.is_none() {
-            let names = [
-                UniformName::new("size", UniformType::_2f),
-                UniformName::new("centre", UniformType::_2f),
-                UniformName::new("held", UniformType::_2f),
-                UniformName::new("view", UniformType::_3f),
-                UniformName::new("crt", UniformType::_4f),
-            ];
-            match renderer.compile_custom_texture_shader(CAMERA, &names) {
-                Ok(program) => self.program = Some(program),
-                Err(err) => {
-                    tracing::warn!("the rave's camera didn't compile, so it zooms plainly: {err}");
-                    self.broken = true;
-                    return None;
-                }
-            }
-        }
+        let Some(program) = camera_program(renderer) else {
+            self.broken = true;
+            return None;
+        };
         tilt::draw_offscreen(
             renderer,
             &mut self.canvas,
@@ -1373,7 +1419,7 @@ impl Camera {
         );
         Some(TextureShaderElement::new(
             picture,
-            self.program.clone()?,
+            program,
             vec![
                 Uniform::new("size", (w, h)),
                 Uniform::new("centre", (centre.x as f32, centre.y as f32)),

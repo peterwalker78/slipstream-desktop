@@ -311,6 +311,7 @@ pub fn output_elements(
         .unwrap_or_else(|| state.new_saver());
     let now = state.clock.frame();
     crate::paint::trim_layers();
+    crate::effects::rave::warm(renderer);
     // While locked, the lock is all there is: nothing below reads a window, and any rave ends.
     if state.lock.is_some() {
         state.rave = None;
