@@ -41,8 +41,6 @@ sudo apt update && sudo apt install slipstream-desktop
 
 On Ubuntu 26.04, the same three lines with `xUbuntu_26.04` in place of `Debian_13`.
 
-Debian 13 packages xdg-desktop-portal-wlr 0.7, so screen sharing doesn't work there yet; everything else does.
-
 ### Everywhere else
 
 On any other distribution, and on atomic ones such as Bazzite, Silverblue and Kinoite, whose `/usr` a package can't change without rebuilding the system image, it's one command. It downloads the newest release, checks its published checksum and signature, and runs the installer, which says what it will do before writing anything:

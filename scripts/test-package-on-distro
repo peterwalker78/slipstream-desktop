@@ -120,6 +120,7 @@ for path in /usr/bin/slipstream /usr/bin/slipstream-settings /usr/bin/slipstream
         fail "$path isn't there after installing"
         continue
     fi
+    echo "  $path links $(ldd "$path" 2>&1 | awk '{ printf "%s ", $1 }')"
     missing=$(ldd "$path" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
     if [ -n "$missing" ]; then
         fail "$path can't find: $missing"
