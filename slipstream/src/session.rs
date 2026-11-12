@@ -300,8 +300,11 @@ pub struct Recording {
     pub record_due: Option<f64>,
     /// When a desktop that hasn't moved is next checked against the record.
     pub record_again: f64,
-    /// What the file on disk holds, so a desktop that hasn't moved isn't written over and over.
+    /// What was last sent to be written, so a desktop that hasn't moved isn't written over and
+    /// over.
     pub saved_record: Option<Record>,
+    /// Writes the record and deletes it, off the event loop.
+    pub writer: crate::record_writer::Writer,
 }
 
 #[cfg(test)]

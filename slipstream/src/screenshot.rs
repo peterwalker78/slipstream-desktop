@@ -111,13 +111,9 @@ fn folder() -> PathBuf {
         return PathBuf::from(dir);
     }
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
-    let user_dirs = crate::files::read_small(&config.join("user-dirs.dirs"), 64 << 10)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok());
+    let config = slipstream_config::xdg_home("XDG_CONFIG_HOME", ".config");
+    let user_dirs =
+        slipstream_config::files::read_small_text(&config.join("user-dirs.dirs"), 64 << 10);
     folder_in(user_dirs.as_deref(), &home)
 }
 

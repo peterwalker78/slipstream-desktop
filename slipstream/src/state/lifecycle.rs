@@ -164,6 +164,10 @@ impl Slipstream {
         if record.windows.is_empty() {
             return;
         }
+        // A write that failed leaves the file as it was, so the next look writes again.
+        if self.record.writer.take_failed() {
+            self.record.saved_record = None;
+        }
         if self
             .record
             .saved_record
@@ -172,16 +176,9 @@ impl Slipstream {
         {
             return;
         }
-        let path = session::path();
-        match session::write(&path, &record) {
-            Ok(()) => {
-                tracing::debug!(windows = record.windows.len(), "layout written down");
-                self.record.saved_record = Some(record);
-            }
-            Err(err) => {
-                tracing::warn!(path = %path.display(), "couldn't write the layout down: {err}");
-            }
-        }
+        // Off the event loop: the write syncs the disk, which can take seconds.
+        self.record.writer.write(session::path(), record.clone());
+        self.record.saved_record = Some(record);
     }
 
     /// The session an AI agent left a note about in `window`'s terminal, if the terminal's process
@@ -823,24 +820,30 @@ impl Slipstream {
     }
 
     /// Writes the record down, or deletes it, as the switch on the card said. Called once, at the
-    /// point of no return.
+    /// point of no return, and waited for: through the writer, so an earlier record still being
+    /// written can't land after this one.
     pub(super) fn keep_record(&mut self, remember: bool) {
         if !self.owns_state {
             return;
         }
         let path = session::path();
-        let done = match (remember, self.record.exit_record.take()) {
+        let windows = match (remember, self.record.exit_record.take()) {
             (true, Some(record)) => {
                 let windows = record.windows.len();
-                session::write(&path, &record).inspect(|()| {
-                    tracing::info!(windows, path = %path.display(), "layout written down");
-                })
+                self.record.writer.write(path.clone(), record);
+                Some(windows)
             }
             // Off means no record sitting in the state directory at all, not a stale one.
-            _ => session::forget(&path),
+            _ => {
+                self.record.writer.forget(path.clone());
+                None
+            }
         };
-        if let Err(err) = done {
-            tracing::warn!(path = %path.display(), "couldn't keep the layout: {err}");
+        self.record.writer.flush();
+        if self.record.writer.take_failed() {
+            tracing::warn!(path = %path.display(), "couldn't keep the layout");
+        } else if let Some(windows) = windows {
+            tracing::info!(windows, path = %path.display(), "layout written down");
         }
     }
 

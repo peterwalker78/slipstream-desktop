@@ -861,16 +861,10 @@ pub fn bundled_dir() -> Option<PathBuf> {
 /// Every folder plugins are looked for in, the person's own first and those that come with
 /// Slipstream last, so either kind installed under the same name takes its place.
 pub fn dirs() -> Vec<PathBuf> {
-    let shared = std::env::var("XDG_DATA_DIRS")
-        .ok()
-        .filter(|dirs| !dirs.trim().is_empty())
-        .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
     std::iter::once(own_dir())
         .chain(
-            shared
-                .split(':')
-                .map(PathBuf::from)
-                .filter(|dir| dir.is_absolute())
+            crate::xdg_data_dirs()
+                .into_iter()
                 .map(|dir| dir.join("slipstream").join("plugins")),
         )
         .chain(bundled_dir())
@@ -1199,7 +1193,7 @@ pub fn web_address(text: &str) -> Option<String> {
         && text.len() <= 2048
         && !text
             .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || hides(c));
+            .any(|c| c.is_whitespace() || c.is_control() || crate::text::hidden(c));
     fine.then(|| text.to_string())
 }
 
@@ -1347,11 +1341,12 @@ struct PrintedButton {
     copy: Option<String>,
 }
 
-/// `text` cut to `chars` characters, on one line.
+/// `text` cut to `chars` characters, on one line, without the characters that would make what a
+/// plugin prints read as something else.
 fn clip(text: &str, chars: usize) -> String {
     let line: String = text
         .chars()
-        .filter(|c| !hides(*c))
+        .filter(|c| !crate::text::hidden(*c))
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
     let line = line.trim();
@@ -1359,17 +1354,6 @@ fn clip(text: &str, chars: usize) -> String {
         Some((at, _)) => format!("{}…", line[..at].trim_end()),
         None => line.to_string(),
     }
-}
-
-/// Characters that change how the text around them shows without showing themselves: the ones
-/// that turn it round, as the right-to-left override does, and those of no width. Taken out of
-/// anything a plugin prints, so what it says reads as what it is.
-fn hides(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}'
-            | '\u{feff}'
-    )
 }
 
 impl Card {

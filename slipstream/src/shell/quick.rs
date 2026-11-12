@@ -1052,10 +1052,14 @@ impl Slipstream {
             return;
         }
         let path = slipstream_config::path();
+        // Held from the read to the write, so a change saved in the Settings app meanwhile isn't
+        // written over.
+        let lock = slipstream_config::lock(&path);
         let saved = slipstream_config::read(&path).and_then(|mut file| {
             change(&mut file);
             slipstream_config::write(&path, &file)
         });
+        drop(lock);
         if let Err(err) = saved {
             tracing::warn!(path = %path.display(), "couldn't change the settings file: {err}");
             self.show_toast(

@@ -417,15 +417,12 @@ fn run(job: Job) {
     }
 }
 
-/// The user's fonts folder, then the system's.
+/// The user's fonts folder, then each of the system's data folders'.
 fn font_dirs() -> Vec<PathBuf> {
-    let data_home = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
-        });
-    vec![data_home.join("fonts"), PathBuf::from("/usr/share/fonts")]
+    std::iter::once(slipstream_config::xdg_home("XDG_DATA_HOME", ".local/share"))
+        .chain(slipstream_config::xdg_data_dirs())
+        .map(|dir| dir.join("fonts"))
+        .collect()
 }
 
 /// Each face's file: for each of its names in turn, the first folder that has it.
@@ -468,7 +465,7 @@ fn load(path: &Path) -> Option<Face<'static>> {
     let data = match map(path) {
         Some(mapped) => mapped,
         None => {
-            let bytes = crate::files::read_small(path, FONT_LIMIT)
+            let bytes = slipstream_config::files::read_small(path, FONT_LIMIT)
                 .inspect_err(|err| {
                     tracing::warn!(path = %path.display(), "couldn't read a fallback font: {err}")
                 })

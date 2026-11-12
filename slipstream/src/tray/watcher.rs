@@ -92,7 +92,10 @@ impl Peer {
         let pidfd = credentials.process_fd();
         // Read by pid, so it counts only while the process the pidfd holds is still the one.
         let cgroup = |of: &str| {
-            crate::files::read_small_text(std::path::Path::new(&format!("/proc/{of}/cgroup")), 4096)
+            slipstream_config::files::read_small_text(
+                std::path::Path::new(&format!("/proc/{of}/cgroup")),
+                4096,
+            )
         };
         if let Some(unit) = pid.and_then(|pid| {
             app_unit(

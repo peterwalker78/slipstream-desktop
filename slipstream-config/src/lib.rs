@@ -101,6 +101,7 @@ pub mod card;
 pub mod command;
 mod display;
 mod file;
+pub mod files;
 mod input;
 mod pages;
 pub mod plugins;
@@ -108,6 +109,7 @@ pub mod screens;
 pub mod shortcuts;
 pub mod sounds;
 pub mod sun;
+pub mod text;
 mod wallpaper;
 pub mod weight;
 mod workspaces;
@@ -119,7 +121,8 @@ pub use display::{
     VariableRefresh,
 };
 pub use file::{
-    FILE_NAME, civil, move_aside, path, read, replace, replace_private, write, xdg_home,
+    FILE_NAME, FileLock, civil, lock, move_aside, path, read, replace, replace_private, write,
+    xdg_data_dirs, xdg_dirs, xdg_home,
 };
 pub use input::{
     Acceleration, Keyboard, KeyboardLayout, LAYOUT_LISTS, LayoutChoice, Mouse, Scrolling, Touchpad,
