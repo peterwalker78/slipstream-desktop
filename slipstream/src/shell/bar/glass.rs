@@ -9,9 +9,9 @@
 //! any height in the glass. The workspace marker stands in the stream and sheds a curl of smoke
 //! every few seconds, alternately above and below it; each drifts downwind, rises, turns and
 //! breathes, and fades on its own clock. A laser projector at the bar's very middle, behind the
-//! clock, throws thin, straight beams out both ways, as at a show, sweeping slowly up and down
-//! past each other while the fan opens and closes, never turning faster than eight degrees a
-//! minute; each beam is widest at the projector and thins with distance, and brightens where it
+//! clock, throws thin, straight beams out both ways, as at a show, in a pattern symmetrical left to
+//! right and top to bottom: two pairs each way that open and close against each other like
+//! scissors, never turning faster than eight degrees a minute, swelling and fading in turn; each beam is widest at the projector and thins with distance, and brightens where it
 //! crosses smoke. A broad sheen slides slowly along the frosted glass, and where it meets the polished
 //! foot and the top edge the light catches the glass at a point that glides with it, and a few
 //! nicks in the foot flare as it passes. The air bends the bar's picture behind it, more in the
@@ -372,31 +372,37 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     float glow = exp(-off * off / (9.0 * width * width));
     // In thick smoke the beam's light spreads into the haze round it.
     float bloom = exp(-off * off / (60.0 * width * width)) * through;
-    // The projector sits behind the clock, so a beam comes into sight only once it is clear of
-    // the clock, the date and the chip after them.
+    // Seen mostly for its own light, smoke or not, and a little more where smoke is thick.
+    float seen = 0.5 + 0.6 * through;
+    // The projector sits behind the clock, so a beam is faint behind the clock, the date and the
+    // chip after them, and comes into its own once it is clear of them.
     float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
-    float clear = smoothstep(reach - 10.0, reach + 30.0, along);
-    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow + 0.12 * hue * bloom)
-        * exp(-along / 1800.0) * (0.35 + 0.9 * through) * clear;
+    float clear = mix(0.6, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
+    return (mix(hue, vec3(1.0), 0.5 * core) * core + 0.25 * hue * glow + 0.06 * hue * bloom)
+        * exp(-along / 1800.0) * seen * clear;
 }
 
-// The laser projector at the bar's very middle, half-way up, behind the clock, as at a show: it
-// throws three beams out each way, in the logo's colours, which sweep slowly up and down past
-// each other while the fan opens and closes, each side a little behind the other. No beam turns
-// faster than eight degrees a minute.
+// The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
+// pattern is symmetrical, left to right and top to bottom: four beams each way, an inner pair in
+// the ring's colour and an outer pair turning slowly from mint to amber, which open and close
+// against each other like scissors, crossing in a diamond behind the clock. The pairs swell and
+// fade in turn, and the whole show breathes. No beam turns faster than eight degrees a minute.
 vec3 lasers(vec2 p, float t, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
     vec2 from = vec2(wide * 0.5, 20.0);
-    // The sweep turns at most six degrees a minute, and the fan opens at most two.
-    float spread = 0.016 + SPREAD_SWING * sin(2.0 * PI * t / SPREAD_PERIOD + 1.0);
-    for (int i = 0; i < 6; i++) {
+    float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
+    float show = 0.85 + 0.15 * sin(2.0 * PI * t / 41.0);
+    float swell = sin(2.0 * PI * t / 23.0);
+    vec3 outer_hue = mix(MINT, AMBER, 0.5 + 0.5 * sin(2.0 * PI * t / 180.0));
+    for (int i = 0; i < 8; i++) {
         float fi = float(i);
-        float side = i < 3 ? -1.0 : 1.0;
-        // Which of the side's three it is: -1, 0 or 1.
-        float k = mod(fi, 3.0) - 1.0;
-        float angle = SWEEP * sin(2.0 * PI * t / SWEEP_PERIOD + side * 0.9) + k * spread;
-        vec3 hue = k < -0.5 ? ring : (k < 0.5 ? MINT : AMBER);
-        acc += beam(p, from, vec2(side * cos(angle), -sin(angle)), hue, f, through);
+        float side = i < 4 ? -1.0 : 1.0;
+        float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
+        bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
+        float angle = up * (inner ? 0.022 + scissor : 0.05 - scissor);
+        float lit = show * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell));
+        vec3 hue = inner ? ring : outer_hue;
+        acc += beam(p, from, vec2(side * cos(angle), -sin(angle)), hue, f, through) * lit;
     }
     return acc;
 }
@@ -479,11 +485,14 @@ void main() {
     float frosting = 0.75 + 0.5 * hash2(floor(px) + 5.5);
     vec3 light = (ring * 0.016 * body + vec3(0.8, 0.92, 1.0) * 0.05 * sheen * frosting * (0.4 + 0.6 * body)) * glass;
 
-    // The smoke catches the light, as edge-lit glass does, nearly white with a touch of the ring,
-    // and its rims show faintly in the logo's colours; the lasers cross it.
-    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass;
-    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
+    // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
+    // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
+    // beam the smoke's own glow is a little darker, so the beam stands out.
     vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.4 * glass;
+    float beside = smoothstep(0.0, 0.08, dot(beams, vec3(0.33)));
+    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
+        * (1.0 - 0.3 * beside);
+    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
 
     // Text and icons stay easy to read: round anything bright in the picture, the smoke's and
     // the sheen's light is held back, so a glyph keeps a dark margin; and a beam through a line
@@ -491,7 +500,10 @@ void main() {
     // or under the numbers and icons, never through them.
     vec2 ink = inked(px);
     light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x);
-    beams *= 1.0 - 0.9 * smoothstep(0.15, 0.4, ink.y);
+    // Behind the clock and the chip, where the projector is, they show through rather more.
+    float behind_clock = smoothstep(clock.x - 6.0, clock.x + 6.0, p.x)
+        * (1.0 - smoothstep(clock.y - 6.0, clock.y + 6.0, p.x));
+    beams *= 1.0 - mix(0.9, 0.5, behind_clock) * smoothstep(0.15, 0.4, ink.y);
     light += beams;
 
     // Where the light catches the glass, after that: it never sits on the text.
@@ -534,15 +546,12 @@ const FIELD_X: f32 = 4.0;
 const FIELD_Y: f32 = 2.0;
 /// The largest gradient of the air the bar's shader takes, either way.
 const GRADIENT: f32 = 2.0;
-/// The lasers: how far the fan sweeps either way, in radians, and how long a sweep takes, and how
-/// long the fan takes to open and close again, in seconds. Together they keep the fastest beam
-/// under eight degrees a minute: a beam's far end creeps a pixel or two a second, which shows if
-/// you watch it for a few seconds and stays out of the way if you don't.
-const SWEEP: f32 = 0.04;
-const SWEEP_PERIOD: f32 = 145.0;
-const SPREAD_PERIOD: f32 = 110.0;
-/// How far the fan opens and closes either way, in radians.
-const SPREAD_SWING: f32 = 0.01;
+/// The lasers' scissors: how far the pairs open and close either way, in radians, and how long
+/// they take to open and close again, in seconds. It keeps the fastest beam under eight degrees a
+/// minute: a beam's far end creeps a pixel or two a second, which shows if you watch it for a few
+/// seconds and stays out of the way if you don't.
+const SCISSOR: f32 = 0.014;
+const SCISSOR_PERIOD: f32 = 60.0;
 
 /// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
@@ -552,10 +561,8 @@ fn source() -> String {
             ("FIELD_X", &FIELD_X),
             ("FIELD_Y", &FIELD_Y),
             ("GRADIENT", &GRADIENT),
-            ("SWEEP", &SWEEP),
-            ("SWEEP_PERIOD", &SWEEP_PERIOD),
-            ("SPREAD_PERIOD", &SPREAD_PERIOD),
-            ("SPREAD_SWING", &SPREAD_SWING),
+            ("SCISSOR", &SCISSOR),
+            ("SCISSOR_PERIOD", &SCISSOR_PERIOD),
         ],
     )
 }
@@ -1106,8 +1113,7 @@ mod tests {
     #[test]
     fn no_laser_turns_faster_than_eight_degrees_a_minute() {
         use std::f32::consts::TAU;
-        // The outer beams turn with the sweep and the fan's opening at once.
-        let fastest = SWEEP * TAU / SWEEP_PERIOD + SPREAD_SWING * TAU / SPREAD_PERIOD;
+        let fastest = SCISSOR * TAU / SCISSOR_PERIOD;
         let per_minute = fastest.to_degrees() * 60.0;
         assert!(per_minute <= 8.0, "{per_minute} degrees a minute");
     }
