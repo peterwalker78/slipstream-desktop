@@ -65,6 +65,15 @@ const RUSH_PEAK: f64 = 15.0;
 const RUSH_UP: f64 = 0.15;
 const RUSH_HOLD: f64 = 0.375;
 const RUSH_DOWN: f64 = 1.0;
+/// The breath in before a rush, seconds: the air keeps its pace while the lasers dip and close a
+/// hair, then the rush blows through.
+const INTAKE: f64 = 0.12;
+/// How long the whole rush lasts, breath and all.
+const RUSH_LONG: f64 = INTAKE + RUSH_UP + RUSH_HOLD + RUSH_DOWN;
+/// How long the projector takes to power up as the desktop comes back, and to go down as it
+/// fades, seconds.
+const POWER_UP: f64 = 0.5;
+const POWER_DOWN: f64 = 0.3;
 /// The longest step the air takes between two frames, so a stall doesn't throw it forward.
 const STEP_MOST: f64 = 0.25;
 /// Where a curl is said to have left from when the marker is nowhere: off the bar, unseen.
@@ -362,6 +371,11 @@ uniform vec3 tertiary;
 uniform vec2 gap;
 // The clock, the date and the chip after them, which the lasers stay clear of: left and right.
 uniform vec2 clock;
+// How far the projector has powered up, 0 to 1, and how deep the breath in before a rush is.
+uniform vec2 stage;
+
+// How far a beam reaches once the projector has fully powered up, units: past either end.
+const float POWER_REACH = 1400.0;
 
 const float PI = 3.14159265;
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
@@ -416,9 +430,12 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
     // the chip after them, and comes into its own once it is clear of them.
     float reach = (dir.x < 0.0 ? from.x - clock.x : clock.y - from.x) + 12.0;
     float clear = mix(0.56, 1.0, smoothstep(reach - 10.0, reach + 30.0, along));
+    // Powering up, the beam draws out from the projector.
+    float front = stage.x * POWER_REACH;
+    float drawn_out = 1.0 - smoothstep(front - 40.0, front, along);
     vec3 colour = vivid(hue);
     return (colour * body + vec3(0.55) * hot * body + 0.08 * colour * glow + 0.04 * colour * bloom)
-        * exp(-along / 1800.0) * seen * clear;
+        * exp(-along / 1800.0) * seen * clear * drawn_out;
 }
 
 // The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
@@ -435,9 +452,11 @@ void show(int i, float t, out vec2 dir, out float lit, out vec3 hue) {
     bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
     float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
     float angle = up * (inner ? 0.022 + scissor : 0.05 - scissor);
+    // Breathing in before a rush, the scissors close a hair and the beams dip.
+    angle = mix(angle, up * 0.036, 0.3 * stage.y);
     float swell = sin(2.0 * PI * t / 23.0);
     lit = (0.85 + 0.15 * sin(2.0 * PI * t / 41.0))
-        * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell));
+        * (0.3 + 0.7 * smoothstep(-0.4, 0.7, inner ? swell : -swell)) * (1.0 - 0.5 * stage.y);
     hue = ring;
     dir = vec2(side * cos(angle), -sin(angle));
 }
@@ -471,6 +490,11 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
         float along = abs((to / f - from.y) / dir.y);
         vec2 hit = from + dir * along;
         if (hit.x < 0.0 || hit.x > wide) continue;
+        // Powering up, a beam catches the glass only once it has reached it, and flashes as it
+        // arrives.
+        float front = stage.x * POWER_REACH;
+        if (along > front) continue;
+        float arrives = 1.0 + 1.5 * exp(-pow((front - along) / 50.0, 2.0)) * (1.0 - step(0.999, stage.x));
         // Where a docked pane's frame carries the bar on down, the foot has no edge to catch.
         if (dir.y > 0.0 && hit.x > gap.x && hit.x < gap.y) continue;
         vec2 d = vec2((p.x - hit.x) * f, px.y - to);
@@ -480,7 +504,7 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
         float bloom = exp(-dot(d, d) / (30.0 * f * f));
         vec3 colour = vivid(hue);
         acc += (mix(colour, vec3(1.0), 0.6) * point + colour * (0.45 * drawn + 0.12 * bloom))
-            * lit * exp(-along / 1800.0);
+            * lit * exp(-along / 1800.0) * arrives;
     }
     return acc;
 }
@@ -553,6 +577,15 @@ void main() {
         * (1.0 - smoothstep(clock.y - 12.0, clock.y + 12.0, p.x));
     light *= 1.0 - 0.55 * behind_clock;
     beams *= 1.0 - mix(0.92, 0.54, behind_clock) * smoothstep(0.05, 0.5, ink.y);
+
+    // Where the scissor pairs meet, about every half a minute, the projector flares softly
+    // behind the clock, held back round its text, and the beams brighten near it.
+    float s = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
+    float meet = exp(-pow((2.0 * SCISSOR - 2.0 * s) / 0.0025, 2.0)) * stage.x;
+    vec2 to_projector = (p - vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y)) * vec2(0.35, 1.0);
+    light += ring * meet * 0.12 * exp(-dot(to_projector, to_projector) / 300.0) * glass
+        * (1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x));
+    beams *= 1.0 + 0.5 * meet * exp(-abs(p.x - wide * PROJECTOR_Y.x) / 250.0);
 
     // Where the beams catch the glass, after that: on its edges, never on the text.
     beams += glints(px, p, t, f, wide);
@@ -630,6 +663,7 @@ struct Uniforms {
     tertiary: [f32; 3],
     gap: [f32; 2],
     clock: [f32; 2],
+    stage: [f32; 2],
 }
 
 impl shader::Uniforms for Uniforms {
@@ -642,6 +676,7 @@ impl shader::Uniforms for Uniforms {
             .with("tertiary", self.tertiary)
             .with("gap", self.gap)
             .with("clock", self.clock)
+            .with("stage", self.stage)
     }
 }
 
@@ -678,6 +713,7 @@ impl shader::Uniforms for FieldUniforms {
 
 /// How many times as fast the air runs `since` seconds after a rush began.
 fn rush(since: f64) -> f64 {
+    let since = since - INTAKE;
     if !(0.0..=RUSH_UP + RUSH_HOLD + RUSH_DOWN).contains(&since) {
         return 1.0;
     }
@@ -685,6 +721,16 @@ fn rush(since: f64) -> f64 {
     let down = 1.0 - ((since - RUSH_UP - RUSH_HOLD) / RUSH_DOWN).max(0.0);
     let e = up.min(down);
     1.0 + (RUSH_PEAK - 1.0) * e * e * (3.0 - 2.0 * e)
+}
+
+/// How deep the breath in before a rush is `since` seconds after the rush was asked for: it swells
+/// over the intake and lets go as the rush takes hold.
+fn intake(since: f64) -> f64 {
+    let long = INTAKE * 1.8;
+    if !(0.0..long).contains(&since) {
+        return 0.0;
+    }
+    (std::f64::consts::PI * since / long).sin().powi(2)
 }
 
 /// How many screens' air has been started, so each one's starts somewhere else.
@@ -701,6 +747,9 @@ pub struct Air {
     rush: Rush,
     /// The step of a fifteenth of a second last drawn, and the clock as it was drawn then.
     held: (i64, f64),
+    /// How far the projector has powered up, 0 to 1, and when that was last moved on.
+    power: f64,
+    power_last: Option<f64>,
     /// Each curl's number and where it left from, by its number's place in the ring.
     origins: [(i64, f32); CURLS + 1],
 }
@@ -726,6 +775,8 @@ impl Air {
             last: None,
             rush: Rush::None,
             held: (i64::MIN, t),
+            power: 0.0,
+            power_last: None,
             origins: [(i64::MIN, NOWHERE); CURLS + 1],
         }
     }
@@ -752,7 +803,7 @@ impl Air {
             self.rush = Rush::Since(now);
         }
         let rushing = match self.rush {
-            Rush::Since(from) if now - from <= RUSH_UP + RUSH_HOLD + RUSH_DOWN => Some(from),
+            Rush::Since(from) if now - from <= RUSH_LONG => Some(from),
             _ => None,
         };
         if moves && let Some(last) = self.last {
@@ -767,6 +818,29 @@ impl Air {
         let at = self.held.1;
         self.note_curls(at, marker.unwrap_or(NOWHERE));
         at
+    }
+
+    /// The projector's power and the breath before a rush at `now`, for the shader. The
+    /// projector powers up while the desktop is `shown` and goes down while it fades; without
+    /// motion (`animated` false) it is simply on.
+    fn stage(&mut self, now: f64, shown: bool, animated: bool) -> [f32; 2] {
+        let step = self
+            .power_last
+            .map_or(0.0, |last| (now - last).clamp(0.0, STEP_MOST));
+        self.power_last = Some(now);
+        self.power = if !animated {
+            1.0
+        } else if shown {
+            (self.power + step / POWER_UP).min(1.0)
+        } else {
+            (self.power - step / POWER_DOWN).max(0.0)
+        };
+        let eased = self.power * self.power * (3.0 - 2.0 * self.power);
+        let breath = match self.rush {
+            Rush::Since(from) => intake(now - from),
+            _ => 0.0,
+        };
+        [eased as f32, breath as f32]
     }
 
     /// The newest curl's number at `at`.
@@ -857,8 +931,11 @@ pub struct Look {
     /// The clock's block, its ends in the bar's units.
     pub clock: (f32, f32),
     pub alpha: f32,
-    /// Whether the air moves.
+    /// Whether the air moves; whether the desktop is shown rather than fading; and whether the
+    /// glass animates at all, which it doesn't with reduced motion or in the power saver mode.
     pub moves: bool,
+    pub shown: bool,
+    pub animated: bool,
     pub now: f64,
 }
 
@@ -910,6 +987,7 @@ impl Glass {
             "the lit edge's ink map",
         )?;
         let at = self.air.advance(look.now, look.moves, look.marker);
+        let stage = self.air.stage(look.now, look.shown, look.animated);
         if self
             .atlas
             .as_ref()
@@ -963,6 +1041,7 @@ impl Glass {
             tertiary: rgb(look.tertiary),
             gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
             clock: look.clock.into(),
+            stage,
         };
         let part = Rectangle::from_size((atlas.size.w as f64, atlas.size.h as f64).into());
         Some(self.kept.texture_part(
@@ -1111,7 +1190,7 @@ mod tests {
         let mut air = Air::starting_at(100.0);
         moved(&mut air, 10.0, 1.0, 60.0);
         air.rush_now();
-        let seen = moved(&mut air, 11.0, 1.525, 60.0);
+        let seen = moved(&mut air, 11.0, RUSH_LONG, 60.0);
         let mut changes = seen.clone();
         changes.dedup();
         assert_eq!(
@@ -1120,12 +1199,13 @@ mod tests {
             "every frame moves while it rushes"
         );
         let went = seen.last().unwrap() - seen.first().unwrap();
-        // Up, held and down again: about 1 + 14 × (0.075 + 0.375 + 0.5) seconds of air.
+        // A breath in, then up, held and down again: about 1.1 + 14 × (0.075 + 0.375 + 0.5)
+        // seconds of air.
         assert!((13.0..16.0).contains(&went), "went {went}");
         assert_eq!(rush(0.3), RUSH_PEAK);
         assert_eq!(rush(2.0), 1.0);
         // And it settles back to fifteen steps a second.
-        let after = moved(&mut air, 12.6, 2.0, 60.0);
+        let after = moved(&mut air, 11.0 + RUSH_LONG + 0.05, 2.0, 60.0);
         let mut changes = after.clone();
         changes.dedup();
         assert!(changes.len() <= 32, "{} changes", changes.len());
@@ -1166,6 +1246,42 @@ mod tests {
             "the newest left from where the marker is now"
         );
         assert_eq!(origins[1], 60.0, "the one before from where it was");
+    }
+
+    #[test]
+    fn a_rush_breathes_in_first_then_blows_through() {
+        assert_eq!(
+            rush(0.05),
+            1.0,
+            "the air keeps its pace while it breathes in"
+        );
+        assert!(intake(INTAKE * 0.9) > 0.9);
+        assert!(rush(INTAKE + RUSH_UP + 0.1) > 10.0);
+        assert_eq!(
+            intake(INTAKE * 2.0),
+            0.0,
+            "let go by the time the rush takes hold"
+        );
+    }
+
+    #[test]
+    fn the_projector_powers_up_as_the_desktop_comes_back_and_is_simply_on_without_motion() {
+        let mut air = Air::starting_at(100.0);
+        assert_eq!(air.stage(0.0, true, true)[0], 0.0, "off at first");
+        let mut power = 0.0;
+        for n in 1..=30 {
+            power = air.stage(n as f64 / 60.0, true, true)[0];
+        }
+        assert_eq!(power, 1.0, "fully on after half a second");
+        for n in 31..=50 {
+            power = air.stage(n as f64 / 60.0, false, true)[0];
+        }
+        assert_eq!(power, 0.0, "down again as the desktop fades");
+        assert_eq!(
+            air.stage(1.0, false, false)[0],
+            1.0,
+            "simply on without motion"
+        );
     }
 
     #[test]

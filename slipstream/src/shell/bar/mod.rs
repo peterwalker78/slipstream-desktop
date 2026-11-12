@@ -340,9 +340,12 @@ impl Bar {
         {
             over(Over::Shaded(pill));
         }
-        if glassy {
-            let look = self.look(draw)?;
-            return self.glass.element(renderer, &look).map(Picture::Glass);
+        // Through the glass, or as painted if the glass can't be drawn.
+        if glassy
+            && let Some(look) = self.look(draw)
+            && let Some(glass) = self.glass.element(renderer, &look)
+        {
+            return Some(Picture::Glass(glass));
         }
         let (buffer, size) = self.buffer.as_ref()?;
         // One buffer pixel per screen pixel, however fractional the scale.
@@ -447,6 +450,8 @@ impl Bar {
             clock: self.clock,
             alpha: draw.alpha,
             moves: self.moves(draw),
+            shown: draw.shown,
+            animated: draw.style == BarStyle::LitEdge && !draw.reduced_motion && !draw.power_saver,
             now: draw.now,
         })
     }
