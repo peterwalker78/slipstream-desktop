@@ -287,6 +287,10 @@ impl Drop for Music {
 
 /// Starts the music at `now`, unless this is a nested run or it can't be written out or played.
 fn play(now: f64, again: bool) -> Option<Music> {
+    // Not even written out for a run that won't play it, since only stopping music removes it.
+    if crate::launch::machine_commands_held() {
+        return None;
+    }
     let path = written(MUSIC_FILE, MUSIC)?;
     spawn(&mut player(&path), "music").map(|child| Music {
         child,
