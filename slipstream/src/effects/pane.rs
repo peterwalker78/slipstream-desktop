@@ -369,11 +369,7 @@ impl Panes {
             .retain(|kept| kept.used && kept.window.alive());
         if !self.textures.is_empty() {
             self.idle_since = None;
-        } else if self
-            .idle_since
-            .get_or_insert_with(Instant::now)
-            .elapsed()
-            >= KEEP_SHADER
+        } else if self.idle_since.get_or_insert_with(Instant::now).elapsed() >= KEEP_SHADER
             && self.program.take().is_some()
         {
             crate::effects::shader::trim_soon();

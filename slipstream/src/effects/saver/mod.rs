@@ -666,7 +666,7 @@ impl Saver {
     /// Brings the picture `along` the way from the previous step's grid to the latest: paints
     /// the cells whose look changed and hands each run of them to `upload`, as pixels and where
     /// they go. The first paint, or one after the grid's size changed, covers the whole picture.
-    fn paint(&mut self, along: f64, upload: &mut dyn FnMut(&[u8], Rectangle<i32, Buffer>)) {
+    fn paint(&mut self, along: f64, upload: &mut Upload) {
         let Saver {
             strip,
             device,
@@ -783,6 +783,9 @@ impl Saver {
         cost.cells += repainted;
     }
 }
+
+/// Takes painted pixels, rows packed together, and the box of the picture they go in.
+type Upload<'a> = dyn FnMut(&[u8], Rectangle<i32, Buffer>) + 'a;
 
 /// How many unchanged cells a run of changed ones carries over rather than ending.
 const RUN_GAP: i32 = 3;
