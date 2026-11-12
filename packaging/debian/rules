@@ -12,6 +12,7 @@ export CARGO_HOME = $(CURDIR)/debian/cargo-home
 override_dh_auto_configure:
 
 override_dh_auto_build:
+	cargo --version
 	cargo build --release --locked --offline -p slipstream -p slipstream-settings -p slipstream-focus
 
 override_dh_auto_test:
@@ -24,3 +25,7 @@ override_dh_dwz:
 
 override_dh_auto_clean:
 	rm -rf target debian/cargo-home
+
+# Each crate in vendor/ keeps its Cargo.toml.orig, and cargo checks it is there.
+override_dh_clean:
+	dh_clean -XCargo.toml.orig
