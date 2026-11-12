@@ -1942,7 +1942,8 @@ vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
 // along `ray`: a round glow about the projector, brightest at its
 // middle and looking back into it, fading out to the cone's edge. The smoke in it curls slowly
 // round the cone's axis as it drifts, turning faster near the middle, so it lies in arcs round
-// the light. Taken at three depths through the cone.
+// the light. Taken at three depths through the cone, and round all the way: a floor line cut
+// across it would show the trick of taking it on flat slices.
 vec3 aura(vec3 ray, vec3 from, vec3 axis, vec3 hue, float lit) {
     float facing = dot(ray, axis);
     if (lit <= 0.002 || facing > -0.05) return vec3(0.0);
@@ -1955,10 +1956,10 @@ vec3 aura(vec3 ray, vec3 from, vec3 axis, vec3 hue, float lit) {
         float hit = dot(centre - eye, axis) / facing;
         if (hit < 0.5) continue;
         vec3 at = eye + ray * hit;
-        // Thinning out towards the floor, the ceiling and the walls rather than stopping at them.
-        // The smoke glows in front of the stage as much as over it, so the stage never cuts a dark
-        // shape out of it.
-        float inside = smoothstep(0.0, 1.5, at.y) * smoothstep(CEILING, CEILING - 2.0, at.y)
+        // Thinning out towards the ceiling and the walls rather than stopping at them. The smoke
+        // glows in front of the stage as much as over it, so the stage never cuts a dark shape out
+        // of it.
+        float inside = smoothstep(CEILING, CEILING - 2.0, at.y)
             * smoothstep(SIDE, SIDE - 2.0, abs(at.x));
         if (inside <= 0.0) continue;
         vec3 off = at - centre;
@@ -2165,6 +2166,10 @@ void main() {
     vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : vec3(0.4);
     vec3 room = albedo * (vec3(0.01) + (abs(what - 1.0) < 0.5 ? vec3(0.0) : lands));
     air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.04;
+    // Low down, between you and the floor, the smoke catches a little of the light spilling down
+    // from the show, so the lower half is never quite black.
+    float low = 1.0 - smoothstep(-0.3, 0.02, ray.y);
+    air += mix(c1, c2, 0.5 + 0.5 * n.x) * (0.25 + 0.75 * here) * low * cue.w * 0.022;
 
     vec3 colour = room + air;
 
