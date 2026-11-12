@@ -76,6 +76,9 @@ pub struct Content {
     /// Bullet time's colour, the secondary: the ring around the workspace it started on, and
     /// what wants attention.
     pub bullet: u32,
+    /// The tertiary colour, what's on or chosen. With the ring's and the secondary, the colours of
+    /// the wind tunnel's smoke at its rims.
+    pub accent: u32,
 
     pub status: Shown,
     /// Do not disturb is on, so the bell shows its sign instead.
@@ -436,6 +439,8 @@ impl Bar {
             }),
             strength: if content.keyboard_here { 1.0 } else { 0.5 },
             ring: content.ring,
+            secondary: content.bullet,
+            tertiary: content.accent,
             gap: content
                 .dock
                 .map(|(left, right)| (units(left), units(right))),
@@ -1455,6 +1460,7 @@ mod tests {
             mode: Some(("BULLET TIME", panel::AMBER)),
             ring: 0x42d3ffff,
             bullet: panel::AMBER,
+            accent: panel::AMBER,
             status: Shown {
                 time: "17:24".into(),
                 date: "Fri 11 Sep".into(),

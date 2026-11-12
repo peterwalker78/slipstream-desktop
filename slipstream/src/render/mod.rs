@@ -189,6 +189,7 @@ fn bar_content(
             .map(|_| ("BULLET TIME", crate::panel::opaque(state.bullet_rgb))),
         ring: crate::panel::opaque(state.ring_rgb),
         bullet: crate::panel::opaque(state.bullet_rgb),
+        accent: crate::panel::opaque(state.accent_rgb),
         status: bar::Shown::of(&crate::status::held(&state.status)),
         do_not_disturb: state.settings.notifications.do_not_disturb,
         unread: state.notices.unread(),

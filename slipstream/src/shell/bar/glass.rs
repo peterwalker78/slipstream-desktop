@@ -4,23 +4,23 @@
 //!
 //! The wind comes down the tunnel towards you from the bar's middle, and through the glass it shows
 //! the way a wind tunnel's schlieren photographs do: as soft light and shade where it gathers and
-//! thins, with faint rims in the logo's colours, amber through mint to cyan. It carries soft
-//! billows of smoke with a fine, fluffy grain, which come from far off at the middle, small and
-//! faint, and grow and speed up as they stream out to either end towards you, gathering, swelling,
-//! thinning and clearing over tens of seconds at any height in the glass. The workspace marker
-//! stands in the stream and sheds a curl of smoke every few seconds, alternately above and below
-//! it; each comes towards you, swelling, drifts outwards, rises, turns and breathes, and fades on
-//! its own clock. A laser projector at the bar's very middle, behind the clock, throws sharp, vivid
-//! beams in the primary colour out both ways, as at a show, in a pattern symmetrical left to right
-//! and top to bottom: two pairs each way that open and close against each other like scissors,
-//! never turning faster than ten degrees a minute, and swell and fade in turn. Each beam is widest
-//! at the projector and thins with distance, and where it meets the glass's top edge or its foot it
-//! catches the glass in a glint. A broad sheen slides slowly along the frosted glass, kept faint
-//! behind the clock as the smoke is. The air bends the bar's picture behind it, more in the lower
-//! glass than over the text, with a hint of colour split, and round the text and icons its light is
-//! held back so they stay easy to read: a beam nearing text fades gradually. The foot is a polished
-//! edge with an inner reflection, lit by the light running along it, brighter round the marker and
-//! where smoke sits against it.
+//! thins, with faint rims in the theme's three colours. It carries soft billows of smoke with a
+//! fine, fluffy grain, which come from far off at the middle, small and faint, and grow and speed
+//! up as they stream out to either end towards you, gathering, swelling, thinning and clearing over
+//! tens of seconds at any height in the glass. The workspace marker stands in the stream and sheds
+//! a curl of smoke every few seconds, alternately above and below it; each comes towards you,
+//! swelling, drifts outwards, rises, turns and breathes, and fades on its own clock. A laser
+//! projector at the bar's very middle, behind the clock, throws sharp, vivid beams in the primary
+//! colour out both ways, as at a show, in a pattern symmetrical left to right and top to bottom:
+//! two pairs each way that open and close against each other like scissors, never turning faster
+//! than ten degrees a minute, and swell and fade in turn. Each beam is widest at the projector and
+//! thins with distance, and where it meets the glass's top edge or its foot it catches the glass in
+//! a glint. A broad sheen slides slowly along the frosted glass, kept faint behind the clock as the
+//! smoke is. The air bends the bar's picture behind it, more in the lower glass than over the text,
+//! with a hint of colour split, and round the text and icons its light is held back so they stay
+//! easy to read: a beam nearing text fades gradually. The foot is a polished edge with an inner
+//! reflection, lit by the light running along it, brighter round the marker and where smoke sits
+//! against it.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -97,7 +97,7 @@ const float PI = 3.14159265;
 const float HAZE = 0.12;
 // How fast the smoke comes down the tunnel towards you, in its depth a second, and how fast the
 // curls drift outwards, units a second.
-const float TOWARDS = 0.08;
+const float TOWARDS = 0.22;
 const float OUTWARDS = 1.5;
 // The height of the marker's line, which the curls leave from.
 const float WAKE_Y = 31.5;
@@ -194,12 +194,19 @@ float grain(vec3 at, float t) {
 // far off down the tunnel it is fainter.
 float fog(vec2 p, vec3 at, float t, float grained) {
     vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 0.5, at.y * 1.6, at.z * 5.0);
-    vec2 w = vec2(snoise(q * 0.6 + vec3(0.0, 0.0, t * 0.02)),
-                  snoise(q * 0.6 + vec3(5.2, 0.0, t * 0.02 + 3.0)));
-    float body = 0.5 + 0.5 * fbm(q + vec3(1.2 * w, t * 0.03));
-    float life = snoise(vec3((at.x * 5.4 + TOWARDS * t) * 0.12, at.z * 3.0, t * 0.033));
+    // The billows change only slowly as they come, so the eye can follow one past.
+    vec2 w = vec2(snoise(q * 0.6 + vec3(0.0, 0.0, t * 0.007)),
+                  snoise(q * 0.6 + vec3(5.2, 0.0, t * 0.007 + 3.0)));
+    float body = 0.5 + 0.5 * fbm(q + vec3(1.2 * w, t * 0.01));
+    float life = snoise(vec3((at.x * 5.4 + TOWARDS * t) * 0.12, at.z * 3.0, t * 0.012));
     float d = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
     d *= 0.6 + 0.8 * grained;
+    // Nearer smoke, on the near side of the tunnel, streaks past twice as fast towards the ends,
+    // fainter, so you feel yourself moving through it.
+    float out_from = 1000.0 / at.x;
+    float near_n = (at.x * 2.7 + TOWARDS * t) * 1.2;
+    float wisps = 0.5 + 0.5 * fbm(vec3(near_n, at.y * 0.4, at.z * 9.0 + t * 0.004));
+    d = max(d, 0.6 * smoothstep(0.55, 0.9, wisps) * smoothstep(150.0, 600.0, out_from));
     // A thin haze fills the whole glass between the billows, as in a club, so the beams always
     // have something to light.
     d = HAZE + (1.0 - HAZE) * d;
@@ -348,14 +355,15 @@ uniform vec4 frame;
 // none), and how strongly the marker glows.
 uniform vec4 air;
 uniform vec3 ring;
+// The theme's secondary and tertiary colours, which with the ring's colour the smoke's rims.
+uniform vec3 secondary;
+uniform vec3 tertiary;
 // Where a docked pane's frame carries the bar on down, so its foot has no edge: left and right.
 uniform vec2 gap;
 // The clock, the date and the chip after them, which the lasers stay clear of: left and right.
 uniform vec2 clock;
 
 const float PI = 3.14159265;
-const vec3 AMBER = vec3(0.96, 0.66, 0.30);
-const vec3 MINT = vec3(0.42, 0.90, 0.70);
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
 
 // A hash without sine, by Dave Hoskins. Distributed under the MIT License.
@@ -463,6 +471,8 @@ vec3 glints(vec2 px, vec2 p, float t, float f, float wide) {
         float along = abs((to / f - from.y) / dir.y);
         vec2 hit = from + dir * along;
         if (hit.x < 0.0 || hit.x > wide) continue;
+        // Where a docked pane's frame carries the bar on down, the foot has no edge to catch.
+        if (dir.y > 0.0 && hit.x > gap.x && hit.x < gap.y) continue;
         vec2 d = vec2((p.x - hit.x) * f, px.y - to);
         if (abs(d.x) > 60.0 * f || abs(d.y) > 8.0 * f) continue;
         float point = exp(-dot(d, d) / (1.2 * f * f));
@@ -493,7 +503,7 @@ void main() {
     g = clamp(g * vec2(26.0, 7.0), -GRADIENT, GRADIENT);
     float strength = length(g);
     float way = 0.5 + 0.5 * sin(atan(g.y, g.x) + 0.6);
-    vec3 col = way < 0.5 ? mix(AMBER, MINT, way * 2.0) : mix(MINT, ring, way * 2.0 - 1.0);
+    vec3 col = way < 0.5 ? mix(secondary, tertiary, way * 2.0) : mix(tertiary, ring, way * 2.0 - 1.0);
     float glass = step(p.y, 39.0);
 
     // The picture behind, bent by the air: a little over the text, more in the lower glass, with
@@ -616,6 +626,8 @@ struct Uniforms {
     frame: [f32; 4],
     air: [f32; 4],
     ring: [f32; 3],
+    secondary: [f32; 3],
+    tertiary: [f32; 3],
     gap: [f32; 2],
     clock: [f32; 2],
 }
@@ -626,6 +638,8 @@ impl shader::Uniforms for Uniforms {
             .with("frame", self.frame)
             .with("air", self.air)
             .with("ring", self.ring)
+            .with("secondary", self.secondary)
+            .with("tertiary", self.tertiary)
             .with("gap", self.gap)
             .with("clock", self.clock)
     }
@@ -835,6 +849,9 @@ pub struct Look {
     pub marker: Option<f32>,
     pub strength: f32,
     pub ring: u32,
+    /// The theme's secondary and tertiary colours.
+    pub secondary: u32,
+    pub tertiary: u32,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
     /// The clock's block, its ends in the bar's units.
@@ -942,6 +959,8 @@ impl Glass {
                 strength(look),
             ],
             ring: rgb(look.ring),
+            secondary: rgb(look.secondary),
+            tertiary: rgb(look.tertiary),
             gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
             clock: look.clock.into(),
         };
