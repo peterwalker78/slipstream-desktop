@@ -87,9 +87,9 @@ fn bar_style(page: &gtk::Box, store: &Store) {
         &bar,
         "Style",
         Some(
-            "The focus bar quietens while you type, the lit edge is frosted glass with slow \
-             smoke and light drifting through it, and the floating strip sits clear of the \
-             screen's edges.",
+            "The focus bar quietens while you type, the wind tunnel is frosted glass with slow \
+             smoke and laser light drifting through it, and the floating strip sits clear of \
+             the screen's edges.",
         ),
         &choice,
     );

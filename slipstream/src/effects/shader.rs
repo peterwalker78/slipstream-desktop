@@ -135,6 +135,12 @@ impl Values {
             .collect()
     }
 
+    /// The numbers as the renderer takes them, for a part drawn outside an element: the first
+    /// of the two counts are these.
+    pub fn listed(&self) -> ([Uniform<'static>; MOST], usize) {
+        (self.uniforms(), self.len)
+    }
+
     /// The numbers as the renderer takes them, on the stack: the first `len` are these.
     fn uniforms(&self) -> [Uniform<'static>; MOST] {
         std::array::from_fn(|n| {
@@ -179,8 +185,8 @@ pub type Shared = Shaded;
 enum Look {
     /// A pixel shader over the whole area, which carries its own alpha in its numbers.
     Pixel(GlesPixelProgram),
-    /// A texture drawn through a shader of its own.
-    Texture(GlesTexProgram, GlesTexture),
+    /// A part of a texture drawn through a shader of its own.
+    Texture(GlesTexProgram, GlesTexture, Rectangle<f64, Buffer>),
 }
 
 impl Element for Shaded {
@@ -197,7 +203,7 @@ impl Element for Shaded {
             Look::Pixel(_) => {
                 Rectangle::from_size(self.area.size.to_f64().to_buffer(1.0, Transform::Normal))
             }
-            Look::Texture(_, texture) => Rectangle::from_size(texture.size().to_f64()),
+            Look::Texture(_, _, part) => *part,
         }
     }
 
@@ -236,7 +242,7 @@ impl RenderElement<GlesRenderer> for Shaded {
                 self.alpha,
                 uniforms,
             ),
-            Look::Texture(program, texture) => frame.render_texture_from_to(
+            Look::Texture(program, texture, _) => frame.render_texture_from_to(
                 texture,
                 src,
                 dst,
@@ -319,8 +325,20 @@ impl Kept {
         alpha: f32,
         uniforms: &impl Uniforms,
     ) -> Shaded {
+        let whole = Rectangle::from_size(texture.size().to_f64());
+        self.texture_part((program, texture, whole), area, alpha, uniforms)
+    }
+
+    /// The `part` of `texture` drawn over `area` through `program` with `uniforms`, at `alpha`.
+    pub fn texture_part(
+        &mut self,
+        (program, texture, part): (GlesTexProgram, GlesTexture, Rectangle<f64, Buffer>),
+        area: Rectangle<i32, Logical>,
+        alpha: f32,
+        uniforms: &impl Uniforms,
+    ) -> Shaded {
         let values = self.note(area, uniforms);
-        self.shaded(area, alpha, values, Look::Texture(program, texture))
+        self.shaded(area, alpha, values, Look::Texture(program, texture, part))
     }
 }
 

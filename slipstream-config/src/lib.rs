@@ -320,7 +320,7 @@ impl BarStyle {
     pub fn label(self) -> &'static str {
         match self {
             BarStyle::Plain => "Focus bar",
-            BarStyle::LitEdge => "Lit edge",
+            BarStyle::LitEdge => "Wind tunnel",
             BarStyle::FloatingStrip => "Floating strip",
         }
     }

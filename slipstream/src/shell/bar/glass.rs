@@ -4,18 +4,23 @@
 //!
 //! Slow air drifts along the bar from left to right, and through the glass it shows the way a
 //! wind tunnel's schlieren photographs do: as soft light and shade where it gathers and thins,
-//! with rims in the logo's colours, amber through mint to cyan. It drifts in patches of fog that
-//! gather, swell, thin and clear over tens of seconds, at any height in the glass. The workspace
-//! marker stands in the stream and sheds a curl of smoke every few seconds, alternately above and
-//! below it; each drifts downwind, rises, turns and breathes, and fades on its own clock. Three
-//! thin laser sheets cross the bar at shallow angles, seen only where they pass through smoke, and
-//! tip by a few degrees over most of a minute. A broad sheen slides slowly along the frosted
+//! with faint rims in the logo's colours, amber through mint to cyan. It drifts in patches of
+//! smoke that gather, swell, thin and clear over tens of seconds, at any height in the glass,
+//! their edges fraying into threads. The workspace marker stands in the stream and sheds a curl of smoke every few seconds, alternately above and
+//! below it; each drifts downwind, rises, turns and breathes, and fades on its own clock. Two laser
+//! projectors beyond the bar throw fans of beams across it in perspective, seen mostly where they
+//! pass through smoke, scanning by a few degrees over most of a minute. A broad sheen slides slowly along the frosted
 //! glass, and in it single facets of the frosting flash as pinpoints as the light lines up with
 //! them. The air bends the bar's picture behind it, more in the lower glass than over the text,
 //! with a hint of colour split. The foot is a polished edge with an inner reflection, lit by the
 //! light running along it, brighter round the marker and where fog sits against it.
 //!
-//! Nothing moves faster than a few pixels a second, so it is drawn about fifteen times a second.
+//! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
+//! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
+//! picture; the bar's own shader then reads the smoke and the air's gradient from that field, and
+//! adds the lasers, the sheen and its glints, and the edge, each of which gives up early where it
+//! has nothing to draw. Nothing moves faster than a few pixels a second, so it is drawn about
+//! fifteen times a second.
 //! When the workspace changes the air rushes: for about a second and a half it runs up to fifteen
 //! times as fast, at the display's own rate, and settles back. It holds still while the desktop
 //! is fading, with reduced motion, and while the power mode is set to save power, so then it
@@ -28,11 +33,11 @@ use smithay::{
     backend::{
         allocator::Fourcc,
         renderer::{
-            ImportMem,
-            gles::{GlesRenderer, GlesTexture},
+            Bind, Color32F, Frame, ImportMem, Offscreen, Renderer,
+            gles::{GlesError, GlesPixelProgram, GlesRenderer, GlesTexture},
         },
     },
-    utils::{Logical, Rectangle},
+    utils::{Logical, Physical, Rectangle, Size, Transform},
 };
 
 use crate::effects::shader::{self, Shaded, Values};
@@ -57,26 +62,15 @@ const STEP_MOST: f64 = 0.25;
 /// Where a curl is said to have left from when the marker is nowhere: off the bar, unseen.
 const NOWHERE: f32 = -1e4;
 
-/// The shader, in the bar's units (forty to its height) unless it says otherwise. The picture's
-/// colours are premultiplied, and the light is added to them without changing their alpha.
-const SHADER: &str = r#"#version 100
-
-//_DEFINES_
-
-#if defined(EXTERNAL)
-#extension GL_OES_EGL_image_external : require
-#endif
-
+/// The smoke's field: the smoke's density, worked out once a frame at a quarter of the picture's
+/// width and half its height into rows of the same texture under the picture, so the noise is
+/// worked out once for every eight pixels and the bar's own shader only reads it, taking the
+/// air's gradient from neighbouring cells. Its numbers are in the bar's units unless they say
+/// otherwise.
+const FIELD: &str = r#"
 precision highp float;
-#if defined(EXTERNAL)
-uniform samplerExternalOES tex;
-#else
-uniform sampler2D tex;
-#endif
-
-uniform float alpha;
 varying vec2 v_coords;
-
+uniform float alpha;
 #if defined(DEBUG_FLAGS)
 uniform float tint;
 #endif
@@ -89,14 +83,8 @@ uniform vec4 air;
 // Where each curl left from, the newest first: across the bar, in its units.
 uniform vec4 origins;
 uniform vec3 origins_more;
-uniform vec3 ring;
-// Where a docked pane's frame carries the bar on down, so its foot has no edge: left and right.
-uniform vec2 gap;
 
 const float PI = 3.14159265;
-const vec3 AMBER = vec3(0.96, 0.66, 0.30);
-const vec3 MINT = vec3(0.42, 0.90, 0.70);
-const vec3 PALE = vec3(0.86, 0.97, 1.0);
 // How fast the air drifts and the curls with it, units a second.
 const float AIR = 5.0;
 const float DRIFT = 6.0;
@@ -163,6 +151,7 @@ float hash(float n) {
     return fract(sin(n * 12.9898) * 43758.5453);
 }
 
+
 // A hash without sine, by Dave Hoskins. Distributed under the MIT License.
 float hash2(vec2 c) {
     vec3 p3 = fract(vec3(c.xyx) * 0.1031);
@@ -170,14 +159,36 @@ float hash2(vec2 c) {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-// The fog at `p`: smoky, carried downwind, gathering here and clearing there over tens of
-// seconds, at any height in the glass.
-float fog(vec2 p, float t) {
+// Ridged noise: bright creases where the noise crosses zero, the threads smoke is made of, from 0
+// to 1.
+float threads(vec3 q) {
+    float sum = 0.0;
+    float share = 0.5;
+    for (int i = 0; i < 2; i++) {
+        sum += share * (1.0 - abs(snoise(q)));
+        q = q * 2.1 + 3.7;
+        share *= 0.5;
+    }
+    return sum / 0.75;
+}
+
+// The threads at `p`, stretched along the flow and carried a little faster than the fog they fray.
+float fray(vec2 p, float t) {
+    vec2 q = vec2((p.x - 1.2 * AIR * t) / 70.0, p.y / 10.0);
+    vec2 w = vec2(snoise(vec3(q * 0.25, t * 0.04)), snoise(vec3(q * 0.25 + 5.2, t * 0.04 + 3.0)));
+    return threads(vec3(q + 1.4 * w, t * 0.05));
+}
+
+// The fog at `p`, frayed by `frayed`: carried downwind, gathering here and clearing there over tens
+// of seconds, at any height in the glass. Its edges break into threads and it thins softly, so it
+// reads as smoke rather than a film.
+float fog(vec2 p, float t, float frayed) {
     vec2 q = vec2((p.x - AIR * t) / 150.0, p.y / 16.0);
     vec2 w = vec2(snoise(vec3(q * 0.7, t * 0.025)), snoise(vec3(q * 0.7 + 5.2, t * 0.025 + 3.0)));
-    float f = 0.5 + 0.5 * fbm(vec3(q + 0.8 * w, t * 0.03));
-    float life = snoise(vec3((p.x - 4.0 * AIR / 5.0 * t) / 380.0, 1.7, t * 0.033));
-    float d = smoothstep(0.33, 0.72, f + 0.55 * life);
+    float body = 0.5 + 0.5 * fbm(vec3(q + 0.8 * w, t * 0.03));
+    float life = snoise(vec3((p.x - 0.8 * AIR * t) / 380.0, 1.7, t * 0.033));
+    float d = smoothstep(0.2, 0.95, body + 0.55 * life + 0.45 * (frayed - 0.6));
+    d *= 0.7 + 0.3 * frayed;
     return d * smoothstep(0.0, 7.0, p.y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, p.y));
 }
 
@@ -213,36 +224,122 @@ float curls(vec2 p, float t) {
         vec2 d = p - c;
         float r = length(d);
         float arm = 0.5 + 0.5 * sin(atan(d.y, d.x) + side * 1.6 * r / r0 - side * 0.3 * a);
-        acc += fade * exp(-r * r / (1.8 * r0 * r0)) * (0.35 + 0.65 * arm);
+        acc += fade * exp(-r * r / (1.8 * r0 * r0)) * (0.55 + 0.45 * arm);
     }
     return acc;
 }
 
+// All the smoke at `p`: the fog, and the curls frayed by the same threads.
 float smoke(vec2 p, float t) {
-    return fog(p, t) + 1.2 * curls(p, t);
+    float frayed = fray(p, t);
+    return fog(p, t, frayed) + 1.2 * curls(p, t) * (0.45 + 0.55 * frayed);
 }
 
-// The laser sheets: thin beams seen only where they cross the smoke. Two cross between the
-// workspaces and the clock, one rising from the foot and one falling from the top; the third
-// rises leftwards from the foot past the tray. Each tips slowly, and its pivot drifts along the
-// bar.
+// The smoke here, for the picture's pixels under this one of the field's.
+void main() {
+    float here = clamp(smoke(v_coords * frame.xy / frame.z, air.x), 0.0, 1.0);
+    gl_FragColor = vec4(here, here, here, 1.0) * alpha;
+#if defined(DEBUG_FLAGS)
+    if (tint == 1.0)
+        gl_FragColor = vec4(0.0, 0.2, 0.0, 0.2) + gl_FragColor * 0.8;
+#endif
+}
+"#;
+
+/// The bar's shader: the picture bent by the air, with the light the smoke, the lasers, the sheen
+/// and the edge add to it. Its colours are premultiplied, and the light is added to them without
+/// changing their alpha.
+const SHADER: &str = r#"#version 100
+
+//_DEFINES_
+
+#if defined(EXTERNAL)
+#extension GL_OES_EGL_image_external : require
+#endif
+
+precision highp float;
+#if defined(EXTERNAL)
+uniform samplerExternalOES tex;
+#else
+uniform sampler2D tex;
+#endif
+
+uniform float alpha;
+varying vec2 v_coords;
+
+#if defined(DEBUG_FLAGS)
+uniform float tint;
+#endif
+
+// The picture's width and height in screen pixels, screen pixels to one of the bar's units, and
+// the height of the texture holding the picture with the smoke's field under it.
+uniform vec4 frame;
+// The air's clock in seconds, the newest curl's number, the marker's middle (far off the bar for
+// none), and how strongly the marker glows.
+uniform vec4 air;
+uniform vec3 ring;
+// Where a docked pane's frame carries the bar on down, so its foot has no edge: left and right.
+uniform vec2 gap;
+
+const float PI = 3.14159265;
+const vec3 AMBER = vec3(0.96, 0.66, 0.30);
+const vec3 MINT = vec3(0.42, 0.90, 0.70);
+const vec3 PALE = vec3(0.86, 0.97, 1.0);
+
+// A hash without sine, by Dave Hoskins. Distributed under the MIT License.
+float hash2(vec2 c) {
+    vec3 p3 = fract(vec3(c.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// The smoke at the picture's pixel `px`, from the field in the texture's rows under the picture.
+float field(vec2 px) {
+    vec2 cells = ceil(frame.xy / vec2(FIELD_X, FIELD_Y));
+    vec2 at = clamp(px / vec2(FIELD_X, FIELD_Y), vec2(0.5), cells - 0.5);
+    return texture2D(tex, vec2(at.x, frame.y + at.y) / frame.xw).r;
+}
+
+// One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`. Seen in
+// perspective it is a hairline where it leaves its projector, far off, and widens and softens as
+// it comes nearer; its white-hot core thins out as the same light spreads wider. Where it lights
+// smoke it breaks into the grain laser light has, which shimmers slowly.
+vec3 beam(vec2 p, float t, vec2 from, vec2 dir, vec3 hue, float seed, float f, float through) {
+    vec2 rel = p - from;
+    float along = dot(rel, dir);
+    float width = 0.4 + along * 0.0018 * f;
+    float off = (rel.x * dir.y - rel.y * dir.x) * f;
+    if (along < 0.0 || abs(off) > 12.0 * width) return vec3(0.0);
+    float core = exp(-off * off / (width * width));
+    float halo = exp(-off * off / (25.0 * width * width));
+    // Laser speckle: a fine grain, a couple of pixels across, that shimmers slowly.
+    vec2 cell = floor(p * f / 2.0) + 31.0 * seed;
+    float phase = t * 0.7;
+    float grain = 0.7 + 0.3 * (2.0 * mix(hash2(cell + floor(phase)), hash2(cell + floor(phase) + 1.0),
+        smoothstep(0.0, 1.0, fract(phase))) - 1.0);
+    float grainy = mix(1.0, grain, smoothstep(0.0, 0.3, through));
+    float spread = inversesqrt(max(width, 1.0));
+    return (mix(hue, vec3(1.0), 0.55 * core) * core * spread * grainy + 0.22 * hue * halo)
+        * exp(-along / 1300.0) * (0.08 + 1.3 * through);
+}
+
+// Two laser projectors beyond the bar, each throwing a fan of beams that scans slowly. One, below
+// the foot, fans up and rightwards past the workspaces; the other, above the top, fans down and
+// leftwards past the tray. Each drifts along the bar.
 vec3 lasers(vec2 p, float t, float wide, float f, float through) {
     vec3 acc = vec3(0.0);
+    vec2 low = vec2(wide * 0.2 + 60.0 * sin(2.0 * PI * t / 170.0), 58.0);
+    for (int i = 0; i < 4; i++) {
+        float fi = float(i);
+        float angle = 0.03 + 0.017 * fi + 0.01 * sin(2.0 * PI * t / (52.0 + 11.0 * fi) + fi * 1.7);
+        acc += beam(p, t, low, vec2(cos(angle), -sin(angle)), ring, fi, f, through);
+    }
+    vec2 high = vec2(wide * 0.82 + 60.0 * sin(2.0 * PI * t / 210.0 + 2.0), -18.0);
     for (int i = 0; i < 3; i++) {
         float fi = float(i);
-        float across = i == 0 ? 0.30 : (i == 1 ? 0.38 : 0.76);
-        float y = i == 1 ? 0.0 : 40.0;
-        float tip = i == 0 ? 0.05 : (i == 1 ? -0.045 : -0.055);
-        vec2 pivot = vec2(wide * across + 70.0 * sin(2.0 * PI * t / (130.0 + 40.0 * fi) + fi * 1.9), y);
-        float angle = tip + 0.016 * sin(2.0 * PI * t / (48.0 + 17.0 * fi) + fi * 2.1);
-        vec2 dir = vec2(cos(angle), -sin(angle));
-        vec2 rel = p - pivot;
-        float along = dot(rel, dir);
-        float off = (rel.x * dir.y - rel.y * dir.x) * f;
-        float beam = exp(-off * off / 0.35) + 0.18 * exp(-off * off / 9.0);
-        float reach = smoothstep(0.0, 60.0, abs(along)) * exp(-abs(along) / 900.0);
-        vec3 hue = i == 0 ? ring : (i == 1 ? MINT : AMBER);
-        acc += hue * beam * reach * (0.04 + 1.2 * through);
+        float angle = 0.028 + 0.02 * fi + 0.01 * sin(2.0 * PI * t / (61.0 + 9.0 * fi) + fi * 2.3);
+        vec3 hue = i == 1 ? AMBER : MINT;
+        acc += beam(p, t, high, vec2(-cos(angle), sin(angle)), hue, 10.0 + fi, f, through);
     }
     return acc;
 }
@@ -255,12 +352,16 @@ vec3 lasers(vec2 p, float t, float wide, float f, float through) {
 vec3 sparkle(vec2 p, float t, float from_sheen, float f) {
     vec2 cell = floor(p / 2.0);
     float h1 = hash2(cell);
-    float h2 = hash2(cell + 17.3);
-    float h3 = hash2(cell + 41.9);
     float h4 = hash2(cell + 77.1);
     float tilt = sqrt(-2.0 * log(max(h1, 1e-4))) * cos(2.0 * PI * h4);
-    float want = from_sheen + 0.05 * sin(2.0 * PI * t / 23.0) + 0.04 * snoise(vec3(t / 9.0, 0.0, 3.0));
-    float lit = exp(-pow((tilt - want) / 0.008, 2.0));
+    float want = from_sheen + 0.05 * sin(2.0 * PI * t / 23.0)
+        + 0.04 * sin(2.0 * PI * t / 9.0 + 1.3) * sin(2.0 * PI * t / 13.7);
+    // Nearly every facet faces away: those go no further.
+    float miss = (tilt - want) / 0.008;
+    if (abs(miss) > 3.0) return vec3(0.0);
+    float lit = exp(-miss * miss);
+    float h2 = hash2(cell + 17.3);
+    float h3 = hash2(cell + 41.9);
     vec2 d = (p - (cell + 0.25 + 0.5 * vec2(h2, h3)) * 2.0) * f;
     float point = exp(-dot(d, d) / 0.32) + 0.12 * exp(-dot(d, d) / 2.5);
     vec3 hue = mix(vec3(0.92, 0.98, 1.0), h3 > 0.82 ? AMBER : ring, 0.22);
@@ -269,18 +370,20 @@ vec3 sparkle(vec2 p, float t, float from_sheen, float f) {
 
 void main() {
     float f = frame.z;
-    vec2 px = v_coords * frame.xy;
+    vec2 px = v_coords * frame.xw;
     vec2 p = px / f;
     float wide = frame.x / f;
     float t = air.x;
 
-    // The air's gradient, read as a schlieren photograph reads it: its strength and which way it
-    // runs, the way giving the colour.
-    float e = 1.25;
-    float here = smoke(p, t);
-    float gx = (smoke(p + vec2(e, 0.0), t) - smoke(p - vec2(e, 0.0), t)) / (2.0 * e);
-    float gy = (smoke(p + vec2(0.0, e), t) - smoke(p - vec2(0.0, e), t)) / (2.0 * e);
-    vec2 g = vec2(gx * 26.0, gy * 7.0);
+    // The smoke, worked out at a lower resolution once a frame, and the air's gradient across
+    // the field's neighbouring cells, as a schlieren photograph reads it: its strength and which
+    // way it runs, the way giving the colour.
+    float here = field(px);
+    vec2 step_px = vec2(FIELD_X, FIELD_Y);
+    vec2 g = vec2(field(px + vec2(step_px.x, 0.0)) - field(px - vec2(step_px.x, 0.0)),
+                  field(px + vec2(0.0, step_px.y)) - field(px - vec2(0.0, step_px.y)))
+        * f / (2.0 * step_px);
+    g = clamp(g * vec2(26.0, 7.0), -GRADIENT, GRADIENT);
     float strength = length(g);
     float way = 0.5 + 0.5 * sin(atan(g.y, g.x) + 0.6);
     vec3 col = way < 0.5 ? mix(AMBER, MINT, way * 2.0) : mix(MINT, ring, way * 2.0 - 1.0);
@@ -289,10 +392,16 @@ void main() {
     // The picture behind, bent by the air: a little over the text, more in the lower glass, with
     // a hint of colour split.
     float bending = glass * smoothstep(8.0, 30.0, p.y) * mix(0.45, 1.0, smoothstep(24.0, 32.0, p.y));
-    vec2 bend = clamp(g, -1.5, 1.5) * bending * f / frame.xy;
-    vec4 behind = texture2D(tex, v_coords + bend);
-    behind.r = texture2D(tex, v_coords + bend * 1.45).r;
-    behind.b = texture2D(tex, v_coords + bend * 0.55).b;
+    // Clear of the text it isn't bent at all, so takes a single read.
+    vec4 behind = texture2D(tex, v_coords);
+    if (bending > 0.0) {
+        vec2 bend = clamp(g, -1.5, 1.5) * bending * f / frame.xw;
+        // Never into the field's rows under the picture.
+        float floor_y = (frame.y - 0.5) / frame.w;
+        behind = texture2D(tex, vec2(v_coords.x + bend.x, min(v_coords.y + bend.y, floor_y)));
+        behind.r = texture2D(tex, vec2(v_coords.x + 1.45 * bend.x, min(v_coords.y + 1.45 * bend.y, floor_y))).r;
+        behind.b = texture2D(tex, vec2(v_coords.x + 0.55 * bend.x, min(v_coords.y + 0.55 * bend.y, floor_y))).b;
+    }
 #if defined(NO_ALPHA)
     behind = vec4(behind.rgb, 1.0);
 #endif
@@ -306,22 +415,27 @@ void main() {
     float grain = 0.75 + 0.5 * hash2(floor(px) + 5.5);
     vec3 light = (ring * 0.016 * body + vec3(0.8, 0.92, 1.0) * 0.05 * sheen * grain * (0.4 + 0.6 * body)) * glass;
 
-    // The smoke catches the light, as edge-lit glass does, and its rims show in the logo's
-    // colours; the lasers cross it, and the frosting glints.
-    light += mix(ring, col, 0.55) * smoothstep(0.0, 1.0, here) * 0.15 * glass;
-    light += col * smoothstep(0.08, 0.8, strength) * 0.15 * glass * smoothstep(16.0, 39.0, p.y);
-    light += lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.3 * glass;
+    // The smoke catches the light, as edge-lit glass does, nearly white with a touch of the ring,
+    // and its rims show faintly in the logo's colours; the lasers cross it, and the frosting
+    // glints.
+    light += mix(PALE, ring, 0.3) * smoothstep(0.0, 1.0, here) * (0.12 + 0.06 * body) * glass;
+    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.06 * glass * smoothstep(16.0, 39.0, p.y);
+    light += lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.45 * glass;
     light += sparkle(p, t, from_sheen, f) * 1.1 * glass;
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
     // reflection, brighter round the marker and where fog sits against it. None where a docked
     // pane's frame carries the bar on down.
     float foot = frame.y - 0.5 * f;
-    float waver = clamp(gy * 5.0, -0.8, 0.8) * f;
+    float waver = clamp(g.y * 5.0 / 7.0, -0.8, 0.8) * f;
     float d1 = (px.y - (foot + waver)) / f;
     float d2 = (px.y - (foot - 2.2 * f + 0.6 * waver)) / f;
     float near = exp(-pow((p.x - air.z) / 300.0, 2.0)) * air.w;
-    float lit = 0.26 + 0.24 * near + 0.45 * smoothstep(0.0, 0.8, fog(vec2(p.x, 38.0), t));
+    // Only the rows round the foot have an edge to light.
+    float lit = 0.0;
+    if (p.y > 35.0) {
+        lit = 0.26 + 0.24 * near + 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
+    }
     float in_gap = clamp(min(px.x + 0.5, gap.y * f) - max(px.x - 0.5, gap.x * f), 0.0, 1.0);
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
@@ -335,21 +449,37 @@ void main() {
 }
 "#;
 
-/// Marks the glass's program in a renderer's keeping.
+/// Mark the glass's programs in a renderer's keeping.
 struct Program;
+struct FieldProgram;
 
-/// The shader with the numbers it shares with the clock here.
+/// The smoke's field has one cell for this many screen pixels across, and this many down.
+const FIELD_X: f32 = 4.0;
+const FIELD_Y: f32 = 2.0;
+/// The largest gradient of the air the bar's shader takes, either way.
+const GRADIENT: f32 = 2.0;
+
+/// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
-    shader::with_constants(SHADER, &[("SHED", &SHED)])
+    shader::with_constants(
+        SHADER,
+        &[
+            ("FIELD_X", &FIELD_X),
+            ("FIELD_Y", &FIELD_Y),
+            ("GRADIENT", &GRADIENT),
+        ],
+    )
 }
 
-/// The shader's numbers, all plain values.
+fn field_source() -> String {
+    shader::with_constants(FIELD, &[("SHED", &SHED)])
+}
+
+/// The bar's shader's numbers, all plain values.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Uniforms {
-    frame: [f32; 3],
+    frame: [f32; 4],
     air: [f32; 4],
-    origins: [f32; 4],
-    origins_more: [f32; 3],
     ring: [f32; 3],
     gap: [f32; 2],
 }
@@ -359,10 +489,27 @@ impl shader::Uniforms for Uniforms {
         Values::default()
             .with("frame", self.frame)
             .with("air", self.air)
-            .with("origins", self.origins)
-            .with("origins_more", self.origins_more)
             .with("ring", self.ring)
             .with("gap", self.gap)
+    }
+}
+
+/// The field's shader's numbers.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct FieldUniforms {
+    frame: [f32; 3],
+    air: [f32; 4],
+    origins: [f32; 4],
+    origins_more: [f32; 3],
+}
+
+impl shader::Uniforms for FieldUniforms {
+    fn values(&self) -> Values {
+        Values::default()
+            .with("frame", self.frame)
+            .with("air", self.air)
+            .with("origins", self.origins)
+            .with("origins_more", self.origins_more)
     }
 }
 
@@ -486,16 +633,44 @@ impl Air {
     }
 }
 
-/// The bar's picture, uploaded for the shader.
+/// The bar's picture, uploaded, and its size in screen pixels.
 struct Picture {
     texture: GlesTexture,
-    size: [f32; 2],
+    size: Size<i32, Physical>,
+}
+
+/// The texture the bar is drawn from: the picture, and the smoke's field in the rows under it.
+struct Atlas {
+    texture: GlesTexture,
+    /// The picture's size, which it was made for.
+    size: Size<i32, Physical>,
+    /// The picture is in it as last painted.
+    holds_picture: bool,
+    /// The air's time its field was last worked out for.
+    field_at: Option<f64>,
+}
+
+impl Atlas {
+    /// The field's size in cells for a picture `size` screen pixels.
+    fn cells(size: Size<i32, Physical>) -> Size<i32, Physical> {
+        (
+            (size.w as f32 / FIELD_X).ceil() as i32,
+            (size.h as f32 / FIELD_Y).ceil() as i32,
+        )
+            .into()
+    }
+
+    /// The texture's whole size for a picture `size` screen pixels: the field's rows under it.
+    fn whole(size: Size<i32, Physical>) -> Size<i32, Physical> {
+        (size.w, size.h + Self::cells(size).h).into()
+    }
 }
 
 /// One screen's glass: the picture it bends, its air, and its element kept from frame to frame.
 #[derive(Default)]
 pub struct Glass {
     picture: Option<Picture>,
+    atlas: Option<Atlas>,
     pub air: Air,
     kept: shader::Kept,
 }
@@ -528,17 +703,21 @@ impl Glass {
             .ok()
             .map(|texture| Picture {
                 texture,
-                size: [w as f32, h as f32],
+                size: (w, h).into(),
             });
-        self.kept.changed();
+        if let Some(atlas) = self.atlas.as_mut() {
+            atlas.holds_picture = false;
+        }
     }
 
     /// Lets the picture go, in a style that doesn't need it.
     pub fn forget(&mut self) {
         self.picture = None;
+        self.atlas = None;
     }
 
-    /// The bar as `look` says. `None` without a picture, or if the shader didn't compile.
+    /// The bar as `look` says. `None` without a picture, or if either shader didn't compile or
+    /// the texture couldn't be made or drawn, so the bar is drawn as painted instead.
     pub fn element(&mut self, renderer: &mut GlesRenderer, look: &Look) -> Option<Shaded> {
         let picture = self.picture.as_ref()?;
         let program = shader::program::<Program, _>(
@@ -548,9 +727,64 @@ impl Glass {
             },
             "the lit edge's glass",
         )?;
-        let uniforms = uniforms(&mut self.air, picture.size, look);
-        Some(self.kept.texture(
-            (program, picture.texture.clone()),
+        let field = shader::program::<FieldProgram, _>(
+            renderer,
+            |renderer| {
+                renderer
+                    .compile_custom_pixel_shader(field_source(), &shader::names::<FieldUniforms>())
+            },
+            "the lit edge's smoke",
+        )?;
+        let at = self.air.advance(look.now, look.moves, look.marker);
+        if self
+            .atlas
+            .as_ref()
+            .is_none_or(|atlas| atlas.size != picture.size)
+        {
+            let whole = Atlas::whole(picture.size);
+            let texture = renderer
+                .create_buffer(Fourcc::Abgr8888, (whole.w, whole.h).into())
+                .map_err(|err| tracing::warn!("no texture for the lit edge's glass: {err}"))
+                .ok()?;
+            self.atlas = Some(Atlas {
+                texture,
+                size: picture.size,
+                holds_picture: false,
+                field_at: None,
+            });
+        }
+        let atlas = self.atlas.as_mut()?;
+        if !atlas.holds_picture || atlas.field_at != Some(at) {
+            let numbers = field_uniforms(&self.air, at, picture.size, look);
+            if let Err(err) = fill(renderer, atlas, picture, &field, &numbers) {
+                tracing::warn!("couldn't draw the lit edge's smoke: {err}");
+                self.atlas = None;
+                return None;
+            }
+            atlas.holds_picture = true;
+            atlas.field_at = Some(at);
+            self.kept.changed();
+        }
+        let whole = Atlas::whole(atlas.size);
+        let uniforms = Uniforms {
+            frame: [
+                atlas.size.w as f32,
+                atlas.size.h as f32,
+                look.f,
+                whole.h as f32,
+            ],
+            air: [
+                at as f32,
+                Air::newest(at) as f32,
+                marker(look),
+                strength(look),
+            ],
+            ring: rgb(look.ring),
+            gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
+        };
+        let part = Rectangle::from_size((atlas.size.w as f64, atlas.size.h as f64).into());
+        Some(self.kept.texture_part(
+            (program, atlas.texture.clone(), part),
             look.area,
             look.alpha,
             &uniforms,
@@ -558,35 +792,86 @@ impl Glass {
     }
 }
 
-/// The shader's numbers for a picture `size` screen pixels as `look` says, moving `air` on.
-fn uniforms(air: &mut Air, size: [f32; 2], look: &Look) -> Uniforms {
-    let at = air.advance(look.now, look.moves, look.marker);
-    let marker = look.marker.unwrap_or(NOWHERE);
-    let origins = air.curl_origins(at, marker);
-    let rgb = |c: u32| {
-        [
-            (c >> 24) as f32 / 255.0,
-            ((c >> 16) & 0xff) as f32 / 255.0,
-            ((c >> 8) & 0xff) as f32 / 255.0,
-        ]
-    };
-    Uniforms {
-        frame: [size[0], size[1], look.f],
+/// Draws into `atlas` the picture, if it doesn't hold it yet, and the smoke's field with
+/// `numbers`.
+fn fill(
+    renderer: &mut GlesRenderer,
+    atlas: &mut Atlas,
+    picture: &Picture,
+    field: &GlesPixelProgram,
+    numbers: &FieldUniforms,
+) -> Result<(), GlesError> {
+    let size = atlas.size;
+    let cells = Atlas::cells(size);
+    let mut target = renderer.bind(&mut atlas.texture)?;
+    let mut frame = renderer.render(&mut target, Atlas::whole(size), Transform::Normal)?;
+    if !atlas.holds_picture {
+        let rect = Rectangle::<i32, Physical>::from_size(size);
+        frame.clear(Color32F::TRANSPARENT, &[rect])?;
+        frame.render_texture_from_to(
+            &picture.texture,
+            Rectangle::from_size((size.w as f64, size.h as f64).into()),
+            rect,
+            &[rect],
+            &[],
+            Transform::Normal,
+            1.0,
+            None,
+            &[],
+        )?;
+    }
+    let (list, len) = shader::Uniforms::values(numbers).listed();
+    frame.render_pixel_shader_to(
+        field,
+        Rectangle::from_size((cells.w as f64, cells.h as f64).into()),
+        Rectangle::new((0, size.h).into(), cells),
+        (cells.w, cells.h).into(),
+        Some(&[Rectangle::from_size(cells)]),
+        1.0,
+        &list[..len],
+    )?;
+    // The bar is drawn from it later on the same context, which keeps the order of its
+    // commands, so there is nothing to wait for.
+    let _ordered = frame.finish()?;
+    Ok(())
+}
+
+/// The field's numbers at the air's time `at`, for a picture `size` screen pixels.
+fn field_uniforms(air: &Air, at: f64, size: Size<i32, Physical>, look: &Look) -> FieldUniforms {
+    let origins = air.curl_origins(at, marker(look));
+    FieldUniforms {
+        frame: [size.w as f32, size.h as f32, look.f],
         air: [
             at as f32,
             Air::newest(at) as f32,
-            marker,
-            if look.marker.is_some() {
-                look.strength
-            } else {
-                0.0
-            },
+            marker(look),
+            strength(look),
         ],
         origins: [origins[0], origins[1], origins[2], origins[3]],
         origins_more: [origins[4], origins[5], origins[6]],
-        ring: rgb(look.ring),
-        gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
     }
+}
+
+/// The marker's middle in the bar's units, or far off the bar without one.
+fn marker(look: &Look) -> f32 {
+    look.marker.unwrap_or(NOWHERE)
+}
+
+/// How strongly the marker glows: not at all without one.
+fn strength(look: &Look) -> f32 {
+    if look.marker.is_some() {
+        look.strength
+    } else {
+        0.0
+    }
+}
+
+fn rgb(c: u32) -> [f32; 3] {
+    [
+        (c >> 24) as f32 / 255.0,
+        ((c >> 16) & 0xff) as f32 / 255.0,
+        ((c >> 8) & 0xff) as f32 / 255.0,
+    ]
 }
 
 #[cfg(test)]
@@ -687,14 +972,25 @@ mod tests {
 
     #[test]
     fn the_shared_numbers_come_after_the_shaders_precision() {
-        let source = source();
+        let source = field_source();
         let precision = source.find("precision highp float;").unwrap();
         assert!(source.find("const float SHED = 12.0;").unwrap() > precision);
     }
 
     #[test]
-    fn its_numbers_fit_the_shader_plumbing() {
-        let names = shader::names::<Uniforms>();
-        assert_eq!(names.len(), 6);
+    fn the_field_sits_under_the_picture_with_a_cell_for_every_four_by_two_pixels() {
+        let size = Size::<i32, Physical>::from((1920, 40));
+        assert_eq!(Atlas::cells(size), (480, 20).into());
+        assert_eq!(Atlas::whole(size), (1920, 60).into());
+        // A picture that doesn't divide evenly still has every pixel covered.
+        let odd = Size::<i32, Physical>::from((1537, 41));
+        assert_eq!(Atlas::cells(odd), (385, 21).into());
+    }
+
+    #[test]
+    fn the_shared_numbers_are_declared_in_both_shaders() {
+        assert!(source().contains("const float FIELD_X = 4.0;"));
+        assert!(source().contains("const float GRADIENT = 2.0;"));
+        assert!(field_source().contains("const float SHED = 12.0;"));
     }
 }
