@@ -378,7 +378,7 @@ uniform vec2 stage;
 
 // How far a beam reaches once the projector has fully powered up, units: past either end.
 const float POWER_REACH = 1400.0;
-// How wide the pane's bevelled edge is, in the bar's units, and the green its cut edge shows.
+// How wide the pane's bevelled edge is, in the bar's units, and the glass's own green in it.
 const float BEVEL = 4.0;
 const vec3 GLASS_GREEN = vec3(0.5, 0.9, 0.78);
 
@@ -526,14 +526,20 @@ void main() {
     // and everything seen through that band, the smoke, the lasers and the picture, is bent in
     // from nearer the middle, as thick glass bends what is behind its edge. None along the foot
     // where a docked pane's frame carries the bar on down.
+    // At a corner the two faces meet in a mitre, a clean diagonal seam: the way the surface
+    // turns there swings from one face's to the other's over about a pixel, so each keeps its
+    // own light up to the seam. Where a docked pane's frame carries the bar on down, the foot's
+    // bevel tapers away into it.
     float bevel_w = BEVEL * f;
-    bool docked = px.x > gap.x * f && px.x < gap.y * f;
-    float edge_d = px.y;
-    vec2 out_way = vec2(0.0, -1.0);
-    float to_foot = docked ? 1e4 : frame.y - px.y;
-    if (to_foot < edge_d) { edge_d = to_foot; out_way = vec2(0.0, 1.0); }
-    if (px.x < edge_d) { edge_d = px.x; out_way = vec2(-1.0, 0.0); }
-    if (frame.x - px.x < edge_d) { edge_d = frame.x - px.x; out_way = vec2(1.0, 0.0); }
+    float into_dock = min(px.x - gap.x * f, gap.y * f - px.x);
+    float to_foot = frame.y - px.y + 4.0 * max(into_dock, 0.0);
+    float across_y = min(px.y, to_foot);
+    vec2 way_y = px.y < to_foot ? vec2(0.0, -1.0) : vec2(0.0, 1.0);
+    float across_x = min(px.x, frame.x - px.x);
+    vec2 way_x = px.x < frame.x - px.x ? vec2(-1.0, 0.0) : vec2(1.0, 0.0);
+    float edge_d = min(across_x, across_y);
+    float end_share = smoothstep(-0.75, 0.75, across_y - across_x);
+    vec2 out_way = normalize(mix(way_y, way_x, end_share));
     float bevelled = clamp(edge_d / bevel_w, 0.0, 1.0);
     vec2 uv = v_coords;
     if (bevelled < 1.0) {
@@ -620,8 +626,8 @@ void main() {
     beams += glints(px, p, t, f, wide);
 
     // The polished edge along the foot, wavering with the air: a bright outer face and an inner
-    // reflection, always faintly there and lit up where fog sits against it. None where a docked
-    // pane's frame carries the bar on down.
+    // reflection, lit only where fog sits against it, so it comes and goes with the smoke. None
+    // where a docked pane's frame carries the bar on down.
     float foot = frame.y - 0.5 * f;
     float waver = clamp(g.y * 5.0 / 7.0, -0.8, 0.8) * f;
     float d1 = (px.y - (foot + waver)) / f;
@@ -636,22 +642,24 @@ void main() {
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
-    // The pane's cut edge, as a sheet of glass shows its own: a narrow band of the glass's cool
-    // green all round, with a bright line at the very edge and a finer one where the band meets
-    // the face, glowing where the smoke inside carries light out to it.
+    // The bevel reflects the room, as glass does at a glancing angle: the sheen sliding along the
+    // pane flares as it passes, and elsewhere the bevel holds faint streaks of light and dark. It
+    // catches more from above: most on the top, less on the ends, little on the foot, which faces
+    // away and shades the picture a little. A fine line runs where it meets the flat face and
+    // another at the very edge, and through it shows the glass's own cool green.
     vec3 bevel_colour = vec3(0.0);
-    {
-        float band = 3.0 * f;
-        float in_band = 1.0 - smoothstep(band - 0.7, band + 0.7, edge_d);
+    if (edge_d < bevel_w + 2.0 * f) {
+        float lit_from = 0.5 - 0.5 * out_way.y;
+        float run = mix(p.x, p.y * 4.0, end_share);
+        float from_glint = (p.x - sheen_at * wide) / 150.0;
+        float streaks = 0.5 + 0.5 * sin(run * 0.023 + 1.3) * sin(run * 0.0071 + 0.4);
+        float reflects = 0.4 + 0.6 * streaks * streaks + 1.6 * exp(-from_glint * from_glint);
+        float slope = (1.0 - bevelled) * (1.0 - bevelled);
+        float ridge = exp(-pow(edge_d - bevel_w, 2.0) / (0.5 * f * f));
         float outer = exp(-pow(edge_d - 0.5, 2.0) / 0.45);
-        float inner = exp(-pow(edge_d - band, 2.0) / 0.5);
-        if (in_band > 0.0 || inner > 0.01) {
-            float near_x = out_way.y != 0.0 ? px.x : (out_way.x < 0.0 ? 6.0 * f : frame.x - 6.0 * f);
-            float near_y = out_way.y < 0.0 ? 6.0 * f : (out_way.y > 0.0 ? frame.y - 6.0 * f : px.y);
-            float carried = smoothstep(0.0, 0.8, field(vec2(near_x, near_y)));
-            float glow = in_band * (0.06 + 0.16 * carried) + outer * 0.2 + inner * 0.1;
-            bevel_colour = GLASS_GREEN * glow + PALE * outer * 0.05;
-        }
+        float caught = (slope * 0.22 + ridge * 0.12 + outer * 0.22) * mix(0.3, 1.0, lit_from) * reflects;
+        behind.rgb *= 1.0 - 0.4 * slope * (1.0 - lit_from);
+        bevel_colour = mix(PALE, GLASS_GREEN, 0.35 + 0.3 * (1.0 - bevelled)) * caught;
     }
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
