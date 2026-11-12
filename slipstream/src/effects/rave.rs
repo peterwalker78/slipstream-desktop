@@ -1917,11 +1917,11 @@ vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
 }
 
 // The smoke lit all through the cone a projector at `from` throws along `axis` towards you, seen
-// along `ray` up to the surface `wall` away: a round glow about the projector, brightest at its
+// along `ray`: a round glow about the projector, brightest at its
 // middle and looking back into it, fading out to the cone's edge. The smoke in it curls slowly
 // round the cone's axis as it drifts, turning faster near the middle, so it lies in arcs round
 // the light. Taken at three depths through the cone.
-vec3 aura(vec3 ray, float wall, vec3 from, vec3 axis, vec3 hue, float lit) {
+vec3 aura(vec3 ray, vec3 from, vec3 axis, vec3 hue, float lit) {
     float facing = dot(ray, axis);
     if (lit <= 0.002 || facing > -0.05) return vec3(0.0);
     vec3 side = normalize(cross(axis, vec3(0.0, 1.0, 0.0)));
@@ -1931,10 +1931,15 @@ vec3 aura(vec3 ray, float wall, vec3 from, vec3 axis, vec3 hue, float lit) {
         float depth = 5.0 + 6.0 * float(k);
         vec3 centre = from + axis * depth;
         float hit = dot(centre - eye, axis) / facing;
-        // Thinning out towards the floor, the ceiling or a wall rather than stopping at it.
-        float inside = smoothstep(0.0, 2.5, wall - hit);
-        if (hit < 0.5 || inside <= 0.0) continue;
-        vec3 off = eye + ray * hit - centre;
+        if (hit < 0.5) continue;
+        vec3 at = eye + ray * hit;
+        // Thinning out towards the floor, the ceiling and the walls rather than stopping at them.
+        // The smoke glows in front of the stage as much as over it, so the stage never cuts a dark
+        // shape out of it.
+        float inside = smoothstep(0.0, 1.5, at.y) * smoothstep(CEILING, CEILING - 2.0, at.y)
+            * smoothstep(SIDE, SIDE - 2.0, abs(at.x));
+        if (inside <= 0.0) continue;
+        vec3 off = at - centre;
         vec2 round_axis = vec2(dot(off, side), dot(off, lift));
         float out_from = length(round_axis);
         float reach = depth * 0.28;
@@ -2049,7 +2054,7 @@ void main() {
             air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir), pix);
         }
         // Aimed at you, it lights the smoke all through its cone in a round glow.
-        air += aura(ray, wall, apex, axis, c1, cue.x);
+        air += aura(ray, apex, axis, c1, cue.x);
     }
 
     // The fans: five projectors along the stage, eight beams each, mirror images either side of the

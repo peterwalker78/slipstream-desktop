@@ -413,12 +413,17 @@ vec3 vivid(vec3 c) {
     return clamp(mix(vec3(grey), c, 1.6), 0.0, 1.0);
 }
 
+// How far either way from the bar's `middle` the clock, the date and the chip after them reach,
+// whichever side is the longer, so what is done round them is the same on both sides.
+float clock_half(float middle) {
+    return max(middle - clock.x, clock.y - middle);
+}
+
 // How much of a beam's light shows `x` units along the bar, its projector at `middle`: the
-// projector sits behind the clock, so from just clear of the clock, the date and the chip after
-// them, a beam fades steadily the nearer it is to the middle, and is gone there.
+// projector sits behind the clock, so from just clear of the clock, the date and the chip, a beam
+// fades steadily the nearer it is to the middle, and is gone there.
 float clear_of_clock(float x, float middle) {
-    float reach = (x < middle ? middle - clock.x : clock.y - middle) + 30.0;
-    return smoothstep(0.0, reach, abs(x - middle));
+    return smoothstep(0.0, clock_half(middle) + 30.0, abs(x - middle));
 }
 
 // One laser beam from `from` along `dir`, of colour `hue`, through smoke `through`: a straight
@@ -606,11 +611,13 @@ void main() {
     // or under the numbers and icons, never through them.
     vec2 ink = inked(px);
     light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x);
-    // Behind the clock and the chip, where the projector is, the beams show through rather more,
-    // and the smoke and the sheen less, so the clock never sits on a bright patch.
-    float behind_clock = smoothstep(clock.x - 12.0, clock.x + 12.0, p.x)
-        * (1.0 - smoothstep(clock.y - 12.0, clock.y + 12.0, p.x));
-    light *= 1.0 - 0.55 * behind_clock;
+    // Behind the clock, the date and the chip, where the projector is, the glass is darker all
+    // the way across, the chip as much as the clock, so neither sits on a bright patch: the smoke,
+    // the sheen and the beams are held back evenly, and the beams a little more along the text.
+    float half_block = clock_half(wide * 0.5);
+    float behind_clock = 1.0 - smoothstep(half_block - 12.0, half_block + 24.0, abs(p.x - wide * 0.5));
+    light *= 1.0 - 0.7 * behind_clock;
+    beams *= 1.0 - 0.6 * behind_clock;
     beams *= 1.0 - mix(0.92, 0.54, behind_clock) * smoothstep(0.05, 0.5, ink.y);
 
     // Where the scissor pairs meet, about every half a minute, the projector flares softly
