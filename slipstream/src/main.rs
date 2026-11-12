@@ -699,8 +699,15 @@ fn init_logging() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
     // Colour codes only on a terminal: the login session writes to a log file.
     let format = tracing_subscriber::fmt::layer().with_ansi(std::io::stderr().is_terminal());
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    // `RUST_LOG` as a list of `target=level` and a bare default level, `slipstream=trace,info`.
+    let filter: tracing_subscriber::filter::Targets = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|directives| !directives.trim().is_empty())
+        .and_then(|directives| directives.parse().ok())
+        .unwrap_or_else(|| {
+            tracing_subscriber::filter::Targets::new()
+                .with_default(tracing_subscriber::filter::LevelFilter::INFO)
+        });
     tracing_subscriber::registry()
         .with(filter)
         .with(QuietWhileLocked)
