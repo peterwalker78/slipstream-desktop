@@ -421,32 +421,42 @@ mod tests {
         tests::{at_home, composed, drawn},
     };
 
-    fn run(until: f64) -> (Grid, Layout) {
+    /// Steps one mould through a turn and counts, in the frame last drawn at or before each of
+    /// `at`, the letters at home and the cells drawn: one run serves every check along a turn.
+    fn run(at: &[f64]) -> (Vec<(usize, usize)>, Layout) {
         let layout = layout(1280, 800).unwrap();
         let mut mould = Physarum::default();
         mould.reset(&layout, 3);
         let mut elapsed = 0.0;
-        let mut grid = composed(&mut mould, &layout, 0.0, false);
-        while elapsed <= until {
-            grid = composed(&mut mould, &layout, elapsed, false);
+        let mut counts = Vec::new();
+        while counts.len() < at.len() {
+            let grid = composed(&mut mould, &layout, elapsed, false);
             elapsed += 1.0 / HZ;
+            while counts.len() < at.len() && elapsed > at[counts.len()] {
+                counts.push((at_home(&grid, &layout), drawn(&grid)));
+            }
         }
-        (grid, layout)
+        (counts, layout)
     }
 
     #[test]
     fn the_mould_spreads_out_of_the_logo_and_the_letters_return() {
-        let (standing, layout) = run(APPEAR - 0.1);
-        assert_eq!(at_home(&standing, &layout), layout.letters.len());
-        let (grown, _) = run(APPEAR + SPILL + 10.0);
-        assert!(at_home(&grown, &layout) < layout.letters.len() / 4);
+        let (counts, layout) = run(&[
+            APPEAR - 0.1,
+            APPEAR + SPILL + 10.0,
+            APPEAR + SPILL + GROW + GATHER + REST,
+        ]);
+        let letters = layout.letters.len();
+        let [(standing, _), (grown, grown_drawn), (home, _)] = counts[..] else {
+            unreachable!()
+        };
+        assert_eq!(standing, letters);
+        assert!(grown < letters / 4);
         assert!(
-            drawn(&grown) > (layout.cols * layout.rows) as usize / 20,
-            "a network over the screen: {}",
-            drawn(&grown)
+            grown_drawn > (layout.cols * layout.rows) as usize / 20,
+            "a network over the screen: {grown_drawn}"
         );
-        let (home, _) = run(APPEAR + SPILL + GROW + GATHER + REST);
-        assert_eq!(at_home(&home, &layout), layout.letters.len());
+        assert_eq!(home, letters);
     }
 
     #[test]

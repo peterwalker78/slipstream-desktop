@@ -24,15 +24,19 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  build:
+  # Lint and test are separate jobs so they build side by side: each needs its own full compile
+  # (clippy's checked crates are no use to a test build), and one after the other they took
+  # twice as long.
+  lint:
     runs-on: ubuntu-latest
-    container:
+    container: &fedora
       image: registry.fedoraproject.org/fedora:44
       # The plugin sandbox tests run bubblewrap, which makes namespaces and mounts /proc: what
       # Docker's seccomp and AppArmor profiles and its masked /proc paths otherwise refuse.
       options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
-      - name: Install toolchain and libraries
+      - &toolchain
+        name: Install toolchain and libraries
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc clang mold rustup pkgconf-pkg-config \
             libxkbcommon-devel wayland-devel systemd-devel libinput-devel mesa-libgbm-devel \
@@ -58,7 +62,8 @@ jobs:
           scripts/test-install-sh
           SHELL_UNDER_TEST=dash scripts/test-install-sh
 
-      - uses: actions/cache@v6
+      - &registry
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -71,6 +76,14 @@ jobs:
 
       - name: Clippy
         run: . ~/.cargo/env && cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    container: *fedora
+    steps:
+      - *toolchain
+      - uses: actions/checkout@v7
+      - *registry
 
       - name: Test
         run: . ~/.cargo/env && cargo test --workspace --locked

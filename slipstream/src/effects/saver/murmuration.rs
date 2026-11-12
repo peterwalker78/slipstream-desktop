@@ -515,14 +515,17 @@ mod tests {
         tests::{at_home, drawn},
     };
 
-    fn run(until: f64) -> (Grid, Layout) {
+    /// Steps one flock through a turn and counts, in the frame last drawn at or before each of
+    /// `at`, the letters at home and the cells drawn: one run serves every check along a turn.
+    fn run(at: &[f64]) -> (Vec<(usize, usize)>, Layout) {
         let layout = layout(1280, 800).unwrap();
         let mut flock = Murmuration::default();
         flock.reset(&layout, 3);
         let mut grid = Grid::new(layout.cols, layout.rows);
         let readings = Readings::default();
         let mut elapsed = 0.0;
-        while elapsed <= until {
+        let mut counts = Vec::new();
+        while counts.len() < at.len() {
             grid.blank(layout.cols, layout.rows);
             flock.compose(
                 Frame {
@@ -536,19 +539,28 @@ mod tests {
                 &mut grid,
             );
             elapsed += 1.0 / HZ;
+            while counts.len() < at.len() && elapsed > at[counts.len()] {
+                counts.push((at_home(&grid, &layout), drawn(&grid)));
+            }
         }
-        (grid, layout)
+        (counts, layout)
     }
 
     #[test]
     fn the_logo_takes_off_as_a_flock_and_lands_again() {
-        let (standing, layout) = run(APPEAR - 0.1);
-        assert_eq!(at_home(&standing, &layout), layout.letters.len());
-        let (flying, _) = run(APPEAR + LIFT + 6.0);
-        assert!(at_home(&flying, &layout) < layout.letters.len() / 10);
-        assert!(drawn(&flying) > layout.letters.len() / 4);
-        let (home, _) = run(APPEAR + LIFT + FLY + LAND + REST / 2.0);
-        assert_eq!(at_home(&home, &layout), layout.letters.len());
+        let (counts, layout) = run(&[
+            APPEAR - 0.1,
+            APPEAR + LIFT + 6.0,
+            APPEAR + LIFT + FLY + LAND + REST / 2.0,
+        ]);
+        let letters = layout.letters.len();
+        let [(standing, _), (flying, flying_drawn), (home, _)] = counts[..] else {
+            unreachable!()
+        };
+        assert_eq!(standing, letters);
+        assert!(flying < letters / 10);
+        assert!(flying_drawn > letters / 4);
+        assert_eq!(home, letters);
     }
 
     #[test]

@@ -470,15 +470,17 @@ mod tests {
         tests::{at_home, drawn},
     };
 
-    /// Steps a coral from the start of a turn to `until`, as the saver would.
-    fn grown(until: f64) -> (Grid, Layout) {
+    /// Steps a coral through a turn as the saver would and counts, in the frame last drawn
+    /// before each of `at`, the letters at home and the cells drawn.
+    fn grown(at: &[f64]) -> (Vec<(usize, usize)>, Layout) {
         let layout = layout(1280, 800).unwrap();
         let mut coral = Coral::default();
         coral.reset(&layout, 7);
         let mut grid = Grid::new(layout.cols, layout.rows);
         let readings = Readings::default();
         let mut elapsed = 0.0;
-        while elapsed < until {
+        let mut counts = Vec::new();
+        while counts.len() < at.len() {
             grid.blank(layout.cols, layout.rows);
             coral.compose(
                 Frame {
@@ -492,28 +494,25 @@ mod tests {
                 &mut grid,
             );
             elapsed += 1.0 / HZ;
+            while counts.len() < at.len() && elapsed >= at[counts.len()] {
+                counts.push((at_home(&grid, &layout), drawn(&grid)));
+            }
         }
-        (grid, layout)
+        (counts, layout)
     }
 
     #[test]
-    fn the_pattern_grows_out_of_the_letters() {
-        let (early, layout) = grown(2.0);
-        let (later, _) = grown(12.0);
-        assert_eq!(at_home(&later, &layout), layout.letters.len());
-        let beyond = |grid: &Grid| drawn(grid) - at_home(grid, &layout);
+    fn the_pattern_grows_out_of_the_letters_and_dies_back_before_the_next_turn() {
+        let (counts, layout) = grown(&[2.0, 12.0, TURN - 0.2]);
+        let letters = layout.letters.len();
+        let beyond = |(home, drawn): (usize, usize)| drawn - home;
+        let (early, later) = (beyond(counts[0]), beyond(counts[1]));
+        assert_eq!(counts[1].0, letters);
         assert!(
-            beyond(&later) > beyond(&early) * 3 && beyond(&later) > layout.letters.len(),
-            "it spreads: {} then {}",
-            beyond(&early),
-            beyond(&later)
+            later > early * 3 && later > letters,
+            "it spreads: {early} then {later}"
         );
-    }
-
-    #[test]
-    fn it_dies_back_to_an_empty_screen_before_the_next_turn() {
-        let (gap, _) = grown(TURN - 0.2);
-        assert_eq!(drawn(&gap), 0);
+        assert_eq!(counts[2].1, 0, "an empty screen in the gap between turns");
     }
 
     #[test]
