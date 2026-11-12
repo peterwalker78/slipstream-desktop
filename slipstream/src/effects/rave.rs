@@ -28,15 +28,14 @@
 //! moving smoothly within it and easing into the next so it arrives on the downbeat. The fans open
 //! slowly, every beam sweeps together in unison with the outer pair low across the floor, the two
 //! sides cross in an X whose meeting point moves on each downbeat, waves roll across the fans, and
-//! a pulse chases from beam to beam across every projector and over the floor; over each
-//! eight-bar block's last bar every beam draws into one point, which bursts open on the next
-//! downbeat. The kicks, snares and hi-hats of each sixteenth note were measured from the music and
-//! are kept here: the kicks light the centre fan and the snares the pair beside it, so the hits add
-//! light without moving a beam. A breakdown slows to the centre fan turning in the smoke before its
-//! last two bars build, every beam closing in on you as the chase speeds up, into a dark half beat
-//! and the drop. Big changes of brightness come no faster than the beat, under the three a second
-//! that can bring on a seizure; only thin beams chase faster. It is drawn in the theme's three
-//! colours.
+//! a pulse chases from beam to beam across every projector and over the floor; over each eight-bar
+//! block's last bar every beam draws into one point, which bursts open on the next downbeat. The
+//! kicks, snares and hi-hats of each sixteenth note were measured from the music and are kept here:
+//! the kicks light the centre fan and the snares the pair beside it, so the hits add light without
+//! moving a beam. A breakdown slows to the centre fan turning in the smoke before its last two bars
+//! build, every beam closing in over your head as the chase speeds up, into a dark half beat and
+//! the drop. Big changes of brightness come no faster than the beat, under the three a second that
+//! can bring on a seizure; only thin beams chase faster. It is drawn in the theme's three colours.
 //!
 //! The music plays through PipeWire (`pw-play`), as the volume click does, as one gapless stream:
 //! the build-up into the drop, then the track's loop, from its drop to where it comes back round to
@@ -1894,10 +1893,11 @@ float over_crowd(vec3 from, vec3 dir, float down) {
 // surface, if it lands here. Returns the light the smoke scatters towards the eye along the beam:
 // a core a few millimetres across, widening as the beam spreads with distance and drawn no thinner
 // than a pixel, dimmer in step, so it never steps; a shaft of lit smoke round it; hidden where the
-// stage or a wall is in front of it. It shows only as bright as the smoke it passes through, and
-// brightest looking back along it. A beam seen end on crowds into a short line, held to a little
-// brighter than one seen side on, and one passing the lens fades out of focus, so a beam aimed near
-// you never swells into a disc.
+// stage or a wall is in front of it. It shows only as bright as the smoke it passes through, its
+// clouds and wisps showing along it, and brightest looking back along it. It keeps its colour,
+// burning white only near the projector, where it is brightest. A beam seen end on crowds into a
+// short line, held to a little brighter than one seen side on, and one passing right by the lens
+// fades out of focus, so a beam aimed near you never swells into a disc.
 vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
           vec3 hue, float lit, float pix) {
     if (lit <= 0.002) return vec3(0.0);
@@ -1926,9 +1926,15 @@ vec3 beam(vec3 ray, float wall, vec3 on, inout vec3 lands, vec3 from, vec3 dir,
     float glow = exp(-gap / shaft) * 0.012;
     float lens = 1.0 / max(sqrt(den), 0.7);
     float fade = exp(-along_ray * 0.018) / (1.0 + along_beam * along_beam / 900.0)
-        * smoothstep(1.5, 6.0, along_ray);
-    float seen = 0.15 + 1.3 * thin_haze(from + dir * along_beam);
-    return (colour * (1.8 * core + glow) + vec3(0.9) * core * core) * seen * min(phase(-b), 2.5)
+        * smoothstep(1.0, 4.0, along_ray);
+    // The smoke's full detail only in the core, where it shows; its clouds alone in the glow.
+    vec3 at = from + dir * along_beam;
+    float detail = 1.0 - smoothstep(2.0 * sigma, 4.0 * sigma, gap);
+    float smoke = thin_haze(at);
+    if (detail > 0.0) smoke = mix(smoke, haze(at), detail);
+    float seen = 0.08 + 1.5 * smoothstep(0.15, 0.95, smoke);
+    float white = 0.9 * exp(-along_beam / 3.0);
+    return (colour * (1.8 * core + glow) + vec3(white) * core * core) * seen * min(phase(-b), 2.5)
         * lens * fade * lit;
 }
 
@@ -2054,6 +2060,7 @@ void main() {
 
     // The tunnel: twelve beams from high on the stage scanned round a cone that opens over you, so
     // you stand inside it, turning, opening with the kicks and bursting open as the drop lands.
+    // Every beam of it goes on past you to the floor or the wall behind, so the cone stays whole.
     if (cue.x > 0.0) {
         vec3 apex = vec3(0.0, 6.5, 27.0);
         vec3 axis = normalize(eye + vec3(0.0, 3.0, 0.0) - apex);
@@ -2064,7 +2071,7 @@ void main() {
             float round_about = 2.0 * PI * float(i) / 12.0 + b * PI * 0.0625;
             vec3 dir = normalize(axis + open * (side * cos(round_about) + lift * sin(round_about)));
             vec3 hue = mod(float(i), 2.0) < 0.5 ? c1 : c2;
-            air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * over_crowd(apex, dir, 0.0), pix);
+            air += beam(ray, wall, on_surface, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick), pix);
         }
         // Aimed at you, it lights the smoke all through its cone in a round glow.
         air += aura(ray, apex, axis, c1, cue.x);
@@ -2073,7 +2080,7 @@ void main() {
     // The fans: five projectors along the stage, eight beams each, mirror images either side of the
     // middle or all aimed the same way, or each drawn towards one meeting point, as the routine
     // says; waves roll across them, a pulse chases from beam to beam across every projector, and in
-    // a build every beam closes in on you.
+    // a build every beam closes in to pass just over your head, so none fades out short of the room.
     if (cue.y > 0.0 || shape.w > 0.0) {
         for (int j = 0; j < 5; j++) {
             float fj = float(j) - 2.0;
@@ -2093,7 +2100,7 @@ void main() {
                 float across = mix(side * look.x, meet_across, shape.y) + fanned;
                 float rise = mix(look.z + motion.x * sin(motion.y - fi * 0.6 - abs(fj) * 0.8), meet_rise, shape.y);
                 vec3 dir = aimed(across, rise);
-                dir = normalize(mix(dir, normalize(eye + vec3(fj * 0.3, 0.3, 0.0) - from), hits.w));
+                dir = normalize(mix(dir, normalize(eye + vec3(fj * 0.3, 1.6, 0.0) - from), hits.w));
                 // The chase: two soft pulses travelling beam by beam across every projector.
                 float apart = mod(float(j) * 8.0 + fi - motion.z, 20.0);
                 apart = min(apart, 20.0 - apart);
