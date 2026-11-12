@@ -2161,9 +2161,10 @@ void main() {
     }
 
     // The room, lit only by the spots the lasers throw on its walls, floor and truss, the stage
-    // left dark under its projectors; and the smoke between the lasers glowing faintly with the
-    // light scattered through it, so its clouds show a little everywhere.
-    vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : vec3(0.4);
+    // left dark under its projectors and draped as dark as the room, so it never shows as a shape;
+    // and the smoke between the lasers glowing faintly with the light scattered through it, so its
+    // clouds show a little everywhere.
+    vec3 albedo = what < 1.5 ? vec3(0.16, 0.17, 0.2) : vec3(0.4);
     vec3 room = albedo * (vec3(0.01) + (abs(what - 1.0) < 0.5 ? vec3(0.0) : lands));
     air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * here * 0.04;
     // Low down, between you and the floor, the smoke catches a little of the light spilling down
