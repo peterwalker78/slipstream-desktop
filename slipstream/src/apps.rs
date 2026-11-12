@@ -381,6 +381,7 @@ pub fn score(app: &App, query: &str) -> Option<u8> {
     }
 }
 
+/// One file of an icon: `NAME.svg` or `NAME.png` in one of the folders `Icons` keeps.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IconFile {
     /// Lower is preferred: the icon theme in use, the themes it inherits, hicolor, then loose
@@ -388,13 +389,19 @@ struct IconFile {
     theme: u8,
     /// Pixels; 0 for scalable.
     size: u32,
-    path: PathBuf,
+    svg: bool,
+    /// Its folder, by place in `Icons::dirs`.
+    dir: u32,
 }
 
-/// App icons by name, from the themes they're likely to be in.
+/// App icons by name, from the themes they're likely to be in. Only the files of the most
+/// preferred theme that has a name are kept for it, since a lookup never goes past them, and
+/// each by its folder's place rather than its whole path: a large theme has thousands of names
+/// in a dozen sizes each.
 #[derive(Debug, Default)]
 pub struct Icons {
-    files: HashMap<String, Vec<IconFile>>,
+    files: HashMap<Box<str>, Vec<IconFile>>,
+    dirs: Vec<PathBuf>,
 }
 
 impl Icons {
@@ -414,6 +421,11 @@ impl Icons {
             let rank = themes.len().min(u8::MAX as usize - 1) as u8;
             icons.add_dir(rank, 48, &dir.join("pixmaps"));
         }
+        for files in icons.files.values_mut() {
+            files.shrink_to_fit();
+        }
+        icons.files.shrink_to_fit();
+        icons.dirs.shrink_to_fit();
         icons
     }
 
@@ -447,16 +459,21 @@ impl Icons {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
         };
-        for path in entries.flatten().map(|entry| entry.path()) {
-            let (Some(stem), Some(ext)) = (path.file_stem(), path.extension()) else {
+        let mut at = None;
+        for entry in entries.flatten() {
+            let file = entry.file_name();
+            let Some((stem, svg)) = file.to_str().and_then(|file| {
+                file.strip_suffix(".svg")
+                    .map(|stem| (stem, true))
+                    .or_else(|| file.strip_suffix(".png").map(|stem| (stem, false)))
+            }) else {
                 continue;
             };
-            let size = match ext.to_str() {
-                Some("svg") => 0,
-                Some("png") => size,
-                _ => continue,
-            };
-            self.add(&stem.to_string_lossy(), theme, size, path.clone());
+            if stem.is_empty() {
+                continue;
+            }
+            let dir = *at.get_or_insert_with(|| self.folder(dir));
+            self.add(stem, theme, if svg { 0 } else { size }, svg, dir);
         }
     }
 
@@ -504,19 +521,37 @@ impl Icons {
 
     /// `name`'s bitmap and scalable files in `dir`, if it has them.
     fn add_named(&mut self, theme: u8, size: u32, dir: &Path, name: &str) {
-        for (ext, size) in [("png", size), ("svg", 0)] {
-            let path = dir.join(format!("{name}.{ext}"));
-            if path.is_file() {
-                self.add(name, theme, size, path);
+        let mut at = None;
+        for (ext, size, svg) in [("png", size, false), ("svg", 0, true)] {
+            if dir.join(format!("{name}.{ext}")).is_file() {
+                let dir = *at.get_or_insert_with(|| self.folder(dir));
+                self.add(name, theme, size, svg, dir);
             }
         }
     }
 
-    fn add(&mut self, name: &str, theme: u8, size: u32, path: PathBuf) {
-        self.files
-            .entry(name.to_string())
-            .or_default()
-            .push(IconFile { theme, size, path });
+    /// Keeps `dir` for the files found in it, and returns its place.
+    fn folder(&mut self, dir: &Path) -> u32 {
+        self.dirs.push(dir.to_path_buf());
+        (self.dirs.len() - 1) as u32
+    }
+
+    fn add(&mut self, name: &str, theme: u8, size: u32, svg: bool, dir: u32) {
+        let file = IconFile {
+            theme,
+            size,
+            svg,
+            dir,
+        };
+        let Some(files) = self.files.get_mut(name) else {
+            self.files.insert(name.into(), vec![file]);
+            return;
+        };
+        match files.first().map(|kept| kept.theme) {
+            Some(kept) if theme > kept => {}
+            Some(kept) if theme < kept => *files = vec![file],
+            _ => files.push(file),
+        }
     }
 
     /// The file to draw icon `name` at `px` pixels: from the most preferred theme that has it,
@@ -526,16 +561,18 @@ impl Icons {
             let path = PathBuf::from(name);
             return path.exists().then_some(path);
         }
+        // Only the most preferred theme's files are kept.
         let files = self.files.get(name)?;
-        let theme = files.iter().map(|file| file.theme).min()?;
-        let files: Vec<&IconFile> = files.iter().filter(|file| file.theme == theme).collect();
         files
             .iter()
             .filter(|file| file.size >= px)
             .min_by_key(|file| file.size)
             .or_else(|| files.iter().find(|file| file.size == 0))
             .or_else(|| files.iter().max_by_key(|file| file.size))
-            .map(|file| file.path.clone())
+            .map(|file| {
+                let ext = if file.svg { "svg" } else { "png" };
+                self.dirs[file.dir as usize].join(format!("{name}.{ext}"))
+            })
     }
 }
 
@@ -950,13 +987,29 @@ Exec=firefox --new-window
     #[test]
     fn icons_come_from_the_preferred_theme_at_the_best_size() {
         let mut icons = Icons::default();
-        icons.add("app", 1, 32, "hicolor/32.png".into());
-        icons.add("app", 1, 128, "hicolor/128.png".into());
-        icons.add("app", 1, 0, "hicolor/app.svg".into());
-        assert_eq!(icons.find("app", 48), Some("hicolor/128.png".into()));
-        assert_eq!(icons.find("app", 256), Some("hicolor/app.svg".into()));
-        icons.add("app", 0, 48, "breeze/48.png".into());
-        assert_eq!(icons.find("app", 64), Some("breeze/48.png".into()));
+        let mut add = |theme, size, svg, dir: &str| {
+            let dir = icons.folder(Path::new(dir));
+            icons.add("app", theme, size, svg, dir);
+        };
+        add(1, 32, false, "hicolor/32");
+        add(1, 128, false, "hicolor/128");
+        add(1, 0, true, "hicolor/scalable");
+        assert_eq!(icons.find("app", 48), Some("hicolor/128/app.png".into()));
+        assert_eq!(
+            icons.find("app", 256),
+            Some("hicolor/scalable/app.svg".into())
+        );
+        let dir = icons.folder(Path::new("breeze/48"));
+        icons.add("app", 0, 48, false, dir);
+        // A less preferred theme found later changes nothing.
+        let dir = icons.folder(Path::new("hicolor/256"));
+        icons.add("app", 1, 256, false, dir);
+        assert_eq!(
+            icons.files["app"].len(),
+            1,
+            "only the preferred theme is kept"
+        );
+        assert_eq!(icons.find("app", 64), Some("breeze/48/app.png".into()));
         assert_eq!(icons.find("other", 64), None);
         assert_eq!(icon_dir_size("48x48@2"), Some(96));
         assert_eq!(icon_dir_size("22"), Some(22));

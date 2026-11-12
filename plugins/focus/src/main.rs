@@ -43,7 +43,8 @@ const ASKED: &str = "asked";
 const KEPT: &str = "state.json";
 /// The log, in the folder it writes to.
 const LOG: &str = "log.md";
-/// How often the program that keeps running looks for presses and at the time.
+/// How often the program that keeps running looks at the time while a session runs, and for
+/// presses when it can't be told of them.
 const LOOK: Duration = Duration::from_millis(250);
 /// A gap this long between two looks, in seconds, means nothing ran in between.
 const AWAY: i64 = 30;
@@ -82,7 +83,7 @@ fn own_folder() -> Result<PathBuf, String> {
         .ok_or_else(|| "SLIPSTREAM_PLUGIN_STATE isn't set: Slipstream sets it for a plugin".into())
 }
 
-/// Leaves `id` for the program that keeps running, which acts on it within a quarter of a second.
+/// Leaves `id` for the program that keeps running, which acts on it at once.
 fn press(id: &str) -> Result<(), String> {
     if Ask::from_id(id).is_none() {
         return Err(format!("nothing is pressed as {id:?}"));
@@ -121,19 +122,76 @@ fn take_asked(folder: &Path) -> Vec<Ask> {
         .collect()
 }
 
+/// What wakes the program that keeps running.
+enum Heard {
+    /// A line Slipstream wrote on standard input.
+    Line(String),
+    /// A press was left in `asked/`.
+    Pressed,
+}
+
 /// The lines Slipstream writes on standard input, read on a thread of their own so the timer
-/// never waits on them.
-fn listen() -> mpsc::Receiver<String> {
+/// never waits on them, and word of presses left in `asked`, if the folder can be watched.
+/// Returns whether it is watched.
+fn listen(asked: &Path) -> (mpsc::Receiver<Heard>, bool) {
     let (said, heard) = mpsc::channel();
+    let watching = watch(asked, said.clone());
     std::thread::spawn(move || {
         for line in io::stdin().lock().lines() {
             let Ok(line) = line else { break };
-            if said.send(line).is_err() {
+            if said.send(Heard::Line(line)).is_err() {
                 break;
             }
         }
     });
-    heard
+    (heard, watching)
+}
+
+/// Says `Heard::Pressed` on `said` whenever a press lands in `asked` (`focus press` renames each
+/// one into place). Returns false if the folder can't be watched.
+fn watch(asked: &Path, said: mpsc::Sender<Heard>) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    if fs::create_dir_all(asked).is_err() {
+        return false;
+    }
+    let Ok(path) = std::ffi::CString::new(asked.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: plain system calls on a descriptor this function owns, with a valid C string.
+    let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
+    if fd < 0 {
+        return false;
+    }
+    // SAFETY: as above.
+    if unsafe {
+        libc::inotify_add_watch(fd, path.as_ptr(), libc::IN_MOVED_TO | libc::IN_CLOSE_WRITE)
+    } < 0
+    {
+        // SAFETY: `fd` is ours and used nowhere else.
+        unsafe { libc::close(fd) };
+        return false;
+    }
+    std::thread::spawn(move || {
+        let mut events = [0u8; 4096];
+        loop {
+            // SAFETY: reads into a buffer of the length given.
+            let read = unsafe { libc::read(fd, events.as_mut_ptr().cast(), events.len()) };
+            if read < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            if read <= 0 || said.send(Heard::Pressed).is_err() {
+                break;
+            }
+        }
+    });
+    true
+}
+
+/// How long until the next local midnight, when today's total starts again.
+fn until_midnight(now: i64) -> Duration {
+    // A day on from today's midnight, put back on a midnight in case summer time starts or ends.
+    let next = words::midnight(words::midnight(now) + 27 * 3600);
+    Duration::from_secs((next - now).clamp(1, 25 * 3600) as u64)
 }
 
 /// Takes in one line Slipstream wrote: the windows open, or what's playing.
@@ -235,7 +293,7 @@ fn keep_running() -> Result<(), String> {
     let mut media = None;
     let mut problem = None;
     let mut printed = String::new();
-    let heard = listen();
+    let (heard, watching) = listen(&asked);
     let mut out = io::stdout();
     let mut seen = now();
     loop {
@@ -279,11 +337,19 @@ fn keep_running() -> Result<(), String> {
             saved = state.clone();
         }
 
-        match heard.recv_timeout(LOOK) {
-            Ok(line) => {
-                hear(&line, now, &mut state, &mut keyboard, &mut media);
-                while let Ok(line) = heard.try_recv() {
-                    hear(&line, now, &mut state, &mut keyboard, &mut media);
+        // With no session running, nothing changes until Slipstream says something, a press
+        // lands or the day ends.
+        let wait = if state.session.is_some() || !watching {
+            LOOK
+        } else {
+            until_midnight(now)
+        };
+        match heard.recv_timeout(wait) {
+            Ok(first) => {
+                for heard in std::iter::once(first).chain(heard.try_iter()) {
+                    if let Heard::Line(line) = heard {
+                        hear(&line, now, &mut state, &mut keyboard, &mut media);
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}

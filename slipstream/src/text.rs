@@ -23,22 +23,20 @@ pub enum Face {
     Display,
 }
 
-static FONTS: OnceLock<Vec<Font>> = OnceLock::new();
+/// Each face, parsed the first time it is used: most screens never show some of them.
+static FONTS: [OnceLock<Font>; 5] = [const { OnceLock::new() }; 5];
 
 fn font(face: Face) -> &'static Font {
-    let fonts = FONTS.get_or_init(|| {
-        [
-            &include_bytes!("../../assets/fonts/AtkinsonHyperlegible-Regular.ttf")[..],
-            &include_bytes!("../../assets/fonts/AtkinsonHyperlegible-Bold.ttf")[..],
-            &include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf")[..],
-            &include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf")[..],
-            &include_bytes!("../../assets/fonts/ChakraPetch-Bold.ttf")[..],
-        ]
-        .into_iter()
-        .map(|data| Font::from_bytes(data, FontSettings::default()).expect("embedded fonts parse"))
-        .collect()
-    });
-    &fonts[face as usize]
+    FONTS[face as usize].get_or_init(|| {
+        let data: &[u8] = match face {
+            Face::Body => include_bytes!("../../assets/fonts/AtkinsonHyperlegible-Regular.ttf"),
+            Face::BodyBold => include_bytes!("../../assets/fonts/AtkinsonHyperlegible-Bold.ttf"),
+            Face::Mono => include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf"),
+            Face::MonoBold => include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf"),
+            Face::Display => include_bytes!("../../assets/fonts/ChakraPetch-Bold.ttf"),
+        };
+        Font::from_bytes(data, FontSettings::default()).expect("embedded fonts parse")
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

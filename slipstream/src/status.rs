@@ -108,17 +108,21 @@ pub fn start() -> Arc<Mutex<Reading>> {
         let started = Instant::now();
         let mut rarely: Option<Instant> = None;
         let bus = system_bus();
+        // NetworkManager, BlueZ and the power profile say when they change.
+        let listening = bus.as_ref().is_some_and(listen_for_changes);
         loop {
-            // Timed rather than counted, since a volume change wakes the reader early.
+            let following = FOLLOWING.load(Ordering::Relaxed);
+            // Timed rather than counted, since a volume change wakes the reader early. Without
+            // their signals, or without `pactl subscribe` for the microphone, they are asked
+            // every so often instead.
             let everything = EVERYTHING.swap(false, Ordering::Relaxed)
-                || rarely.is_none_or(|then| then.elapsed() >= RARELY);
+                || rarely.is_none_or(|then| (!listening || !following) && then.elapsed() >= RARELY);
             if everything {
                 rarely = Some(Instant::now());
             }
             read_often(&mut reading, &mut estimate, started.elapsed().as_secs_f64());
             // Without `pactl subscribe` to say when the sound changed, the speakers are read on
             // every pass and the microphone with the things that change rarely.
-            let following = FOLLOWING.load(Ordering::Relaxed);
             if SPEAKERS_CHANGED.swap(false, Ordering::Relaxed) || !following {
                 let (volume, muted) = volume().unwrap_or((0, false));
                 reading.volume = volume;
@@ -129,7 +133,8 @@ pub fn start() -> Arc<Mutex<Reading>> {
             {
                 reading.mic_muted = muted;
             }
-            // NetworkManager, BlueZ and the power profile change rarely; ask them every 10 s.
+            // NetworkManager, BlueZ and the power profile change rarely: asked when they say
+            // so, or every 10 s without their signals.
             if everything {
                 read_rarely(&mut reading, bus.as_ref());
             }
@@ -140,7 +145,18 @@ pub fn start() -> Arc<Mutex<Reading>> {
             if !held {
                 *writer.lock().unwrap() = reading.clone();
             }
-            std::thread::park_timeout(Duration::from_secs(2));
+            // A battery or a backlight is read every pass, and so are the speakers without
+            // `pactl subscribe`; with none of them, the reader wakes only for the clock's next
+            // minute and for anything that says it changed.
+            let polled = !listening
+                || !FOLLOWING.load(Ordering::Relaxed)
+                || reading.battery.is_some()
+                || reading.brightness.is_some();
+            std::thread::park_timeout(if polled {
+                Duration::from_secs(2)
+            } else {
+                until_next_minute()
+            });
         }
     });
     let _ = READER.set(reader.thread().clone());
@@ -148,8 +164,93 @@ pub fn start() -> Arc<Mutex<Reading>> {
     shared
 }
 
-/// How often NetworkManager, BlueZ and the power profile are asked again.
+/// How often NetworkManager, BlueZ and the power profile are asked again, without their signals.
 const RARELY: Duration = Duration::from_secs(10);
+
+/// How long until the clock shows the next minute, and a moment over.
+fn until_next_minute() -> Duration {
+    let second = localtime::now().map_or(0, |tm| tm.tm_sec.clamp(0, 59) as u64);
+    Duration::from_secs(60 - second) + Duration::from_millis(50)
+}
+
+/// Wakes the reader to read everything again whenever NetworkManager, BlueZ or power-profiles-
+/// daemon report a change of property, or one of them starts or stops. Returns whether it is
+/// listening.
+fn listen_for_changes(bus: &Connection) -> bool {
+    use futures_lite::StreamExt;
+    use zbus::{MatchRule, MessageStream};
+    let changed =
+        |sender: &'static str, path: Option<&'static str>, namespace: Option<&'static str>| {
+            let mut rule = MatchRule::builder()
+                .msg_type(zbus::message::Type::Signal)
+                .sender(sender)?
+                .interface("org.freedesktop.DBus.Properties")?
+                .member("PropertiesChanged")?;
+            if let Some(path) = path {
+                rule = rule.path(path)?;
+            }
+            if let Some(namespace) = namespace {
+                rule = rule.path_namespace(namespace)?;
+            }
+            Ok::<_, zbus::Error>(rule.build())
+        };
+    let owner = |name: &'static str| {
+        Ok::<_, zbus::Error>(
+            MatchRule::builder()
+                .msg_type(zbus::message::Type::Signal)
+                .sender("org.freedesktop.DBus")?
+                .interface("org.freedesktop.DBus")?
+                .member("NameOwnerChanged")?
+                .arg(0, name)?
+                .build(),
+        )
+    };
+    let rules = [
+        changed(NM, Some(NM_PATH), None),
+        changed(BLUEZ, None, Some("/org/bluez")),
+        changed(POWER_PROFILES, Some(POWER_PROFILES_PATH), None),
+        owner(NM),
+        owner(BLUEZ),
+        owner(POWER_PROFILES),
+    ];
+    let conn = bus.inner().clone();
+    let streams: Result<Vec<MessageStream>, zbus::Error> = rules
+        .into_iter()
+        .map(|rule| async_io::block_on(MessageStream::for_match_rule(rule?, &conn, Some(16))))
+        .collect();
+    let streams = match streams {
+        Ok(streams) => streams,
+        Err(err) => {
+            tracing::warn!(
+                "can't follow network and Bluetooth changes, so asking every so often: {err}"
+            );
+            return false;
+        }
+    };
+    let spawned = std::thread::Builder::new()
+        .name("status-signals".into())
+        .spawn(move || {
+            type Signals = std::pin::Pin<
+                Box<dyn futures_lite::Stream<Item = zbus::Result<zbus::Message>> + Send>,
+            >;
+            let Some(mut all) = streams
+                .into_iter()
+                .map(|stream| Box::pin(stream) as Signals)
+                .reduce(|a, b| Box::pin(a.or(b)))
+            else {
+                return;
+            };
+            async_io::block_on(async {
+                while all.next().await.is_some() {
+                    EVERYTHING.store(true, Ordering::Relaxed);
+                    if let Some(reader) = READER.get() {
+                        reader.unpark();
+                    }
+                }
+            });
+        });
+    spawned.is_ok()
+}
 /// How many times `pactl subscribe` is started again after it ends, as when PipeWire restarts.
 const FOLLOW_TRIES: usize = 20;
 

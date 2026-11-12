@@ -91,13 +91,15 @@ else
 fi
 
 # Focus, the plugin that comes with Slipstream: a release carries it ready to install, a build
-# makes its program beside the others.
+# makes its program beside the others. The fonts the Settings app loads come the same way.
 if [ "$built" = "$repo/bin" ]; then
     focus_program=$repo/share/slipstream/bundled/focus/focus
     focus_manifest=$repo/share/slipstream/bundled/focus/plugin.toml
+    fonts=$repo/share/slipstream/fonts
 else
     focus_program=$built/focus
     focus_manifest=$repo/plugins/focus/plugin.toml
+    fonts=$repo/assets/fonts
 fi
 
 for program in slipstream slipstream-settings; do
@@ -177,6 +179,12 @@ launcher=${SLIPSTREAM_TEST_ROOT:-}/usr/local/bin/slipstream-session
 
 put 755 "$built/slipstream" "$bin_dir/slipstream"
 put 755 "$built/slipstream-settings" "$bin_dir/slipstream-settings"
+# Settings finds its fonts in share/slipstream/fonts beside the bin folder it runs from.
+for font in "$fonts"/*.ttf; do
+    if [ -f "$font" ]; then
+        put 644 "$font" "$HOME/.local/share/slipstream/fonts/${font##*/}"
+    fi
+done
 # The plugins that come with Slipstream go in share/slipstream/bundled beside the bin folder the
 # compositor runs from, which is where it looks for them. A changed copy is put together next to
 # the old and moved in, so it's never seen half written; an unchanged one is left alone, so a

@@ -148,11 +148,49 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Lets go of the painted layers that haven't been used for a while.
-pub fn trim_layers() {
+thread_local! {
+    /// Whether a timer is trimming the painted layers while no frames are drawn.
+    static TRIMMING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Lets go of the painted layers that haven't been used for a while. Returns whether any went,
+/// and how long until the next one would, if any are left.
+pub fn trim_layers() -> (bool, Option<std::time::Duration>) {
     let now = std::time::Instant::now();
     LAYERS.with_borrow_mut(|cache| {
+        let before = cache.len();
         cache.retain(|(_, _, used)| now.duration_since(*used) < LAYER_IDLE);
+        let next = cache
+            .iter()
+            .map(|(_, _, used)| LAYER_IDLE.saturating_sub(now.duration_since(*used)))
+            .min();
+        (cache.len() < before, next)
+    })
+}
+
+/// Keeps trimming the painted layers on a timer for as long as there are any, so a screen that
+/// stops drawing still lets them go. Frames trim them too; this is for when none come.
+fn keep_trimming() {
+    use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+    if TRIMMING.get() {
+        return;
+    }
+    crate::heap::with_loop(|handle| {
+        let inserted = handle.insert_source(Timer::from_duration(LAYER_IDLE), |_, _, _| {
+            let (went, next) = trim_layers();
+            if went {
+                crate::heap::trim();
+            }
+            match next {
+                // A second's slack, so layers used close together go together.
+                Some(next) => TimeoutAction::ToDuration(next + std::time::Duration::from_secs(1)),
+                None => {
+                    TRIMMING.set(false);
+                    TimeoutAction::Drop
+                }
+            }
+        });
+        TRIMMING.set(inserted.is_ok());
     });
 }
 
@@ -413,6 +451,7 @@ impl Painter {
                     return;
                 };
                 cache.push((key, pixmap, now));
+                keep_trimming();
                 while cache.len() > 1
                     && cache
                         .iter()

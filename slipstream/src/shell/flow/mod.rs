@@ -379,7 +379,11 @@ impl Drawer {
         out: &mut impl Extend<FlowElement>,
     ) -> Option<Reveal> {
         let Some(mut reveal) = self.plan.closing_reveal(frame.time, frame.reduced_motion) else {
-            self.picture = Vec::new();
+            if !self.picture.is_empty() {
+                // The panel has gone: a quiet moment to give its memory back.
+                self.picture = Vec::new();
+                crate::heap::trim_soon();
+            }
             return None;
         };
         // Drawing changes the rest of the drawer, so the picture is held apart while it draws.

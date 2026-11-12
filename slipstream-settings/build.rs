@@ -16,6 +16,7 @@ const PARTS: &[(&str, &[&str])] = &[
         "Windows and tiling",
         &[
             "main",
+            "heap",
             "shell",
             "effects",
             "layout",
