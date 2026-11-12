@@ -1732,7 +1732,21 @@ fn dock_flight_elements(
     chrome: &mut Chrome,
     world: &mut World,
 ) {
-    if v.rain && v.ui > 0.0 && v.zoomed_out <= 0.0 && chrome.panes.ready(renderer) {
+    if v.rain {
+        chrome.panes.warm(renderer);
+    }
+    let flying = state
+        .docking
+        .dock
+        .as_ref()
+        .and_then(|docked| docked.flight)
+        .is_some_and(|flight| !flight.done(v.now))
+        || state
+            .docking
+            .dock_leaving
+            .as_ref()
+            .is_some_and(|(_, flight)| !flight.done(v.now));
+    if flying && v.rain && v.ui > 0.0 && v.zoomed_out <= 0.0 && chrome.panes.ready(renderer) {
         let arriving = state
             .docking
             .dock

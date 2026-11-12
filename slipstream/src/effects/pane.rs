@@ -6,6 +6,8 @@
 //! that maps every screen pixel back onto that flat picture. The glass is rigid: it turns and
 //! moves in depth, it never bends. A window opening arrives as a pane from behind the screen.
 
+use std::time::{Duration, Instant};
+
 use smithay::{
     backend::renderer::{
         Renderer, Texture,
@@ -302,15 +304,32 @@ struct Kept {
     used: bool,
 }
 
+/// How long the pane shader is kept after the last pane was drawn. Compiled, it holds a good deal
+/// of memory in the graphics driver; compiled again, it comes from the driver's shader cache.
+const KEEP_SHADER: Duration = Duration::from_secs(10);
+
 /// Draws windows as panes, keeping a texture for each window drawn this way lately.
 #[derive(Default)]
 pub struct Panes {
     program: Option<GlesTexProgram>,
     broken: bool,
     textures: Vec<Kept>,
+    /// Whether the shader has been compiled once, which fills the driver's shader cache.
+    warmed: bool,
+    /// Since when no pane has been drawn.
+    idle_since: Option<Instant>,
 }
 
 impl Panes {
+    /// Compiles the shader the first time it's called, where a pause goes unseen, so the driver's
+    /// shader cache has it before the first pane is drawn. It's let go again once idle.
+    pub fn warm(&mut self, renderer: &mut GlesRenderer) {
+        if !self.warmed {
+            self.warmed = true;
+            self.ready(renderer);
+        }
+    }
+
     /// Whether panes can be drawn, compiling the shader the first time.
     pub fn ready(&mut self, renderer: &mut GlesRenderer) -> bool {
         if self.broken || self.program.is_some() {
@@ -348,6 +367,16 @@ impl Panes {
     pub fn finish(&mut self) {
         self.textures
             .retain(|kept| kept.used && kept.window.alive());
+        if !self.textures.is_empty() {
+            self.idle_since = None;
+        } else if self
+            .idle_since
+            .get_or_insert_with(Instant::now)
+            .elapsed()
+            >= KEEP_SHADER
+        {
+            self.program = None;
+        }
     }
 
     /// `window` as a pane at `pose`, seen by `camera` on `screen`.
