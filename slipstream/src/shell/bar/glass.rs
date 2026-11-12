@@ -18,9 +18,9 @@
 //! catches the glass in a glint. A broad sheen slides slowly along the frosted glass, kept faint
 //! behind the clock as the smoke is. The air bends the bar's picture behind it, more in the lower
 //! glass than over the text, with a hint of colour split, and round the text and icons its light is
-//! held back so they stay easy to read: a beam nearing text fades and bends away from it, as the
-//! glass round the text were a lens. The foot is a polished edge with an inner reflection, lit by
-//! the light running along it, brighter round the marker and where smoke sits against it.
+//! held back so they stay easy to read: a beam nearing text fades gradually. The foot is a polished
+//! edge with an inner reflection, lit by the light running along it, brighter round the marker and
+//! where smoke sits against it.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
@@ -354,8 +354,6 @@ uniform vec2 gap;
 uniform vec2 clock;
 
 const float PI = 3.14159265;
-// How far a beam bends away from text for each step in the ink map, units.
-const float BEND = 30.0;
 const vec3 AMBER = vec3(0.96, 0.66, 0.30);
 const vec3 MINT = vec3(0.42, 0.90, 0.70);
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
@@ -527,11 +525,7 @@ void main() {
     // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
     // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
     // beam the smoke's own glow is a little darker, so the beam stands out.
-    // Nearing text, a beam bends away from it, as though the glass round the text were a lens:
-    // the beams are drawn as if this pixel lay a little further from the text than it does.
-    float lens = (inked(px + vec2(0.0, 2.0 * f)).y - inked(px - vec2(0.0, 2.0 * f)).y) / 4.0;
-    vec2 bent = p - vec2(0.0, clamp(lens * BEND, -4.0, 4.0));
-    vec3 beams = lasers(bent, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
+    vec3 beams = lasers(p, t, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
     float beside = smoothstep(0.0, 0.1, dot(beams, vec3(0.33)));
     light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
         * (1.0 - 0.5 * beside);
