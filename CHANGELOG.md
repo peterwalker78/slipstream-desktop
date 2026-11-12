@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0-rc.3 - 2026-11-12
+
+- **Three looks for the bar.** Settings › Appearance picks the focus bar, as before, which quietens while you type; the wind tunnel, frosted glass with smoke drifting down it and a slow laser show in your primary colour sweeping out from the middle, with a rush of air through it as you change workspace; or the floating strip, which sits clear of the screen's edges, lined up with your windows. The wind tunnel holds still once the desktop fades, with reduced motion, and in the Power saver mode.
+- **Panels come out of the bar like a drawer.** Quick settings, the notification centre, the plugin panel and every card slide out from under the button that opened them, with what's inside arriving piece by piece as it clears the bar, and go back the same way in reverse.
+- **A new window rises from behind the screen** into its place, as a pane of glass.
+- **A tile you drag lifts off the layout.** With Super held, it follows the pointer, the other tiles move to where they would go, and a frame shows where it will land, all before you let go.
+- **The workspace marker slides** to the workspace you move to, and windows sit a little closer to the screen's edges.
+- **See what's keeping the screen awake.** When an app holds off the fade and the lock, the bar shows a pill with its name, and the notification centre says which apps and what that means.
+- **A terminal's stream counts its tabs,** so a build running in one tab shows in that terminal's stream.
+- **App icons come from the icon theme your other apps use,** and the themes it builds on, rather than always Breeze.
+- **A tidier Settings.** Apps are always dark, to match the desktop. Night light moves to Screens, locking and the screen going off join the battery on Power & lock, Privacy folds into Session, sound pickers start with None, and the full key list waits behind a Show button. What each option says now matches what it does.
+- **Lighter at rest.** The bar reads the clock, network, Bluetooth and power mode without starting programs every few seconds, saving your layout never holds up the desktop, and pictures Slipstream keeps ready are let go when they haven't been used for a minute.
+- **Slipstream in a window keeps the keyboard, Super included,** while it has focus. Press and let go of Ctrl+Alt to give the keyboard back, and click the window to take it again. The title says which.
+- **Can you find the new easter egg?**
+
 ## 1.0.0-rc.2 - 2026-10-27
 
 - **Plugins can do more, and show up in more places.** Seven more abilities, each said in plain words in Settings before you switch a plugin on: changing the files in folders it names, reading the battery, temperatures and hardware, seeing what's playing and its buttons controlling it, playing sounds, opening links in your browser, seeing which windows you have open, and seeing what you copy. A plugin can also add a tile to quick settings, answer searches in the explorer that start with its keyword, such as `!`, and offer actions you give keys in Settings › Shortcuts. An update that adds any of these waits for you, as one that asks for more. [What a plugin can reach](guide/plugins.md#what-it-can-reach).

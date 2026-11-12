@@ -139,7 +139,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 **You'll need** an x86_64 machine with Debian 13's libraries or newer (Ubuntu 24.04 and Linux Mint 22 aren't there yet), and graphics with working Mesa drivers. NVIDIA's driver hasn't been tried. Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer.
 
-**Status: release candidate (1.0.0-rc.2).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. The [changelog](CHANGELOG.md) says what's new in each release.
+**Status: release candidate (1.0.0-rc.3).** Every release is installed and started on Debian, Ubuntu, Fedora, Arch and openSUSE. Not yet: ARM machines, Ubuntu 24.04 and the distributions built on it, and packages in distributions' own repositories. The [changelog](CHANGELOG.md) says what's new in each release.
 
 [**What you need, every other way to install it, which distributions it runs on, and building from source →**](guide/install.md)
 
@@ -194,6 +194,12 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 Both are projects of their own that run on any Linux desktop. The installer adds them as Flatpaks; Super+B opens a new window of whichever browser you've made your default.
 
+## How it's made
+
+Slipstream is written by AI and directed by one person. Claude, Anthropic's AI model, writes the code. The person behind it decides what Slipstream should be and how each part should feel, sends the work back when it isn't right, and uses the desktop every day, which is where most of the rough edges are found.
+
+Every change is built and tested in CI, and every release is installed and started on six distributions before it goes out.
+
 ## Help and detail
 
 | | |
@@ -204,8 +210,6 @@ Both are projects of their own that run on any Linux desktop. The installer adds
 | [**The living wallpapers**](guide/wallpapers.md) | all twenty, and how they behave |
 | [**Everything a desktop needs**](guide/features.md) | the full feature list |
 | [**Working on Slipstream**](guide/development.md) | how the code is laid out, and running it in a window |
-
-AI coding tools are used in writing Slipstream's code. Every change is built and tested in CI.
 
 ## Licence
 
