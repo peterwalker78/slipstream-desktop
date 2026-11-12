@@ -1,41 +1,43 @@
 //! The rave, an easter egg of the wind tunnel bar: knock on the bar's empty glass ten times
-//! quickly and the camera dives into the bar. It eases back a touch, then rockets in on the bar's
-//! middle, the world streaking past in a zoom blur, its colours fringing and the screen sinking
-//! into the dark, while the bar's own glass, kept sharp, comes at you faster still; a flare sweeps
-//! across as you pass through the glass, and the music drops as you land: the loud section of "The
-//! Mundane Insane" by REKLAW and the breakdown after it, looped, with a laser show in the club
-//! inside the wind tunnel. Any key, or a click that isn't more of the knocking, ends it: the music
-//! stops at once and the camera pulls back out into the bar. Over the middle of the dive, and of the
-//! pull out, the desktop's CRT look comes and goes: scanlines, flicker, tears and split colours. The keys a machine has for itself,
-//! volume, brightness and media, go on doing their jobs while it plays.
+//! quickly and the camera dives into the bar. It rockets in on the bar's middle, the world
+//! streaking past in a zoom blur, its colours fringing and the screen sinking into the dark, while
+//! the bar's own glass, kept sharp, comes at you faster still. Half-way in, the desktop's CRT look
+//! flares up hard: deep scanlines, split colours, torn and bulging rows, static and a rolling band.
+//! The bar's lasers and smoke carry straight on into the club, and as the music drops the lasers
+//! swing round into the show: the loud section of "The Mundane Insane" by REKLAW and the breakdown
+//! after it, in the club inside the wind tunnel. Any key, or a click that isn't more of the
+//! knocking, ends it: the music stops at once and the camera pulls back out into the bar. The keys
+//! a machine has for itself, volume, brightness and media, go on doing their jobs while it plays.
 //!
-//! The club is a room rendered in 3D, seen only by its lasers: a floor, walls, a stage and a truss
-//! over it, five projectors along the stage and two hung at the truss's ends. Each beam is a line
-//! through the room's drifting, lumpy haze, a core that spreads with distance inside a shaft of
-//! lit haze, brightest where the haze billows, seen along its length or pointed at you, and hidden
-//! behind the stage or a wall; it lands on the room as a spot and spills a glow round it. A
-//! projector can also scan beams round a cone, a tunnel you stand inside, or a line into a sheet
-//! of light overhead, a "liquid sky" streaming with the haze. The camera drifts a little as a
-//! hand-held one does, and sees as a film camera does: highlights roll off to white, with a little
-//! grain.
+//! The club is a room rendered in 3D, seen only by its lasers and the bar's smoke streaming out of
+//! it: a floor, walls, a stage and a truss over it, five projectors along the stage and two hung at
+//! the truss's ends. Each beam is a line through the smoke, a core that spreads with distance in a
+//! shaft of lit haze, hidden behind the stage or a wall; it lands on the room as a spot and spills a
+//! glow round it. A projector can also scan beams round a cone, a tunnel you stand inside, or a line
+//! into a sheet of light overhead, a "liquid sky". The camera arrives looking straight at the centre
+//! projector, where the bar's middle was, then rises to its place in the crowd and drifts a little
+//! as a hand-held one does. It sees as a film camera does: highlights roll off to white, with a
+//! little grain.
 //!
-//! The show is cued to the loop the way a laser show is programmed to a track: the kicks, snares
-//! and hi-hats of each sixteenth note were measured from the music and are kept here. The kicks
-//! snap the fans open, the snares stab alternate beams, the hi-hats drive the
-//! chases, and waves roll across the fans a bar at a time while they sweep as mirror images. The
-//! look changes on each bar's downbeat and the sections with the crashes: the tunnel opens it,
-//! the fans take over, the sky drops with the second crash, everything goes at once for the third,
-//! and the breakdown slows to a few beams turning in the haze before its last two bars build,
-//! every beam closing in on you, into the drop. Big changes of brightness
-//! come no faster than the beat, under the three a second that can bring on a seizure; only thin
-//! beams chase faster. It is drawn in the theme's three colours.
+//! The show is programmed to the track as a laser show is: one routine to a phrase of a few bars,
+//! moving smoothly within it and easing into the next so it arrives on the downbeat. The fans open
+//! slowly, every beam sweeps together in unison, the two sides cross in an X whose meeting point
+//! moves on each downbeat, waves roll across the fans, and a pulse chases from beam to beam across
+//! every projector; over each eight-bar block's last bar every beam draws into one point, which
+//! bursts open on the next downbeat. The kicks, snares and hi-hats of each sixteenth note were
+//! measured from the music and are kept here: the kicks light the centre fan and the snares the pair
+//! beside it, so the hits add light without moving a beam. A breakdown slows to the centre fan
+//! turning in the smoke before its last two bars build, every beam closing in on you as the chase
+//! speeds up, into a dark half beat and the drop. Big changes of brightness come no faster than the
+//! beat, under the three a second that can bring on a seizure; only thin beams chase faster. It is
+//! drawn in the theme's three colours.
 //!
-//! The music plays through PipeWire (`pw-play`), as the volume click does. It loops where the
-//! track itself comes back round, from its drop to where it returns to it, about three minutes,
-//! and the show's beat follows it from when it starts. The build-up into the drop plays from the
-//! moment the dive starts, so the drop lands as the camera does. If Slipstream goes, the music
-//! stops with it. Nested runs, whose sound would come out of the desktop around them, play the
-//! show without it.
+//! The music plays through PipeWire (`pw-play`), as the volume click does, as one gapless stream:
+//! the build-up into the drop, then the track's loop, from its drop to where it comes back round to
+//! it, twice over. It starts with the dive, so the drop lands as the camera does, and if it runs out
+//! it starts again, its build-up leading into the drop as the loop's own does. If Slipstream goes,
+//! the music stops with it. Nested runs, whose sound would come out of the desktop around them, play
+//! the show without it.
 //!
 //! From the third quick knock it hints at what's coming: the bar shakes a little and the first
 //! moment of the drop plays, very quietly, each knock after shaking it harder and playing louder.
@@ -77,17 +79,17 @@ const KNOCK_GAP: f64 = 0.45;
 /// How long the dive into the bar takes, and the pull back out, seconds.
 const DIVE: f64 = 2.0;
 const PULL_OUT: f64 = 0.7;
-/// The dive's first share, in which the camera eases back a touch before it rockets in, and how far
-/// back it goes.
-const WIND_UP: f64 = 0.12;
-const WIND_BACK: f64 = 0.035;
 /// How much of the dive's magnification the camera does, as a share of its logarithm: the rest is
 /// the bar's glass coming nearer. Together they are worked out from the screen, to just more than
 /// fill it, whatever its size.
 const CAMERA_SHARE: f64 = 0.7;
 const FILL_MORE: f64 = 1.1;
+/// How fast the bar's lasers and smoke in the club go on growing once the club has faded in over
+/// the bar, as a share of the logarithm of the dive's magnification. Until then they grow with the
+/// camera, so they lie on the bar's own.
+const SEEN_SHARE: f64 = 0.25;
 /// How often the CRT look tears the picture during the transition, a chance each of the tube's
-/// frames.
+/// frames; at its peak every frame tears.
 const TEAR_CHANCE: f32 = 0.12;
 /// How far back the club is as the glass comes in, as a share of its size on screen.
 const CLUB_FAR: f64 = 0.15;
@@ -97,21 +99,29 @@ const BPM: f64 = 118.0;
 const BARS: usize = 89;
 const LOOP_BEATS: f64 = BARS as f64 * 4.0;
 const STEPS: usize = BARS * 16;
-/// How long the music takes to be heard after `pw-play` is started, seconds.
-const LATENCY: f64 = 0.12;
+/// How long the music takes to be heard after `pw-play` is started, seconds, and how far ahead of
+/// it the show is drawn, about a frame, so a move is on screen as its beat is heard.
+const LATENCY: f64 = 0.04;
+const LEAD: f64 = 1.0 / 60.0;
+/// How long the music's build-up runs before its drop, seconds: the dive less the latency, so the
+/// drop lands as the camera does.
+const INTRO_SECS: f64 = 1.96;
+/// How many beats after the drop the camera takes to rise from looking straight at the centre
+/// projector, where the bar's middle was, to its place in the crowd.
+const ARRIVAL: f64 = 6.0;
 /// The beat the show is held at with reduced motion: the fans, a bar into the second.
 const STILL_BEAT: f64 = 21.0;
 /// How quickly each kind of hit dies away, seconds: kicks, snares, hi-hats.
 const KICK_DECAY: f64 = 0.14;
 const SNARE_DECAY: f64 = 0.11;
 const HAT_DECAY: f64 = 0.06;
+/// The bar's height in the units its glass is drawn in.
+const BAR_UNITS: f64 = 40.0;
 
-/// "The Mundane Insane" by REKLAW from its drop to where it comes back round to it (CC BY-NC-ND
-/// 4.0; see `assets/music/LICENSE.txt`).
+/// "The Mundane Insane" by REKLAW (CC BY-NC-ND 4.0; see `assets/music/LICENSE.txt`) as one
+/// gapless stream: the build-up into the drop, then the loop from the drop to where the track comes
+/// back round to it, twice.
 static MUSIC: &[u8] = include_bytes!("../../../assets/music/the-mundane-insane-loop.opus");
-/// The build-up that leads into the drop, as long as the dive less the music's latency: it plays
-/// from the moment the dive starts and runs into the drop as the camera lands.
-static INTRO: &[u8] = include_bytes!("../../../assets/music/the-mundane-insane-intro.opus");
 /// The drop's first 0.4 seconds, faded out: the hint.
 static HINT: &[u8] = include_bytes!("../../../assets/music/the-mundane-insane-hint.opus");
 /// How loud the hint plays at its first knock and at the knock before the rave, 0 to 1.
@@ -236,10 +246,12 @@ fn spawn(command: &mut Command, what: &str) -> Option<Child> {
         .ok()
 }
 
-/// The music while it plays: `pw-play`, and when it was started.
+/// The music while it plays: `pw-play`, when it was started, and whether it has come round again
+/// after its first time through.
 struct Music {
     child: Child,
     started: f64,
+    again: bool,
 }
 
 impl Drop for Music {
@@ -250,11 +262,12 @@ impl Drop for Music {
 }
 
 /// Starts the music at `now`, unless this is a nested run or it can't be written out or played.
-fn play(now: f64) -> Option<Music> {
+fn play(now: f64, again: bool) -> Option<Music> {
     let path = written("slipstream-rave.opus", MUSIC)?;
     spawn(&mut player(&path), "music").map(|child| Music {
         child,
         started: now,
+        again,
     })
 }
 
@@ -277,6 +290,9 @@ pub struct Rave {
     pub screen: String,
     /// Where the bar was when it started, in the screen's own logical pixels.
     bar: Rectangle<f64, Logical>,
+    /// The bar's air clock when it started, seconds, which the bar's lasers and smoke in the club
+    /// carry on from.
+    air: f64,
     /// How far the bar has to be magnified, all told, about its middle to fill the screen.
     fill: f64,
     began: f64,
@@ -285,10 +301,6 @@ pub struct Rave {
     /// When it was asked to end, and how far into the dive it was then.
     ending: Option<(f64, f64)>,
     music: Option<Music>,
-    /// The build-up into the drop, playing while the camera dives.
-    intro: Option<Music>,
-    /// Whether the music has yet to be started: it waits so the drop lands as the camera does.
-    music_due: bool,
     /// Reduced motion: no camera move, and the show held still.
     still: bool,
     kept: shader::Kept,
@@ -297,7 +309,7 @@ pub struct Rave {
 
 /// The camera's move at one moment of the dive: how far it magnifies about the bar's middle, how
 /// much the world streaks with the speed, how far it has sunk into the dark, and the CRT look over
-/// it: how strong, the tube's brightness this frame, and how far it is torn.
+/// it: how strong, the tube's brightness this frame, how far it is torn, and which frame it is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shot {
     pub level: f64,
@@ -307,11 +319,13 @@ pub struct Shot {
 }
 
 impl Rave {
-    /// The rave starting at `now` on `screen`, `size` logical pixels, whose bar is at `bar`.
+    /// The rave starting at `now` on `screen`, `size` logical pixels, whose bar is at `bar` with
+    /// its air clock at `air`.
     pub fn begin(
         screen: String,
         size: Size<f64, Logical>,
         bar: Rectangle<f64, Logical>,
+        air: f64,
         now: f64,
         still: bool,
     ) -> Self {
@@ -319,25 +333,16 @@ impl Rave {
             screen,
             fill: fill(size, bar),
             bar,
+            air,
             began: now,
             last_knock: now,
             ending: None,
-            music: None,
-            intro: None,
-            music_due: true,
+            // The music starts with the dive: its build-up runs into the drop as the camera lands.
+            music: play(now, false),
             still,
             kept: shader::Kept::default(),
             camera: Camera::default(),
         };
-        // The build-up plays from the start of the dive, straight into the drop.
-        if !still {
-            rave.intro = written("slipstream-rave-intro.opus", INTRO)
-                .and_then(|path| spawn(&mut player(&path), "intro"))
-                .map(|child| Music {
-                    child,
-                    started: now,
-                });
-        }
         rave.tick(now);
         rave
     }
@@ -358,27 +363,16 @@ impl Rave {
         if self.ending.is_none() {
             self.ending = Some((now, self.dived(now)));
             self.music = None;
-            self.intro = None;
-            self.music_due = false;
         }
     }
 
-    /// Moves on to `now`: starts the music when it is due, and again when it has run out.
-    /// Whether it is still on screen.
+    /// Moves on to `now`, starting the music again if it has run out. Whether it is still on
+    /// screen.
     pub fn tick(&mut self, now: f64) -> bool {
-        let due = if self.still {
-            self.began
-        } else {
-            self.began + DIVE - LATENCY
-        };
-        if self.music_due && now >= due {
-            self.music_due = false;
-            self.music = play(now);
-        }
         if let Some(music) = self.music.as_mut()
             && !matches!(music.child.try_wait(), Ok(None))
         {
-            self.music = play(now);
+            self.music = play(now, true);
         }
         self.dived(now) > 0.0
     }
@@ -402,13 +396,14 @@ impl Rave {
             return None;
         }
         let w = rocket(u);
+        let look = tube_look(u);
         let (flicker, torn) = crate::effects::fx::tube(now, TEAR_CHANCE);
         Some(Shot {
-            level: self.fill.powf(CAMERA_SHARE * depth(u, self.fill)),
+            level: self.fill.powf(CAMERA_SHARE * w),
             blur: 0.3 * w.powf(1.4),
             dark: smooth(0.35, 0.9, w),
             crt: [
-                tube_look(u) as f32,
+                look as f32,
                 flicker,
                 torn,
                 ((now / crate::effects::fx::TUBE_FRAME).floor() % 97.0) as f32,
@@ -421,22 +416,29 @@ impl Rave {
         (bar.loc.x + bar.size.w / 2.0, bar.loc.y + bar.size.h / 2.0).into()
     }
 
-    /// The beat at `now`, counted from the start of the music's loop: from when the music
-    /// started, or, without it, from when it was due. Before the drop it is below zero.
+    /// When the music's drop lands, by the clock, and whether the music has come round again:
+    /// from when the music started, or, without it, as the camera lands.
+    fn drop_at(&self) -> (f64, bool) {
+        self.music
+            .as_ref()
+            .map_or((self.began + DIVE, false), |music| {
+                (music.started + LATENCY + INTRO_SECS, music.again)
+            })
+    }
+
+    /// The beat at `now`, counted from the start of the music's loop. Before the first drop it is
+    /// below zero.
     fn beat(&self, now: f64) -> f64 {
         if self.still {
             return STILL_BEAT;
         }
-        let from = self
-            .music
-            .as_ref()
-            .map_or(self.began + DIVE, |music| music.started + LATENCY);
-        let beats = (now - from) * BPM / 60.0;
-        if beats < 0.0 {
-            beats
-        } else {
-            beats % LOOP_BEATS
-        }
+        let (drop, again) = self.drop_at();
+        looped((now - drop + LEAD) * BPM / 60.0, again)
+    }
+
+    /// How many beats it is at `now` since the camera landed, however the music has looped.
+    fn landed(&self, now: f64) -> f64 {
+        (now - self.began - DIVE + LEAD) * BPM / 60.0
     }
 
     /// The club as `look` says at `now`, over the screen or, during the dive, over the bar's glass
@@ -479,7 +481,7 @@ impl Rave {
         let shot = self.shot(now);
         let area = match shot {
             Some(shot) => {
-                let glass = self.fill.powf((1.0 - CAMERA_SHARE) * depth(u, self.fill));
+                let glass = self.fill.powf((1.0 - CAMERA_SHARE) * w);
                 let k = glass * shot.level;
                 let (w, h) = (self.bar.size.w * k, self.bar.size.h * k);
                 Rectangle::<f64, Logical>::new(
@@ -496,6 +498,31 @@ impl Rave {
         let beat = self.beat(now);
         let moves = moves(beat);
         let [resting, impact, sky_drop] = mood(beat);
+        let [kick, snare, hat] = hits(beat);
+        // The bar's lasers and smoke grow with the camera about the bar's middle until the club has
+        // faded in over them, so they lie on the bar's own, then more slowly.
+        let seen = self
+            .fill
+            .powf(CAMERA_SHARE * w.min(0.5) + SEEN_SHARE * (w - 0.5).max(0.0));
+        let f = (f64::from(crate::shell::bar::HEIGHT) * s).round() / BAR_UNITS;
+        // The camera arrives looking straight at the centre projector, with the bar's own fan over
+        // it, and rises to its place in the crowd as the club's fans take over; pulling out, it
+        // sinks back and the bar's fan comes back as the club goes.
+        let leaving = if self.ending.is_some() {
+            1.0 - smooth(0.5, 1.0, w)
+        } else {
+            0.0
+        };
+        let (arrival, fan, air) = if self.still {
+            (1.0, 0.0, self.air)
+        } else {
+            let landed = self.landed(now);
+            (
+                smooth(0.0, ARRIVAL, landed) * (1.0 - leaving),
+                (1.0 - smooth(0.0, 0.5, landed)).max(leaving),
+                self.air + now - self.began,
+            )
+        };
         let uniforms = Uniforms {
             place: [
                 (shown.loc.x as f64 * s) as f32,
@@ -503,15 +530,21 @@ impl Rave {
                 (shown.size.w as f64 * s) as f32,
                 (shown.size.h as f64 * s) as f32,
             ],
-            screen: [(screen.w * s) as f32, (screen.h * s) as f32],
+            screen: [
+                (screen.w * s) as f32,
+                (screen.h * s) as f32,
+                (middle.x * s) as f32,
+                (middle.y * s) as f32,
+            ],
             beat: [
                 beat as f32,
                 // The bar's text fades as its glass comes in, and the club comes from far off.
                 smooth(0.1, 0.5, w) as f32,
                 (CLUB_FAR + (1.0 - CLUB_FAR) * w * w) as f32,
-                (middle.y * s) as f32,
+                arrival as f32,
             ],
-            hits: hits(beat),
+            bar: [air as f32, f as f32, seen as f32, fan as f32],
+            hits: [kick, snare, hat, moves.converge as f32],
             cue: cue(beat),
             mood: [
                 resting,
@@ -524,12 +557,26 @@ impl Rave {
             centre: moves.centre.values(),
             inner: moves.inner.values(),
             outer: moves.outer.values(),
-            motion: moves.motion,
+            motion: [moves.wave, moves.rolled, moves.chased, moves.truss].map(|n| n as f32),
+            shape: [moves.unison, moves.cross, moves.meet, moves.chase].map(|n| n as f32),
             ring: look.ring,
             secondary: look.secondary,
             tertiary: look.tertiary,
         };
         (shown, uniforms)
+    }
+}
+
+/// `beats` since the music's drop as a beat of its loop, given whether the music has come round
+/// again: then the beats before the drop are its build-up, the end of the loop; the first time,
+/// they are the dive, below zero.
+fn looped(beats: f64, again: bool) -> f64 {
+    if beats >= 0.0 {
+        beats % LOOP_BEATS
+    } else if again {
+        beats + LOOP_BEATS
+    } else {
+        beats
     }
 }
 
@@ -553,24 +600,14 @@ fn fill(size: Size<f64, Logical>, bar: Rectangle<f64, Logical>) -> f64 {
     across.max(down).max(1.0) * FILL_MORE
 }
 
-/// How far the dive has rocketed in at `u`, 0 to 1: nothing through the wind-up, then slowly at
-/// first and ever faster to the end.
+/// How far the dive has rocketed in at `u`, 0 to 1, as a share of the logarithm of its whole
+/// magnification: slowly at first and ever faster to the end, never back.
 fn rocket(u: f64) -> f64 {
-    ((u - WIND_UP) / (1.0 - WIND_UP)).clamp(0.0, 1.0).powf(2.4)
-}
-
-/// How far the whole picture is magnified at `u`, as a share of the logarithm of `fill`: a touch
-/// below nothing as the camera eases back in the wind-up, then the rocket in.
-fn depth(u: f64, fill: f64) -> f64 {
-    if u < WIND_UP {
-        let back = 1.0 - WIND_BACK * (std::f64::consts::PI * u / WIND_UP).sin();
-        return back.ln() / fill.ln().max(1e-6);
-    }
-    rocket(u)
+    u.clamp(0.0, 1.0).powf(2.4)
 }
 
 /// How strong the desktop's CRT look is over the transition at `u`: it ramps in over its second
-/// quarter and back out over its third, so it lies over the middle half.
+/// quarter and back out over its third, so it lies over the middle half, its peak at the middle.
 fn tube_look(u: f64) -> f64 {
     smooth(0.25, 0.5, u) * (1.0 - smooth(0.5, 0.75, u))
 }
@@ -581,6 +618,10 @@ fn eased(x: f64) -> f64 {
 
 fn smooth(low: f64, high: f64, x: f64) -> f64 {
     eased(((x - low) / (high - low)).clamp(0.0, 1.0))
+}
+
+fn lerp(from: f64, to: f64, x: f64) -> f64 {
+    from + (to - from) * x
 }
 
 /// How hard sixteenth `step` of `band` hits: how much louder it is than the one before, 0 to 1.
@@ -664,17 +705,12 @@ fn part(beat: f64) -> Part {
     }
 }
 
-/// The kicks, snares and hi-hats ringing at `beat`, and how far into a build it is.
-fn hits(beat: f64) -> [f32; 4] {
-    let build = match part(beat) {
-        Part::Build(through) if beat >= 0.0 => through,
-        _ => 0.0,
-    };
+/// The kicks, snares and hi-hats ringing at `beat`.
+fn hits(beat: f64) -> [f32; 3] {
     [
         ringing(KICKS, beat, KICK_DECAY) as f32,
         ringing(SNARES, beat, SNARE_DECAY) as f32,
         ringing(HATS, beat, HAT_DECAY) as f32,
-        build as f32,
     ]
 }
 
@@ -709,32 +745,28 @@ fn mood(beat: f64) -> [f32; 3] {
     }
 }
 
-/// How much of each part of the show is on at `beat`: the tunnel, the fans, the liquid sky and
-/// the chase. Each loud run cycles through three blocks of eight bars: the tunnel giving way to the
-/// fans, the sky dropping in with the hi-hats chasing under it, and everything at once, each
-/// chasing through its last bar into the next. A breakdown keeps a few beams and the sky turning
-/// slowly; its last two bars build into the drop. The cue changes on a bar's downbeat, snapping in
-/// over a sixteenth as a show's does.
+/// How much of the tunnel, the fans and the liquid sky is on at `beat`, and how thick the smoke
+/// is, a little thinner in the loud runs. Each loud run cycles through three blocks of eight bars:
+/// the tunnel giving way to the fans, the sky dropping in, and everything at once. A breakdown keeps
+/// the tunnel and the sky turning slowly; its last two bars build into the drop. The cue changes on
+/// a bar's downbeat, coming in over a sixteenth as a show's does.
 fn cue(beat: f64) -> [f32; 4] {
     if beat < 0.0 {
-        return [0.0; 4];
+        return [0.0, 0.0, 0.0, 1.0];
     }
     let at = |beat: f64| -> [f32; 4] {
         match part(beat) {
-            Part::Rest => [0.6, 0.3, 0.6, 0.0],
-            Part::Build(_) => [0.8, 1.0, 0.3, 0.6],
+            Part::Rest => [0.6, 0.3, 0.6, 1.0],
+            Part::Build(_) => [0.8, 1.0, 0.3, 1.0],
             Part::Run {
                 block, into_block, ..
-            } => {
-                let last_bar = into_block >= 28.0;
-                match block % 3 {
-                    0 if into_block < 16.0 => [1.0, 0.5, 0.0, 0.0],
-                    0 => [0.3, 1.0, 0.0, if last_bar { 1.0 } else { 0.2 }],
-                    1 if into_block < 16.0 => [0.0, 0.4, 1.0, 0.6],
-                    1 => [0.5, 0.7, 1.0, 0.8],
-                    _ => [1.0, 1.0, 0.6, if last_bar { 1.0 } else { 0.3 }],
-                }
-            }
+            } => match block % 3 {
+                0 if into_block < 16.0 => [1.0, 0.5, 0.0, 0.8],
+                0 => [0.3, 1.0, 0.0, 0.8],
+                1 if into_block < 16.0 => [0.0, 0.4, 1.0, 0.8],
+                1 => [0.5, 0.7, 1.0, 0.8],
+                _ => [1.0, 1.0, 0.6, 0.8],
+            },
         }
     };
     let bar_start = (beat / 4.0).floor() * 4.0;
@@ -742,10 +774,6 @@ fn cue(beat: f64) -> [f32; 4] {
     let (now, before) = (at(beat), at((bar_start - 0.01).rem_euclid(LOOP_BEATS)));
     std::array::from_fn(|n| before[n] + (now[n] - before[n]) * snap)
 }
-
-/// How long a beam takes to snap from one position to the next on the beat, seconds: quick enough
-/// to land with the hit, slow enough to be seen moving.
-const SNAP: f64 = 0.07;
 
 /// One fan's look: where it aims to the side, how far apart its beams are, how high it tilts, and
 /// how brightly it's lit.
@@ -766,161 +794,322 @@ impl Fan {
             self.gate as f32,
         ]
     }
+
+    /// `x` of the way from this look to `to`.
+    fn towards(self, to: Fan, x: f64) -> Fan {
+        Fan {
+            aim: lerp(self.aim, to.aim, x),
+            spread: lerp(self.spread, to.spread, x),
+            tilt: lerp(self.tilt, to.tilt, x),
+            gate: lerp(self.gate, to.gate, x),
+        }
+    }
 }
 
 /// The show's moves at one moment: the centre fan, the pair either side of it and the outer pair;
-/// and how far the waves roll across them, where the rolling has stepped to, which beam the chase
-/// is on, and how brightly the truss's projectors fire.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// how far waves roll across them and where the rolling has got to; how far the fans aim the same
+/// way rather than as mirror images; how far every beam is drawn to one meeting point, and where
+/// across the room it is, in metres; how much a pulse chases from beam to beam and which beam it
+/// has got to; how brightly the truss's projectors fire; and how far every beam closes in on you.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Moves {
     centre: Fan,
     inner: Fan,
     outer: Fan,
-    motion: [f32; 4],
+    wave: f64,
+    rolled: f64,
+    unison: f64,
+    cross: f64,
+    meet: f64,
+    chase: f64,
+    chased: f64,
+    truss: f64,
+    converge: f64,
 }
 
-/// `table` stepped through every `every` beats from `beat`, each move snapping from the last in
-/// `SNAP` seconds and holding till the next.
-fn stepped(table: &[f64], beat: f64, every: f64) -> f64 {
-    let at = (beat / every).floor();
-    let since = (beat - at * every) * 60.0 / BPM;
-    let len = table.len() as i64;
-    let now = table[(at as i64).rem_euclid(len) as usize];
-    let before = table[(at as i64 - 1).rem_euclid(len) as usize];
-    before + (now - before) * eased((since / SNAP).clamp(0.0, 1.0))
+impl Moves {
+    /// `x` of the way from these moves to `to`.
+    fn towards(self, to: Moves, x: f64) -> Moves {
+        Moves {
+            centre: self.centre.towards(to.centre, x),
+            inner: self.inner.towards(to.inner, x),
+            outer: self.outer.towards(to.outer, x),
+            wave: lerp(self.wave, to.wave, x),
+            rolled: lerp(self.rolled, to.rolled, x),
+            unison: lerp(self.unison, to.unison, x),
+            cross: lerp(self.cross, to.cross, x),
+            meet: lerp(self.meet, to.meet, x),
+            chase: lerp(self.chase, to.chase, x),
+            chased: lerp(self.chased, to.chased, x),
+            truss: lerp(self.truss, to.truss, x),
+            converge: lerp(self.converge, to.converge, x),
+        }
+    }
 }
 
-/// The moves at `beat`, cued as a show is programmed to a track. Beams snap to new positions on
-/// the beat and hold; they fire on the hits and fall back between them, never dark, so the whole
-/// picture brightens no more than once a beat. In each loud run, the first block's centre fan
-/// fires on the kicks, stepping through its tilts beat by beat, while the pair beside it fire on
-/// the snares, jumping between mirrored aims; the second sends the fans up into the sky with the
-/// outer pair stepping across on the eighth notes and the hi-hats chasing; the third brings
-/// everything at once. Quieter bars light it less. A breakdown alone moves smoothly, the centre fan
-/// turning slowly while the rest rest; its last two bars chase on the eighths, then the sixteenths,
-/// as every beam closes in, and the last half beat goes dark before the drop lights everything.
-fn moves(beat: f64) -> Moves {
-    let [kick, snare, hat, _] = hits(beat).map(f64::from);
-    let b = beat.max(0.0);
-    let eighth = (b * 2.0).floor();
+/// The routines the show is made of, one to a phrase.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Routine {
+    /// The fans opening slowly as mirror images, rising as they go.
+    Open,
+    /// Every beam tight and aimed the same way, sweeping left and right over two bars.
+    Sweep,
+    /// The two sides crossing in an X, its meeting point moving to a new place on each downbeat.
+    Cross,
+    /// Waves rolling across the fans.
+    Waves,
+    /// A pulse chasing from beam to beam across every projector.
+    Chase,
+    /// Every beam drawn into one point over a block's last bar, to burst open on the next downbeat.
+    Converge,
+    /// A breakdown: the centre fan turning slowly in the smoke.
+    Rest,
+    /// A breakdown's last two bars: every beam closing in on you, the chase speeding up, and a dark
+    /// half beat before the drop.
+    Build,
+}
+
+/// Whether the routine after `routine` bursts out of it on its downbeat, rather than the moves
+/// easing into the next routine to arrive on it.
+fn bursts(routine: Routine) -> bool {
+    matches!(routine, Routine::Converge | Routine::Build)
+}
+
+/// How long a burst open takes, beats.
+const BURST: f64 = 0.5;
+
+/// Where the X's meeting point is on each downbeat in turn, metres across the room.
+const MEETS: [f64; 6] = [0.0, -4.5, 3.5, -2.0, 5.0, -3.0];
+
+/// The stretch of the show one routine plays over: which, and its first beat and length in beats.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Phrase {
+    routine: Routine,
+    start: f64,
+    len: f64,
+}
+
+/// What a bar of the loop is part of.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Stretch {
+    Run,
+    Rest,
+    Build,
+}
+
+fn stretch(bar: usize) -> Stretch {
+    if !resting(bar) {
+        Stretch::Run
+    } else if !resting(bar + 1) || !resting(bar + 2) {
+        Stretch::Build
+    } else {
+        Stretch::Rest
+    }
+}
+
+/// The phrase `beat` is in. Each eight-bar block of a loud run has two routines, four bars and
+/// then three, and draws every beam together over its last bar; the blocks cycle through three
+/// pairs. A breakdown is one routine, and its build another.
+fn phrase(beat: f64) -> Phrase {
+    let b = beat.rem_euclid(LOOP_BEATS);
+    let bar = (b / 4.0) as usize % BARS;
+    let here = stretch(bar);
+    let same = |n: usize| stretch(n % BARS) == here;
+    let back = (1..BARS).take_while(|&n| same(bar + BARS - n)).count();
+    let ahead = (1..BARS).take_while(|&n| same(bar + n)).count();
+    let start = (bar as f64 - back as f64) * 4.0;
+    let len = (back + ahead + 1) as f64 * 4.0;
+    match here {
+        Stretch::Rest => Phrase {
+            routine: Routine::Rest,
+            start,
+            len,
+        },
+        Stretch::Build => Phrase {
+            routine: Routine::Build,
+            start,
+            len,
+        },
+        Stretch::Run => {
+            let block = ((b - start) / 32.0).floor();
+            let from = start + block * 32.0;
+            let left = (start + len - from).min(32.0);
+            let (first, second) = match block as usize % 3 {
+                0 => (Routine::Open, Routine::Waves),
+                1 => (Routine::Sweep, Routine::Chase),
+                _ => (Routine::Cross, Routine::Chase),
+            };
+            let at = b - from;
+            let part = |routine, begins: f64, ends: f64| Phrase {
+                routine,
+                start: from + begins,
+                len: ends - begins,
+            };
+            if at < 16.0 || left <= 16.0 {
+                part(first, 0.0, left.min(16.0))
+            } else if left < 32.0 {
+                part(second, 16.0, left)
+            } else if at < 28.0 {
+                part(second, 16.0, 28.0)
+            } else {
+                part(Routine::Converge, 28.0, 32.0)
+            }
+        }
+    }
+}
+
+/// Where `routine`'s beams are `local` beats into a phrase `len` long, and how brightly its fans
+/// are lit before the hits add to them. Each moves smoothly through its phrase.
+fn pose(routine: Routine, local: f64, len: f64) -> Moves {
+    use std::f64::consts::TAU;
     let fan = |aim, spread, tilt, gate| Fan {
         aim,
         spread,
         tilt,
         gate,
     };
-    let mut moves = match part(beat) {
-        Part::Run {
-            block,
-            into_run,
-            level,
-            ..
-        } => {
-            let mut moves = match block % 3 {
-                0 => Moves {
-                    centre: fan(
-                        0.0,
-                        0.05 + 0.05 * kick,
-                        stepped(&[0.05, 0.2, 0.1, 0.28, 0.06, 0.16, 0.24, 0.12], b, 1.0),
-                        0.3 + kick,
-                    ),
-                    inner: fan(
-                        stepped(&[0.18, 0.42, 0.28, 0.5], b - 1.0, 2.0),
-                        0.04,
-                        stepped(&[0.12, 0.22], b - 1.0, 2.0),
-                        0.25 + 1.1 * snare,
-                    ),
-                    outer: fan(0.6, 0.03, 0.08, 0.2),
-                    motion: [0.0, 0.0, (eighth * 2.0 % 8.0) as f32, 0.0],
-                },
-                1 => Moves {
-                    centre: fan(0.0, 0.07, 0.3 + 0.05 * kick, 0.3 + 0.7 * kick),
-                    inner: fan(
-                        stepped(&[0.3, 0.45, 0.35, 0.55], b, 1.0),
-                        0.05,
-                        0.25,
-                        0.25 + snare,
-                    ),
-                    outer: fan(
-                        stepped(&[0.35, 0.5, 0.65, 0.8], b, 0.5),
-                        0.04,
-                        0.2,
-                        0.3 + 0.7 * hat,
-                    ),
-                    motion: [
-                        0.05,
-                        (eighth * 0.8) as f32,
-                        ((b * 4.0).floor() % 8.0) as f32,
-                        (0.25 + 0.9 * snare) as f32,
-                    ],
-                },
-                _ => Moves {
-                    centre: fan(
-                        0.0,
-                        0.06 + 0.08 * kick,
-                        stepped(&[0.06, 0.22, 0.12, 0.3], b, 1.0),
-                        0.4 + kick,
-                    ),
-                    inner: fan(
-                        stepped(&[0.2, 0.5, 0.3, 0.6], b - 1.0, 2.0),
-                        0.05,
-                        0.15,
-                        0.35 + snare + 0.4 * kick,
-                    ),
-                    outer: fan(
-                        stepped(&[0.4, 0.7, 0.55, 0.85], b, 0.5),
-                        0.04,
-                        stepped(&[0.05, 0.18], b, 0.5),
-                        0.3 + hat + 0.3 * kick,
-                    ),
-                    motion: [
-                        0.06,
-                        (eighth * 0.8) as f32,
-                        ((b * 4.0).floor() % 8.0) as f32,
-                        (0.3 + snare) as f32,
-                    ],
-                },
-            };
-            // Quieter bars light it less; the drop lights everything at once.
-            let lit = if into_run < 0.5 {
-                1.5
-            } else {
-                0.6 + 0.4 * level
-            };
-            for fan in [&mut moves.centre, &mut moves.inner, &mut moves.outer] {
-                fan.gate = if into_run < 0.5 { lit } else { fan.gate * lit };
+    let through = (local / len).clamp(0.0, 1.0);
+    let rest = Moves::default();
+    match routine {
+        Routine::Open => {
+            let x = eased(through);
+            Moves {
+                centre: fan(0.0, 0.02 + 0.07 * x, 0.04 + 0.26 * x, 0.5),
+                inner: fan(0.18 + 0.1 * x, 0.02 + 0.07 * x, 0.03 + 0.2 * x, 0.45),
+                outer: fan(0.4 + 0.15 * x, 0.02 + 0.06 * x, 0.02 + 0.15 * x, 0.4),
+                ..rest
             }
-            moves
         }
-        Part::Rest => Moves {
+        Routine::Sweep => {
+            let aim = 0.42 * (TAU * local / 8.0).sin();
+            Moves {
+                centre: fan(aim, 0.008, 0.14, 0.5),
+                inner: fan(aim, 0.008, 0.12, 0.5),
+                outer: fan(aim, 0.008, 0.1, 0.5),
+                unison: 1.0,
+                ..rest
+            }
+        }
+        Routine::Cross => {
+            // Holding for half the bar, then moving on to arrive on the next downbeat.
+            let bar = (local / 4.0).floor();
+            let moving = smooth(2.0, 4.0, local - bar * 4.0);
+            let at = |n: f64| MEETS[n as usize % MEETS.len()];
+            Moves {
+                centre: fan(0.0, 0.012, 0.1, 0.5),
+                inner: fan(0.3, 0.012, 0.1, 0.5),
+                outer: fan(0.5, 0.012, 0.1, 0.5),
+                cross: 1.0,
+                meet: lerp(at(bar), at(bar + 1.0), moving),
+                truss: 0.3,
+                ..rest
+            }
+        }
+        Routine::Waves => Moves {
+            centre: fan(0.0, 0.05, 0.12, 0.5),
+            inner: fan(0.3, 0.05, 0.12, 0.5),
+            outer: fan(0.55, 0.05, 0.1, 0.45),
+            wave: 0.08,
+            truss: 0.25,
+            ..rest
+        },
+        Routine::Chase => Moves {
+            centre: fan(0.0, 0.06, 0.2, 0.7),
+            inner: fan(0.32, 0.06, 0.18, 0.7),
+            outer: fan(0.6, 0.05, 0.15, 0.65),
+            wave: 0.03,
+            chase: 1.0,
+            truss: 0.3,
+            ..rest
+        },
+        Routine::Converge => {
+            let x = eased(through);
+            let gate = 0.45 + 0.35 * x;
+            Moves {
+                centre: fan(0.0, 0.03 * (1.0 - x), 0.1, gate),
+                inner: fan(0.3, 0.03 * (1.0 - x), 0.1, gate),
+                outer: fan(0.5, 0.025 * (1.0 - x), 0.1, gate),
+                cross: 1.0,
+                ..rest
+            }
+        }
+        Routine::Rest => Moves {
             centre: fan(
-                0.25 * (std::f64::consts::TAU * b / 16.0).sin(),
+                0.25 * (TAU * local / 16.0).sin(),
                 0.05,
-                0.15 + 0.05 * (std::f64::consts::TAU * b / 8.0).sin(),
+                0.15 + 0.05 * (TAU * local / 8.0).sin(),
                 0.45,
             ),
             inner: fan(0.3, 0.04, 0.15, 0.03),
             outer: fan(0.6, 0.03, 0.1, 0.03),
-            motion: [0.03, (b * 0.4) as f32, 0.0, 0.0],
+            wave: 0.03,
+            ..rest
         },
-        Part::Build(through) => {
-            let rate = if through < 0.5 { 2.0 } else { 4.0 };
-            // The last half beat of the build goes dark.
-            let gate = if through >= 1.0 - 0.5 / 8.0 {
-                0.05
-            } else {
-                0.3 + 0.7 * through
-            };
+        Routine::Build => {
+            // Brighter as it builds, fading out over the beat before the last half, which is dark.
+            let gate = (0.3 + 0.7 * through) * (1.0 - smooth(len - 1.0, len - 0.5, local));
             Moves {
                 centre: fan(0.0, 0.05, 0.15, gate),
                 inner: fan(0.35, 0.05, 0.15, gate),
                 outer: fan(0.65, 0.04, 0.12, gate),
-                motion: [0.0, 0.0, ((b * rate).floor() % 8.0) as f32, 0.0],
+                chase: 1.0,
+                converge: through,
+                ..rest
             }
         }
-    };
+    }
+}
+
+/// The moves at `beat`, as a show is programmed to a track: each phrase's routine, easing over the
+/// beat before the next phrase so its moves arrive on the downbeat, or after every beam has drawn
+/// together, bursting open on it. Waves roll across the fans a bar at a time, and the chase moves
+/// on a beam each sixteenth, in a build each eighth and then each sixteenth. The hits only add
+/// light: the kicks to the centre fan and the snares to the pair beside it, never dark between
+/// them, so the whole picture brightens no more than once a beat. Quieter bars light it less, and
+/// the drop lights everything at once.
+fn moves(beat: f64) -> Moves {
+    // Before the first drop the club's projectors are dark: the bar's own fan is all there is.
     if beat < 0.0 {
-        moves.motion[3] = 0.0;
+        return Moves::default();
+    }
+    let b = beat.rem_euclid(LOOP_BEATS);
+    let here = phrase(b);
+    let local = b - here.start;
+    let mut moves = pose(here.routine, local, here.len);
+    let before = phrase((here.start - 0.01).rem_euclid(LOOP_BEATS));
+    if local < BURST && bursts(before.routine) && before.routine != here.routine {
+        let from = pose(before.routine, before.len, before.len);
+        moves = from.towards(moves, 1.0 - (1.0 - local / BURST).powi(3));
+    } else if !bursts(here.routine) && local > here.len - 1.0 {
+        let next = phrase((here.start + here.len).rem_euclid(LOOP_BEATS));
+        if next.routine != here.routine {
+            let to = pose(next.routine, 0.0, next.len);
+            moves = moves.towards(to, eased(local - (here.len - 1.0)));
+        }
+    }
+    moves.rolled = b * std::f64::consts::FRAC_PI_2;
+    moves.chased = if here.routine == Routine::Build {
+        let half = here.len / 2.0;
+        2.0 * local.min(half) + 4.0 * (local - half).max(0.0)
+    } else {
+        4.0 * b
+    };
+    let [kick, snare, _] = hits(beat).map(f64::from);
+    if beat >= 0.0
+        && let Part::Run {
+            into_run, level, ..
+        } = part(b)
+    {
+        let lit = 0.6 + 0.4 * level;
+        moves.centre.gate = (moves.centre.gate + 0.8 * kick) * lit;
+        moves.inner.gate = (moves.inner.gate + 0.9 * snare) * lit;
+        moves.outer.gate *= lit;
+        moves.truss *= 1.0 + 3.0 * snare;
+        // The drop lights everything at once, dying back over half a beat.
+        let landing = 1.5 * (1.0 - into_run / 0.5).max(0.0);
+        for fan in [&mut moves.centre, &mut moves.inner, &mut moves.outer] {
+            fan.gate = fan.gate.max(landing);
+        }
     }
     moves
 }
@@ -929,8 +1118,9 @@ fn moves(beat: f64) -> Moves {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Uniforms {
     place: [f32; 4],
-    screen: [f32; 2],
+    screen: [f32; 4],
     beat: [f32; 4],
+    bar: [f32; 4],
     hits: [f32; 4],
     cue: [f32; 4],
     mood: [f32; 4],
@@ -939,6 +1129,7 @@ struct Uniforms {
     inner: [f32; 4],
     outer: [f32; 4],
     motion: [f32; 4],
+    shape: [f32; 4],
     ring: [f32; 3],
     secondary: [f32; 3],
     tertiary: [f32; 3],
@@ -950,6 +1141,7 @@ impl shader::Uniforms for Uniforms {
             .with("place", self.place)
             .with("screen", self.screen)
             .with("beat", self.beat)
+            .with("bar", self.bar)
             .with("hits", self.hits)
             .with("cue", self.cue)
             .with("mood", self.mood)
@@ -958,6 +1150,7 @@ impl shader::Uniforms for Uniforms {
             .with("inner", self.inner)
             .with("outer", self.outer)
             .with("motion", self.motion)
+            .with("shape", self.shape)
             .with("ring", self.ring)
             .with("secondary", self.secondary)
             .with("tertiary", self.tertiary)
@@ -967,10 +1160,24 @@ impl shader::Uniforms for Uniforms {
 /// Marks the club's program in a renderer's keeping.
 struct Program;
 
+/// The club's shader, with the bar's lasers' numbers, which it carries on from.
+fn club_source() -> String {
+    use crate::shell::bar::glass;
+    shader::with_constants(
+        CLUB,
+        &[
+            ("SCISSOR", &glass::SCISSOR),
+            ("SCISSOR_PERIOD", &glass::SCISSOR_PERIOD),
+        ],
+    )
+}
+
 fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
     shader::program::<Program, _>(
         renderer,
-        |renderer| renderer.compile_custom_pixel_shader(CLUB, &shader::names::<Uniforms>()),
+        |renderer| {
+            renderer.compile_custom_pixel_shader(club_source(), &shader::names::<Uniforms>())
+        },
         "the rave's",
     )
 }
@@ -1054,7 +1261,7 @@ impl Camera {
 
 /// The camera's lens: the screen magnified about the bar's middle, streaked back along the dive
 /// in a zoom blur as the speed builds, its colours fringing towards the edges, and sinking into
-/// the dark, with the desktop's CRT look over the middle of the transition.
+/// the dark, with the desktop's CRT look over the middle of the transition, hard at its peak.
 const CAMERA: &str = r#"#version 100
 
 //_DEFINES_
@@ -1087,13 +1294,25 @@ uniform vec3 view;
 uniform vec4 crt;
 
 // Every other row as dark as the tube's scanlines; the colours split apart and rows torn sideways
-// as far as these, in screen pixels.
+// as far as these, in screen pixels. At the look's peak the rows go darker still, the colours
+// split and the rows tear further, every frame, and the picture bulges as a tube's glass does.
 const float SCANLINE = 0.62;
+const float SCAN_PEAK = 0.12;
 const float SPLIT = 2.5;
+const float SPLIT_PEAK = 18.0;
 const float TEAR = 14.0;
+const float TEAR_PEAK = 60.0;
+const float BULGE = 0.15;
 
 float hash1(float n) {
     return fract(sin(n * 12.9898) * 43758.5453);
+}
+
+// A hash without sine, by Dave Hoskins. Distributed under the MIT License.
+float hash2(vec2 c) {
+    vec3 p3 = fract(vec3(c.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
 }
 
 vec3 seen(vec2 at) {
@@ -1105,17 +1324,23 @@ vec3 seen(vec2 at) {
 }
 
 void main() {
-    vec2 p = v_coords * size;
-    // On a torn frame, bands of rows jerk sideways.
+    // The look's strength, and its peak, which comes on only near its height.
+    float k = crt.x;
+    float peak = k * k * k;
+    vec2 c = v_coords - 0.5;
+    vec2 p = (0.5 + c * (1.0 + BULGE * peak * 4.0 * dot(c, c))) * size;
+    // On a torn frame, bands of rows jerk sideways; at the peak, every frame tears.
     float band = floor(p.y / 18.0);
-    p.x += crt.z * crt.x * TEAR * step(0.7, hash1(band + crt.w * 7.0));
-    float split = SPLIT * crt.x;
+    p.x += crt.z * k * TEAR * step(0.7, hash1(band + crt.w * 7.0))
+        + peak * TEAR_PEAK * (2.0 * hash1(band * 3.1 + crt.w * 13.0) - 1.0)
+            * step(0.55, hash1(band + crt.w * 7.0 + 50.0));
+    float split = SPLIT * k + SPLIT_PEAK * peak;
     vec2 rel = p - centre;
     float fringe = 0.012 * view.y * length(rel) / size.y;
     vec3 sum = vec3(0.0);
-    for (int k = 0; k < 12; k++) {
+    for (int i = 0; i < 12; i++) {
         // Further back along the dive, the way the world streaks past.
-        float back = view.x * (1.0 + view.y * float(k) / 11.0);
+        float back = view.x * (1.0 + view.y * float(i) / 11.0);
         sum.r += seen(centre + (rel * (1.0 - fringe) + vec2(split, 0.0)) / back).r;
         sum.g += seen(centre + rel / back).g;
         sum.b += seen(centre + (rel * (1.0 + fringe) - vec2(split, 0.0)) / back).b;
@@ -1124,9 +1349,13 @@ void main() {
     float edge = length(rel / size);
     colour *= 1.0 - view.z * (0.55 + 0.45 * smoothstep(0.0, 0.7, edge));
     colour *= 1.0 - 0.6 * view.y * smoothstep(0.15, 0.9, edge);
-    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : SCANLINE;
-    colour *= mix(1.0, scan * crt.y, crt.x);
-    vec4 out_colour = vec4(colour, 1.0) * alpha;
+    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : mix(SCANLINE, SCAN_PEAK, peak);
+    colour *= mix(1.0, scan * crt.y, k);
+    // At the peak, fine static, and a brighter band rolling slowly down the tube.
+    colour += (hash2(gl_FragCoord.xy + crt.w * 37.0) - 0.5) * 0.25 * peak;
+    float roll = (v_coords.y - fract(crt.w / 48.5)) * 14.0;
+    colour += vec3(0.1) * peak * exp(-roll * roll);
+    vec4 out_colour = vec4(max(colour, 0.0), 1.0) * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
         out_colour = vec4(0.0, 0.2, 0.0, 0.2) + out_colour * 0.8;
@@ -1137,8 +1366,9 @@ void main() {
 
 /// The club, a room rendered in 3D, in metres unless it says otherwise: x across, y up, z away from
 /// you. Every pixel's ray from the camera finds the surface it meets, the floor, a wall, the stage
-/// or the truss; each beam adds the light its haze scatters along the ray up to there, and lights
+/// or the truss; each beam adds the light the smoke scatters along the ray up to there, and lights
 /// that surface where it lands and with the glow it spills, so the room is seen only by its lasers.
+/// Over it lie the bar's smoke and, until the drop, the bar's own fan, drawn as the bar draws them.
 const CLUB: &str = r#"
 precision highp float;
 varying vec2 v_coords;
@@ -1149,14 +1379,18 @@ uniform float tint;
 
 // Where the club is shown on the screen, in screen pixels: its corner and its size.
 uniform vec4 place;
-// The screen's size in screen pixels.
-uniform vec2 screen;
+// The screen's size in screen pixels, and the bar's middle on it, which the camera dives into.
+uniform vec4 screen;
 // The beat in the music's loop (below zero before the drop), how far the club has faded in over
-// the bar, how near it has come (it starts far off), and the bar's middle, how far down the screen.
+// the bar, how near it has come (it starts far off), and how far the camera has risen from looking
+// straight at the centre projector to its place in the crowd.
 uniform vec4 beat;
-// The kicks, snares and hi-hats ringing now, and how far into the breakdown's build it is.
+// The bar's air clock in seconds, screen pixels to one of the bar's units, how far the bar's lasers
+// and smoke are magnified about its middle, and how much of the bar's own fan shows.
+uniform vec4 bar;
+// The kicks, snares and hi-hats ringing now, and how far every beam closes in on you.
 uniform vec4 hits;
-// How much of the tunnel, the fans, the liquid sky and the chase is on.
+// How much of the tunnel, the fans and the liquid sky is on, and how thick the smoke is.
 uniform vec4 cue;
 // How far into a breakdown it is, the drop's impact, the flare passing through the glass, and the
 // liquid sky dropping in.
@@ -1164,14 +1398,17 @@ uniform vec4 mood;
 // The desktop's CRT look over the middle of the transition: how strong, the tube's brightness
 // this frame, how far it is torn, and which frame it is.
 uniform vec4 crt;
-// The fans' looks, cued to the music: the centre fan, the pair beside it and the outer pair, each
-// where it aims to the side, how far apart its beams are, how high it tilts and how brightly it's
-// lit; and how far waves roll across them, where the rolling has stepped to, which beam the chase
-// is on, and how brightly the truss's projectors fire.
+// The fans' looks: the centre fan, the pair beside it and the outer pair, each where it aims to
+// the side, how far apart its beams are, how high it tilts and how brightly it's lit.
 uniform vec4 centre;
 uniform vec4 inner;
 uniform vec4 outer;
+// How far waves roll across the fans and where the rolling has got to, which beam the chase has
+// got to, and how brightly the truss's projectors fire.
 uniform vec4 motion;
+// How far the fans aim the same way rather than as mirror images, how far every beam is drawn to
+// one meeting point and where across the room it is, and how much the chase shows.
+uniform vec4 shape;
 uniform vec3 ring;
 uniform vec3 secondary;
 uniform vec3 tertiary;
@@ -1186,15 +1423,28 @@ const float CEILING = 9.0;
 const float SIDE = 15.0;
 const float BACK = 32.0;
 const float BEHIND = -8.0;
-const float STAGE_FRONT = 21.0;
 const float STAGE_TOP = 1.0;
+const float STAGE_FRONT = 21.0;
 const float STAGE_HALF = 11.0;
 const float TRUSS_Y = 7.2;
 const float TRUSS_Z = 22.0;
 const float TRUSS_R = 0.18;
+// Where the beams meet when they are drawn together, how high and how far away.
+const float MEET_Y = 4.5;
+const float MEET_Z = 11.0;
+// The smoke as the bar draws it: the colour it glows, the thin haze everywhere as a share of the
+// thickest smoke, and how fast it comes down the tunnel towards you, in its depth a second.
+const vec3 PALE = vec3(0.86, 0.97, 1.0);
+const float HAZE = 0.12;
+const float TOWARDS = 0.22;
+// The CRT look, as the camera draws it.
 const float SCANLINE = 0.62;
+const float SCAN_PEAK = 0.12;
+const float TEAR = 14.0;
+const float TEAR_PEAK = 60.0;
+const float BULGE = 0.15;
 
-// Where the camera is this frame: it drifts a little, as a hand-held one does.
+// Where the camera is this frame.
 vec3 eye;
 
 // A hash without sine, by Dave Hoskins. Distributed under the MIT License.
@@ -1202,6 +1452,10 @@ float hash(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.zyx + 31.32);
     return fract((p.x + p.y) * p.z);
+}
+
+float hash1(float n) {
+    return fract(sin(n * 12.9898) * 43758.5453);
 }
 
 float noise(vec3 p) {
@@ -1214,17 +1468,150 @@ float noise(vec3 p) {
                    mix(hash(i + vec3(0.0, 1.0, 1.0)), hash(i + vec3(1.0, 1.0, 1.0)), u.x), u.y), u.z);
 }
 
-// The haze at `p`: lumpy billows drifting towards you down the room, as the wind tunnel's smoke
-// does, with clear air between them, thicker lower down.
-float haze(vec3 p, float t) {
-    vec3 q = p * 0.35 + vec3(0.0, 0.0, t * 0.6);
-    float n = 0.5 * noise(q) + 0.3 * noise(q * 2.3 + 5.1) + 0.2 * noise(q * 5.1 + 2.7);
-    return (0.15 + 1.7 * smoothstep(0.3, 0.8, n)) * exp(-max(p.y, 0.0) / 9.0);
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+// Simplex noise in three dimensions, from webgl-noise by Ian McEwan and Stefan Gustavson.
+// Copyright (C) 2011 Ashima Arts, (C) 2011-2016 Stefan Gustavson. Distributed under the MIT
+// License.
+float snoise(vec3 v) {
+    const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+    vec3 i = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+    i = mod289(i);
+    vec4 p = permute(permute(permute(i.z + vec4(0.0, i1.z, i2.z, 1.0))
+        + i.y + vec4(0.0, i1.y, i2.y, 1.0)) + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+    float n_ = 0.142857142857;
+    vec3 ns = n_ * D.wyz - D.xzx;
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+    vec4 x = x_ * ns.x + ns.yyyy;
+    vec4 y = y_ * ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+    vec4 s0 = floor(b0) * 2.0 + 1.0;
+    vec4 s1 = floor(b1) * 2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
+float fbm(vec3 q) {
+    return 0.6 * snoise(q) + 0.28 * snoise(q * 2.03 + 7.1) + 0.12 * snoise(q * 4.1 + 3.3);
+}
+
+// The smoke's fine grain, as the bar's: small soft lumps that come down the tunnel with it.
+float grain(vec3 at, float t) {
+    vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 2.2, at.y * 6.0, at.z * 11.0 + t * 0.05);
+    return 0.5 + 0.5 * (0.65 * snoise(q) + 0.35 * snoise(q * 2.3 + 4.1));
+}
+
+// The bar's smoke at `q` on the screen at its air clock `t`, as the bar draws it, magnified about
+// the vanishing point as far as the bar's numbers say: soft billows streaming out of it towards
+// you, in the tunnel the bar draws them in, far at the middle and near at the edges. Along the
+// bar's glass the tunnel is the bar's own; round the rest of the vanishing point it carries on the
+// same way, so the smoke streams out in every direction. While the club fades in over the bar,
+// the smoke keeps to the bar's glass, `in_glass`; once in, it fills the room.
+float smoke(vec2 q, float t, float in_glass) {
+    vec2 d = (q - mix(screen.zw, 0.5 * screen.xy, beat.w)) / (bar.y * bar.z);
+    // The bar's tunnel is level across its middle, behind its clock; out here it eases in, so the
+    // middle has no edge.
+    float r = length(d);
+    float out_from = mix(max(r, 40.0), sqrt(r * r + 1600.0), beat.y);
+    float depth = 1000.0 / out_from;
+    vec3 at = vec3(depth, 25.0 * d.y / out_from, d.x / out_from);
+    float grained = grain(at, t);
+    vec3 s = vec3((at.x * 5.4 + TOWARDS * t) * 0.5, at.y * 1.6, at.z * 5.0);
+    vec2 w = vec2(snoise(s * 0.6 + vec3(0.0, 0.0, t * 0.007)),
+                  snoise(s * 0.6 + vec3(5.2, 0.0, t * 0.007 + 3.0)));
+    float body = 0.5 + 0.5 * fbm(s + vec3(1.2 * w, t * 0.01));
+    // Where it gathers and clears changes round the vanishing point too, so it never lies in rings.
+    float life = snoise(vec3((at.x * 5.4 + TOWARDS * t) * 0.12, at.z * 3.0 + at.y * 0.15, t * 0.012));
+    float thick = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
+    thick *= 0.6 + 0.8 * grained;
+    float near_n = (at.x * 2.7 + TOWARDS * t) * 1.2;
+    float wisps = 0.5 + 0.5 * fbm(vec3(near_n, at.y * 0.4, at.z * 9.0 + t * 0.004));
+    thick = max(thick, 0.6 * smoothstep(0.55, 0.9, wisps) * smoothstep(150.0, 600.0, out_from));
+    thick = HAZE + (1.0 - HAZE) * thick;
+    float far = mix(0.5, 1.0, smoothstep(1.5, 8.0, out_from / 40.0));
+    float y = 20.0 + d.y;
+    float edges = smoothstep(0.0, 7.0, y) * (0.75 + 0.25 * smoothstep(10.0, 39.0, y));
+    return thick * far * mix(1.0, edges, in_glass);
+}
+
+// `c` with its colour pushed further from grey, as laser light is.
 vec3 vivid(vec3 c) {
     float grey = dot(c, vec3(0.3, 0.59, 0.11));
-    return clamp(mix(vec3(grey), c, 1.7), 0.0, 1.0);
+    return clamp(mix(vec3(grey), c, 1.6), 0.0, 1.0);
+}
+
+// Beam `i` of the bar's eight at the bar's air clock `t`, as the bar's projector throws it: its
+// angle up from level, which side it goes, and how brightly it's lit.
+float bar_beam(int i, float t, out float side, out float lit) {
+    float fi = float(i);
+    side = i < 4 ? -1.0 : 1.0;
+    float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
+    bool pair = mod(floor(fi / 2.0), 2.0) < 0.5;
+    float scissor = SCISSOR * sin(2.0 * PI * t / SCISSOR_PERIOD);
+    float swell = sin(2.0 * PI * t / 23.0);
+    lit = (0.85 + 0.15 * sin(2.0 * PI * t / 41.0))
+        * (0.3 + 0.7 * smoothstep(-0.4, 0.7, pair ? swell : -swell));
+    return up * (pair ? 0.022 + scissor : 0.05 - scissor);
+}
+
+// The bar's own fan at `q` on the screen, drawn as the bar draws it and magnified with the camera
+// about the bar's middle. Lines through the middle stay put under any zoom about it, so these lie
+// on the bar's own beams as the club fades in over them: sharp vivid lines with a white-hot
+// middle and a breath of glow, catching the smoke `through` they cross.
+vec3 bar_fan(vec2 q, float through) {
+    vec3 acc = vec3(0.0);
+    vec2 rel = q - screen.zw;
+    float f = bar.y;
+    float m = bar.z;
+    vec3 colour = vivid(ring);
+    float seen = 0.6 + 0.5 * through;
+    for (int i = 0; i < 8; i++) {
+        float side;
+        float lit;
+        float angle = bar_beam(i, bar.x, side, lit);
+        vec2 dir = vec2(side * cos(angle), -sin(angle));
+        float along = dot(rel, dir);
+        float units = along / (f * m);
+        float width = max(1.6 * f * (1.0 - units / 2600.0), 0.8) * m;
+        float off = rel.x * dir.y - rel.y * dir.x;
+        if (along < 0.0 || abs(off) > 8.0 * width) continue;
+        float body = 1.0 - smoothstep(0.5 * width - 0.35, 0.5 * width + 0.35, abs(off));
+        float hot = exp(-off * off / (0.06 * width * width + 0.04));
+        float glow = exp(-off * off / (6.0 * width * width));
+        float bloom = exp(-off * off / (40.0 * width * width)) * through;
+        acc += (colour * body + vec3(0.55) * hot * body + 0.08 * colour * glow + 0.04 * colour * bloom)
+            * exp(-units / 1800.0) * seen * lit;
+    }
+    return acc * 0.47;
 }
 
 // The way a beam aimed `across` to the side and `up` goes, from the stage towards you.
@@ -1304,21 +1691,22 @@ float landing(vec3 from, vec3 dir) {
 }
 
 // A beam from `from` along `dir`, `lit` bright, seen along `ray` from the eye up to the surface
-// `wall` away, at `on`, facing `normal`. Adds to `lands` the light it throws on that surface: the
-// spot where it lands, if that's here, and the glow its lit haze spills round it. Returns the
-// light the haze scatters towards the eye along the beam: a core a few millimetres across, widening
-// as the beam spreads with distance and drawn no thinner than a pixel, dimmer in step, so it never
-// steps; a shaft of lit haze round it; brightest where the haze billows, seen along its length or
-// pointed at you; hidden where the stage or a wall is in front of it.
+// `wall` away, at `on`, facing `normal`, through smoke that shows it `seen` bright. Adds to `lands`
+// the light it throws on that surface: the spot where it lands, if that's here, and the glow its
+// lit smoke spills round it. Returns the light the smoke scatters towards the eye along the beam:
+// a core a few millimetres across, widening as the beam spreads with distance and drawn no thinner
+// than a pixel, dimmer in step, so it never steps; a shaft of lit smoke round it; hidden where the
+// stage or a wall is in front of it. A beam seen end on crowds into a short line, held to a little
+// brighter than one seen side on, and one passing the lens fades out of focus, so a beam aimed near
+// you never swells into a disc.
 vec3 beam(vec3 ray, float wall, vec3 on, vec3 normal, inout vec3 lands, vec3 from, vec3 dir,
-          vec3 hue, float lit, float t, float pix) {
+          vec3 hue, float lit, float pix, float seen) {
     if (lit <= 0.002) return vec3(0.0);
     vec3 colour = vivid(hue);
     float reach = landing(from, dir);
     vec3 end = from + dir * reach;
     vec3 off_end = on - end;
-    float spot = dot(off_end, off_end);
-    lands += colour * lit * (exp(-spot / 0.004) * 2.5 + exp(-spot / 0.25) * 0.2);
+    lands += colour * lit * exp(-dot(off_end, off_end) / 0.004) * 2.5;
     vec3 to_surface = on - from;
     float near_beam = clamp(dot(to_surface, dir), 0.0, reach);
     vec3 spill = on - (from + dir * near_beam);
@@ -1340,22 +1728,20 @@ vec3 beam(vec3 ray, float wall, vec3 on, vec3 normal, inout vec3 lands, vec3 fro
     if (gap > max(4.0 * sigma, 5.0 * shaft)) return vec3(0.0);
     float core = exp(-gap * gap / (sigma * sigma)) * radius / sigma;
     float glow = exp(-gap / shaft) * 0.035;
-    float towards = 1.0 + 1.5 * pow(max(-b, 0.0), 10.0);
-    float lens = 1.0 / max(sqrt(den), 0.3);
-    float fade = exp(-along_ray * 0.018) / (1.0 + along_beam * along_beam / 900.0);
-    float billows = haze(from + dir * along_beam, t);
-    return (colour * (1.8 * core + glow) + vec3(0.9) * core * core) * billows * towards * lens * fade * lit;
+    float lens = 1.0 / max(sqrt(den), 0.7);
+    float fade = exp(-along_ray * 0.018) / (1.0 + along_beam * along_beam / 900.0)
+        * smoothstep(1.5, 6.0, along_ray);
+    return (colour * (1.8 * core + glow) + vec3(0.9) * core * core) * seen * lens * fade * lit;
 }
 
 // The liquid sky: a sheet of light scanned overhead at `height`, a thin slab of lit haze that
-// streams and ripples as the billows move through it, lit most where you look along it.
+// streams and ripples as the smoke moves through it, lit most where you look along it.
 vec3 sky(vec3 ray, float wall, float height, vec3 hue, float t) {
     if (ray.y < 0.01) return vec3(0.0);
     float hit = (height - eye.y) / ray.y;
     if (hit > wall) return vec3(0.0);
     vec3 at = eye + ray * hit;
     if (at.z < 1.0 || at.z > STAGE_FRONT + 2.0 || abs(at.x) > SIDE) return vec3(0.0);
-    // Long streaks across the room, rippling as the haze flows through the sheet.
     float ripple = at.z + 1.2 * noise(vec3(at.x * 0.25, t * 0.4, 1.0));
     float streams = 0.5 + 0.5 * sin(ripple * 3.5 - t * 2.0);
     float lit = (0.35 + 0.65 * streams * streams) * (0.4 + 0.6 * noise(vec3(at.x * 0.3, at.z * 0.5 - t * 0.6, t * 0.2)));
@@ -1372,42 +1758,54 @@ vec2 shown(vec3 at, vec3 forward, vec3 right, vec3 up) {
 }
 
 void main() {
-    // This pixel on the screen, torn sideways on a torn frame of the CRT look.
+    // The CRT look over the middle of the transition, as the camera draws it: this pixel moved as
+    // the tube's glass bulges, and torn sideways on a torn frame, and on every one at its peak.
+    float k = crt.x;
+    float peak = k * k * k;
     vec2 q = place.xy + v_coords * place.zw;
+    vec2 c = q / screen.xy - 0.5;
+    q = (0.5 + c * (1.0 + BULGE * peak * 4.0 * dot(c, c))) * screen.xy;
     float band = floor(q.y / 18.0);
-    q.x += crt.z * crt.x * 14.0 * step(0.7, fract(sin((band + crt.w * 7.0) * 12.9898) * 43758.5453));
+    q.x += crt.z * k * TEAR * step(0.7, hash1(band + crt.w * 7.0))
+        + peak * TEAR_PEAK * (2.0 * hash1(band * 3.1 + crt.w * 13.0) - 1.0)
+            * step(0.55, hash1(band + crt.w * 7.0 + 50.0));
     // Where it is in the club, which comes from far off about the bar's middle as the glass comes
-    // in, and kicks as the drop lands.
-    vec2 focus = vec2(0.5 * screen.x, beat.w);
+    // in. The view's middle is the bar's middle as the camera arrives, looking straight at the
+    // centre projector there, and the screen's as it rises to its place.
+    vec2 focus = screen.zw;
     vec2 club = focus + (q - focus) / beat.z;
-    club.y += (1.0 - beat.z) * (0.5 * screen.y - beat.w);
-    vec2 n = vec2(club.x - 0.5 * screen.x, 0.5 * screen.y - club.y) / (0.5 * screen.y);
+    vec2 middle = mix(focus, 0.5 * screen.xy, beat.w);
+    vec2 n = vec2(club.x - middle.x, middle.y - club.y) / (0.5 * screen.y);
     float b = beat.x;
     float drop = mood.y;
     float t = max(b, 0.0) * 60.0 / 118.0;
     float clock = b * 60.0 / 118.0;
 
-    // The camera drifts and sways a little, as a hand-held one does, and kicks with the drop.
-    eye = vec3(0.3 * sin(clock * 0.27), 1.75 + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
-    float yaw = 0.025 * sin(clock * 0.21) + 0.004 * drop * sin(b * 97.0);
-    float pitch = 0.14 + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0);
+    // The camera arrives at the projectors' height looking straight at the centre one; in its place
+    // in the crowd it looks a little up, drifts and sways as a hand-held one does, and kicks with
+    // the drop.
+    float arrive = beat.w;
+    vec3 crowd = vec3(0.3 * sin(clock * 0.27), 1.75 + 0.06 * sin(clock * 0.41), 0.25 * sin(clock * 0.19));
+    eye = mix(vec3(0.0, STAGE_TOP + 0.5, 0.0), crowd, arrive);
+    float yaw = (0.025 * sin(clock * 0.21) + 0.004 * drop * sin(b * 97.0)) * arrive;
+    float pitch = (0.14 + 0.015 * sin(clock * 0.33) + 0.004 * drop * cos(b * 83.0)) * arrive;
     vec3 forward = normalize(vec3(sin(yaw), pitch, cos(yaw)));
     vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
     vec3 up = cross(forward, right);
     vec3 ray = normalize(forward + n.x * VIEW * right + n.y * VIEW * up);
     float pix = 2.0 * VIEW / screen.y / beat.z;
 
+    // The bar's smoke, which every beam lights, a little more where it is thick.
+    float here = clamp(smoke(q, bar.x, 1.0 - beat.y), 0.0, 1.0);
+    float through = smoothstep(0.05, 0.9, here);
+    float seen = 0.6 + 0.5 * through;
+
     float kick = hits.x;
-    float snare = hits.y;
     float hat = hits.z;
-    float build = hits.w;
     float calm = mood.x;
-    float bar = floor(max(b, 0.0) / 4.0);
-    float sixteenth = floor(max(b, 0.0) * 4.0);
-    // Before the drop the projectors stand by, faintly; the drop brings them up at once.
-    float on = b < 0.0 ? 0.15 : 1.0;
+    float bars = floor(max(b, 0.0) / 4.0);
     // The colours take turns on the projectors, a section at a time.
-    float turn = mod(floor(bar / 8.0), 3.0);
+    float turn = mod(floor(bars / 8.0), 3.0);
     vec3 c1 = turn < 0.5 ? ring : (turn < 1.5 ? secondary : tertiary);
     vec3 c2 = turn < 0.5 ? secondary : (turn < 1.5 ? tertiary : ring);
     vec3 c3 = turn < 0.5 ? tertiary : (turn < 1.5 ? ring : secondary);
@@ -1427,91 +1825,99 @@ void main() {
         vec3 side = normalize(cross(axis, vec3(0.0, 1.0, 0.0)));
         vec3 lift = cross(side, axis);
         float open = 0.12 + 0.025 * kick + 0.05 * drop;
-        for (int k = 0; k < 12; k++) {
-            float round_about = 2.0 * PI * float(k) / 12.0 + b * PI * 0.0625;
+        for (int i = 0; i < 12; i++) {
+            float round_about = 2.0 * PI * float(i) / 12.0 + b * PI * 0.0625;
             vec3 dir = normalize(axis + open * (side * cos(round_about) + lift * sin(round_about)));
-            vec3 hue = mod(float(k), 2.0) < 0.5 ? c1 : c2;
-            air += beam(ray, wall, on_surface, normal, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick) * on, t, pix);
+            vec3 hue = mod(float(i), 2.0) < 0.5 ? c1 : c2;
+            air += beam(ray, wall, on_surface, normal, lands, apex, dir, hue, cue.x * (0.35 + 0.4 * kick), pix, seen);
         }
     }
 
     // The fans: five projectors along the stage, eight beams each, mirror images either side of the
-    // middle, each pair taking its look from the cues; the chase lights one beam of each at a time,
-    // and over the build's last bars every beam closes in on you.
-    if (cue.y > 0.0 || cue.w > 0.0) {
+    // middle or all aimed the same way, or each drawn towards one meeting point, as the routine
+    // says; waves roll across them, a pulse chases from beam to beam across every projector, and in
+    // a build every beam closes in on you.
+    if (cue.y > 0.0 || shape.w > 0.0) {
         for (int j = 0; j < 5; j++) {
             float fj = float(j) - 2.0;
             float mirror = sign(fj);
             vec4 look = abs(fj) < 0.5 ? centre : (abs(fj) < 1.5 ? inner : outer);
             vec3 from = vec3(fj * 4.5, STAGE_TOP + 0.5, STAGE_FRONT + 1.5);
             vec3 hue = abs(fj) < 0.5 ? c1 : (abs(fj) < 1.5 ? c2 : c3);
-            for (int k = 0; k < 8; k++) {
-                float fk = float(k);
-                float across = mirror * look.x + (fk - 3.5) * look.y * (mirror == 0.0 ? 1.0 : mirror);
-                float rise = look.z + motion.x * sin(motion.y - fk * 0.6 - abs(fj) * 0.8);
+            float side = mix(mirror, 1.0, shape.x);
+            vec3 to_meet = normalize(vec3(shape.z, MEET_Y, MEET_Z) - from);
+            float meet_across = atan(to_meet.x, -to_meet.z);
+            float meet_rise = asin(to_meet.y);
+            for (int i = 0; i < 8; i++) {
+                float fi = float(i);
+                float fanned = (fi - 3.5) * look.y * (mirror == 0.0 ? 1.0 : mirror);
+                float across = mix(side * look.x, meet_across, shape.y) + fanned;
+                float rise = mix(look.z + motion.x * sin(motion.y - fi * 0.6 - abs(fj) * 0.8), meet_rise, shape.y);
                 vec3 dir = aimed(across, rise);
-                dir = normalize(mix(dir, normalize(eye + vec3(fj * 0.3, 0.3, 0.0) - from), build));
-                float chased = mod(fk + float(j) * 2.0, 8.0) == motion.z ? 1.0 : 0.15;
-                float lit = look.w * mix(1.0, chased, cue.w);
-                air += beam(ray, wall, on_surface, normal, lands, from, dir, hue, lit * on, t, pix);
+                dir = normalize(mix(dir, normalize(eye + vec3(fj * 0.3, 0.3, 0.0) - from), hits.w));
+                // The chase: two soft pulses travelling beam by beam across every projector.
+                float apart = mod(float(j) * 8.0 + fi - motion.z, 20.0);
+                apart = min(apart, 20.0 - apart);
+                float chased = 0.12 + 0.88 * exp(-apart * apart / 3.0);
+                float lit = look.w * mix(1.0, chased, shape.w);
+                air += beam(ray, wall, on_surface, normal, lands, from, dir, hue, lit, pix, seen);
             }
         }
         // Two projectors hung at the truss's ends, crossing beams down over the floor to the far
-        // side, switching sides of the room bar by bar, firing with the snares.
+        // side, swinging from one side of the room to the other over two bars, firing with the
+        // snares.
         if (motion.w > 0.0) {
+            float reach_over = 0.5 + 0.125 * (1.0 - cos(PI * b / 4.0));
             for (int s = 0; s < 2; s++) {
                 float side = s == 0 ? -1.0 : 1.0;
                 vec3 from = vec3(side * 12.5, TRUSS_Y - 0.4, TRUSS_Z);
-                float reach_over = mod(bar, 2.0) < 0.5 ? 0.5 : 0.75;
-                for (int k = 0; k < 4; k++) {
-                    float fk = float(k);
-                    vec3 dir = aimed(-side * reach_over + (fk - 1.5) * 0.06, -0.14 - 0.03 * fk);
-                    air += beam(ray, wall, on_surface, normal, lands, from, dir, c3, motion.w * on, t, pix);
+                for (int i = 0; i < 4; i++) {
+                    float fi = float(i);
+                    vec3 dir = aimed(-side * reach_over + (fi - 1.5) * 0.06, -0.14 - 0.03 * fi);
+                    air += beam(ray, wall, on_surface, normal, lands, from, dir, c3, motion.w, pix, seen);
                 }
             }
         }
     }
 
-    // Before the drop, the bar's own lasers: the centre projector throws the wind tunnel's fan,
-    // four beams each way in the ring's colour opening and closing like scissors, out to either
-    // side, so the dive carries straight on into them. As the drop lands they swing round towards
-    // you and every other projector fires.
-    float before = 1.0 - smoothstep(-0.25, 1.0, b);
-    if (before > 0.0) {
-        float scissor = 0.014 * sin(2.0 * PI * b / 15.0);
+    // At the drop, the bar's fan carries on as the centre projector's beams, from just where the
+    // bar drew them: aimed out to either side and up as far as shows on screen at the bar's own
+    // slopes from where the camera arrives. They swing round towards you as every other projector
+    // fires, then give way to the fans.
+    float handed = (1.0 - bar.w) * (1.0 - smoothstep(1.5, 3.0, b)) * step(0.0, b);
+    if (handed > 0.0) {
+        float swing = smoothstep(0.0, 2.0, b);
         vec3 from = vec3(0.0, STAGE_TOP + 0.5, STAGE_FRONT + 1.5);
-        float swing = smoothstep(-0.25, 1.0, b);
         for (int i = 0; i < 8; i++) {
             float fi = float(i);
-            float side = i < 4 ? -1.0 : 1.0;
-            float up = mod(fi, 2.0) < 0.5 ? 1.0 : -1.0;
-            bool inner = mod(floor(fi / 2.0), 2.0) < 0.5;
-            float rise = up * (inner ? 0.022 + scissor : 0.05 - scissor) * 3.0;
-            float across = side * mix(1.45, 0.3 + 0.1 * fi, swing);
-            air += beam(ray, wall, on_surface, normal, lands, from, aimed(across, rise), ring, before * 1.4, t, pix);
+            float side;
+            float lit;
+            float angle = bar_beam(i, bar.x, side, lit);
+            float across = mix(1.2, 0.3 + 0.1 * fi, swing);
+            float rise = atan(tan(angle) * sin(across)) * (1.0 + 2.0 * swing);
+            air += beam(ray, wall, on_surface, normal, lands, from, aimed(side * across, rise), ring, handed * lit * 1.4, pix, seen);
         }
     }
 
     // The liquid sky, dropping in with the second crash and rising and falling with the bass.
     if (cue.z > 0.0) {
         float height = 5.2 - 0.5 * kick + 2.0 * mood.w;
-        air += sky(ray, wall, height, c2, t) * cue.z * (0.8 + 0.6 * hat) * on;
+        air += sky(ray, wall, height, c2, t) * cue.z * (0.8 + 0.6 * hat);
     }
 
-    // The room, lit only by what the lasers throw on it, and the air glowing faintly with the light
-    // scattered through it.
+    // The room, lit only by what the lasers throw on it, and the smoke glowing faintly with the
+    // light scattered through it.
     vec3 albedo = what < 0.5 ? vec3(0.16, 0.17, 0.2) : (what < 1.5 ? vec3(0.22) : vec3(0.4));
     vec3 room = albedo * (vec3(0.01) + lands);
-    float busy = (cue.x + cue.y + cue.z + cue.w) * on;
-    air += mix(c1, c2, 0.5 + 0.5 * n.x) * haze(eye + ray * min(wall, 14.0), t) * 0.006 * busy;
+    float busy = (cue.x + cue.y + cue.z + shape.w);
+    air += mix(c1, c2, 0.5 + 0.5 * n.x) * here * 0.006 * busy;
 
-    // The projectors' lenses, bright points on the stage with a little flare.
+    // The projectors' lenses, bright points on the stage with a streak of flare.
     vec3 colour = room + air;
     for (int j = 0; j < 5; j++) {
         vec2 d = n - shown(vec3((float(j) - 2.0) * 4.5, STAGE_TOP + 0.5, STAGE_FRONT + 1.5), forward, right, up);
-        float flare = exp(-dot(d, d) * 20000.0) + exp(-dot(d, d) * 900.0) * 0.08
-            + exp(-abs(d.y) * 220.0) * exp(-abs(d.x) * 4.0) * 0.05;
-        colour += mix(j == 2 ? c1 : c2, vec3(1.0), 0.6) * flare * (cue.y + cue.w + 0.4 * cue.x) * (1.0 - 0.8 * calm) * on;
+        float flare = exp(-dot(d, d) * 20000.0) + exp(-abs(d.y) * 220.0) * exp(-abs(d.x) * 4.0) * 0.05;
+        colour += mix(j == 2 ? c1 : c2, vec3(1.0), 0.6) * flare * (cue.y + shape.w + 0.4 * cue.x) * (1.0 - 0.8 * calm);
     }
 
     // As the camera passes through the glass, a flare sweeps across it.
@@ -1526,9 +1932,24 @@ void main() {
     colour *= 2.2 * (1.0 + 0.6 * drop);
     colour = clamp((colour * (2.51 * colour + 0.03)) / (colour * (2.43 * colour + 0.59) + 0.14), 0.0, 1.0);
     colour += (hash(vec3(gl_FragCoord.xy, floor(clock * 24.0))) - 0.5) * 0.02;
-    // The CRT look over the middle of the transition.
-    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : SCANLINE;
-    colour *= mix(1.0, scan * crt.y, crt.x);
+
+    // Over it, the bar's smoke lit as the bar lights it, as thick as the cue says, and the bar's own
+    // fan, so both carry on from the bar unchanged.
+    vec3 fan = bar.w > 0.0 ? bar_fan(q, through) * bar.w : vec3(0.0);
+    float beside = smoothstep(0.0, 0.1, dot(fan, vec3(0.33)));
+    float y = 20.0 + (q.y - screen.w) / (bar.y * bar.z);
+    float lower = mix(smoothstep(14.0, 39.0, y), 0.5, beat.y);
+    vec3 glowing = mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * lower)
+        * (1.0 - 0.5 * beside) * cue.w;
+    colour += min(0.8 * glowing, vec3(0.7, 0.9, 1.0)) + fan;
+
+    // The CRT look over the middle of the transition, hard at its peak: darker rows, fine static
+    // and a brighter band rolling down the tube.
+    float scan = mod(floor(gl_FragCoord.y), 2.0) < 1.0 ? 1.0 : mix(SCANLINE, SCAN_PEAK, peak);
+    colour *= mix(1.0, scan * crt.y, k);
+    colour += (hash(vec3(gl_FragCoord.xy, crt.w + 7.0)) - 0.5) * 0.25 * peak;
+    float roll = (q.y / screen.y - fract(crt.w / 48.5)) * 14.0;
+    colour += vec3(0.1) * peak * exp(-roll * roll);
     vec4 out_colour = vec4(max(colour, 0.0), 1.0) * beat.y * alpha;
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
@@ -1578,16 +1999,25 @@ mod tests {
         Rave {
             screen: "eDP-1".into(),
             bar,
+            air: 100.0,
             fill: fill((1536.0, 960.0).into(), bar),
             began: 10.0,
             last_knock: 10.0,
             ending: None,
             music: None,
-            intro: None,
-            music_due: false,
             still,
             kept: shader::Kept::default(),
             camera: Camera::default(),
+        }
+    }
+
+    fn look() -> Look {
+        Look {
+            screen: (1536.0, 960.0).into(),
+            scale: Scale::from(1.0),
+            ring: [0.2, 0.6, 1.0],
+            secondary: [1.0, 0.3, 0.6],
+            tertiary: [0.5, 1.0, 0.4],
         }
     }
 
@@ -1603,12 +2033,17 @@ mod tests {
     }
 
     #[test]
-    fn the_camera_eases_back_then_rockets_in_ever_faster_then_lands() {
+    fn the_camera_rockets_in_ever_faster_from_the_start_and_lands() {
         let rave = rave(false);
         let at = |share: f64| rave.shot(10.0 + DIVE * share).expect("diving");
-        assert!(at(WIND_UP / 2.0).level < 1.0, "eases back first");
+        // It never goes back, not even at the start.
+        let mut last = 1.0;
+        for n in 1..100 {
+            let level = at(n as f64 / 100.0).level;
+            assert!(level >= last, "{n}");
+            last = level;
+        }
         let (early, mid, late) = (at(0.3), at(0.6), at(0.95));
-        assert!(early.level < mid.level && mid.level < late.level);
         assert!(
             late.level / mid.level > mid.level / early.level,
             "ever faster"
@@ -1618,10 +2053,13 @@ mod tests {
     }
 
     #[test]
-    fn the_crt_look_comes_and_goes_over_the_middle_half_of_the_transition() {
+    fn the_crt_look_comes_and_goes_over_the_middle_half_of_the_transition_and_peaks_at_its_middle()
+    {
         assert_eq!(tube_look(0.2), 0.0);
         assert_eq!(tube_look(0.5), 1.0);
         assert_eq!(tube_look(0.8), 0.0);
+        // Its peak, the cube of its strength, is all but gone a little either side.
+        assert!(tube_look(0.4).powi(3) < 0.5 && tube_look(0.6).powi(3) < 0.5);
         let rave = rave(false);
         assert_eq!(rave.shot(10.0 + DIVE * 0.5).expect("diving").crt[0], 1.0);
     }
@@ -1650,10 +2088,56 @@ mod tests {
     }
 
     #[test]
-    fn the_drop_lands_as_the_camera_does() {
+    fn the_music_is_one_stream_whose_drop_lands_as_the_camera_does() {
+        // Started with the dive, its build-up runs out as the camera lands.
+        assert!((INTRO_SECS + LATENCY - DIVE).abs() < 1e-9);
         let rave = rave(false);
-        assert!(rave.beat(10.0 + DIVE - 0.1) < 0.0, "silent while diving");
-        assert!(rave.beat(10.0 + DIVE + 0.01) >= 0.0);
+        assert!(rave.beat(10.0 + DIVE - 0.1) < 0.0, "the build while diving");
+        // A frame early, so a move is on screen as its beat is heard.
+        assert!(rave.beat(10.0 + DIVE) > 0.0);
+        assert!(rave.beat(10.0 + DIVE - 2.0 * LEAD) < 0.0);
+    }
+
+    #[test]
+    fn coming_round_again_the_music_plays_its_build_into_the_drop() {
+        assert!(matches!(part(looped(-1.0, true)), Part::Build(_)));
+        assert!(looped(-1.0, false) < 0.0, "the dive, the first time");
+        assert_eq!(looped(LOOP_BEATS + 1.0, true), 1.0);
+        // The stream's build-up is the end of the loop's own, its last two bars.
+        const { assert!(INTRO_SECS * BPM / 60.0 < 8.0) };
+    }
+
+    #[test]
+    fn the_bar_hands_its_lasers_and_smoke_over_to_the_club_and_takes_them_back() {
+        let mut rave = rave(false);
+        let at = |rave: &Rave, t: f64| rave.uniforms(&look(), t).1;
+        let diving = at(&rave, 10.0 + DIVE * 0.4);
+        assert_eq!(diving.bar[3], 1.0, "the bar's own fan");
+        assert_eq!(
+            diving.beat[3], 0.0,
+            "looking straight at the centre projector"
+        );
+        assert_eq!(diving.screen[2..], [768.0, 16.0], "about the bar's middle");
+        assert_eq!(
+            diving.bar[0],
+            100.0 + (DIVE * 0.4) as f32,
+            "on the bar's clock"
+        );
+        // Until the club has faded in, the lasers and smoke are magnified with the camera.
+        let shot = rave.shot(10.0 + DIVE * 0.4).expect("diving");
+        assert!((f64::from(diving.bar[2]) / shot.level - 1.0).abs() < 1e-4);
+        let beat = 60.0 / BPM;
+        let landed = at(&rave, 10.0 + DIVE + beat);
+        assert_eq!(landed.bar[3], 0.0, "the club's own a beat after the drop");
+        assert!(
+            landed.beat[3] > 0.0 && landed.beat[3] < 1.0,
+            "rising to its place"
+        );
+        assert_eq!(at(&rave, 10.0 + DIVE + beat * ARRIVAL * 1.1).beat[3], 1.0);
+        rave.end(30.0);
+        let leaving = at(&rave, 30.0 + PULL_OUT * 0.8);
+        assert_eq!(leaving.bar[3], 1.0, "and back as it pulls out");
+        assert_eq!(leaving.beat[3], 0.0);
     }
 
     #[test]
@@ -1662,44 +2146,120 @@ mod tests {
         assert!(hits(0.02)[0] > 0.3);
         assert!(hits(1.02)[1] > 0.5);
         assert!(onset(KICKS, 16 + 10) > 0.3, "bar two's stab");
-        // The tunnel opens the loop, the sky drops with the second crash, the breakdown calms it
-        // and its last two bars build.
+        // The tunnel opens the loop, the sky drops with the second crash, the breakdown calms it.
         assert_eq!(cue(0.5)[0], 1.0);
         assert_eq!(cue(32.5)[2], 1.0);
         assert_eq!(part(26.0 * 4.0 + 1.0), Part::Rest);
-        assert!(hits(126.0)[3] > 0.6);
-        assert_eq!(hits(100.0)[3], 0.0);
+        // The smoke thins a little in the loud runs.
+        assert!(cue(0.5)[3] < cue(26.0 * 4.0 + 1.0)[3]);
     }
 
     #[test]
-    fn beams_snap_to_their_next_position_on_the_beat_and_hold_till_the_next() {
-        let beat_secs = 60.0 / BPM;
-        // The centre fan's tilt: still on the old one at the beat, on the new one a snap later,
-        // and holding there till the next beat.
-        let at = |beat: f64| moves(beat).centre.tilt;
-        assert_eq!(at(1.0), 0.05);
-        assert_eq!(at(1.0 + SNAP / beat_secs), 0.2);
-        assert_eq!(at(1.9), 0.2);
+    fn the_show_changes_routine_every_few_bars_and_draws_together_over_each_blocks_last() {
+        let phrase_at = |beat: f64| phrase(beat);
+        assert_eq!(
+            phrase_at(0.5),
+            Phrase {
+                routine: Routine::Open,
+                start: 0.0,
+                len: 16.0
+            }
+        );
+        assert_eq!(
+            phrase_at(17.0),
+            Phrase {
+                routine: Routine::Waves,
+                start: 16.0,
+                len: 12.0
+            }
+        );
+        assert_eq!(
+            phrase_at(29.0),
+            Phrase {
+                routine: Routine::Converge,
+                start: 28.0,
+                len: 4.0
+            }
+        );
+        assert_eq!(phrase_at(33.0).routine, Routine::Sweep);
+        assert_eq!(phrase_at(49.0).routine, Routine::Chase);
+        assert_eq!(phrase_at(65.0).routine, Routine::Cross);
+        assert_eq!(phrase_at(26.0 * 4.0).routine, Routine::Rest);
+        assert_eq!(phrase_at(LOOP_BEATS - 1.0).routine, Routine::Build);
+    }
+
+    /// Where every beam points, leaving out how brightly it's lit.
+    fn aims(moves: Moves) -> Vec<f64> {
+        let mut all = vec![];
+        for fan in [moves.centre, moves.inner, moves.outer] {
+            all.extend([fan.aim, fan.spread, fan.tilt]);
+        }
+        all.extend([
+            moves.wave,
+            moves.unison,
+            moves.cross,
+            moves.meet / 10.0,
+            moves.converge,
+        ]);
+        all
     }
 
     #[test]
-    fn the_centre_fan_fires_on_the_kicks_and_the_pair_beside_it_on_the_snares() {
-        let first_kick = moves(4.02);
-        let between = moves(4.45);
-        assert!(first_kick.centre.gate > between.centre.gate + 0.3);
-        let snare = moves(5.02);
+    fn moves_arrive_on_the_downbeat() {
+        // Into the waves at beat 16: still opening a beat before, then easing over to be in place
+        // on the downbeat itself.
+        assert_eq!(aims(moves(15.0)), aims(pose(Routine::Open, 15.0, 16.0)));
+        assert_eq!(aims(moves(16.0)), aims(pose(Routine::Waves, 0.0, 12.0)));
+        // The X's meeting point holds, then moves on to arrive on the next downbeat.
+        assert_eq!(moves(65.0).meet, MEETS[0]);
+        assert_eq!(moves(68.0).meet, MEETS[1]);
+        assert_eq!(moves(69.0).meet, MEETS[1]);
+    }
+
+    #[test]
+    fn beams_move_smoothly_and_only_burst_open_on_a_downbeat() {
+        let step = 1.0 / 64.0;
+        for n in 0..(LOOP_BEATS / step) as usize {
+            let b = n as f64 * step;
+            let (now, next) = (aims(moves(b)), aims(moves(b + step)));
+            let jump = now
+                .iter()
+                .zip(&next)
+                .map(|(a, z)| (a - z).abs())
+                .fold(0.0, f64::max);
+            let after = phrase(b + step);
+            let bursting = b + step - after.start <= BURST + 1e-9
+                && bursts(phrase((after.start - 0.01).rem_euclid(LOOP_BEATS)).routine);
+            let most = if bursting { 0.15 } else { 0.03 };
+            assert!(jump < most, "beat {b}: {jump}");
+        }
+    }
+
+    #[test]
+    fn the_hits_light_the_fans_but_never_move_them() {
+        let (kick, between, snare) = (moves(4.02), moves(4.45), moves(5.02));
+        assert!(kick.centre.gate > between.centre.gate + 0.3);
         assert!(snare.inner.gate > between.inner.gate + 0.3);
-        // Never dark between the hits.
-        assert!(between.centre.gate >= 0.3 && between.inner.gate >= 0.25);
+        assert!(
+            between.centre.gate >= 0.3 && between.inner.gate >= 0.25,
+            "never dark between them"
+        );
+        assert_eq!(aims(kick), aims(pose(Routine::Open, 4.02, 16.0)));
+        assert_eq!(aims(snare), aims(pose(Routine::Open, 5.02, 16.0)));
     }
 
     #[test]
-    fn the_breakdown_rests_the_outer_fans_and_the_drop_lights_everything_after_a_dark_half_beat() {
+    fn the_breakdown_rests_and_its_build_closes_in_then_goes_dark_before_the_drop() {
         let breakdown = moves(26.0 * 4.0 + 1.0);
         assert!(breakdown.outer.gate < 0.1 && breakdown.centre.gate > 0.3);
+        let building = moves(LOOP_BEATS - 4.0);
+        assert!(building.converge > 0.4 && building.chase == 1.0);
+        // The chase speeds from a beam each eighth to one each sixteenth.
+        let pace = |beat: f64| moves(beat + 0.25).chased - moves(beat).chased;
+        assert!(pace(LOOP_BEATS - 2.0) > 1.5 * pace(LOOP_BEATS - 7.0));
         let dark = moves(LOOP_BEATS - 0.2);
         assert!(dark.centre.gate < 0.1 && dark.inner.gate < 0.1);
-        assert!(moves(0.1).outer.gate > 1.0);
+        assert!(moves(0.1).outer.gate > 1.0, "the drop lights everything");
     }
 
     #[test]
@@ -1722,6 +2282,10 @@ mod tests {
         let mut rave = rave(true);
         assert!(rave.shot(10.0).is_none());
         assert_eq!(rave.beat(10.0), rave.beat(99.0));
+        let (_, numbers) = rave.uniforms(&look(), 50.0);
+        assert_eq!(numbers.beat[3], 1.0, "the camera in its place");
+        assert_eq!(numbers.bar[3], 0.0, "no fan carried over from the bar");
+        assert_eq!(numbers, rave.uniforms(&look(), 80.0).1, "held still");
         rave.end(20.0);
         assert!(!rave.tick(20.0), "gone at once");
     }
@@ -1741,9 +2305,7 @@ mod tests {
 
     #[test]
     fn the_music_ships_with_its_licence() {
-        assert!(
-            MUSIC.starts_with(b"OggS") && INTRO.starts_with(b"OggS") && HINT.starts_with(b"OggS")
-        );
+        assert!(MUSIC.starts_with(b"OggS") && HINT.starts_with(b"OggS"));
         let licence = include_str!("../../../assets/music/LICENSE.txt");
         assert!(licence.contains("REKLAW") && licence.contains("CC BY-NC-ND 4.0"));
     }

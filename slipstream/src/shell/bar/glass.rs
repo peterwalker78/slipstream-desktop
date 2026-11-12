@@ -633,8 +633,8 @@ const GRADIENT: f32 = 2.0;
 /// they take to open and close again, in seconds. It keeps the fastest beam under ten degrees a
 /// minute: a beam's far end moves a few pixels a second, which shows if you watch it for a few
 /// seconds and stays out of the way if you don't.
-const SCISSOR: f32 = 0.014;
-const SCISSOR_PERIOD: f32 = 31.0;
+pub(crate) const SCISSOR: f32 = 0.014;
+pub(crate) const SCISSOR_PERIOD: f32 = 31.0;
 
 /// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
@@ -780,6 +780,11 @@ impl Air {
             power_last: None,
             origins: [(i64::MIN, NOWHERE); CURLS + 1],
         }
+    }
+
+    /// The clock as it was last drawn, seconds.
+    pub fn drawn_at(&self) -> f64 {
+        self.held.1
     }
 
     /// The air rushes from the next frame it moves on.

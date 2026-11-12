@@ -548,6 +548,11 @@ impl Bar {
         self.at
     }
 
+    /// The clock the glass's air was last drawn at, seconds, which its lasers and smoke move by.
+    pub fn air_clock(&self) -> f64 {
+        self.glass.air.drawn_at()
+    }
+
     /// How far below the screen's top the bar was last drawn.
     pub fn top(&self) -> f64 {
         self.at.loc.y

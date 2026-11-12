@@ -100,11 +100,11 @@ impl Slipstream {
             return;
         };
         let name = screen.output.name();
-        let Some(bar) = self
+        let Some((bar, air)) = self
             .drawn
             .chromes
             .get(&name)
-            .map(|chrome| chrome.bar.area())
+            .map(|chrome| (chrome.bar.area(), chrome.bar.air_clock()))
         else {
             return;
         };
@@ -120,6 +120,7 @@ impl Slipstream {
             name,
             size,
             bar,
+            air,
             self.wall(),
             still,
         ));
