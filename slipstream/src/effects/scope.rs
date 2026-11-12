@@ -374,6 +374,8 @@ impl Scope {
     {
         let shown = self.advance(now, ui);
         if shown <= 0.0 {
+            // Out of sight, the readouts are painted afresh when they next come in.
+            self.canvases.clear();
             return None;
         }
         let rows: Vec<usize> = self.traces.iter().map(|t| t.rows().len()).collect();
