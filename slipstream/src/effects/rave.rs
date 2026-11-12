@@ -222,6 +222,11 @@ impl Knocks {
         Knock::Nothing
     }
 
+    /// Whether the knocking at `now` has reached the hints and could still go on to the rave.
+    pub fn hinting(&self, now: f64) -> bool {
+        self.count >= HINT_FROM && self.last.is_some_and(|last| now - last <= KNOCK_GAP)
+    }
+
     /// Plays the hint, `share` of the way from very quiet to louder, cutting off the one before.
     /// The last one plays to its end as the rave starts: nothing cuts it but another knock.
     pub fn hint(&mut self, share: f64) {
@@ -282,12 +287,25 @@ impl Drop for Music {
 
 /// Starts the music at `now`, unless this is a nested run or it can't be written out or played.
 fn play(now: f64, again: bool) -> Option<Music> {
-    let path = written("slipstream-rave.opus", MUSIC)?;
+    let path = written(MUSIC_FILE, MUSIC)?;
     spawn(&mut player(&path), "music").map(|child| Music {
         child,
         started: now,
         again,
     })
+}
+
+/// What the music is written out as while it plays.
+const MUSIC_FILE: &str = "slipstream-rave.opus";
+
+/// Stops the music and takes its file away again: the runtime folder is in memory, and the track
+/// is a few megabytes.
+fn stop(music: &mut Option<Music>) {
+    if music.take().is_some()
+        && let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR")
+    {
+        let _ = std::fs::remove_file(PathBuf::from(dir).join(MUSIC_FILE));
+    }
 }
 
 /// `bytes` written out as `name` where `pw-play` can read it: the session's runtime folder, which
@@ -340,6 +358,12 @@ pub struct Shot {
     pub crt: [f32; 4],
 }
 
+impl Drop for Rave {
+    fn drop(&mut self) {
+        stop(&mut self.music);
+    }
+}
+
 impl Rave {
     /// The rave starting at `now` on `screen`, `size` logical pixels, whose bar is at `bar` with
     /// its air clock at `air`.
@@ -386,7 +410,7 @@ impl Rave {
     pub fn end(&mut self, now: f64) {
         if self.ending.is_none() {
             self.ending = Some((now, self.dived(now)));
-            self.music = None;
+            stop(&mut self.music);
         }
     }
 
@@ -1296,7 +1320,7 @@ fn club_source() -> String {
 }
 
 fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
-    shader::program::<Program, _>(
+    shader::held_program::<Program, _>(
         renderer,
         |renderer| {
             renderer.compile_custom_pixel_shader(club_source(), &shader::names::<Uniforms>())
@@ -1309,7 +1333,7 @@ fn program(renderer: &mut GlesRenderer) -> Option<GlesPixelProgram> {
 struct CameraProgram;
 
 fn camera_program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
-    shader::program::<CameraProgram, _>(
+    shader::held_program::<CameraProgram, _>(
         renderer,
         |renderer| {
             let names = [
@@ -1325,21 +1349,37 @@ fn camera_program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
     )
 }
 
-/// Marks a renderer whose rave is ready.
+/// Marks a renderer whose rave was warmed up at the session's first frame.
 struct Warmed;
 
-/// Gets the rave ready on `renderer` before the session's first frame is shown, where a pause
-/// goes unseen: compiles its shaders and draws the club once, small, so the graphics driver has
-/// built all it needs. Otherwise that work falls on the first frames of the dive, the first time
-/// it's started, and the camera stutters. Does nothing once done.
-pub fn warm(renderer: &mut GlesRenderer) {
-    if renderer.egl_context().user_data().get::<Warmed>().is_some() {
-        return;
+/// Keeps the rave ready on `renderer` while it's `wanted`, from the knock the hints start from
+/// until the rave is over, and lets go of its shaders the rest of the time: compiled, they hold a
+/// good deal of memory in the graphics driver.
+///
+/// Compiling them and drawing the club for the first time is slow enough for the camera to stutter
+/// if it fell on the dive. So at the session's first frame, where a pause goes unseen, it's done
+/// once, small, and then let go: the driver keeps what it built in its shader cache on disk, and
+/// compiling again from the hints, a second or more before the dive, takes it from there.
+pub fn warm(renderer: &mut GlesRenderer, wanted: bool) {
+    let first = renderer.egl_context().user_data().get::<Warmed>().is_none();
+    if first {
+        renderer
+            .egl_context()
+            .user_data()
+            .insert_if_missing(|| Warmed);
     }
-    renderer
-        .egl_context()
-        .user_data()
-        .insert_if_missing(|| Warmed);
+    if (first || wanted) && !shader::holds_program::<Program, GlesPixelProgram>(renderer) {
+        draw_once(renderer);
+    }
+    if !wanted {
+        shader::let_go::<Program, GlesPixelProgram>(renderer);
+        shader::let_go::<CameraProgram, GlesTexProgram>(renderer);
+    }
+}
+
+/// Compiles the rave's shaders and draws the club once, small, so the graphics driver builds all
+/// it needs for them.
+fn draw_once(renderer: &mut GlesRenderer) {
     let _ = camera_program(renderer);
     let Some(club) = program(renderer) else {
         return;

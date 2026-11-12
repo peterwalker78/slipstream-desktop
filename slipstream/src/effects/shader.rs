@@ -8,7 +8,11 @@
 //! costs the screen nothing. Constants a shader shares with the Rust side are written into its
 //! source from the Rust ones (`with_constants`), so the two can't drift apart.
 
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+    marker::PhantomData,
+};
 
 use smithay::{
     backend::renderer::{
@@ -45,6 +49,62 @@ pub fn program<K: 'static, P: Clone + 'static>(
         .user_data()
         .insert_if_missing(move || Compiled::<K, P>(kept, PhantomData));
     compiled
+}
+
+/// A program kept in a renderer only while it's wanted, marked by `K`: compiled when asked for
+/// (`held_program`) and let go by `let_go`, after which the next ask compiles it again. One that
+/// didn't compile isn't tried again.
+struct Held<K, P> {
+    program: RefCell<Option<P>>,
+    failed: Cell<bool>,
+    marker: PhantomData<K>,
+}
+
+/// The program marked by `K` for `renderer`, compiled by `compile` if it isn't held just now.
+pub fn held_program<K: 'static, P: Clone + 'static>(
+    renderer: &mut GlesRenderer,
+    compile: impl FnOnce(&mut GlesRenderer) -> Result<P, GlesError>,
+    what: &str,
+) -> Option<P> {
+    if let Some(held) = renderer.egl_context().user_data().get::<Held<K, P>>() {
+        if held.failed.get() {
+            return None;
+        }
+        if let Some(program) = held.program.borrow().clone() {
+            return Some(program);
+        }
+    }
+    let compiled = compile(renderer)
+        .map_err(|err| tracing::warn!("{what} shader didn't compile, so it isn't drawn: {err}"))
+        .ok();
+    let data = renderer.egl_context().user_data();
+    data.insert_if_missing(|| Held::<K, P> {
+        program: RefCell::new(None),
+        failed: Cell::new(false),
+        marker: PhantomData,
+    });
+    if let Some(held) = data.get::<Held<K, P>>() {
+        held.failed.set(compiled.is_none());
+        *held.program.borrow_mut() = compiled.clone();
+    }
+    compiled
+}
+
+/// Whether the program marked by `K` is held in `renderer` just now.
+pub fn holds_program<K: 'static, P: 'static>(renderer: &GlesRenderer) -> bool {
+    renderer
+        .egl_context()
+        .user_data()
+        .get::<Held<K, P>>()
+        .is_some_and(|held| held.program.borrow().is_some())
+}
+
+/// Lets go of the program marked by `K` in `renderer`. The renderer deletes it once nothing
+/// drawing with it is left.
+pub fn let_go<K: 'static, P: 'static>(renderer: &GlesRenderer) {
+    if let Some(held) = renderer.egl_context().user_data().get::<Held<K, P>>() {
+        held.program.borrow_mut().take();
+    }
 }
 
 /// The line every shader here has once, after which shared constants are declared.
