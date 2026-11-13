@@ -171,13 +171,13 @@ impl Shadow {
                 down: 0.1 * lift,
                 spread: 0.0,
                 soft: (0.25 * lift).max(0.5),
-                alpha: (0.24 * strength).min(1.0),
+                alpha: (0.38 * strength).min(1.0),
             },
             ShadowPart {
                 down: 0.4 * lift,
                 spread: -0.05 * lift,
                 soft: (1.4 * lift).max(0.5),
-                alpha: (0.26 * strength).min(1.0),
+                alpha: (0.42 * strength).min(1.0),
             },
         ]
     }
@@ -1255,9 +1255,9 @@ mod layer_tests {
             assert!(below > side && side > above && above > 0.0, "{shadow:?}");
             let mut p = Painter::new(600, 600, 1.0).unwrap();
             p.shadow(100.0, 100.0, 300.0, 300.0, 12.0, shadow);
-            // Just outside the card it is at most about a third black, even under its foot.
+            // Just outside the card it is at most half black, even under its foot.
             let under = p.pixmap.pixel(250, 401).unwrap().alpha();
-            assert!(under <= 90, "{shadow:?}: {under}");
+            assert!(under <= 128, "{shadow:?}: {under}");
             // And nothing is painted past its reach.
             let past = 400 + below.ceil() as u32 + 1;
             assert_eq!(p.pixmap.pixel(250, past).unwrap().alpha(), 0, "{shadow:?}");
