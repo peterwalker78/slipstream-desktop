@@ -17,25 +17,13 @@ pub struct Wallpaper {
     /// Minutes one variation holds before the next takes over. Ignored when only one is chosen;
     /// 0 never changes.
     pub change_every_mins: u64,
-    /// What the desktop shows behind the windows. Stepping away fades into the living wallpaper
-    /// whichever it is.
-    pub show: Backdrop,
-    /// The picture last chosen, as the file it was chosen from; empty before one has been. What
-    /// is shown is the copy Settings prepared from it at `picture_path()`.
+    /// The picture of your own shown behind the windows instead of the living wallpaper, as the
+    /// file it was chosen from; empty for none. What is shown is the copy Settings prepared from
+    /// it at `picture_path()`, and while that copy is missing the living wallpaper stays.
+    /// Stepping away still fades into the living wallpaper.
     pub picture: String,
     /// How the picture is fitted to each screen.
     pub picture_fit: PictureFit,
-}
-
-/// What the desktop shows behind the windows.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Backdrop {
-    /// The living wallpaper, its variations taking turns.
-    #[default]
-    Living,
-    /// The still picture prepared at `picture_path()`.
-    Picture,
 }
 
 /// How a picture that isn't the screen's shape is fitted to it.
@@ -70,7 +58,6 @@ impl Default for Wallpaper {
             fade_after_secs: 120,
             variations: vec![VARIATIONS[0].id.to_string()],
             change_every_mins: 10,
-            show: Backdrop::Living,
             picture: String::new(),
             picture_fit: PictureFit::Fill,
         }
@@ -78,9 +65,10 @@ impl Default for Wallpaper {
 }
 
 impl Wallpaper {
-    /// Whether the desktop behind the windows shows the picture rather than the living wallpaper.
+    /// Whether a picture of your own has been chosen to show behind the windows rather than the
+    /// living wallpaper.
     pub fn shows_picture(&self) -> bool {
-        self.show == Backdrop::Picture
+        !self.picture.is_empty()
     }
 
     /// The variations to cycle through: the ones named in the file, in the file's order, or all
@@ -271,20 +259,39 @@ mod tests {
     #[test]
     fn a_chosen_picture_and_its_fit_save_and_load() {
         let mut settings = crate::Settings::default();
-        settings.wallpaper.show = Backdrop::Picture;
         settings.wallpaper.picture = "/home/someone/Pictures/hills.jpg".into();
         settings.wallpaper.picture_fit = PictureFit::Fit;
         let text = toml::to_string(&settings).unwrap();
-        assert!(text.contains("show = \"picture\""), "{text}");
+        assert!(!text.contains("show ="), "{text}");
         assert!(text.contains("picture-fit = \"fit\""), "{text}");
         assert_eq!(crate::file::parse(&text).unwrap(), settings);
-        let by_hand = "[wallpaper]\nshow = \"picture\"\npicture = \"/a/b.png\"\n";
+        let by_hand = "[wallpaper]\npicture = \"/a/b.png\"\n";
         let wallpaper = crate::file::parse(by_hand).unwrap().wallpaper;
         assert!(wallpaper.shows_picture());
         assert_eq!(
             wallpaper.picture_fit,
             PictureFit::Fill,
             "fill unless it says"
+        );
+    }
+
+    #[test]
+    fn a_file_that_still_says_what_to_show_loads_and_the_picture_decides() {
+        let chose_living = "[wallpaper]\nfade-after-secs = 300\nshow = \"living\"\n";
+        let wallpaper = crate::file::parse(chose_living).unwrap().wallpaper;
+        assert_eq!(wallpaper.fade_after_secs, 300);
+        assert!(!wallpaper.shows_picture());
+        let chose_picture = "[wallpaper]\nshow = \"picture\"\npicture = \"/a/b.png\"\n\
+                             picture-fit = \"fit\"\n";
+        let wallpaper = crate::file::parse(chose_picture).unwrap().wallpaper;
+        assert!(wallpaper.shows_picture());
+        assert_eq!(wallpaper.picture_fit, PictureFit::Fit);
+        let no_picture = "[wallpaper]\nshow = \"picture\"\npicture = \"\"\n";
+        assert!(
+            !crate::file::parse(no_picture)
+                .unwrap()
+                .wallpaper
+                .shows_picture()
         );
     }
 

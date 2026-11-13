@@ -98,7 +98,7 @@ inside() {
             if [ "$desktop" = slipstream-still ]; then
                 su "$user" -c "mkdir -p ~/.config/slipstream ~/.local/share/slipstream \
                     && printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQkFACAACGAEtozIzzAAAAAElFTkSuQmCC' | base64 -d >~/.local/share/slipstream/wallpaper.png \
-                    && printf '[wallpaper]\nshow = \"picture\"\n' \
+                    && printf '[wallpaper]\npicture = \"dark.png\"\n' \
                     >~/.config/slipstream/settings.toml"
             fi
             # Slipstream with its bar in the wind tunnel style, whose air moves all the time.
