@@ -7,9 +7,9 @@
 //!
 //! The snip is saved and copied as Print's screenshots are. On screen, the chosen part breaks
 //! into a grid of fragments that scatter and fly into the toast saying where it went. With
-//! Slipstream's effects a shower of streaks pours through each one, as through a closing window,
-//! and carries it into the toast; with the Matrix's each turns into a rain glyph. The snip is over the moment it's chosen; the fragments
-//! only paint afterwards.
+//! Slipstream's effects each one breaks away behind a glowing edge as a streak of light in its
+//! own colour runs through it and on into the toast; with the Matrix's each turns into a rain
+//! glyph. The snip is over the moment it's chosen; the fragments only paint afterwards.
 
 use std::sync::Arc;
 
@@ -35,12 +35,11 @@ use crate::{
     Slipstream,
     anim::Easing,
     bullet::ALPHABET,
-    glmatrix::{self, Glyphs},
+    glmatrix::Glyphs,
     overview,
     paint::{self, Painted, Painter},
     panel,
     render::{self, OutputElement},
-    streaks,
     text::{self, Face, Style},
 };
 
@@ -65,29 +64,32 @@ const DIM: f32 = 0.5;
 const FLIGHT: f64 = 0.42;
 /// With reduced motion the chosen part just fades.
 const REDUCED_FLIGHT: f64 = 0.08;
-/// With Slipstream's effects each fragment is poured through by a shower of streaks, as a
-/// closing window is: three layers of them in cells this many logical pixels wide, nearest
-/// first, with some cells left empty.
-const SHOWER_CELLS: [f64; 3] = [22.0, 17.0, 12.0];
-const SHOWER_EMPTY: f64 = 0.3;
-/// A streak's length, core width and head glow radius in logical pixels, farthest to nearest.
-const STREAK_LENGTH: (f64, f64) = (24.0, 96.0);
-const STREAK_WIDTH: (f64, f64) = (2.5, 9.0);
-const STREAK_HEAD: (f64, f64) = (4.5, 11.0);
-/// How many of a streak's pixels it has to each logical pixel. Light is soft and bloomed, so a
-/// shower is painted coarser than the screen and spread over it.
-const STREAK_PIXELS: f64 = 0.6;
+/// With Slipstream's effects each fragment breaks away behind a glowing edge while one streak of
+/// light runs through it into the toast. The streak is this many times as long as the fragment
+/// is deep along its flight, its core this share of the fragment's width across it (in logical
+/// pixels, within bounds), and its head glows this many times as far as the core is thick.
+const STREAK_LENGTH: f64 = 2.2;
+const STREAK_THICKNESS: f64 = 0.07;
+const STREAK_THICKEST: (f64, f64) = (2.0, 7.0);
+const STREAK_HEAD: f64 = 2.2;
+/// The one faint echo behind each streak: how bright it is, how thick and how long against the
+/// streak, how far it trails the head against the fragment's depth, and how far to one side
+/// against its width.
+const ECHO_LIGHT: f32 = 0.3;
+const ECHO_THICKNESS: f64 = 0.6;
+const ECHO_LENGTH: f64 = 0.75;
+const ECHO_LAG: (f64, f64) = (0.2, 0.4);
+const ECHO_ASIDE: (f64, f64) = (0.12, 0.28);
 /// How much of the light covers what is underneath; the rest is added to it.
 const STREAK_COVER: f32 = 0.6;
-/// How far behind the bite the fragment glows, in logical pixels.
+/// How far behind the bite the fragment glows, in logical pixels, and how many of the glow's
+/// pixels it has to each logical pixel: it's soft, so it's painted coarser than the screen.
 const SEAR: f64 = 10.0;
-/// When, in a fragment's eased flight, its shower shows, and starts and finishes eating it.
-const SHOWER_IN: (f64, f64) = (0.22, 0.4);
+const SEAR_PIXELS: f64 = 0.6;
+/// When, in a fragment's eased flight, its streak shows, and its bite starts and finishes
+/// eating it.
+const STREAK_IN: (f64, f64) = (0.22, 0.4);
 const EAT: (f64, f64) = (0.3, 0.75);
-/// When, in the fragment's flight by the clock, its streaks turn from the fragment's own colours
-/// to the rain's green: the eased flight is nearly over by half time, which would leave the
-/// colours no time to be seen.
-const GREEN: (f64, f64) = (0.25, 0.6);
 /// Logical pixels per design pixel, which the fragment grid is sized in.
 const DESIGN_PX: f64 = panel::DESIGN_PX as f64;
 
@@ -586,17 +588,15 @@ impl Slipstream {
 enum Turn {
     /// The rain's dark card with one glyph, the fragment's own size.
     Glyph(Painted),
-    /// A shower of streaks that pours through it along its flight and eats it away.
-    Shower(Box<Shower>),
+    /// A streak of light that runs through it along its flight as it is eaten away.
+    Streak(Box<Wake>),
 }
 
-/// A fragment's shower, painted once: its streaks in the fragment's own colours and again in the
-/// rain's green, both drawn at the fragment's scale, and the glow just behind the bite.
-struct Shower {
-    own: Painted,
-    green: Painted,
-    /// Where in the streaks' sprite the bite's middle is, in logical pixels: their heads line up
-    /// along the bite.
+/// What a fragment leaves as it breaks away, painted once: its streak and the streak's faint
+/// echo, both in the picture's own colour, and the glow just behind the bite.
+struct Wake {
+    streak: Painted,
+    /// Where in the streak's sprite its head is, in logical pixels: it rides the bite's middle.
     anchor: Point<f64, Logical>,
     sear: Option<Painted>,
     /// The way the fragment flies, and the side of it the bite crosses towards.
@@ -604,7 +604,7 @@ struct Shower {
     axis: Axis,
 }
 
-/// The edge of a fragment its shower eats towards: the one its flight points at most.
+/// The edge of a fragment its bite eats towards: the one its flight points at most.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Axis {
     Down,
@@ -630,12 +630,6 @@ impl Axis {
             Axis::Right => (1.0, 0.0),
             Axis::Left => (-1.0, 0.0),
         }
-    }
-
-    /// Across the axis, a quarter turn from it.
-    fn across(self) -> (f64, f64) {
-        let (x, y) = self.unit();
-        (-y, x)
     }
 
     /// How deep a `w`×`h` fragment is along the axis, and how wide across it.
@@ -740,8 +734,8 @@ impl Flight {
                         let centre = from.loc + Point::from((cw / 2.0, ch / 2.0)) + scatter;
                         let along = target - centre;
                         let index = ((row * cols + col) as u64 + 1).wrapping_mul(0x2545_f491);
-                        paint_shower(&picture, &pixels, from.size, along, base ^ index)
-                            .map(|shower| Turn::Shower(Box::new(shower)))
+                        paint_wake(&picture, &pixels, from.size, along, base ^ index)
+                            .map(|wake| Turn::Streak(Box::new(wake)))
                     }
                 };
                 pieces.push(Piece {
@@ -810,8 +804,8 @@ impl Flight {
                     )
                     .map(OutputElement::Memory),
                 ),
-                Some(Turn::Shower(shower)) => {
-                    shower.elements(renderer, piece, &place, (p, t), &mut elements);
+                Some(Turn::Streak(wake)) => {
+                    wake.elements(renderer, piece, &place, p, &mut elements);
                     continue;
                 }
                 None => {}
@@ -956,23 +950,22 @@ fn part(
     .ok()
 }
 
-impl Shower {
-    /// The fragment at `place`, `p` into its eased flight and `t` by the clock, as its shower eats
-    /// it from the trailing edge: the streaks, the glow just behind the bite, and what is left of
-    /// the picture.
+impl Wake {
+    /// The fragment at `place`, `p` into its eased flight, as it is eaten from the trailing edge:
+    /// its streak, the glow just behind the bite, and what is left of the picture.
     fn elements(
         &self,
         renderer: &mut GlesRenderer,
         piece: &Piece,
         place: &Place,
-        (p, t): (f64, f64),
+        p: f64,
         out: &mut Vec<OutputElement>,
     ) {
         let fragment = (piece.from.size.w, piece.from.size.h);
         let (depth, _) = self.axis.depth(fragment);
         let k = place.rect.size.w / fragment.0.max(1.0);
         // The bite crosses the fragment from its trailing edge to its leading one, and the
-        // streaks run on ahead of it into the toast.
+        // streak's head rides it, then runs on ahead into the toast.
         let bite = depth * (ramp(p, EAT) + 0.3 * ramp(p, (EAT.1, 1.0)) - 0.5);
         let ahead = bite / lean(self.along, self.axis) * k;
         let centre = Point::<f64, Logical>::from((
@@ -981,21 +974,14 @@ impl Shower {
         ));
         let at = centre + Point::from((self.along.0 * ahead, self.along.1 * ahead))
             - Point::from((self.anchor.x * k, self.anchor.y * k));
-        let whole = (self.own.logical.w as f64, self.own.logical.h as f64);
+        let whole = (self.streak.logical.w as f64, self.streak.logical.h as f64);
         let size = (whole.0 * k, whole.1 * k);
         let all = Rectangle::from_size(whole.into());
         // Light all the way into the toast, going out only as it gets there.
-        let light = (ramp(p, SHOWER_IN) * (place.alpha as f64).sqrt()) as f32;
-        let green = ramp(t, GREEN);
-        let green = (green * green * (3.0 - 2.0 * green)) as f32;
-        for (painted, alpha) in [
-            (&self.green, light * green),
-            (&self.own, light * (1.0 - green)),
-        ] {
-            out.extend(
-                part(renderer, painted, whole, all, at, size, alpha).map(OutputElement::Memory),
-            );
-        }
+        let light = (ramp(p, STREAK_IN) * (place.alpha as f64).sqrt()) as f32;
+        out.extend(
+            part(renderer, &self.streak, whole, all, at, size, light).map(OutputElement::Memory),
+        );
         let to_screen = |part: Rectangle<f64, Logical>| {
             (
                 place.rect.loc + Point::from((part.loc.x * k, part.loc.y * k)),
@@ -1033,24 +1019,33 @@ fn lean(along: (f64, f64), axis: Axis) -> f64 {
     (along.0 * ax + along.1 * ay).max(0.5)
 }
 
-/// One streak of a fragment's shower: its head, with the bite's middle as the origin, how near
-/// it is from 0 (far) to 1, and its colours, the fragment's own and the rain's green.
-struct Streak {
+/// One line of light in a fragment's wake: its head, with the bite's middle as the origin, its
+/// length and core thickness in logical pixels, and how bright it is.
+struct Line {
     head: (f64, f64),
-    near: f64,
-    own: [f32; 3],
-    green: [f32; 3],
+    length: f64,
+    thickness: f64,
+    light: f32,
 }
 
-/// A fragment's shower for a flight along `along`, painted from its own `pixels` (RGBA, at
-/// `picture`'s device size), `fragment` logical pixels big.
-fn paint_shower(
+impl Line {
+    /// How far from the line its light reaches, in logical pixels: the halo is all but gone six
+    /// core thicknesses out, and the head's glow sooner.
+    fn reach(&self) -> f64 {
+        6.0 * self.thickness + 1.0
+    }
+}
+
+/// A fragment's wake for a flight along `along`, painted from its own `pixels` (RGBA, at
+/// `picture`'s device size), `fragment` logical pixels big. The streak is painted at the screen's
+/// own pixels, so its core stays sharp.
+fn paint_wake(
     picture: &Painted,
     pixels: &[u8],
     fragment: Size<f64, Logical>,
     along: Point<f64, Logical>,
     seed: u64,
-) -> Option<Shower> {
+) -> Option<Wake> {
     let reach = (along.x * along.x + along.y * along.y).sqrt();
     let along = if reach > 1e-6 {
         (along.x / reach, along.y / reach)
@@ -1064,23 +1059,17 @@ fn paint_shower(
         device: picture.device,
         fragment,
     };
-    let shower = shower_streaks(fragment, along, axis, &sample, seed);
-    let ShowerLight {
-        own,
-        green,
-        logical,
-        anchor,
-    } = paint_streaks(&shower, along)?;
-    let painted = |pixmap: Pixmap| Painted {
-        buffer: paint::buffer(&pixmap),
-        logical,
-        device: (pixmap.width() as i32, pixmap.height() as i32),
-        scale: picture.scale,
-        pieces: Default::default(),
-    };
-    Some(Shower {
-        own: painted(own),
-        green: painted(green),
+    let lines = wake_lines(fragment, along, axis, seed);
+    let (pixmap, logical, anchor) =
+        paint_lines(&lines, along, light_colour(pixels), picture.scale)?;
+    Some(Wake {
+        streak: Painted {
+            buffer: paint::buffer(&pixmap),
+            logical,
+            device: (pixmap.width() as i32, pixmap.height() as i32),
+            scale: picture.scale,
+            pieces: Default::default(),
+        },
         anchor,
         sear: paint_sear(fragment, axis, &sample, picture.scale),
         along,
@@ -1109,28 +1098,40 @@ impl Sampler<'_> {
     }
 }
 
-/// A closing window's streak colours for a pixel of `rgb`: its own, lifted a little and touched
-/// with the rain's green, and the green it turns to, brighter where the picture was.
-fn shower_colours(rgb: [f32; 3]) -> ([f32; 3], [f32; 3]) {
-    let ink = glmatrix::TINT;
-    let luma = 0.3 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2];
-    (
-        std::array::from_fn(|i| rgb[i] * 1.2 + ink[i] * 0.2),
-        ink.map(|c| c * (0.55 + 0.6 * luma)),
-    )
+/// The colour a fragment's light takes from its RGBA `pixels`: their colours averaged with the
+/// vivid and bright ones counting most and black not at all, brought up to a light's brightness.
+fn light_colour(pixels: &[u8]) -> [f32; 3] {
+    let mut sum = [0f32; 3];
+    let mut weight = 0f32;
+    for pixel in pixels.chunks_exact(4) {
+        let rgb: [f32; 3] = std::array::from_fn(|i| pixel[i] as f32 / 255.0);
+        let brightest = rgb.into_iter().fold(0.0f32, f32::max);
+        let dullest = rgb.into_iter().fold(1.0f32, f32::min);
+        let counts = (brightest - dullest) * 3.0 + brightest;
+        for (total, c) in sum.iter_mut().zip(rgb) {
+            *total += c * counts;
+        }
+        weight += counts;
+    }
+    lit(sum.map(|total| total / weight.max(1e-6)))
 }
 
-/// The streaks of a fragment's shower, as a closing window's: three layers of cells across the
-/// bite, nearest first, some empty, each streak lagging behind the bite the farther it is, and
-/// coloured from the part of the picture it pours through. At a slant the shower is wider than
-/// the fragment, so that every part of it is crossed.
-fn shower_streaks(
-    fragment: (f64, f64),
-    along: (f64, f64),
-    axis: Axis,
-    sample: &Sampler,
-    seed: u64,
-) -> Vec<Streak> {
+/// A colour brought up to a light's brightness: its brightest channel at least 0.8, keeping its
+/// hue, and a light grey for one with no colour to speak of.
+fn lit(rgb: [f32; 3]) -> [f32; 3] {
+    let brightest = rgb.into_iter().fold(0.0f32, f32::max);
+    if brightest < 0.02 {
+        [0.8; 3]
+    } else if brightest < 0.8 {
+        rgb.map(|c| c * 0.8 / brightest)
+    } else {
+        rgb
+    }
+}
+
+/// A fragment's streak, its head on the bite's middle, and the faint echo trailing it to one
+/// side, shorter and thinner.
+fn wake_lines(fragment: (f64, f64), along: (f64, f64), axis: Axis, seed: u64) -> [Line; 2] {
     let mut seed = seed | 1;
     let mut random = move || {
         seed ^= seed << 13;
@@ -1138,64 +1139,50 @@ fn shower_streaks(
         seed ^= seed << 17;
         (seed >> 11) as f64 / (1u64 << 53) as f64
     };
+    let between = |(a, b): (f64, f64), t: f64| a + (b - a) * t;
     let (depth, width) = axis.depth(fragment);
-    let (ax, ay) = axis.unit();
-    let (cx, cy) = axis.across();
-    // How far a streak moves across the bite for each pixel the bite moves on.
-    let drift = (along.0 * cx + along.1 * cy) / lean(along, axis);
-    let half = width / 2.0 + depth / 2.0 * drift.abs();
-    let mut streaks = Vec::new();
-    for (layer, cell) in SHOWER_CELLS.into_iter().enumerate() {
-        let offset = random() * cell;
-        let cells = (2.0 * half / cell).ceil() as usize + 1;
-        for i in 0..cells {
-            let (empty, near, x, y) = (random(), random(), random(), random());
-            let (lag, pace) = (random(), random());
-            let across = -half - offset + (i as f64 + 0.25 + 0.5 * x) * cell;
-            if empty < SHOWER_EMPTY || across.abs() > half {
-                continue;
-            }
-            // Nearer in the first layer, farther in the last. Far ones fall behind the bite, and
-            // each keeps a pace of its own, near ones closer to the bite's.
-            let near = (near * 0.6 + (2 - layer) as f64 * 0.2).clamp(0.0, 1.0);
-            let lag = (0.02 + 0.4 * (1.0 - near) * lag + 0.25 * (1.0 - near * 0.6) * pace) * depth;
-            // The picture where it crosses the fragment, somewhere along its depth.
-            let down = (y - 0.5) * depth;
-            let side = (across + down * drift).clamp(-width / 2.0, width / 2.0);
-            let (lx, ly) = (side * cx + down * ax, side * cy + down * ay);
-            let (own, green) =
-                shower_colours(sample.at(lx + fragment.0 / 2.0, ly + fragment.1 / 2.0));
-            streaks.push(Streak {
-                head: (across * cx - lag * along.0, across * cy - lag * along.1),
-                near,
-                own,
-                green,
-            });
-        }
-    }
-    streaks
+    let (thinnest, thickest) = STREAK_THICKEST;
+    let thickness = (STREAK_THICKNESS * width).clamp(thinnest, thickest);
+    let length = STREAK_LENGTH * depth;
+    let lag = between(ECHO_LAG, random()) * depth;
+    let side = if random() < 0.5 { -1.0 } else { 1.0 };
+    let aside = side * between(ECHO_ASIDE, random()) * width;
+    // Across the flight, a quarter turn from it.
+    let (cx, cy) = (-along.1, along.0);
+    [
+        Line {
+            head: (0.0, 0.0),
+            length,
+            thickness,
+            light: 1.0,
+        },
+        Line {
+            head: (aside * cx - lag * along.0, aside * cy - lag * along.1),
+            length: length * ECHO_LENGTH,
+            thickness: thickness * ECHO_THICKNESS,
+            light: ECHO_LIGHT,
+        },
+    ]
 }
 
-/// A streak measure for depth `near`, from its farthest to its nearest.
-fn by_depth((far, near): (f64, f64), at: f64) -> f64 {
-    far + (near - far) * at
-}
+/// A sprite of light: its pixels, its size, and where its lines' origin is in it, in logical
+/// pixels.
+type Sprite = (Pixmap, Size<i32, Logical>, Point<f64, Logical>);
 
-/// The light of a `shower` of streaks running along `along`, twice: in their own colours and in
-/// the rain's green. Each is a closing window's streak, a core brightening towards a glowing
-/// head, with the streams' faint trail behind and their bloom.
-fn paint_streaks(shower: &[Streak], along: (f64, f64)) -> Option<ShowerLight> {
-    if shower.is_empty() {
-        return None;
-    }
-    let bloom = (streaks::BLOOM as f64 * STREAK_PIXELS).round().max(1.0) as usize;
-    let margin = bloom as f64 / STREAK_PIXELS + 1.0;
+/// `lines` of light running along `along`, all in `colour`, as one sprite with `density` of its
+/// pixels to each logical pixel.
+fn paint_lines(
+    lines: &[Line],
+    along: (f64, f64),
+    colour: [f32; 3],
+    density: f64,
+) -> Option<Sprite> {
     let mut bounds = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for streak in shower {
-        let reach = by_depth(STREAK_LENGTH, streak.near) * (1.0 + streaks::TRAIL as f64);
-        let r = by_depth(STREAK_HEAD, streak.near) + margin;
-        let (hx, hy) = streak.head;
-        for (x, y) in [(hx, hy), (hx - along.0 * reach, hy - along.1 * reach)] {
+    for line in lines {
+        let r = line.reach();
+        let (hx, hy) = line.head;
+        let tail = (hx - along.0 * line.length, hy - along.1 * line.length);
+        for (x, y) in [(hx, hy), tail] {
             bounds = (
                 bounds.0.min(x - r),
                 bounds.1.min(y - r),
@@ -1204,67 +1191,50 @@ fn paint_streaks(shower: &[Streak], along: (f64, f64)) -> Option<ShowerLight> {
             );
         }
     }
+    if bounds.0 > bounds.2 {
+        return None;
+    }
     let (x0, y0) = (bounds.0.floor(), bounds.1.floor());
     let logical =
         Size::<i32, Logical>::from(((bounds.2 - x0).ceil() as i32, (bounds.3 - y0).ceil() as i32));
     let (w, h) = (
-        (logical.w as f64 * STREAK_PIXELS).ceil().max(1.0) as usize,
-        (logical.h as f64 * STREAK_PIXELS).ceil().max(1.0) as usize,
+        (logical.w as f64 * density).ceil().max(1.0) as usize,
+        (logical.h as f64 * density).ceil().max(1.0) as usize,
     );
-    let mut own = vec![0f32; w * h * 3];
-    let mut green = vec![0f32; w * h * 3];
-    for streak in shower {
-        light_streak(&mut own, &mut green, (w, h), streak, along, (x0, y0));
+    let mut sum = vec![0f32; w * h * 3];
+    for line in lines {
+        light_line(&mut sum, (w, h), line, along, colour, (x0, y0), density);
     }
-    let mut across = Vec::new();
-    streaks::bloom(&mut own, &mut across, w, h, bloom);
-    streaks::bloom(&mut green, &mut across, w, h, bloom);
-    Some(ShowerLight {
-        own: light_pixmap(&own, w, h)?,
-        green: light_pixmap(&green, w, h)?,
-        logical,
-        anchor: Point::from((-x0, -y0)),
-    })
+    Some((light_pixmap(&sum, w, h)?, logical, Point::from((-x0, -y0))))
 }
 
-/// A shower's streaks as `paint_streaks` paints them.
-struct ShowerLight {
-    own: Pixmap,
-    green: Pixmap,
-    logical: Size<i32, Logical>,
-    anchor: Point<f64, Logical>,
-}
-
-/// Adds one streak's light to `own` and `green`, `w`×`h` pixels of RGB, whose top left is at
-/// `origin` in the streaks' logical pixels. Only the pixels near the streak are visited: along
-/// each row it crosses, or each column when it runs flatter than steep.
-fn light_streak(
-    own: &mut [f32],
-    green: &mut [f32],
+/// Adds one line's light to `sum`, `w`×`h` pixels of RGB with `density` of them to each logical
+/// pixel, whose top left is at `origin` in logical pixels: a white-hot core in a thin halo of
+/// `colour`, thinning and dimming from a glowing head to nothing at its tail. Only the pixels
+/// near the line are visited: along each row it crosses, or each column when it runs flatter
+/// than steep.
+fn light_line(
+    sum: &mut [f32],
     (w, h): (usize, usize),
-    streak: &Streak,
+    line: &Line,
     along: (f64, f64),
+    colour: [f32; 3],
     origin: (f64, f64),
+    density: f64,
 ) {
-    let near = streak.near;
-    let length = by_depth(STREAK_LENGTH, near);
-    let width = by_depth(STREAK_WIDTH, near);
-    let radius = by_depth(STREAK_HEAD, near);
-    let reach = length * (1.0 + streaks::TRAIL as f64);
-    let bright = (0.4 + 0.6 * near) as f32;
-    let hot = |rgb: [f32; 3]| rgb.map(|c| c + (1.0 - c) * 0.6);
-    let (hot_own, hot_green) = (hot(streak.own), hot(streak.green));
+    let glow = STREAK_HEAD * line.thickness;
+    let head_rgb = colour.map(|c| c + (1.0 - c) * 0.75);
     let head = (
-        (streak.head.0 - origin.0) * STREAK_PIXELS,
-        (streak.head.1 - origin.1) * STREAK_PIXELS,
+        (line.head.0 - origin.0) * density,
+        (line.head.1 - origin.1) * density,
     );
     let end = (
-        head.0 - along.0 * reach * STREAK_PIXELS,
-        head.1 - along.1 * reach * STREAK_PIXELS,
+        head.0 - along.0 * line.length * density,
+        head.1 - along.1 * line.length * density,
     );
-    let r = radius.max(width / 2.0 + 1.0) * STREAK_PIXELS + 1.0;
+    let r = line.reach() * density;
     let steep = along.1.abs() >= along.0.abs();
-    // The rows (or columns) the streak runs over, and how far across each it can light.
+    // The rows (or columns) the line runs over, and how far across each it can light.
     let (from, to, runs, across) = if steep {
         (head.1.min(end.1) - r, head.1.max(end.1) + r, h, w)
     } else {
@@ -1287,36 +1257,32 @@ fn light_streak(
         for step in first..last {
             let (x, y) = if steep { (step, run) } else { (run, step) };
             // How far behind the head, and how far off the line, in logical pixels.
-            let qx = (x as f64 + 0.5 - head.0) / STREAK_PIXELS;
-            let qy = (y as f64 + 0.5 - head.1) / STREAK_PIXELS;
+            let qx = (x as f64 + 0.5 - head.0) / density;
+            let qy = (y as f64 + 0.5 - head.1) / density;
             let behind = -(qx * along.0 + qy * along.1);
             let off = (qx * along.1 - qy * along.0).abs();
-            let cover = (width * 0.5 + 0.5 - off).clamp(0.0, 1.0);
-            let body = if (0.0..=length).contains(&behind) {
-                (1.0 - behind / length).powf(1.6)
-            } else if behind > length && behind <= reach {
-                (1.0 - (behind - length) / (reach - length)) * streaks::TRAIL_LIGHT as f64
+            // The core and its halo, brightest at the head and whitening only near it, so the
+            // tail keeps the picture's colour.
+            let (body, hot) = if (0.0..=line.length).contains(&behind) {
+                let u = 1.0 - behind / line.length;
+                let wide = line.thickness * (0.3 + 0.7 * u);
+                let core = (-(off / wide).powi(2)).exp();
+                let halo = 0.3 * (-(off / (3.0 * wide)).powi(2)).exp();
+                (
+                    (core + halo) * u.powf(1.2),
+                    core / (core + halo).max(1e-9) * (0.1 + 0.6 * u * u * u),
+                )
             } else {
-                0.0
-            } * cover;
-            let d = (behind * behind + off * off).sqrt() / radius;
-            let glow = (1.0 - d).max(0.0).powi(2);
-            if body <= 0.0 && glow <= 0.0 {
+                (0.0, 0.0)
+            };
+            let shine = 0.8 * (-(behind * behind + off * off) / (glow * glow)).exp();
+            if body + shine < 1e-3 {
                 continue;
             }
-            let (body, glow) = (body as f32 * bright, glow as f32 * bright);
             let at = (y * w + x) * 3;
-            for (sum, (c, hot)) in own[at..at + 3]
-                .iter_mut()
-                .zip(streak.own.iter().zip(&hot_own))
-            {
-                *sum += c * body + hot * glow;
-            }
-            for (sum, (c, hot)) in green[at..at + 3]
-                .iter_mut()
-                .zip(streak.green.iter().zip(&hot_green))
-            {
-                *sum += c * body + hot * glow;
+            for ((total, c), white) in sum[at..at + 3].iter_mut().zip(colour).zip(head_rgb) {
+                let core = c + (1.0 - c) * hot as f32;
+                *total += (core * body as f32 + white * shine as f32) * line.light;
             }
         }
     }
@@ -1351,25 +1317,24 @@ fn sear_band(fragment: (f64, f64), axis: Axis) -> (f64, f64) {
 }
 
 /// The glow behind a fragment's bite, as a closing window's: hottest at the bite and gone `SEAR`
-/// pixels in, each line of it in the colour of the picture along it, taken halfway to the rain's
-/// green and then halfway to white.
+/// pixels in, each line of it in the colour of the picture along it, as light, taken halfway to
+/// white.
 fn paint_sear(fragment: (f64, f64), axis: Axis, sample: &Sampler, scale: f64) -> Option<Painted> {
     /// How many points along each line its colour is read from.
     const READS: usize = 8;
     let band = sear_band(fragment, axis);
     let (w, h) = (
-        (band.0 * STREAK_PIXELS).ceil().max(1.0) as usize,
-        (band.1 * STREAK_PIXELS).ceil().max(1.0) as usize,
+        (band.0 * SEAR_PIXELS).ceil().max(1.0) as usize,
+        (band.1 * SEAR_PIXELS).ceil().max(1.0) as usize,
     );
     let (depth, _) = axis.depth(fragment);
     let (ax, ay) = axis.unit();
-    let ink = glmatrix::TINT;
     let mut sum = vec![0f32; w * h * 3];
     for y in 0..h {
         for x in 0..w {
             let (bx, by) = (
-                (x as f64 + 0.5) / STREAK_PIXELS,
-                (y as f64 + 0.5) / STREAK_PIXELS,
+                (x as f64 + 0.5) / SEAR_PIXELS,
+                (y as f64 + 0.5) / SEAR_PIXELS,
             );
             // How far in from the bite, as a share of the band.
             let a = (bx - band.0 / 2.0) * ax + (by - band.1 / 2.0) * ay;
@@ -1378,15 +1343,13 @@ fn paint_sear(fragment: (f64, f64), axis: Axis, sample: &Sampler, scale: f64) ->
             for i in 0..READS {
                 let along = (i as f64 + 0.5) / READS as f64 * depth;
                 let (sx, sy) = if ax == 0.0 { (bx, along) } else { (along, by) };
-                let (colour, _) = shower_colours(sample.at(sx, sy));
-                for (sum, c) in own.iter_mut().zip(colour) {
+                for (sum, c) in own.iter_mut().zip(lit(sample.at(sx, sy))) {
                     *sum += c / READS as f32;
                 }
             }
             let at = (y * w + x) * 3;
-            for (sum, (c, k)) in sum[at..at + 3].iter_mut().zip(own.iter().zip(&ink)) {
-                let hot = (c + k) / 2.0;
-                *sum = (hot + (1.0 - hot) * 0.5) * amount;
+            for (sum, c) in sum[at..at + 3].iter_mut().zip(own) {
+                *sum = (c + (1.0 - c) * 0.5) * amount;
             }
         }
     }
@@ -1556,7 +1519,7 @@ mod tests {
     fn a_snip_streams_into_the_toast_with_no_rain_glyph_with_slipstreams_effects() {
         let flight = fly(Effects::Slipstream, false);
         assert!(!flight.pieces.is_empty());
-        let streaks = |piece: &Piece| matches!(piece.turn, Some(Turn::Shower(_)));
+        let streaks = |piece: &Piece| matches!(piece.turn, Some(Turn::Streak(_)));
         assert!(flight.pieces.iter().all(streaks));
         // Reduced motion only fades the picture, whichever the look.
         for effects in [Effects::Slipstream, Effects::Matrix] {
@@ -1576,20 +1539,70 @@ mod tests {
         assert!(flight.pieces.iter().all(glyphs));
     }
 
-    /// A red, white and black picture pours out in red, white and dim streaks, which turn to
-    /// the rain's green; nothing is in the ring's colour.
-    #[test]
-    fn a_snips_streaks_are_coloured_from_its_own_picture_then_the_rains_green() {
-        let (w, h) = (60usize, 60usize);
-        let mut pixels = vec![0u8; w * h * 4];
+    /// A 60×60 picture in columns of `colours`, as RGBA.
+    fn columns(colours: &[[u8; 3]]) -> Vec<u8> {
+        let mut pixels = vec![255u8; 60 * 60 * 4];
         for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
-            let rgba = match (i % w) * 3 / w {
-                0 => [230, 20, 20, 255],
-                1 => [255, 255, 255, 255],
-                _ => [0, 0, 0, 255],
-            };
-            pixel.copy_from_slice(&rgba);
+            let [r, g, b] = colours[(i % 60) * colours.len() / 60];
+            pixel[..3].copy_from_slice(&[r, g, b]);
         }
+        pixels
+    }
+
+    /// A streak takes its colour from its own part of the picture, brought up to a light's
+    /// brightness: red from red, white from white, and the red over the white and black where
+    /// they share a fragment. Nothing is in the rain's green or the ring's colour.
+    #[test]
+    fn a_snips_streaks_are_coloured_from_its_own_picture() {
+        let (red, white, black) = ([230, 20, 20], [255, 255, 255], [0, 0, 0]);
+        let rgb = light_colour(&columns(&[red]));
+        assert!(rgb[0] > 0.85 && rgb[1] < 0.15 && rgb[2] < 0.15);
+        assert!(light_colour(&columns(&[white])).iter().all(|&c| c > 0.95));
+        let dark = light_colour(&columns(&[[10, 30, 60]]));
+        assert!(dark[2] >= 0.8 && dark[2] > dark[1] && dark[1] > dark[0]);
+        let mixed = light_colour(&columns(&[red, white, black]));
+        assert!(mixed[0] > 0.85 && mixed[1] < 0.5);
+        assert!((mixed[1] - mixed[2]).abs() < 0.02);
+    }
+
+    /// Each fragment leaves one streak and one fainter echo, painted once into one sprite: the
+    /// head is white-hot, the tail keeps the picture's colour and goes out, and the head rides
+    /// the bite.
+    #[test]
+    fn a_fragments_streak_is_one_bright_line_with_a_faint_echo() {
+        let along = (0.0, 1.0);
+        let lines = wake_lines((60.0, 60.0), along, Axis::Down, 7);
+        let [streak, echo] = &lines;
+        assert_eq!(streak.head, (0.0, 0.0));
+        assert!(echo.light < streak.light / 2.0 && echo.thickness < streak.thickness);
+        assert!(echo.head.1 < 0.0, "the echo trails the head");
+        let red = [0.9, 0.1, 0.1];
+        let (pixmap, logical, anchor) = paint_lines(&lines, along, red, 1.0).unwrap();
+        let at = |x: f64, y: f64| {
+            let (x, y) = ((anchor.x + x) as usize, (anchor.y + y) as usize);
+            let pixel = &pixmap.data()[(y * pixmap.width() as usize + x) * 4..][..4];
+            [pixel[0], pixel[1], pixel[2], pixel[3]]
+        };
+        let head = at(0.0, -1.0);
+        let tail = at(0.0, -0.7 * streak.length);
+        assert!(
+            head[0] == 255 && head[1] > 180,
+            "white-hot at the head: {head:?}"
+        );
+        assert!(
+            tail[0] > 2 * tail[1] && tail[3] > 0,
+            "red along the tail: {tail:?}"
+        );
+        assert!(tail[3] < head[3]);
+        assert_eq!(at(0.0, -streak.length - 2.0 * echo.thickness)[3], 0);
+        assert!(anchor.y > 0.0 && anchor.y < logical.h as f64);
+        for pixel in pixmap.data().chunks_exact(4) {
+            assert!(pixel[1] <= pixel[0], "never greener than red");
+        }
+        // Painted at the screen's own pixels.
+        let (twice, size, _) = paint_lines(&lines, along, red, 2.0).unwrap();
+        assert_eq!(twice.width() as i32, size.w * 2);
+        // And as a whole, from a fragment's picture, flying down.
         let picture = Painted {
             buffer: MemoryRenderBuffer::default(),
             logical: Size::from((60, 60)),
@@ -1597,23 +1610,8 @@ mod tests {
             scale: 1.0,
             pieces: Default::default(),
         };
-        let sample = Sampler {
-            pixels: &pixels,
-            device: (60, 60),
-            fragment: (60.0, 60.0),
-        };
-        let along = (0.0, 1.0);
-        let shower = shower_streaks((60.0, 60.0), along, Axis::Down, &sample, 7);
-        assert!(shower.len() >= 6, "a shower, not a streak or two");
-        let red = |rgb: [f32; 3]| rgb[0] > 0.9 && rgb[1] < 0.35;
-        let white = |rgb: [f32; 3]| rgb.iter().all(|&c| c > 0.9);
-        assert!(shower.iter().any(|streak| red(streak.own)));
-        assert!(shower.iter().any(|streak| white(streak.own)));
-        for streak in &shower {
-            assert!(streak.green[1] > streak.green[0] && streak.green[1] > streak.green[2]);
-        }
-        // Both sprites are painted once, here, and the heads line up along the bite.
-        let shower = paint_shower(
+        let pixels = columns(&[[230, 20, 20], [255, 255, 255], [0, 0, 0]]);
+        let wake = paint_wake(
             &picture,
             &pixels,
             Size::from((60.0, 60.0)),
@@ -1621,9 +1619,8 @@ mod tests {
             7,
         )
         .unwrap();
-        assert_eq!(shower.axis, Axis::Down);
-        assert_eq!(shower.own.logical, shower.green.logical);
-        assert!(shower.anchor.y > 0.0 && shower.anchor.y < shower.own.logical.h as f64);
+        assert_eq!(wake.axis, Axis::Down);
+        assert!(wake.sear.is_some());
     }
 
     /// The bite eats a fragment from the edge it flies away from.
