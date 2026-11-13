@@ -135,7 +135,7 @@ const AUTOSTART_WAIT: Duration = Duration::from_secs(10);
 
 /// What the user manager and D-Bus need to know about the session. `DISPLAY` isn't here: XWayland
 /// picks its number later and imports it itself.
-const SESSION_VARS: [&str; 8] = [
+const SESSION_VARS: [&str; 11] = [
     "WAYLAND_DISPLAY",
     live::LIVE_SOCKET,
     "XDG_CURRENT_DESKTOP",
@@ -144,6 +144,11 @@ const SESSION_VARS: [&str; 8] = [
     "DESKTOP_SESSION",
     "XCURSOR_THEME",
     "XCURSOR_SIZE",
+    // How apps find their theme: without these, an app D-Bus starts for another (a file
+    // manager asked to show a download) comes up light in a dark session.
+    "QT_QPA_PLATFORM",
+    "QT_QPA_PLATFORMTHEME",
+    "GTK_USE_PORTAL",
 ];
 
 /// Whether this is the login session, for the teardown, which the watchdog reaches from another
@@ -747,8 +752,8 @@ fn quiet(level: tracing::Level, locked: bool) -> bool {
     locked && level == tracing::Level::TRACE
 }
 
-/// Tells D-Bus and systemd where the display is, so anything they start (portals, services)
-/// opens on Slipstream.
+/// Tells D-Bus and systemd where the display is and how apps find their theme, so anything they
+/// start (portals, services, apps opened for another app) opens on Slipstream and looks like it.
 ///
 /// **On the calling thread, and before the session target starts.** A unit started before the
 /// import landed would come up with no `WAYLAND_DISPLAY`, connect to nothing and fail every
