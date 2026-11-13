@@ -28,10 +28,12 @@ fn code_mb() -> f64 {
 
 pub(super) fn section(page: &gtk::Box) {
     let card = group(page, "Featherweight score");
-    let score = SLIPSTREAM.score();
+    // Every other desktop is measured with a still wallpaper, so Slipstream is scored the same
+    // way, and what its living wallpaper adds is said beside it.
+    let score = SLIPSTREAM_REDUCED.score();
     let place = weight::place(score);
     let of = OTHERS.len() + 1;
-    let reduced = SLIPSTREAM_REDUCED.score();
+    let living = SLIPSTREAM.score();
     let placed = |place: usize| {
         if place == 1 {
             format!("the lightest of {of}")
@@ -52,10 +54,12 @@ pub(super) fn section(page: &gtk::Box) {
         &format!(
             "How light Slipstream is in real use, next to {} other desktops: the space it takes, \
              the memory it uses once you're logged in, and how much of one processor core it \
-             keeps busy while you're away. Lower is lighter. The moving wallpaper costs the most \
-             of that: with reduced motion it scores {reduced:.0}, {}.",
+             keeps busy while you're away. Lower is lighter. Like the others, it's measured with a \
+             still wallpaper. The living wallpaper, on by default, adds about {:.0}% of one core: \
+             with it moving, Slipstream scores {living:.0}, {}.",
             OTHERS.len(),
-            placed(weight::place(reduced))
+            (SLIPSTREAM.processor - SLIPSTREAM_REDUCED.processor).max(0.0),
+            placed(weight::place(living))
         ),
         "row-sub",
     ));
@@ -134,14 +138,14 @@ pub(super) fn section(page: &gtk::Box) {
         ));
     fact(
         &facts,
-        &format!("{:.1}%", SLIPSTREAM.processor),
+        &format!("{:.1}%", SLIPSTREAM_REDUCED.processor),
         "Of one core, while you're away",
     )
     .1
     .set_tooltip_text(Some(&format!(
-        "How much of one processor core Slipstream keeps busy with the wallpaper moving; {:.1}% \
-         with reduced motion.",
-        SLIPSTREAM_REDUCED.processor
+        "How much of one processor core Slipstream keeps busy with a still wallpaper; {:.1}% \
+         with the living wallpaper moving.",
+        SLIPSTREAM.processor
     )));
     fact(&facts, &SLIPSTREAM.packages.to_string(), "Packages")
         .1

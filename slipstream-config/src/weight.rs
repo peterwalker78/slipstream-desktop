@@ -44,9 +44,11 @@ const fn desktop(
     }
 }
 
-/// Slipstream as it comes, with the living wallpaper moving.
+/// Slipstream as it comes, with the living wallpaper moving, which the other desktops don't have:
+/// the difference from the still figure is what the living wallpaper costs.
 pub const SLIPSTREAM: Desktop = desktop("Slipstream", 104, 294.0, 140.0, 8.3);
-/// Slipstream with reduced motion, where the wallpaper holds still.
+/// Slipstream with its wallpaper held still (reduced motion), as every other desktop here is
+/// measured: the like-for-like comparison, and the score Settings leads with.
 pub const SLIPSTREAM_REDUCED: Desktop =
     desktop("Slipstream, reduced motion", 104, 294.0, 140.0, 1.3);
 
@@ -84,8 +86,8 @@ const MEMORY: Part = Part {
     low: 25.0,
     high: 2000.0,
 };
-/// A share of one processor core: 0.1% is about the smallest difference a minute's measurement
-/// tells apart, so even the quietest desktops are told apart, and a whole core kept busy while
+/// A share of one processor core: 0.1% is about the smallest difference a five-minute measurement
+/// reliably tells apart, so even the quietest desktops are told apart, and a whole core kept busy while
 /// nothing happens is the most a desktop at rest can cost.
 const AT_REST: Part = Part {
     low: 0.1,
