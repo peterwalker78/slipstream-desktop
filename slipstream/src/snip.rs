@@ -6,11 +6,15 @@
 //! the screen when the keys were pressed.
 //!
 //! The snip is saved and copied as Print's screenshots are. On screen, the chosen part breaks
-//! into a grid of fragments that scatter, turn into rain glyphs and fly into the toast saying
-//! where it went. The snip is over the moment it's chosen; the fragments only paint afterwards.
+//! into a grid of fragments that scatter and fly into the toast saying where it went. With
+//! Slipstream's effects each one stretches into a streak of light along its flight; with the
+//! Matrix's each turns into a rain glyph. The snip is over the moment it's chosen; the fragments
+//! only paint afterwards.
 
 use std::sync::Arc;
 
+use resvg::tiny_skia::Pixmap;
+use slipstream_config::Effects;
 use smithay::{
     backend::{
         allocator::Fourcc,
@@ -60,6 +64,15 @@ const DIM: f32 = 0.5;
 const FLIGHT: f64 = 0.42;
 /// With reduced motion the chosen part just fades.
 const REDUCED_FLIGHT: f64 = 0.08;
+/// A fragment's streak of light: how long it is against the fragment's larger side, how thick
+/// its core is against the smaller (in logical pixels, within bounds), how far its head glows
+/// against that, and how many of its pixels it has to each logical pixel. Light is soft, so a
+/// streak is painted coarser than the screen and spread over it.
+const STREAK_LENGTH: f64 = 1.6;
+const STREAK_THICKNESS: f64 = 0.06;
+const STREAK_THICKEST: (f64, f64) = (2.0, 8.0);
+const STREAK_HEAD: f64 = 2.2;
+const STREAK_PIXELS: f64 = 0.6;
 /// Logical pixels per design pixel, which the fragment grid is sized in.
 const DESIGN_PX: f64 = panel::DESIGN_PX as f64;
 
@@ -396,6 +409,7 @@ impl Slipstream {
                     target,
                     now,
                     self.clock.reduced_motion,
+                    self.settings.motion.effects,
                     self.ring_rgb,
                 );
                 self.shots.snip_flights.push(flight);
@@ -553,11 +567,19 @@ impl Slipstream {
     }
 }
 
-/// One fragment: its own picture and glyph tile, where it started, where it scatters to, and when
-/// it sets off.
+/// What a fragment turns into as it flies, painted once when it's made.
+enum Turn {
+    /// The rain's dark card with one glyph, the fragment's own size.
+    Glyph(Painted),
+    /// A streak of light along its flight, drawn at the fragment's scale round its centre.
+    Streak(Painted),
+}
+
+/// One fragment: its own picture and what it turns into, where it started, where it scatters to,
+/// and when it sets off.
 struct Piece {
     picture: Painted,
-    tile: Option<Painted>,
+    turn: Option<Turn>,
     from: Rectangle<f64, Logical>,
     scatter: Point<f64, Logical>,
     delay: f64,
@@ -573,6 +595,8 @@ pub struct Flight {
 }
 
 impl Flight {
+    // What is snipped and where it goes, then the clock and the look it flies in.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         output: String,
         frozen: &Frozen,
@@ -580,6 +604,7 @@ impl Flight {
         target: Point<f64, Logical>,
         now: f64,
         reduced: bool,
+        effects: Effects,
         ring_rgb: [f32; 3],
     ) -> Self {
         let (cols, rows) = if reduced {
@@ -596,7 +621,10 @@ impl Flight {
             seed ^= seed << 17;
             (seed >> 11) as f64 / (1u64 << 53) as f64
         };
-        let mut glyphs = if reduced { None } else { Glyphs::load() };
+        let mut glyphs = match effects {
+            Effects::Matrix if !reduced => Glyphs::load(),
+            _ => None,
+        };
         let mut pieces = Vec::with_capacity(cols * rows);
         for row in 0..rows {
             for col in 0..cols {
@@ -604,7 +632,7 @@ impl Flight {
                     (rect.loc.x + col as f64 * cw, rect.loc.y + row as f64 * ch).into(),
                     (cw, ch).into(),
                 );
-                let Some(picture) = crop_painted(frozen, from) else {
+                let Some((picture, average)) = crop_painted(frozen, from) else {
                     continue;
                 };
                 let tile = glyphs.as_mut().and_then(|glyphs| {
@@ -618,9 +646,19 @@ impl Flight {
                 });
                 let scatter =
                     Point::from(((random() - 0.5) * 0.9 * cw, (random() - 0.5) * 0.9 * ch));
+                let turn = match effects {
+                    _ if reduced => None,
+                    Effects::Matrix => tile.map(Turn::Glyph),
+                    Effects::Slipstream => {
+                        let centre = from.loc + Point::from((cw / 2.0, ch / 2.0)) + scatter;
+                        let along = target - centre;
+                        paint_streak(from.size, along, average, ring_rgb, frozen.scale)
+                            .map(Turn::Streak)
+                    }
+                };
                 pieces.push(Piece {
                     picture,
-                    tile,
+                    turn,
                     from,
                     scatter,
                     delay: if reduced {
@@ -672,8 +710,9 @@ impl Flight {
                 place.rect.size.w.round().max(1.0) as i32,
                 place.rect.size.h.round().max(1.0) as i32,
             ));
-            if let Some(tile) = piece.tile.as_ref() {
-                elements.extend(
+            let mut picture_alpha = place.alpha;
+            match piece.turn.as_ref() {
+                Some(Turn::Glyph(tile)) => elements.extend(
                     sized(
                         renderer,
                         tile,
@@ -682,11 +721,27 @@ impl Flight {
                         place.glyph * place.alpha,
                     )
                     .map(OutputElement::Memory),
-                );
+                ),
+                Some(Turn::Streak(streak)) => {
+                    // The streak is mostly clear, so the picture fades out as it fades in.
+                    picture_alpha *= 1.0 - place.glyph;
+                    let (at, size) = streak_at(&place, piece, streak.logical);
+                    elements.extend(
+                        sized(renderer, streak, at, size, place.glyph * place.alpha)
+                            .map(OutputElement::Memory),
+                    );
+                }
+                None => {}
             }
             elements.extend(
-                sized(renderer, &piece.picture, place.rect.loc, size, place.alpha)
-                    .map(OutputElement::Memory),
+                sized(
+                    renderer,
+                    &piece.picture,
+                    place.rect.loc,
+                    size,
+                    picture_alpha,
+                )
+                .map(OutputElement::Memory),
             );
         }
         elements
@@ -698,7 +753,7 @@ impl Flight {
 struct Place {
     rect: Rectangle<f64, Logical>,
     alpha: f32,
-    /// How far the glyph tile over it has faded in.
+    /// How far what it turns into has faded in over it.
     glyph: f32,
 }
 
@@ -739,6 +794,20 @@ fn fragment_at(p: f64, piece: &Piece, target: Point<f64, Logical>) -> Place {
     }
 }
 
+/// Where a fragment's streak is drawn while the fragment is at `place`: round the same centre,
+/// scaled as the fragment is.
+fn streak_at(
+    place: &Place,
+    piece: &Piece,
+    streak: Size<i32, Logical>,
+) -> (Point<f64, Logical>, Size<i32, Logical>) {
+    let k = place.rect.size.w / piece.from.size.w.max(1.0);
+    let (w, h) = (streak.w as f64 * k, streak.h as f64 * k);
+    let centre = place.rect.loc + Point::from((place.rect.size.w / 2.0, place.rect.size.h / 2.0));
+    let size = Size::from((w.round().max(1.0) as i32, h.round().max(1.0) as i32));
+    (centre - Point::from((w / 2.0, h / 2.0)), size)
+}
+
 /// A painted surface drawn at `size` rather than its own.
 fn sized(
     renderer: &mut GlesRenderer,
@@ -761,11 +830,13 @@ fn sized(
     .ok()
 }
 
-/// The frozen picture inside `rect` (screen-local, logical) as a surface of its own.
-fn crop_painted(frozen: &Frozen, rect: Rectangle<f64, Logical>) -> Option<Painted> {
+/// The frozen picture inside `rect` (screen-local, logical) as a surface of its own, and its
+/// average colour.
+fn crop_painted(frozen: &Frozen, rect: Rectangle<f64, Logical>) -> Option<(Painted, [f32; 3])> {
     let px = crate::screenshot::to_pixels(rect, frozen.scale);
     let (pixels, w, h) = crate::screenshot::cropped(&frozen.pixels, frozen.size, px)?;
-    Some(Painted {
+    let average = average(&pixels);
+    let painted = Painted {
         buffer: MemoryRenderBuffer::from_slice(
             &pixels,
             Fourcc::Abgr8888,
@@ -778,7 +849,124 @@ fn crop_painted(frozen: &Frozen, rect: Rectangle<f64, Logical>) -> Option<Painte
         device: (w as i32, h as i32),
         scale: frozen.scale,
         pieces: Default::default(),
+    };
+    Some((painted, average))
+}
+
+/// The average colour of RGBA pixels, from 0 to 1.
+fn average(pixels: &[u8]) -> [f32; 3] {
+    let mut sum = [0u64; 3];
+    for pixel in pixels.chunks_exact(4) {
+        for (total, &channel) in sum.iter_mut().zip(pixel) {
+            *total += channel as u64;
+        }
+    }
+    let count = (pixels.len() / 4).max(1) as f32;
+    sum.map(|total| total as f32 / count / 255.0)
+}
+
+/// A fragment's streak of light, as the streams draw theirs: a soft line along `along` with a
+/// brighter, glowing head at the front, thinning to nothing behind. Its colour is the fragment's
+/// own `average`, brought up to a light's brightness, lifting into the ring's colour at the head.
+/// The streak is centred in its sprite, which is just big enough to hold it at its angle.
+fn paint_streak(
+    fragment: Size<f64, Logical>,
+    along: Point<f64, Logical>,
+    average: [f32; 3],
+    ring_rgb: [f32; 3],
+    scale: f64,
+) -> Option<Painted> {
+    let (pixmap, logical) = streak_light(fragment, along, average, ring_rgb)?;
+    Some(Painted {
+        buffer: paint::buffer(&pixmap),
+        logical,
+        device: (pixmap.width() as i32, pixmap.height() as i32),
+        scale,
+        pieces: Default::default(),
     })
+}
+
+/// The pixels of `paint_streak`'s sprite, `STREAK_PIXELS` to each logical pixel, and its size.
+fn streak_light(
+    fragment: Size<f64, Logical>,
+    along: Point<f64, Logical>,
+    average: [f32; 3],
+    ring_rgb: [f32; 3],
+) -> Option<(Pixmap, Size<i32, Logical>)> {
+    let length = STREAK_LENGTH * fragment.w.max(fragment.h);
+    let (thinnest, thickest) = STREAK_THICKEST;
+    let thickness = (STREAK_THICKNESS * fragment.w.min(fragment.h)).clamp(thinnest, thickest);
+    let glow = STREAK_HEAD * thickness;
+    let reach = (along.x * along.x + along.y * along.y).sqrt();
+    let (dx, dy) = if reach > 1e-6 {
+        (along.x / reach, along.y / reach)
+    } else {
+        (0.0, -1.0)
+    };
+    let logical = Size::<i32, Logical>::from((
+        (dx.abs() * length + 2.0 * glow).ceil() as i32,
+        (dy.abs() * length + 2.0 * glow).ceil() as i32,
+    ));
+    let device = (
+        (logical.w as f64 * STREAK_PIXELS).ceil().max(1.0) as i32,
+        (logical.h as f64 * STREAK_PIXELS).ceil().max(1.0) as i32,
+    );
+    let mut pixmap = Pixmap::new(device.0 as u32, device.1 as u32)?;
+    let (cx, cy) = (logical.w as f64 / 2.0, logical.h as f64 / 2.0);
+    let tail = (cx - dx * length / 2.0, cy - dy * length / 2.0);
+    let head = (cx + dx * length / 2.0, cy + dy * length / 2.0);
+    let body = lit(average);
+    let head_rgb: [f32; 3] = std::array::from_fn(|i| ring_rgb[i] + (1.0 - ring_rgb[i]) * 0.4);
+    let width = device.0 as usize;
+    let data = pixmap.data_mut();
+    for py in 0..device.1 as usize {
+        for px in 0..width {
+            let x = (px as f64 + 0.5) / STREAK_PIXELS;
+            let y = (py as f64 + 0.5) / STREAK_PIXELS;
+            let (rx, ry) = (x - tail.0, y - tail.1);
+            // How far along from tail to head, and how far off the line.
+            let u = (rx * dx + ry * dy) / length;
+            let off = (ry * dx - rx * dy).abs();
+            let mut line = 0.0;
+            if (0.0..=1.0).contains(&u) {
+                let wide = thickness * (0.3 + 0.7 * u);
+                let core = (-(off / wide).powi(2)).exp();
+                let halo = 0.35 * (-(off / (3.0 * wide)).powi(2)).exp();
+                line = (core + halo) * u.powf(1.2);
+            }
+            let (hx, hy) = (x - head.0, y - head.1);
+            let shine = 0.8 * (-((hx * hx + hy * hy) / (glow * glow))).exp();
+            let light = (line + shine) as f32;
+            if light < 1.0 / 255.0 {
+                continue;
+            }
+            let lift = (u.clamp(0.0, 1.0) as f32).powi(2);
+            let rgb: [f32; 3] = std::array::from_fn(|i| {
+                let colour = body[i] + (ring_rgb[i] - body[i]) * lift;
+                (colour * line as f32 + head_rgb[i] * shine as f32) / light
+            });
+            let alpha = light.min(1.0);
+            let at = (py * width + px) * 4;
+            for (i, channel) in rgb.into_iter().enumerate() {
+                data[at + i] = (channel.clamp(0.0, 1.0) * alpha * 255.0).round() as u8;
+            }
+            data[at + 3] = (alpha * 255.0).round() as u8;
+        }
+    }
+    Some((pixmap, logical))
+}
+
+/// A fragment's colour brought up to a light's brightness: its brightest channel at least 0.7,
+/// keeping its hue, and a light grey for one with no colour to speak of.
+fn lit(rgb: [f32; 3]) -> [f32; 3] {
+    let brightest = rgb.into_iter().fold(0.0f32, f32::max);
+    if brightest < 0.02 {
+        [0.7; 3]
+    } else if brightest < 0.7 {
+        rgb.map(|c| c * 0.7 / brightest)
+    } else {
+        rgb
+    }
 }
 
 /// A fragment's glyph tile: the rain's dark card edged in the ring's colour, with one glyph.
@@ -902,6 +1090,88 @@ mod tests {
         assert_eq!(grid(544.0, 408.0), (4, 3));
     }
 
+    fn frozen(w: i32, h: i32) -> Frozen {
+        Frozen {
+            pixels: Arc::new(vec![40; (w * h * 4) as usize]),
+            size: Size::from((w, h)),
+            scale: 1.0,
+            buffer: MemoryRenderBuffer::default(),
+            logical: Size::from((w, h)),
+            windows: Vec::new(),
+            press: None,
+            pointer: point(0.0, 0.0),
+            legend: None,
+            readout: None,
+        }
+    }
+
+    fn fly(effects: Effects, reduced: bool) -> Flight {
+        let rect = Rectangle::new((0.0, 0.0).into(), (600.0, 400.0).into());
+        let target = point(300.0, 40.0);
+        let ring = [0.2, 0.9, 0.5];
+        Flight::new(
+            "screen".into(),
+            &frozen(600, 400),
+            rect,
+            target,
+            1.0,
+            reduced,
+            effects,
+            ring,
+        )
+    }
+
+    #[test]
+    fn a_snip_streams_into_the_toast_with_no_rain_glyph_with_slipstreams_effects() {
+        let flight = fly(Effects::Slipstream, false);
+        assert!(!flight.pieces.is_empty());
+        let streaks = |piece: &Piece| matches!(piece.turn, Some(Turn::Streak(_)));
+        assert!(flight.pieces.iter().all(streaks));
+        // Reduced motion only fades the picture, whichever the look.
+        for effects in [Effects::Slipstream, Effects::Matrix] {
+            assert!(
+                fly(effects, true)
+                    .pieces
+                    .iter()
+                    .all(|piece| piece.turn.is_none())
+            );
+        }
+    }
+
+    #[test]
+    fn a_snip_still_turns_into_rain_glyphs_with_the_matrixs_effects() {
+        let flight = fly(Effects::Matrix, false);
+        let glyphs = |piece: &Piece| matches!(piece.turn, Some(Turn::Glyph(_)) | None);
+        assert!(flight.pieces.iter().all(glyphs));
+    }
+
+    /// Bright at the head, nothing at the tail, and lifting from the fragment's own colour into
+    /// the ring's towards the front.
+    #[test]
+    fn a_streak_has_a_bright_head_and_thins_to_nothing_behind() {
+        let fragment = Size::from((200.0, 100.0));
+        let ring = [0.0, 1.0, 0.0];
+        let (pixmap, logical) =
+            streak_light(fragment, point(5.0, 0.0), [0.6, 0.1, 0.1], ring).unwrap();
+        // Lying flat: as long as it is, plus its glow either end.
+        assert_eq!(
+            logical.w,
+            (STREAK_LENGTH * 200.0 + 2.0 * STREAK_HEAD * STREAK_THICKNESS * 100.0).ceil() as i32
+        );
+        let row = pixmap.height() / 2;
+        let at = |x: u32| pixmap.pixel(x, row).unwrap();
+        let w = pixmap.width();
+        let (tail, middle, head) = (at(w / 16), at(w / 2), at(w * 7 / 8));
+        assert!(tail.alpha() < 20, "tail {}", tail.alpha());
+        assert!(middle.alpha() < head.alpha());
+        assert!(head.alpha() > 200);
+        assert!(middle.red() > middle.green(), "the fragment's red behind");
+        assert!(head.green() > head.red(), "the ring's green at the head");
+        // Turned to run straight up, it fits a sprite on its end.
+        let (_, upright) = streak_light(fragment, point(0.0, -5.0), [0.5; 3], ring).unwrap();
+        assert_eq!((upright.w, upright.h), (logical.h, logical.w));
+    }
+
     #[test]
     fn a_fragment_ends_small_and_gone_at_the_target() {
         let piece = Piece {
@@ -912,7 +1182,7 @@ mod tests {
                 scale: 1.0,
                 pieces: Default::default(),
             },
-            tile: None,
+            turn: None,
             from: Rectangle::new((0.0, 0.0).into(), (100.0, 100.0).into()),
             scatter: point(10.0, -10.0),
             delay: 0.0,

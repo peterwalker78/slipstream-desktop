@@ -19,6 +19,7 @@ use std::{
 };
 
 use resvg::tiny_skia::Pixmap;
+use slipstream_config::Effects;
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
@@ -93,7 +94,7 @@ pub enum Outcome {
     Activate(Item, bool),
 }
 
-/// How long an answer takes to decode when it changes.
+/// How long an answer takes to arrive when it changes.
 const ANSWER_DECODE: f64 = 0.32;
 
 /// How many recent files are kept for the side column and the search.
@@ -164,9 +165,11 @@ pub struct Explorer {
     frame: Rectangle<f64, Logical>,
     targets: Vec<(Item, Rectangle<f64, Logical>)>,
     pub reduced_motion: bool,
-    /// The answer last shown, and when it changed, so a new one decodes into place.
+    /// Whose look a new answer arrives in.
+    pub effects: Effects,
+    /// The answer last shown, and when it changed, so a new one arrives in place.
     answer_since: Option<(String, f64)>,
-    /// How long the shown answer has been decoding, for the paint.
+    /// How long the shown answer has been arriving, for the paint.
     answer_age: f64,
     /// What the plugins whose keyword the query starts with have to show for it.
     answers: Vec<crate::plugins::Answers>,
@@ -220,6 +223,7 @@ impl Explorer {
             frame: Rectangle::from_size((0.0, 0.0).into()),
             targets: Vec::new(),
             reduced_motion,
+            effects: Effects::default(),
             answer_since: None,
             answer_age: f64::MAX,
             answers: Vec::new(),

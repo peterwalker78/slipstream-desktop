@@ -354,7 +354,8 @@ impl Default for Motion {
     }
 }
 
-/// The look of the minimised apps' streams and of closing windows.
+/// The look of the minimised apps' streams, closing windows, snips flying into their toast and
+/// copied text arriving.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Effects {

@@ -155,9 +155,9 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 
 ## Everything else you'd expect
 
-- **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose shatters into rain glyphs that fly into the "saved" toast.
+- **Snip, then watch it go.** Freeze the screen, drag out a region, and the part you chose breaks up and streams into the "saved" toast as light (rain glyphs with the code rain).
 - **Windows are panes of glass.** Alt+Tab deals them as a deck receding into depth, and two tiles swapped with Super+Alt+arrows pass through each other.
-- **A clipboard that decodes.** The last 25 things you copied, each unscrambling out of glowing characters into readable text as you reach it.
+- **A clipboard that comes alive.** The last 25 things you copied, each one's text drifting into place as you reach it (or unscrambling out of glowing characters with the code rain).
 - **A battery that looks after you.** At 20% the wallpaper slows to half speed to save power; at 5% you get a minute's warning and then sleep, so your work survives.
 - **Night light that follows the real sun,** warming the screen over half an hour at dusk rather than all at once.
 - **Zoom whenever your eyes need it.** Super+= magnifies the whole screen around the pointer, so small text never has to be a strain, and Super+0 puts it back.

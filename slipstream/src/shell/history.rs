@@ -8,8 +8,8 @@
 //!
 //! Super+V lists them, newest first. ↑ and ↓ choose, Enter puts the chosen one back on the
 //! clipboard and pastes it into the focused app (Ctrl+V, or Ctrl+Shift+V in a terminal), Delete
-//! forgets it, Esc closes. The chosen row's text decodes out of rain glyphs as the selection
-//! reaches it.
+//! forgets it, Esc closes. As the selection reaches a row its text arrives: carried in on the air
+//! with Slipstream's effects, or decoded out of rain glyphs with the Matrix's.
 
 use std::{
     io::Read,
@@ -18,7 +18,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
+use resvg::tiny_skia::{
+    Color, FilterQuality, GradientStop, LinearGradient, Paint, Pixmap, PixmapPaint, Rect,
+    SpreadMode, Transform,
+};
+use slipstream_config::Effects;
 use smithay::{
     backend::renderer::gles::GlesRenderer,
     input::keyboard::Keysym,
@@ -70,9 +74,13 @@ const IMAGE_ROW: f32 = 92.0;
 const ROW_GAP: f32 = 6.0;
 const THUMB_H: f32 = 72.0;
 const THUMB_W: f32 = 128.0;
-/// How long the chosen row's text takes to decode.
+/// How long the chosen row's text takes to arrive.
 const DECODE: f64 = 0.32;
-/// What undecoded characters show: the rain's own digits and marks.
+/// With Slipstream's effects, how long each character takes to be carried in, and how far
+/// upwind, to its left, it starts, in design pixels.
+const ARRIVE: f64 = 0.12;
+const UPWIND: f32 = 8.0;
+/// With the Matrix's, what undecoded characters show: the rain's own digits and marks.
 const GLYPHS: &[char] = &[
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', '.', '=', '*', '+', '-', '<', '>', '|',
     '¦', '"', '_',
@@ -226,23 +234,110 @@ pub fn preview(text: &str, lines: usize) -> Vec<String> {
         .collect()
 }
 
-/// Which characters of a row `count` long have decoded `age` seconds after it was chosen, and
-/// the glyph each undecoded one shows. Characters settle roughly left to right, each a little
-/// early or late, and the glyphs change as it runs.
-pub fn decoded(count: usize, age: f64, seed: u64) -> Vec<Option<char>> {
+/// Where character `i` of a row `count` long comes in the arrival, from 0 for the first to just
+/// under 1 for the last: roughly its place along the row, a little early or late. Also returns
+/// the hash its glyphs are picked by.
+fn order(i: usize, count: usize, seed: u64) -> (f64, u64) {
+    let hash = mix(seed ^ (i as u64).wrapping_mul(0x9e37_79b9));
+    let jitter = (hash % 1000) as f64 / 1000.0;
+    (0.7 * i as f64 / count.max(1) as f64 + 0.3 * jitter, hash)
+}
+
+/// How far one character has arrived: from 0 (not yet) to 1 (in place), and, with the Matrix's
+/// effects, the rain glyph it shows until then.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Arrival {
+    pub progress: f64,
+    pub glyph: Option<char>,
+}
+
+/// How far each character of a row `count` long has arrived `age` seconds after it was chosen.
+/// The row takes `DECODE` either way. With the Matrix's effects each character settles at once
+/// out of rain glyphs, which change as it runs; with Slipstream's each is carried in over
+/// `ARRIVE` seconds (see `arriving`), landing by the end, and shows no glyph.
+pub fn arrivals(effects: Effects, count: usize, age: f64, seed: u64) -> Vec<Arrival> {
     let step = (age * 30.0) as u64;
     (0..count)
         .map(|i| {
-            let hash = mix(seed ^ (i as u64).wrapping_mul(0x9e37_79b9));
-            let jitter = (hash % 1000) as f64 / 1000.0;
-            let at = DECODE * (0.7 * i as f64 / count.max(1) as f64 + 0.3 * jitter);
-            if age >= at {
-                None
-            } else {
-                Some(GLYPHS[(mix(hash ^ step) % GLYPHS.len() as u64) as usize])
+            let (order, hash) = order(i, count, seed);
+            match effects {
+                Effects::Matrix if age >= DECODE * order => Arrival {
+                    progress: 1.0,
+                    glyph: None,
+                },
+                Effects::Matrix => Arrival {
+                    progress: 0.0,
+                    glyph: Some(GLYPHS[(mix(hash ^ step) % GLYPHS.len() as u64) as usize]),
+                },
+                Effects::Slipstream => Arrival {
+                    progress: ((age - (DECODE - ARRIVE) * order) / ARRIVE).clamp(0.0, 1.0),
+                    glyph: None,
+                },
             }
         })
         .collect()
+}
+
+/// One character carried in on the air, `progress` of the way, with its left edge landing at
+/// `x`: it slides in from upwind, to its left, fading up, led by a hairline streak in the ring's
+/// colour that shrinks into it as it lands. Nothing shows before it starts. Returns its width.
+pub fn arriving(
+    p: &mut Painter,
+    ch: char,
+    x: f32,
+    centre: f32,
+    style: &Style,
+    ring: u32,
+    progress: f64,
+) -> f32 {
+    let mut buffer = [0; 4];
+    let ch = ch.encode_utf8(&mut buffer);
+    let w = text::width(ch, style);
+    if progress <= 0.0 {
+        return w;
+    }
+    if progress >= 1.0 {
+        p.text(ch, x, centre, style);
+        return w;
+    }
+    // Quick at first, settling gently.
+    let settled = 1.0 - (1.0 - progress as f32).powi(3);
+    let at = x - UPWIND * (1.0 - settled);
+    let mut faded = *style;
+    let [r, g, b, a] = style.color;
+    faded.color = [r, g, b, (a as f32 * settled).round() as u8];
+    p.text(ch, at, centre, &faded);
+    // The streak's bright head is at the letter's leading edge; behind it the line thins away
+    // upwind, shorter the nearer the letter is to landing.
+    let head = at + w * 0.9;
+    let length = (UPWIND + 1.5 * w) * (1.0 - settled);
+    let light = (progress as f32 * 5.0).min(1.0) * 0.9;
+    let [r, g, b, _] = ring.to_be_bytes();
+    let stops = vec![
+        GradientStop::new(0.0, Color::from_rgba8(r, g, b, 0)),
+        GradientStop::new(1.0, Color::from_rgba8(r, g, b, (255.0 * light) as u8)),
+    ];
+    let shader = LinearGradient::new(
+        (head - length, centre).into(),
+        (head, centre).into(),
+        stops,
+        SpreadMode::Pad,
+        Transform::identity(),
+    );
+    let (Some(shader), Some(rect)) = (
+        shader,
+        Rect::from_xywh(head - length, centre - 0.5, length, 1.0),
+    ) else {
+        return w;
+    };
+    let paint = Paint {
+        shader,
+        anti_alias: true,
+        ..Paint::default()
+    };
+    p.pixmap
+        .fill_rect(rect, &paint, Transform::from_scale(p.f, p.f), None);
+    w
 }
 
 fn mix(mut x: u64) -> u64 {
@@ -277,6 +372,8 @@ pub struct History {
     /// When the selection last moved, on wall time, for the decode.
     chosen_at: f64,
     pub reduced_motion: bool,
+    /// Whose look the chosen row's text arrives in.
+    pub effects: Effects,
     painted: Option<(Look, Painted)>,
     /// Where the painted card's corner settles, outside the margin round the card.
     at: Point<f64, Logical>,
@@ -589,10 +686,10 @@ impl History {
                         .collect();
                     let total: usize = lines.iter().map(|line| line.chars().count()).sum();
                     let decoding = selected && look.decode_step.is_some();
-                    let masks = if decoding {
-                        decoded(total, age, seed)
+                    let arrived = if decoding {
+                        arrivals(self.effects, total, age, seed)
                     } else {
-                        vec![None; total]
+                        Vec::new()
                     };
                     let pitch = 22.0;
                     let first = y + h / 2.0 - pitch * (lines.len().max(1) as f32 - 1.0) / 2.0;
@@ -606,12 +703,17 @@ impl History {
                         }
                         for (column, ch) in line.chars().enumerate() {
                             let cx = x + 14.0 + column as f32 * char_w;
-                            match masks.get(n).copied().flatten() {
+                            let arrival = arrived.get(n).copied().unwrap_or(Arrival {
+                                progress: 1.0,
+                                glyph: None,
+                            });
+                            match arrival.glyph {
                                 Some(shown) => {
                                     p.text(&shown.to_string(), cx, centre, &glyph);
                                 }
                                 None => {
-                                    p.text(&ch.to_string(), cx, centre, &mono);
+                                    let ring = look.ring;
+                                    arriving(&mut p, ch, cx, centre, &mono, ring, arrival.progress);
                                 }
                             }
                             n += 1;
@@ -907,10 +1009,84 @@ mod tests {
         );
     }
 
+    fn glyphs(arrivals: &[Arrival]) -> Vec<Option<char>> {
+        arrivals.iter().map(|arrival| arrival.glyph).collect()
+    }
+
     #[test]
     fn decoding_starts_as_glyphs_and_ends_as_text() {
-        assert!(decoded(20, 0.0, 7).iter().filter(|c| c.is_some()).count() >= 18);
-        assert!(decoded(20, DECODE, 7).iter().all(Option::is_none));
+        let first = arrivals(Effects::Matrix, 20, 0.0, 7);
+        assert!(glyphs(&first).iter().filter(|c| c.is_some()).count() >= 18);
+        let last = arrivals(Effects::Matrix, 20, DECODE, 7);
+        assert!(last.iter().all(|a| a.glyph.is_none() && a.progress == 1.0));
+    }
+
+    /// The Matrix's decode, glyph for glyph, as it was before Slipstream's look was added.
+    #[test]
+    fn the_matrix_decode_is_unchanged() {
+        let before = |count: usize, age: f64, seed: u64| -> Vec<Option<char>> {
+            let step = (age * 30.0) as u64;
+            (0..count)
+                .map(|i| {
+                    let hash = mix(seed ^ (i as u64).wrapping_mul(0x9e37_79b9));
+                    let jitter = (hash % 1000) as f64 / 1000.0;
+                    let at = DECODE * (0.7 * i as f64 / count.max(1) as f64 + 0.3 * jitter);
+                    (age < at).then(|| GLYPHS[(mix(hash ^ step) % GLYPHS.len() as u64) as usize])
+                })
+                .collect()
+        };
+        for tenth in 0..=40 {
+            let age = tenth as f64 * 0.01;
+            let now = arrivals(Effects::Matrix, 37, age, 99);
+            assert_eq!(glyphs(&now), before(37, age, 99), "at {age} s");
+            for arrival in now {
+                assert_eq!(
+                    arrival.progress,
+                    f64::from(u8::from(arrival.glyph.is_none()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn copied_text_never_shows_a_rain_glyph_with_slipstreams_effects() {
+        for tenth in 0..=40 {
+            let age = tenth as f64 * 0.01;
+            let now = arrivals(Effects::Slipstream, 37, age, 99);
+            assert!(now.iter().all(|arrival| arrival.glyph.is_none()));
+        }
+    }
+
+    /// Nothing shows at first and all of it has landed by the end; each character takes about
+    /// `ARRIVE`, and they come roughly left to right.
+    #[test]
+    fn text_is_carried_in_left_to_right_in_the_same_time() {
+        let count = 40;
+        let progress = |age| -> Vec<f64> {
+            arrivals(Effects::Slipstream, count, age, 3)
+                .iter()
+                .map(|arrival| arrival.progress)
+                .collect()
+        };
+        assert!(progress(0.0).iter().all(|&p| p == 0.0));
+        assert!(progress(DECODE).iter().all(|&p| p == 1.0));
+        let middle = progress(DECODE / 2.0);
+        let left: f64 = middle[..count / 2].iter().sum();
+        let right: f64 = middle[count / 2..].iter().sum();
+        assert!(left > right, "{left} then {right}");
+        for i in 0..count {
+            let started = (0..=320)
+                .map(|ms| ms as f64 / 1000.0)
+                .find(|&age| progress(age)[i] > 0.0);
+            let landed = (0..=320)
+                .map(|ms| ms as f64 / 1000.0)
+                .find(|&age| progress(age)[i] == 1.0);
+            let took = landed.unwrap() - started.unwrap();
+            assert!(
+                (took - ARRIVE).abs() < 0.0021,
+                "character {i} took {took} s"
+            );
+        }
     }
 
     #[test]

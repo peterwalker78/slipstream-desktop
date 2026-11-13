@@ -25,7 +25,7 @@ pub(super) struct Look {
     pub(super) ring: u32,
     pub(super) width: i32,
     pub(super) scale: f64,
-    /// How far the answer's decode is, in thirtieths of a second, while it runs.
+    /// How far the answer's arrival is, in thirtieths of a second, while it runs.
     pub(super) decode_step: Option<u64>,
     /// The keys named in it.
     pub(super) keys: Keys,
@@ -52,7 +52,7 @@ impl Explorer {
         }
         self.warm_icons(scale);
         let since = now - self.opened_at;
-        // A new answer decodes out of rain glyphs, on wall time.
+        // A new answer arrives, in the effects' look, on wall time.
         let answer = self.answer().map(|answer| answer.value);
         let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -365,7 +365,8 @@ impl Explorer {
             let selected = side.selected();
             let decoding = look.decode_step.map(|_| self.answer_age);
             let at = (side.x, side.y, side.w);
-            answer_row(side.p, at, answer, selected, look.ring, decoding);
+            let arriving = decoding.map(|age| (self.effects, age));
+            answer_row(side.p, at, answer, selected, look.ring, arriving);
             side.advance(Item::Answer(answer.clone()));
         }
         if !results.emoji.is_empty() {
@@ -686,15 +687,15 @@ impl<'a> Row<'a> {
 }
 
 /// The answer to a sum or a conversion, in a row `w` wide at (`x`, `y`): what was understood, then
-/// the value, which decodes out of rain glyphs for `decoding` seconds after it changes. Enter
-/// copies it.
+/// the value, which arrives in the effects' look while `arriving` says how many seconds it has
+/// been since it changed. Enter copies it.
 pub(super) fn answer_row(
     p: &mut Painter,
     (x, y, w): (f32, f32, f32),
     answer: &crate::calc::Answer,
     selected: bool,
     ring: u32,
-    decoding: Option<f64>,
+    arriving: Option<(Effects, f64)>,
 ) {
     if selected {
         panel::selected_row(p, x, y, w, ROW_H, ring);
@@ -726,7 +727,7 @@ pub(super) fn answer_row(
     };
     let value_style = Style::new(Face::BodyBold, 15.0, colour);
     let full = text::width(&answer.shown, &style) + 2.0;
-    if full > room || decoding.is_none() {
+    if full > room || arriving.is_none() {
         let mut at = x + 46.0;
         at += p.text(
             &text::ellipsize(lead, &style, room * 0.6),
@@ -749,16 +750,16 @@ pub(super) fn answer_row(
     at += p.text(lead, at, centre, &style);
     let [r, g, b, _] = ring.to_be_bytes();
     let glyph_style = Style::new(Face::MonoBold, 15.0, u32::from_be_bytes([r, g, b, 0xff]));
-    let age = decoding.unwrap_or(f64::MAX);
-    let masks = crate::history::decoded(value.chars().count(), age, value.len() as u64);
-    for (ch, mask) in value.chars().zip(masks) {
-        let shown = mask.unwrap_or(ch).to_string();
-        let style = if mask.is_some() {
-            &glyph_style
-        } else {
-            &value_style
+    let (effects, age) = arriving.unwrap_or((Effects::default(), f64::MAX));
+    let count = value.chars().count();
+    let arrived = crate::history::arrivals(effects, count, age, value.len() as u64);
+    for (ch, arrival) in value.chars().zip(arrived) {
+        at += match arrival.glyph {
+            Some(glyph) => p.text(&glyph.to_string(), at, centre, &glyph_style),
+            None => {
+                crate::history::arriving(p, ch, at, centre, &value_style, ring, arrival.progress)
+            }
         };
-        at += p.text(&shown, at, centre, style);
     }
     p.text(tail, at, centre, &style);
 }
