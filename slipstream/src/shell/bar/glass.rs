@@ -4,32 +4,31 @@
 //!
 //! The wind comes down the tunnel towards you from the bar's middle, and through the glass it shows
 //! the way a wind tunnel's schlieren photographs do: as soft light and shade where it gathers and
-//! thins, with faint rims in the theme's three colours. It carries soft billows of smoke with a
-//! fine, fluffy grain, which come from far off at the middle, small and faint, and grow and speed
-//! up as they stream out to either end towards you, gathering, swelling, thinning and clearing over
-//! tens of seconds at any height in the glass. The workspace marker stands in the stream and sheds
-//! a curl of smoke every few seconds, alternately above and below it; each comes towards you,
-//! swelling, drifts outwards, rises, turns and breathes, and fades on its own clock. A laser
-//! projector at the bar's very middle, behind the clock, throws sharp, vivid beams in the primary
-//! colour out both ways, as at a show, in a pattern symmetrical left to right and top to bottom:
-//! two pairs each way that open and close against each other like scissors, never turning faster
-//! than ten degrees a minute, and swell and fade in turn. Each beam is widest at the projector and
-//! thins with distance, and where it meets the glass's top edge or its foot it catches the glass in
-//! a glint. A broad sheen slides slowly along the frosted glass, kept faint behind the clock as the
-//! smoke is. The air bends the bar's picture behind it, more in the lower glass than over the text,
-//! with a hint of colour split, and round the text and icons its light is held back so they stay
-//! easy to read: a beam nearing text fades gradually. The pane's edges, its foot, its top and both
-//! ends, are polished, each a bright face with an inner reflection across the glass's thickness,
-//! always faintly there and lit up where smoke sits against it, as a pane carries light out to its
-//! edges. The glass is
-//! kept dark, and in the power saver mode the projector is off.
+//! thins, with faint rims in the primary colour. It carries smooth, soft billows of smoke, which
+//! come from far off at the middle, small and faint, and grow and speed up as they stream out to
+//! either end towards you, gathering, swelling, thinning and clearing over tens of seconds at any
+//! height in the glass. The workspace marker stands in the stream and sheds a curl of smoke every
+//! few seconds, alternately above and below it; each comes towards you, swelling, drifts outwards,
+//! rises, turns and breathes, and fades on its own clock. A laser projector at the bar's very
+//! middle, behind the clock, throws sharp, vivid beams in the primary colour out both ways, as at
+//! a show, in a pattern symmetrical left to right and top to bottom: two pairs each way that open
+//! and close against each other like scissors, never turning faster than ten degrees a minute. The
+//! pairs swell and fade in turn, so most of the time one pair shows clearly each way while the
+//! other rests faint. Each beam is widest at the projector and thins with distance, and where a lit
+//! beam meets the glass's top edge or its foot it catches the glass in a glint. The air bends the
+//! bar's picture behind it, more in the lower glass than over the text, with a hint of colour split
+//! clear of the text, and round the text and icons its light is held back so they stay easy to
+//! read: a beam nearing text fades gradually. The pane's edges, its foot, its top and both ends,
+//! are polished, each a bright face with an inner reflection across the glass's thickness, always
+//! faintly there and lit up where smoke sits against it, as a pane carries light out to its edges.
+//! The glass is kept dark, and in the power saver mode the projector is off.
 //!
 //! It is drawn in two passes. The smoke, which takes the noise, is worked out into a small field
 //! once a frame, a cell for every eight pixels, in rows of the same texture under the bar's
 //! picture, beside an ink map of how near each spot is to text, worked out only when the picture
 //! is painted; the bar's own shader then reads the smoke and the air's gradient from that field, and
-//! adds the lasers, the sheen and its glints, and the edge, each of which gives up early where it
-//! has nothing to draw. Nothing moves faster than a few pixels a second, so it is drawn about
+//! adds the lasers, their glints and the edge, each of which gives up early where it has nothing to
+//! draw. Nothing moves faster than a few pixels a second, so it is drawn about
 //! fifteen times a second.
 //! When the workspace changes the air rushes: for about a second and a half it runs up to fifteen
 //! times as fast, at the display's own rate, and settles back. It holds still while the desktop
@@ -173,14 +172,6 @@ float hash(float n) {
     return fract(sin(n * 12.9898) * 43758.5453);
 }
 
-
-// A hash without sine, by Dave Hoskins. Distributed under the MIT License.
-float hash2(vec2 c) {
-    vec3 p3 = fract(vec3(c.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
 // Where `p` lies in the tunnel, the wind coming down it towards you from the bar's middle: how
 // deep it is (far at the middle, near at the ends, as in perspective), how high, and which side of
 // the middle. The smoke is drawn in these, so it comes from far off at the middle, small, and grows
@@ -192,26 +183,17 @@ vec3 tunnel(vec2 p) {
     return vec3(depth, (p.y - 20.0) * depth / 40.0, sign(p.x - centre));
 }
 
-// The fine grain smoke is made of: small soft lumps that come down the tunnel with it, from 0 to
-// 1.
-float grain(vec3 at, float t) {
-    vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 2.2, at.y * 6.0, at.z * 11.0 + t * 0.05);
-    return 0.5 + 0.5 * (0.65 * snoise(q) + 0.35 * snoise(q * 2.3 + 4.1));
-}
-
-// The fog at `p`, given where it lies in the tunnel and its grain: soft billows coming towards
-// you, curled by the air, gathering here and clearing there over tens of seconds, at any height in
-// the glass. It thins softly at its edges, the grain gives it the fluffy texture of real smoke, and
-// far off down the tunnel it is fainter.
-float fog(vec2 p, vec3 at, float t, float grained) {
+// The fog at `p`, given where it lies in the tunnel: smooth, soft billows coming towards you,
+// curled by the air, gathering here and clearing there over tens of seconds, at any height in the
+// glass. It thins softly at its edges, and far off down the tunnel it is fainter.
+float fog(vec2 p, vec3 at, float t) {
     vec3 q = vec3((at.x * 5.4 + TOWARDS * t) * 0.5, at.y * 1.6, at.z * 5.0);
     // The billows change only slowly as they come, so the eye can follow one past.
     vec2 w = vec2(snoise(q * 0.6 + vec3(0.0, 0.0, t * 0.007)),
                   snoise(q * 0.6 + vec3(5.2, 0.0, t * 0.007 + 3.0)));
     float body = 0.5 + 0.5 * fbm(q + vec3(1.2 * w, t * 0.01));
     float life = snoise(vec3((at.x * 5.4 + TOWARDS * t) * 0.12, at.z * 3.0, t * 0.012));
-    float d = smoothstep(0.25, 0.9, body + 0.55 * life + 0.25 * (grained - 0.5));
-    d *= 0.6 + 0.8 * grained;
+    float d = smoothstep(0.25, 0.9, body + 0.55 * life);
     // Nearer smoke, on the near side of the tunnel, streaks past twice as fast towards the ends,
     // fainter, so you feel yourself moving through it.
     // Near the middle they are too far off to show, so their noise is skipped there.
@@ -266,11 +248,9 @@ float curls(vec2 p, float t) {
     return acc;
 }
 
-// All the smoke at `p`: the fog, and the curls, with the same grain.
+// All the smoke at `p`: the fog, and the curls.
 float smoke(vec2 p, float t) {
-    vec3 at = tunnel(p);
-    float grained = grain(at, t);
-    return fog(p, at, t, grained) + 1.2 * curls(p, t) * (0.6 + 0.4 * grained);
+    return fog(p, tunnel(p), t) + 0.96 * curls(p, t);
 }
 
 // The smoke here, for the picture's pixels under this one of the field's.
@@ -337,8 +317,8 @@ void main() {
 }
 "#;
 
-/// The bar's shader: the picture bent by the air, with the light the smoke, the lasers, the sheen
-/// and the edge add to it. Its colours are premultiplied, and the light is added to them without
+/// The bar's shader: the picture bent by the air, with the light the smoke, the lasers and the
+/// edge add to it. Its colours are premultiplied, and the light is added to them without
 /// changing their alpha.
 const SHADER: &str = r#"#version 100
 
@@ -369,9 +349,6 @@ uniform vec4 frame;
 // none), and how strongly the marker glows.
 uniform vec4 air;
 uniform vec3 ring;
-// The theme's secondary and tertiary colours, which with the ring's colour the smoke's rims.
-uniform vec3 secondary;
-uniform vec3 tertiary;
 // Where a docked pane's frame carries the bar on down, so its foot has no edge: left and right.
 uniform vec2 gap;
 // The clock, the date and the chip after them, which the lasers stay clear of: left and right.
@@ -379,10 +356,10 @@ uniform vec2 clock;
 // How far the projector has powered up, 0 to 1, and how deep the breath in before a rush is.
 uniform vec2 stage;
 // The laser show at this moment, the same for every pixel: the cosine and sine of the inner
-// pair's tilt and the outer pair's, and how brightly each pair is lit, how strongly the projector
-// flares where the scissors meet, and where along the bar the sheen is, a share of its width.
+// pair's tilt and the outer pair's, and how brightly each pair is lit and how strongly the
+// projector flares where the scissors meet.
 uniform vec4 scissors;
-uniform vec4 show;
+uniform vec3 show;
 
 // How far a beam reaches once the projector has fully powered up, units: past either end.
 const float POWER_REACH = 1400.0;
@@ -391,13 +368,6 @@ const float BEVEL = 4.0;
 const vec3 GLASS_GREEN = vec3(0.5, 0.9, 0.78);
 
 const vec3 PALE = vec3(0.86, 0.97, 1.0);
-
-// A hash without sine, by Dave Hoskins. Distributed under the MIT License.
-float hash2(vec2 c) {
-    vec3 p3 = fract(vec3(c.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
 
 // The smoke at the picture's pixel `px`, from the field in the texture's rows under the picture.
 float field(vec2 px) {
@@ -463,8 +433,9 @@ vec3 beam(vec2 p, vec2 from, vec2 dir, vec3 hue, float f, float through) {
 // The laser projector at the bar's very middle, half-way up, behind the clock, as at a show. Its
 // pattern is symmetrical, left to right and top to bottom: four beams each way in the primary
 // colour, an inner pair and an outer pair, which open and close against each other like scissors,
-// crossing in a diamond behind the clock. The pairs swell and fade in turn, and the whole show
-// breathes; how is worked out once a frame, in `scissors` and `show`.
+// crossing in a diamond behind the clock. The pairs swell and fade in turn, so most of the time one
+// pair is lit each way and the other has sunk low, and the whole show breathes; how is worked out
+// once a frame, in `scissors` and `show`.
 const vec2 PROJECTOR_Y = vec2(0.5, 20.0);
 
 // Beam `i` of the four on the `side` of the projector a pixel is on (each beam only reaches its
@@ -491,8 +462,9 @@ vec3 lasers(vec2 p, float wide, float f, float through) {
 }
 
 // Light catching the glass where a beam meets it: at the top edge or the polished foot, each
-// beam lights a point in its colour, white at the middle, drawn out a little along the edge
-// with a soft bloom, as bright as the beam is.
+// lit beam lights a point in its colour, white at the middle, drawn out a little along the edge
+// with a soft bloom. A pair that has faded catches nothing, and one swelling catches the glass
+// only as it nears its full brightness.
 vec3 glints(vec2 px, vec2 p, float f, float wide) {
     vec3 acc = vec3(0.0);
     vec2 from = vec2(wide * PROJECTOR_Y.x, PROJECTOR_Y.y);
@@ -502,6 +474,8 @@ vec3 glints(vec2 px, vec2 p, float f, float wide) {
         vec2 dir;
         float lit;
         beam_of(i, side, dir, lit);
+        float catching = smoothstep(0.5, 0.8, lit);
+        if (catching <= 0.0) continue;
         // Up to the top edge, or down to the foot's middle.
         float to = dir.y < 0.0 ? 0.5 * f : frame.y - 0.5 * f;
         float along = abs((to / f - from.y) / dir.y);
@@ -521,7 +495,7 @@ vec3 glints(vec2 px, vec2 p, float f, float wide) {
         float bloom = exp(-dot(d, d) / (30.0 * f * f));
         vec3 colour = vivid(hue);
         acc += (mix(colour, vec3(1.0), 0.6) * point + colour * (0.45 * drawn + 0.12 * bloom))
-            * lit * exp(-along / 1800.0) * arrives * clear_of_clock(hit.x, from.x);
+            * lit * catching * exp(-along / 1800.0) * arrives * clear_of_clock(hit.x, from.x);
     }
     return acc;
 }
@@ -552,8 +526,7 @@ void main() {
     float wide = frame.x / f;
 
     // The smoke, worked out at a lower resolution once a frame, and the air's gradient across
-    // the field's neighbouring cells, as a schlieren photograph reads it: its strength and which
-    // way it runs, the way giving the colour.
+    // the field's neighbouring cells, as a schlieren photograph reads it.
     float here = field(px);
     vec2 step_px = vec2(FIELD_X, FIELD_Y);
     vec2 g = vec2(field(px + vec2(step_px.x, 0.0)) - field(px - vec2(step_px.x, 0.0)),
@@ -561,54 +534,53 @@ void main() {
         * f / (2.0 * step_px);
     g = clamp(g * vec2(26.0, 7.0), -GRADIENT, GRADIENT);
     float strength = length(g);
-    float way = 0.5 + 0.5 * sin(atan(g.y, g.x) + 0.6);
-    vec3 col = way < 0.5 ? mix(secondary, tertiary, way * 2.0) : mix(tertiary, ring, way * 2.0 - 1.0);
     float glass = step(p.y, 39.0);
+    vec2 ink = inked(px);
 
-    // The picture behind, bent by the air: a little over the text, more in the lower glass, with
-    // a hint of colour split.
+    // The picture behind, bent by the air: a little over the text, more in the lower glass. Clear
+    // of the text and icons the bend splits its colours a hint, as a prism does; along their line
+    // it doesn't, so their edges stay clean.
     float bending = glass * smoothstep(8.0, 30.0, p.y) * mix(0.45, 1.0, smoothstep(24.0, 32.0, p.y));
-    // Clear of the text it isn't bent at all, so takes a single read.
+    // Unbent, it takes a single read.
     vec4 behind = texture2D(tex, uv);
     if (bending > 0.0) {
         vec2 bend = clamp(g, -1.5, 1.5) * bending * f / frame.xw;
         // Never into the field's rows under the picture.
         float floor_y = (frame.y - 0.5) / frame.w;
         behind = texture2D(tex, vec2(uv.x + bend.x, min(uv.y + bend.y, floor_y)));
-        behind.r = texture2D(tex, vec2(uv.x + 1.45 * bend.x, min(uv.y + 1.45 * bend.y, floor_y))).r;
-        behind.b = texture2D(tex, vec2(uv.x + 0.55 * bend.x, min(uv.y + 0.55 * bend.y, floor_y))).b;
+        float split = 0.45 * (1.0 - smoothstep(0.03, 0.2, ink.y));
+        if (split > 0.0) {
+            vec2 r_at = uv + (1.0 + split) * bend;
+            vec2 b_at = uv + (1.0 - split) * bend;
+            behind.r = texture2D(tex, vec2(r_at.x, min(r_at.y, floor_y))).r;
+            behind.b = texture2D(tex, vec2(b_at.x, min(b_at.y, floor_y))).b;
+        }
     }
 #if defined(NO_ALPHA)
     behind = vec4(behind.rgb, 1.0);
 #endif
 
-    // The pane: a tint deepening towards the foot, and the sheen sliding slowly along it, faintly
-    // grainy as frosting is.
+    // The pane: a tint deepening towards the foot.
     float body = smoothstep(14.0, 39.0, p.y);
-    float sheen_at = show.w;
-    float from_sheen = (p.x - sheen_at * wide + (p.y - 20.0) * 1.9) / 260.0;
-    float sheen = exp(-from_sheen * from_sheen);
-    float frosting = 0.75 + 0.5 * hash2(floor(px) + 5.5);
-    vec3 light = (ring * 0.016 * body + vec3(0.8, 0.92, 1.0) * 0.05 * sheen * frosting * (0.4 + 0.6 * body)) * glass;
+    vec3 light = ring * 0.016 * body * glass;
 
     // The lasers cross the smoke, which catches the light, as edge-lit glass does, nearly white
-    // with a touch of the ring, and its rims show faintly in the logo's colours. Right beside a
+    // with a touch of the ring, and its rims show faintly in the ring's colour. Right beside a
     // beam the smoke's own glow is a little darker, so the beam stands out.
     vec3 beams = lasers(p, wide, f, smoothstep(0.05, 0.9, here)) * 0.47 * glass;
     float beside = smoothstep(0.0, 0.1, dot(beams, vec3(0.33)));
-    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.095 + 0.07 * body) * glass
+    light += mix(PALE, ring, 0.25) * smoothstep(0.0, 1.0, here) * (0.076 + 0.056 * body) * glass
         * (1.0 - 0.5 * beside);
-    light += mix(PALE, col, 0.4) * smoothstep(0.08, 0.8, strength) * 0.05 * glass * smoothstep(16.0, 39.0, p.y);
+    light += mix(PALE, ring, 0.4) * smoothstep(0.08, 0.8, strength) * 0.03 * glass * smoothstep(16.0, 39.0, p.y);
 
-    // Text and icons stay easy to read: round anything bright in the picture, the smoke's and
-    // the sheen's light is held back, so a glyph keeps a dark margin; and a beam through a line
-    // of text would strike it through, so beams are held back along the whole line, passing over
-    // or under the numbers and icons, never through them.
-    vec2 ink = inked(px);
+    // Text and icons stay easy to read: round anything bright in the picture, the smoke's light
+    // is held back, so a glyph keeps a dark margin; and a beam through a line of text would
+    // strike it through, so beams are held back along the whole line, passing over or under the
+    // numbers and icons, never through them.
     light *= 1.0 - 0.8 * smoothstep(0.15, 0.4, ink.x);
     // Behind the clock, the date and the chip, where the projector is, the glass is darker all
-    // the way across, the chip as much as the clock, so neither sits on a bright patch: the smoke,
-    // the sheen and the beams are held back evenly, and the beams a little more along the text.
+    // the way across, the chip as much as the clock, so neither sits on a bright patch: the smoke
+    // and the beams are held back evenly, and the beams a little more along the text.
     float half_block = clock_half(wide * 0.5);
     float behind_clock = 1.0 - smoothstep(half_block - 12.0, half_block + 24.0, abs(p.x - wide * 0.5));
     light *= 1.0 - 0.7 * behind_clock;
@@ -643,9 +615,8 @@ void main() {
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
     light += mix(ring, PALE, 0.18 + 0.2 * near) * edge;
 
-    // The bevel reflects the room, as glass does at a glancing angle: the sheen sliding along the
-    // pane flares as it passes, and elsewhere the bevel holds faint streaks of light and dark. It
-    // catches more from above: most on the top, less on the ends, little on the foot, which faces
+    // The bevel reflects the room, as glass does at a glancing angle, holding faint streaks of
+    // light and dark. It catches more from above: most on the top, less on the ends, little on the foot, which faces
     // away and shades the picture a little. A fine line runs where it meets the flat face and
     // another at the very edge, and through it shows the glass's own cool green. The smoke's
     // light and the beams brighten across the bevel, most at the very edge.
@@ -654,9 +625,8 @@ void main() {
     if (edge_d < bevel_w + 2.0 * f) {
         float lit_from = 0.5 - 0.5 * out_way.y;
         float run = mix(p.x, p.y * 4.0, end_share);
-        float from_glint = (p.x - sheen_at * wide) / 150.0;
         float streaks = 0.5 + 0.5 * sin(run * 0.023 + 1.3) * sin(run * 0.0071 + 0.4);
-        float reflects = 0.4 + 0.6 * streaks * streaks + 1.6 * exp(-from_glint * from_glint);
+        float reflects = 0.4 + 0.6 * streaks * streaks;
         float slope = (1.0 - bevelled) * (1.0 - bevelled);
         float ridge = exp(-pow(edge_d - bevel_w, 2.0) / (0.5 * f * f));
         float outer = exp(-pow(edge_d - 0.5, 2.0) / 0.45);
@@ -695,6 +665,8 @@ const GRADIENT: f32 = 2.0;
 /// seconds and stays out of the way if you don't.
 pub(crate) const SCISSOR: f32 = 0.014;
 pub(crate) const SCISSOR_PERIOD: f32 = 31.0;
+/// How brightly the resting pair of beams is lit, a share of the pair at its height.
+const RESTING: f64 = 0.15;
 
 /// The shaders with the numbers they share with the clock and the field here.
 fn source() -> String {
@@ -718,13 +690,11 @@ struct Uniforms {
     frame: [f32; 4],
     air: [f32; 4],
     ring: [f32; 3],
-    secondary: [f32; 3],
-    tertiary: [f32; 3],
     gap: [f32; 2],
     clock: [f32; 2],
     stage: [f32; 2],
     scissors: [f32; 4],
-    show: [f32; 4],
+    show: [f32; 3],
 }
 
 impl shader::Uniforms for Uniforms {
@@ -733,8 +703,6 @@ impl shader::Uniforms for Uniforms {
             .with("frame", self.frame)
             .with("air", self.air)
             .with("ring", self.ring)
-            .with("secondary", self.secondary)
-            .with("tertiary", self.tertiary)
             .with("gap", self.gap)
             .with("clock", self.clock)
             .with("stage", self.stage)
@@ -782,10 +750,9 @@ fn smoothstep(from: f64, to: f64, x: f64) -> f64 {
 
 /// The laser show at the air's time `t` with the projector's power and the breath before a rush
 /// at `stage`, the same for every pixel of the bar, for its shader: the cosine and sine of the
-/// inner pair's tilt and of the outer pair's; and how brightly each pair is lit, how strongly the
-/// projector flares where the scissors meet, and where along the bar the sheen is, a share of its
-/// width.
-fn show(t: f64, [power, breath]: [f32; 2]) -> ([f32; 4], [f32; 4]) {
+/// inner pair's tilt and of the outer pair's; and how brightly each pair is lit and how strongly
+/// the projector flares where the scissors meet.
+fn show(t: f64, [power, breath]: [f32; 2]) -> ([f32; 4], [f32; 3]) {
     use std::f64::consts::TAU;
     let (power, breath) = (power as f64, breath as f64);
     let (reach, period) = (SCISSOR as f64, SCISSOR_PERIOD as f64);
@@ -798,23 +765,18 @@ fn show(t: f64, [power, breath]: [f32; 2]) -> ([f32; 4], [f32; 4]) {
     };
     let [inner_cos, inner_sin] = tilt(0.022 + scissor);
     let [outer_cos, outer_sin] = tilt(0.05 - scissor);
-    // The pairs swell and fade in turn, and the whole show breathes.
+    // The pairs swell and fade in turn, handing over in a few seconds, so most of the time one
+    // pair is lit each way and the other rests at a faint share of it; the whole show breathes.
     let swell = (TAU * t / 23.0).sin();
     let lit = |swell: f64| {
         (0.85 + 0.15 * (TAU * t / 41.0).sin())
-            * (0.3 + 0.7 * smoothstep(-0.4, 0.7, swell))
+            * (RESTING + (1.0 - RESTING) * smoothstep(-0.4, 0.4, swell))
             * (1.0 - 0.5 * breath)
     };
     let meet = (-((2.0 * reach - 2.0 * scissor) / 0.0025).powi(2)).exp() * power;
-    let sheen = 0.5 + 0.34 * (TAU * t / 960.0 + 2.2).sin() + 0.06 * (TAU * t / 310.0).sin();
     (
         [inner_cos, inner_sin, outer_cos, outer_sin],
-        [
-            lit(swell) as f32,
-            lit(-swell) as f32,
-            meet as f32,
-            sheen as f32,
-        ],
+        [lit(swell) as f32, lit(-swell) as f32, meet as f32],
     )
 }
 
@@ -1037,8 +999,11 @@ pub struct Look {
     pub marker: Option<f32>,
     pub strength: f32,
     pub ring: u32,
-    /// The theme's secondary and tertiary colours.
+    /// The theme's secondary and tertiary colours, which the glass no longer draws with: its
+    /// rims take the ring's colour alone.
+    #[expect(dead_code, reason = "the bar still passes them")]
     pub secondary: u32,
+    #[expect(dead_code, reason = "the bar still passes them")]
     pub tertiary: u32,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
@@ -1161,8 +1126,6 @@ impl Glass {
                 strength(look),
             ],
             ring: rgb(look.ring),
-            secondary: rgb(look.secondary),
-            tertiary: rgb(look.tertiary),
             gap: look.gap.unwrap_or((-1.0, -1.0)).into(),
             clock: look.clock.into(),
             stage,
@@ -1422,6 +1385,28 @@ mod tests {
         let fastest = SCISSOR * TAU / SCISSOR_PERIOD;
         let per_minute = fastest.to_degrees() * 60.0;
         assert!(per_minute <= 10.0, "{per_minute} degrees a minute");
+    }
+
+    #[test]
+    fn most_of_the_time_one_pair_of_beams_is_lit_each_way_and_the_other_rests_faint() {
+        let (mut one_pair, mut moments) = (0, 0);
+        let mut faintest = f32::MAX;
+        // Long enough for the swell and the breathing to come round together.
+        for n in 0..23 * 41 * 10 {
+            let (_, [inner, outer, _]) = show(n as f64 / 10.0, [1.0, 0.0]);
+            let (lit, resting) = (inner.max(outer), inner.min(outer));
+            faintest = faintest.min(resting / lit);
+            moments += 1;
+            if resting <= 0.16 * lit {
+                one_pair += 1;
+            }
+        }
+        let share = one_pair as f64 / moments as f64;
+        assert!(share > 0.7, "one pair alone {share} of the time");
+        assert!(
+            (0.14..=0.16).contains(&faintest),
+            "the resting pair at {faintest}"
+        );
     }
 
     #[test]
