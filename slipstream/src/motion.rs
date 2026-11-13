@@ -21,6 +21,13 @@ pub const OPEN: f64 = 0.38;
 const OPEN_FADE: f64 = 0.35;
 /// With reduced motion, moves jump and effects become short fades, this long, everywhere.
 pub const REDUCED_FADE: f64 = 0.08;
+/// A small card arriving (a toast, the volume and brightness card, a tray menu): how long it
+/// takes to fade in as it rises the last few pixels into place.
+pub const CARD_IN: f64 = 0.18;
+/// How far a small card rises, or slides, as it arrives, in design pixels.
+pub const CARD_RISE: f64 = 8.0;
+/// The quick fades: a small card leaving, and the Alt+Tab and arrangement strips appearing.
+pub const QUICK: f64 = 0.12;
 /// Fades for a window that is travelling while it fades. Flatter than CSS's `ease-in` and
 /// `ease-out`, which still leave it about a third transparent halfway: these hold it above
 /// four fifths opaque to the middle of the journey, so it reads as a window going somewhere

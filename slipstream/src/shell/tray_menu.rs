@@ -19,7 +19,7 @@ use smithay::{
 
 use crate::{
     icons,
-    motion::{HYPR, REDUCED_FADE},
+    motion::{CARD_IN, CARD_RISE, HYPR, QUICK, REDUCED_FADE},
     paint::{CardStyle, Painted, Painter},
     panel::{self, DESIGN_PX, INK},
     text::{self, Face, Style},
@@ -51,11 +51,6 @@ const MARGIN: f32 = 28.0;
 const ROW_RADIUS: f32 = 7.0;
 const LABEL_PX: f32 = 14.0;
 
-/// A card fades in as it slides the last few pixels into place; closing, it fades out where it
-/// is. With reduced motion both are only short fades.
-const OPEN: f64 = 0.16;
-const CLOSE: f64 = 0.11;
-const SLIDE: f64 = 6.0;
 /// How long a menu the app hasn't sent yet waits before it says it's coming.
 const PATIENCE: f64 = 0.15;
 /// How long a chosen entry shows pressed before the menu closes, while a ring pulses out from
@@ -171,13 +166,13 @@ impl Ghost {
         R: Renderer + ImportMem,
         R::TextureId: Send + Clone + 'static,
     {
-        let length = if reduced_motion { REDUCED_FADE } else { CLOSE };
+        let length = if reduced_motion { REDUCED_FADE } else { QUICK };
         let left = 1.0 - ((now - self.since) / length).clamp(0.0, 1.0);
         (left > 0.0).then(|| self.painted.element(renderer, self.origin, left as f32))?
     }
 
     pub fn faded(&self, now: f64) -> bool {
-        now - self.since >= CLOSE.max(REDUCED_FADE)
+        now - self.since >= QUICK.max(REDUCED_FADE)
     }
 }
 
@@ -1158,13 +1153,18 @@ fn keep_in_view(scroll: usize, chosen: Option<usize>, count: usize, fit: usize) 
 /// The one card that doesn't come out of a drawer (`flow::Drawer`): a tray menu is a pop-up at
 /// the pointer whose submenus cascade sideways from the row that opened them, often several deep
 /// in a second of browsing, so each level slides a few pixels out of its parent's side and is
-/// there in a moment, as a menu should be, rather than dropping from a slot in the bar.
+/// there in a moment, as a menu should be, rather than dropping from a slot in the bar. It arrives
+/// at a toast's pace and leaves at the quick fade, where it is; with reduced motion both are only
+/// short fades.
 fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
     if reduced_motion {
         ((since / REDUCED_FADE).clamp(0.0, 1.0) as f32, 0.0)
     } else {
-        let eased = HYPR.at((since / OPEN).clamp(0.0, 1.0));
-        (eased.clamp(0.0, 1.0) as f32, SLIDE * (1.0 - eased).max(0.0))
+        let eased = HYPR.at((since / CARD_IN).clamp(0.0, 1.0));
+        (
+            eased.clamp(0.0, 1.0) as f32,
+            CARD_RISE * (1.0 - eased).max(0.0),
+        )
     }
 }
 

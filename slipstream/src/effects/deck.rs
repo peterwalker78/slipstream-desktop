@@ -11,16 +11,15 @@ use crate::{
     pane::{Camera, Pose},
 };
 
-/// Lifting out of place into the deck.
-const OPEN: f64 = 0.225;
-/// Each Tab's turn of the deck.
-const STEP: f64 = 0.21;
+/// Lifting out of place into the deck, and each Tab's turn of it: one beat.
+const OPEN: f64 = 0.22;
+const STEP: f64 = OPEN;
 /// Flying back when Alt is let go.
 pub const RELEASE: f64 = 0.25;
-/// The panes not chosen follow the chosen one back this much later.
-const FOLLOW: f64 = 0.03;
 /// Each pane further back lifts out a little later than the one in front.
 const STAGGER: f64 = 0.025;
+/// The panes not chosen follow the chosen one back by the same step.
+const FOLLOW: f64 = STAGGER;
 /// How many panes deep the deck is seen; any further back fade into the dark.
 const DEPTH: f64 = 4.6;
 
@@ -252,8 +251,9 @@ mod tests {
         deck.select(2, 20.0);
         let (mid, swing) = deck.place(1, 20.0 + STEP / 2.0);
         assert!(mid > 0.5 && swing > 0.9, "on its way round the side");
-        assert_eq!(deck.place(1, 20.0 + STEP), (3.0, 0.0));
-        assert_eq!(deck.place(2, 20.0 + STEP), (0.0, 0.0));
+        let done = 20.0 + STEP + 1e-9;
+        assert_eq!(deck.place(1, done), (3.0, 0.0));
+        assert_eq!(deck.place(2, done), (0.0, 0.0));
         assert_eq!(deck.front(), 2);
     }
 

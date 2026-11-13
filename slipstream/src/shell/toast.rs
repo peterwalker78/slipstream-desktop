@@ -1,9 +1,9 @@
 //! Short answers to what was just done, low in the middle of the screen: an amber title over a
 //! line or two of text. They share their place with the volume and brightness display, so a new
-//! one of either replaces the other. A toast rises in over 250 ms and stays long enough to read:
+//! one of either replaces the other, and both arrive and leave alike. A toast rises in over 180 ms and stays long enough to read:
 //! 2.6 s at least, longer for more words.
 
-use crate::motion::REDUCED_FADE;
+use crate::motion::{CARD_IN, CARD_RISE, QUICK, REDUCED_FADE};
 use smithay::{
     backend::renderer::{
         ImportMem, Renderer,
@@ -28,7 +28,6 @@ const WIDTH: f32 = 440.0;
 const SHOWN: f64 = 2.6;
 const SHOWN_MOST: f64 = 7.0;
 const PER_WORD: f64 = 0.3;
-const FADE: f64 = 0.25;
 
 struct Painted {
     scale: f64,
@@ -102,16 +101,18 @@ impl Toast {
             self.painted = paint(title, body, accent, scale);
         }
         let painted = self.painted.as_ref()?;
-        let fade = if self.reduced_motion {
-            REDUCED_FADE
+        let (fade_in, fade_out) = if self.reduced_motion {
+            (REDUCED_FADE, REDUCED_FADE)
         } else {
-            FADE
+            (CARD_IN, QUICK)
         };
-        let alpha = (age / fade).min((shown - age) / fade).clamp(0.0, 1.0);
+        let alpha = (age / fade_in)
+            .min((shown - age) / fade_out)
+            .clamp(0.0, 1.0);
         let rise = if self.reduced_motion {
             0.0
         } else {
-            8.0 * (1.0 - HYPR.at((age / FADE).min(1.0)))
+            CARD_RISE * (1.0 - HYPR.at((age / CARD_IN).min(1.0)))
         };
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * DESIGN_PX) as f64;

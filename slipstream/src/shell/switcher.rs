@@ -15,6 +15,7 @@ use smithay::{
 
 use crate::{
     Slipstream,
+    motion::{QUICK, REDUCED_FADE},
     paint::{Painted, Painter},
     panel::{self, DESIGN_PX},
     state::{window_app_id, window_title},
@@ -23,8 +24,6 @@ use crate::{
 
 /// How long Alt must still be held after the first Tab before the card is drawn, in seconds.
 pub const APPEAR: f64 = 0.12;
-/// The card's fade in, once it appears.
-const FADE: f64 = 0.12;
 /// Tiles in a row at most; past that the row scrolls to keep the selection in view.
 pub const ACROSS: usize = 7;
 
@@ -265,11 +264,12 @@ impl<W> Switcher<W> {
                 )
             })
             .collect();
-        let alpha = if self.reduced_motion {
-            1.0
+        let fade = if self.reduced_motion {
+            REDUCED_FADE
         } else {
-            ((now - self.started - APPEAR) / FADE).clamp(0.0, 1.0) as f32
+            QUICK
         };
+        let alpha = ((now - self.started - APPEAR) / fade).clamp(0.0, 1.0) as f32;
         painted.element(renderer, at, alpha)
     }
 }

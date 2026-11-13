@@ -272,21 +272,23 @@ impl Chrome {
 }
 
 /// A tier tag's opacity and how far above its resting place it is, in design pixels, `age`
-/// seconds after it appeared: it drops 8 px into place while fading in, holds, and fades out.
-/// Reduced motion leaves out the drop and shortens both fades.
+/// seconds after it appeared: it drops into place while fading in, as a toast rises, holds, and
+/// takes the quick fade out. Reduced motion leaves out the drop and shortens both fades.
 pub(super) fn tag_motion(age: f64, reduced_motion: bool) -> (f64, f64) {
-    if reduced_motion {
-        let alpha = (age / TAG_REDUCED_FADE).min((TAG_SHOWN - age) / TAG_REDUCED_FADE);
-        return (alpha.clamp(0.0, 1.0), 0.0);
-    }
-    let progress = age / TAG_SHOWN;
-    if progress < 0.12 {
-        (progress / 0.12, -8.0 * (1.0 - progress / 0.12))
-    } else if progress < 0.8 {
-        (1.0, 0.0)
+    let (fade_in, fade_out) = if reduced_motion {
+        (motion::REDUCED_FADE, motion::REDUCED_FADE)
     } else {
-        ((1.0 - progress) / 0.2, 0.0)
-    }
+        (motion::CARD_IN, motion::QUICK)
+    };
+    let alpha = (age / fade_in)
+        .min((TAG_SHOWN - age) / fade_out)
+        .clamp(0.0, 1.0);
+    let drop = if reduced_motion {
+        0.0
+    } else {
+        -motion::CARD_RISE * (1.0 - motion::HYPR.at((age / fade_in).min(1.0)))
+    };
+    (alpha, drop)
 }
 
 /// A rung's tag: its name on the accent, and the ladder beside it as a row of pips with this

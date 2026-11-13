@@ -19,6 +19,7 @@ use smithay::{
 use crate::{
     gravity::Rung,
     layout::Rect,
+    motion::{QUICK, REDUCED_FADE},
     paint::{Painted, Painter},
     panel::{self, DESIGN_PX},
     text::{self, Face, Style},
@@ -35,8 +36,6 @@ pub const CHOICES: [Rung; 5] = [
 
 /// How long Super must still be held after Super+T before the strip is drawn, in seconds.
 pub const APPEAR: f64 = 0.2;
-/// The strip's fade in, once it appears.
-const FADE: f64 = 0.12;
 
 // The strip's measurements, in design pixels.
 const TILE_W: f32 = 168.0;
@@ -175,11 +174,12 @@ impl<W> Arrange<W> {
                 )
             })
             .collect();
-        let alpha = if self.reduced_motion {
-            1.0
+        let fade = if self.reduced_motion {
+            REDUCED_FADE
         } else {
-            ((now - self.started - APPEAR) / FADE).clamp(0.0, 1.0) as f32
+            QUICK
         };
+        let alpha = ((now - self.started - APPEAR) / fade).clamp(0.0, 1.0) as f32;
         painted.element(renderer, at, alpha)
     }
 }

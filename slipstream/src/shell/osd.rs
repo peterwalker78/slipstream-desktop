@@ -8,8 +8,8 @@
 //! pressed over and over) keeps one card on screen rather than stacking them up. The rise and the
 //! fade in are played once, when the card appears: a further press of the same key only moves the
 //! bar and puts the card's departure off, so holding a volume key slides the level along rather
-//! than flashing the card in and out under it. Reduced motion gets the same card without the
-//! fades.
+//! than flashing the card in and out under it. It arrives and leaves as a toast does, since the two
+//! share a place. Reduced motion gets the same card with only short fades.
 
 use smithay::{
     backend::renderer::{
@@ -24,7 +24,7 @@ use smithay::{
 
 use crate::{
     icons,
-    motion::HYPR,
+    motion::{CARD_IN, CARD_RISE, HYPR, QUICK, REDUCED_FADE},
     paint::{self, Painter},
     panel::{self, DESIGN_PX},
     text::{self, Face, Style},
@@ -60,7 +60,6 @@ pub fn num_lock_note(on: bool) -> &'static str {
         "Number pad moves the cursor"
     }
 }
-const FADE: f64 = 0.18;
 
 /// What the keys changed. Each carries what the card should say about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,16 +257,18 @@ impl Osd {
             self.painted = paint(kind, level, self.detail.as_deref(), ink, scale);
         }
         let painted = self.painted.as_ref()?;
-        let (fade, rise) = if self.reduced_motion {
-            (0.0, 0.0)
+        let (fade_in, fade_out, rise) = if self.reduced_motion {
+            (REDUCED_FADE, REDUCED_FADE, 0.0)
         } else {
-            (FADE, 10.0 * (1.0 - HYPR.at((life / FADE).min(1.0))))
+            (
+                CARD_IN,
+                QUICK,
+                CARD_RISE * (1.0 - HYPR.at((life / CARD_IN).min(1.0))),
+            )
         };
-        let alpha = if fade <= 0.0 {
-            1.0
-        } else {
-            (life / fade).min((shown - age) / fade).clamp(0.0, 1.0)
-        };
+        let alpha = (life / fade_in)
+            .min((shown - age) / fade_out)
+            .clamp(0.0, 1.0);
         // The painted area holds the shadow too; the card itself keeps its place.
         let margin = (panel::NOTICE_MARGIN * DESIGN_PX) as f64;
         let location = Point::<f64, Logical>::from((
@@ -461,16 +462,16 @@ mod tests {
         // Once it's in, every further press leaves it fully opaque and at rest: the alpha and the
         // rise both run from `since`, so they don't start over.
         for step in 1..8 {
-            let now = FADE + 0.05 * step as f64;
+            let now = CARD_IN + 0.05 * step as f64;
             osd.show(Kind::Volume { muted: false }, 40 + step as u8, now);
             let showing = osd.showing.unwrap();
             let (life, age) = (now - showing.since, now - showing.at);
             assert_eq!(age, 0.0);
             assert!(
-                (life / FADE).min((SHOWN - age) / FADE).clamp(0.0, 1.0) == 1.0,
+                (life / CARD_IN).min((SHOWN - age) / QUICK).clamp(0.0, 1.0) == 1.0,
                 "faded out at {now}"
             );
-            let rise = 10.0 * (1.0 - HYPR.at((life / FADE).min(1.0)));
+            let rise = CARD_RISE * (1.0 - HYPR.at((life / CARD_IN).min(1.0)));
             assert!(rise.abs() < 1e-4, "rose again at {now}");
         }
     }

@@ -84,8 +84,6 @@ const BLACK: Color32F = Color32F::new(0.0, 0.0, 0.0, 1.0);
 const WHITE: Color32F = Color32F::new(1.0, 1.0, 1.0, 1.0);
 /// How long a tier tag shows.
 const TAG_SHOWN: f64 = 1.8;
-/// A tier tag's fade in and out with reduced motion, which shows it in place.
-const TAG_REDUCED_FADE: f64 = 0.08;
 
 // Both backends draw with GLES, which bullet time's 3D shader needs.
 smithay::backend::renderer::element::render_elements! {
@@ -507,9 +505,10 @@ mod tests {
             1.0,
             "fully in after the short fade"
         );
-        assert!(
-            tag_motion(0.05, false).1 < -5.0,
-            "without it, the tag still drops"
+        assert_eq!(
+            tag_motion(0.0, false).1,
+            -motion::CARD_RISE,
+            "without it, the tag drops in"
         );
         assert_eq!(tag_motion(0.5, false), (1.0, 0.0));
     }
