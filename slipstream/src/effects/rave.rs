@@ -1353,26 +1353,28 @@ fn camera_program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
     )
 }
 
-/// Marks a renderer whose rave was warmed up at the session's first frame.
+/// Marks a renderer whose rave was warmed up ahead of time.
 struct Warmed;
 
 /// Keeps the rave ready on `renderer` while it's `wanted`, from the knock the hints start from
 /// until the rave is over, and lets go of its shaders the rest of the time: compiled, they hold a
 /// good deal of memory in the graphics driver.
 ///
-/// Compiling them and drawing the club for the first time is slow enough for the camera to stutter
-/// if it fell on the dive. So at the session's first frame, where a pause goes unseen, it's done
-/// once, small, and then let go: the driver keeps what it built in its shader cache on disk, and
-/// compiling again from the hints, a second or more before the dive, takes it from there.
-pub fn warm(renderer: &mut GlesRenderer, wanted: bool) {
-    let first = renderer.egl_context().user_data().get::<Warmed>().is_none();
-    if first {
+/// Compiling them and drawing the club for the first time is slow enough to stall a frame for most
+/// of a second, so while the bar is the one the rave starts from (`reachable`), that's done once
+/// ahead of time, where a pause goes unseen, and let go: the driver keeps what it built in its
+/// shader cache on disk, and compiling again from the hints takes it from there. With any other
+/// bar it isn't done at all, since the driver frees a deleted program in pieces the heap can't hand
+/// back and a session that can't rave would keep paying for one compile.
+pub fn warm(renderer: &mut GlesRenderer, wanted: bool, reachable: bool) {
+    let ahead = reachable && renderer.egl_context().user_data().get::<Warmed>().is_none();
+    if ahead {
         renderer
             .egl_context()
             .user_data()
             .insert_if_missing(|| Warmed);
     }
-    if (first || wanted) && !shader::holds_program::<Program, GlesPixelProgram>(renderer) {
+    if (ahead || wanted) && !shader::holds_program::<Program, GlesPixelProgram>(renderer) {
         draw_once(renderer);
     }
     if !wanted {

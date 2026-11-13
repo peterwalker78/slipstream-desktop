@@ -312,7 +312,9 @@ pub fn output_elements(
     let now = state.clock.frame();
     crate::paint::trim_layers();
     let rave_wanted = state.rave.is_some() || state.knocks.hinting(state.wall());
-    crate::effects::rave::warm(renderer, rave_wanted);
+    let rave_reachable =
+        state.settings.appearance.bar_style == slipstream_config::BarStyle::LitEdge;
+    crate::effects::rave::warm(renderer, rave_wanted, rave_reachable);
     crate::effects::shader::trim_when_due();
     // While locked, the lock is all there is: nothing below reads a window, and any rave ends.
     if state.lock.is_some() {
