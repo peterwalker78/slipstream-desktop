@@ -494,7 +494,7 @@ vec3 glints(vec2 px, vec2 p, float f, float wide) {
         float drawn = exp(-abs(d.x) / (14.0 * f)) * exp(-d.y * d.y / (0.35 * f * f));
         float bloom = exp(-dot(d, d) / (30.0 * f * f));
         vec3 colour = vivid(hue);
-        acc += (mix(colour, vec3(1.0), 0.6) * point + colour * (0.45 * drawn + 0.12 * bloom))
+        acc += (mix(colour, vec3(1.0), 0.6) * 0.7 * point + colour * (0.32 * drawn + 0.085 * bloom))
             * lit * catching * exp(-along / 1800.0) * arrives * clear_of_clock(hit.x, from.x);
     }
     return acc;
@@ -609,7 +609,7 @@ void main() {
     // Only the rows round the foot have an edge to light.
     float lit = 0.0;
     if (p.y > 35.0) {
-        lit = 0.45 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
+        lit = 0.32 * smoothstep(0.0, 0.8, field(vec2(px.x, 38.0 * f)));
     }
     float in_gap = clamp(min(px.x + 0.5, gap.y * f) - max(px.x - 0.5, gap.x * f), 0.0, 1.0);
     float edge = (exp(-d1 * d1 / 0.38) + 0.34 * glass * exp(-d2 * d2 / 0.5)) * lit * (1.0 - in_gap);
@@ -630,10 +630,10 @@ void main() {
         float slope = (1.0 - bevelled) * (1.0 - bevelled);
         float ridge = exp(-pow(edge_d - bevel_w, 2.0) / (0.5 * f * f));
         float outer = exp(-pow(edge_d - 0.5, 2.0) / 0.45);
-        float caught = (slope * 0.22 + ridge * 0.12 + outer * 0.22) * mix(0.3, 1.0, lit_from) * reflects;
+        float caught = (slope * 0.15 + ridge * 0.085 + outer * 0.15) * mix(0.3, 1.0, lit_from) * reflects;
         behind.rgb *= 1.0 - 0.4 * slope * (1.0 - lit_from);
         bevel_colour = mix(PALE, GLASS_GREEN, 0.35 + 0.3 * (1.0 - bevelled)) * caught;
-        catches = 1.3 * slope + 0.6 * outer;
+        catches = 0.9 * slope + 0.42 * outer;
     }
 
     // The beams go over the ceiling the rest of the light keeps to, so their colours stay vivid.
