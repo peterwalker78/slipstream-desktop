@@ -673,7 +673,6 @@ impl Slipstream {
             lock_refusal_told: false,
         };
         state.set_reduced_motion(reduced_motion);
-        state.history.effects = state.settings.motion.effects;
         state.explorer.effects = state.settings.motion.effects;
         state
             .idle

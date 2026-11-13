@@ -8,8 +8,8 @@
 //!
 //! Super+V lists them, newest first. ↑ and ↓ choose, Enter puts the chosen one back on the
 //! clipboard and pastes it into the focused app (Ctrl+V, or Ctrl+Shift+V in a terminal), Delete
-//! forgets it, Esc closes. As the selection reaches a row its text arrives: carried in on the air
-//! with Slipstream's effects, or decoded out of rain glyphs with the Matrix's.
+//! forgets it, Esc closes. The chosen row's text decodes out of rain glyphs as the selection
+//! reaches it, whichever look the streams have.
 
 use std::{
     io::Read,
@@ -372,8 +372,6 @@ pub struct History {
     /// When the selection last moved, on wall time, for the decode.
     chosen_at: f64,
     pub reduced_motion: bool,
-    /// Whose look the chosen row's text arrives in.
-    pub effects: Effects,
     painted: Option<(Look, Painted)>,
     /// Where the painted card's corner settles, outside the margin round the card.
     at: Point<f64, Logical>,
@@ -687,7 +685,8 @@ impl History {
                     let total: usize = lines.iter().map(|line| line.chars().count()).sum();
                     let decoding = selected && look.decode_step.is_some();
                     let arrived = if decoding {
-                        arrivals(self.effects, total, age, seed)
+                        // Always the decode: it reads as text settling, not as the code rain.
+                        arrivals(Effects::Matrix, total, age, seed)
                     } else {
                         Vec::new()
                     };
@@ -1049,7 +1048,7 @@ mod tests {
     }
 
     #[test]
-    fn copied_text_never_shows_a_rain_glyph_with_slipstreams_effects() {
+    fn slipstreams_look_never_shows_a_rain_glyph() {
         for tenth in 0..=40 {
             let age = tenth as f64 * 0.01;
             let now = arrivals(Effects::Slipstream, 37, age, 99);

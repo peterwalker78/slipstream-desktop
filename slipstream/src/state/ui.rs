@@ -421,7 +421,6 @@ impl Slipstream {
         self.ring_rgb = settings.borders.selected_tile_rgb();
         self.rain.set_ring_colour(self.ring_rgb);
         self.rain.set_effects(settings.motion.effects);
-        self.history.effects = settings.motion.effects;
         self.explorer.effects = settings.motion.effects;
         self.bullet_rgb = settings.borders.bullet_time_rgb();
         self.accent_rgb = settings.borders.accent_rgb();
