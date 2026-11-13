@@ -1,6 +1,6 @@
 //! The Featherweight score, which Settings' About page shows: how light a desktop is in real use.
 //! Three things count equally: the space it takes once installed, the memory it uses once you're
-//! logged in, and how much of a typical computer it keeps busy while nobody touches it. Each is put
+//! logged in, and how much of one processor core it keeps busy while nobody touches it. Each is put
 //! on a 0–100 scale, and lower is lighter.
 //!
 //! Every desktop is measured the same way, Slipstream included: installed complete on the same
@@ -25,11 +25,6 @@ pub struct Desktop {
 impl Desktop {
     pub fn score(&self) -> f64 {
         score(self.disk_mb, self.memory_mb, self.processor)
-    }
-
-    /// The share of a typical computer it keeps busy at rest, in percent.
-    pub fn share_at_rest(&self) -> f64 {
-        self.processor / f64::from(TYPICAL_THREADS)
     }
 }
 
@@ -67,10 +62,6 @@ pub const OTHERS: [Desktop; 7] = [
     desktop("COSMIC", 239, 2687.0, 923.0, 0.6),
 ];
 
-/// A modest laptop's processor threads: what "a typical computer" means for time at rest. Most
-/// have more.
-pub const TYPICAL_THREADS: u32 = 8;
-
 /// One figure's share of the score: the values that score 0 and 100.
 struct Part {
     low: f64,
@@ -93,19 +84,17 @@ const MEMORY: Part = Part {
     low: 25.0,
     high: 2000.0,
 };
-/// A share of a typical computer: under 1% is lost in what any system does in the background,
-/// and by 25% fans and slowdowns are noticed.
+/// A share of one processor core: 0.1% is about the smallest difference a minute's measurement
+/// tells apart, so even the quietest desktops are told apart, and a whole core kept busy while
+/// nothing happens is the most a desktop at rest can cost.
 const AT_REST: Part = Part {
-    low: 1.0,
-    high: 25.0,
+    low: 0.1,
+    high: 100.0,
 };
 
 /// The score from 0 (lightest) to 100, for `processor` percent of one measuring processor.
 pub fn score(disk_mb: f64, memory_mb: f64, processor: f64) -> f64 {
-    (DISK.scale(disk_mb)
-        + MEMORY.scale(memory_mb)
-        + AT_REST.scale(processor / f64::from(TYPICAL_THREADS)))
-        / 3.0
+    (DISK.scale(disk_mb) + MEMORY.scale(memory_mb) + AT_REST.scale(processor)) / 3.0
 }
 
 /// Where a score of `ours` places among the others: 1 is the lightest.
@@ -118,14 +107,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slipstream_scores_about_23_and_about_22_with_reduced_motion() {
+    fn slipstream_scores_about_44_and_about_35_with_reduced_motion() {
         assert!(
-            (SLIPSTREAM.score() - 22.7).abs() < 0.5,
+            (SLIPSTREAM.score() - 43.6).abs() < 0.5,
             "{}",
             SLIPSTREAM.score()
         );
         assert!(
-            (SLIPSTREAM_REDUCED.score() - 22.3).abs() < 0.5,
+            (SLIPSTREAM_REDUCED.score() - 34.7).abs() < 0.5,
             "{}",
             SLIPSTREAM_REDUCED.score()
         );
@@ -140,22 +129,23 @@ mod tests {
         assert_eq!(
             names,
             [
-                "sway",
-                "Slipstream",
                 "Xfce",
+                "sway",
                 "Hyprland",
                 "niri",
+                "Slipstream",
                 "GNOME",
                 "KDE Plasma",
                 "COSMIC",
             ]
         );
-        assert_eq!(place(SLIPSTREAM.score()), 2);
+        assert_eq!(place(SLIPSTREAM.score()), 5);
+        assert_eq!(place(SLIPSTREAM_REDUCED.score()), 4);
     }
 
     #[test]
     fn each_part_stays_between_0_and_100() {
-        assert_eq!(score(50.0, 10.0, 0.1), 0.0);
+        assert_eq!(score(50.0, 10.0, 0.05), 0.0);
         assert_eq!(score(9000.0, 5000.0, 800.0), 100.0);
         assert!((MEMORY.scale(223.6) - 50.0).abs() < 0.1);
     }

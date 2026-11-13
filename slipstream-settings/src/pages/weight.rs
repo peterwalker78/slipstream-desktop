@@ -31,15 +31,16 @@ pub(super) fn section(page: &gtk::Box) {
     let score = SLIPSTREAM.score();
     let place = weight::place(score);
     let of = OTHERS.len() + 1;
-    let verdict = label(
-        &if place == 1 {
-            format!("{score:.0} out of 100, the lightest of {of}")
+    let reduced = SLIPSTREAM_REDUCED.score();
+    let placed = |place: usize| {
+        if place == 1 {
+            format!("the lightest of {of}")
         } else {
-            format!(
-                "{score:.0} out of 100, the {} lightest of {of}",
-                ordinal(place)
-            )
-        },
+            format!("the {} lightest of {of}", ordinal(place))
+        }
+    };
+    let verdict = label(
+        &format!("{score:.0} out of 100, {}", placed(place)),
         "row-title",
     );
     let heading = gtk::Box::builder()
@@ -50,10 +51,11 @@ pub(super) fn section(page: &gtk::Box) {
     heading.append(&label(
         &format!(
             "How light Slipstream is in real use, next to {} other desktops: the space it takes, \
-             the memory it uses once you're logged in, and how much of a typical computer it \
-             keeps busy while you're away. Lower is lighter. With reduced motion it scores {:.0}.",
+             the memory it uses once you're logged in, and how much of one processor core it \
+             keeps busy while you're away. Lower is lighter. The moving wallpaper costs the most \
+             of that: with reduced motion it scores {reduced:.0}, {}.",
             OTHERS.len(),
-            SLIPSTREAM_REDUCED.score()
+            placed(weight::place(reduced))
         ),
         "row-sub",
     ));
@@ -132,13 +134,14 @@ pub(super) fn section(page: &gtk::Box) {
         ));
     fact(
         &facts,
-        &format!("{:.1}%", SLIPSTREAM.share_at_rest()),
-        "Busy while you're away",
+        &format!("{:.1}%", SLIPSTREAM.processor),
+        "Of one core, while you're away",
     )
     .1
     .set_tooltip_text(Some(&format!(
-        "The share of a typical {}-thread computer the moving wallpaper keeps busy.",
-        weight::TYPICAL_THREADS
+        "How much of one processor core Slipstream keeps busy with the wallpaper moving; {:.1}% \
+         with reduced motion.",
+        SLIPSTREAM_REDUCED.processor
     )));
     fact(&facts, &SLIPSTREAM.packages.to_string(), "Packages")
         .1
