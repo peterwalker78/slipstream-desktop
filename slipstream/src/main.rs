@@ -94,7 +94,8 @@ mod zoom;
 
 // The shell's and the effects' modules keep their short paths (`crate::bar`, `crate::rain`).
 use effects::{
-    bullet, deck, fx, ghost, glass, glmatrix, overview, pane, rain, saver, scope, streaks, tilt,
+    bullet, deck, fx, ghost, glass, glmatrix, overview, pane, picture, rain, saver, scope, streaks,
+    tilt,
 };
 use shell::{
     arrange, bar, calendar, card, centre, chips, connect, exit, explorer, flow, history,

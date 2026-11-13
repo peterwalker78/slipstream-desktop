@@ -1,5 +1,5 @@
 //! The effects: the streams and their rain, the glass fade, bullet time and the panes it and
-//! Alt+Tab move, a closing window's fall, and the living wallpaper.
+//! Alt+Tab move, a closing window's fall, the living wallpaper and a still picture in its place.
 
 pub(crate) mod bullet;
 pub(crate) mod deck;
@@ -10,6 +10,7 @@ pub(crate) mod glmatrix;
 pub(crate) mod lit_line;
 pub(crate) mod overview;
 pub(crate) mod pane;
+pub(crate) mod picture;
 pub(crate) mod rain;
 pub(crate) mod rave;
 pub(crate) mod saver;

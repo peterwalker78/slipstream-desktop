@@ -34,6 +34,9 @@ fn written_settings_read_back_and_leave_nothing_else_behind() {
             fade_after_secs: 600,
             variations: vec!["vortex".into()],
             change_every_mins: 30,
+            show: slipstream_config::Backdrop::Picture,
+            picture: "/home/someone/Pictures/lake.webp".into(),
+            picture_fit: slipstream_config::PictureFit::Fit,
         },
         motion: Motion {
             reduced: true,

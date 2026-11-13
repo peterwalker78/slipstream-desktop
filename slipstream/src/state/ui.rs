@@ -418,6 +418,7 @@ impl Slipstream {
         for saver in self.savers.values_mut() {
             saver.set_wallpaper(&settings.wallpaper, now);
         }
+        self.picture.set(&settings.wallpaper);
         self.ring_rgb = settings.borders.selected_tile_rgb();
         self.rain.set_ring_colour(self.ring_rgb);
         self.rain.set_effects(settings.motion.effects);

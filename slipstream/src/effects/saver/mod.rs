@@ -405,6 +405,15 @@ impl Saver {
         }
     }
 
+    /// A picture covers the wallpaper, so it isn't drawn: the variation showing keeps its turn
+    /// rather than spending it unseen, and the next takes over only once this one has been shown
+    /// for its dwell. `now` is the animation clock.
+    pub fn hold(&mut self, now: f64) {
+        if self.shown_at.is_some() {
+            self.shown_at = Some(now);
+        }
+    }
+
     /// The time, date, workspace or battery changed.
     pub fn set_readings(&mut self, readings: &Readings) {
         if *readings != self.readings {

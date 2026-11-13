@@ -10,6 +10,7 @@ mod fonts;
 mod harmony;
 mod pages;
 mod picker;
+mod picture_file;
 mod power;
 mod previews;
 

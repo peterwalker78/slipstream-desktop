@@ -10,6 +10,9 @@
 //! fade-after-secs = 120
 //! variations = ["slipstream"]
 //! change-every-mins = 10
+//! show = "living"
+//! picture = ""
+//! picture-fit = "fill"
 //!
 //! [motion]
 //! reduced = false
@@ -131,7 +134,10 @@ pub use input::{
     system_layouts_from_env,
 };
 pub use pages::{SETTINGS_PAGES, SettingsPage};
-pub use wallpaper::{VARIATIONS, Variation, Wallpaper, current_id};
+pub use wallpaper::{
+    Backdrop, PICTURE_LONGEST, PICTURE_MOST_PIXELS, PictureFit, VARIATIONS, Variation, Wallpaper,
+    current_id, picture_path,
+};
 pub use workspaces::{MAX_WORKSPACES, WorkspaceEntry, Workspaces, unused_id, workspace_label};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -723,6 +729,9 @@ mod tests {
                 fade_after_secs: 300,
                 variations: vec!["vortex".into(), "slipstream".into()],
                 change_every_mins: 5,
+                show: Backdrop::Picture,
+                picture: "/home/someone/Pictures/hills.jpg".into(),
+                picture_fit: PictureFit::Fit,
             },
             motion: Motion {
                 reduced: true,

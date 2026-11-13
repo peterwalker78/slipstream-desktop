@@ -325,6 +325,8 @@ pub struct Slipstream {
     /// The living wallpaper, one per screen: each keeps its own grid, sized to that screen, and
     /// its own turn through the variations.
     pub savers: HashMap<String, Saver>,
+    /// A still picture of your own shown in the living wallpaper's place behind the windows.
+    pub picture: crate::picture::Picture,
     /// What a new screen's wallpaper starts from.
     wallpaper: slipstream_config::Wallpaper,
     /// Input arrived since `ext-idle-notify` was last told: it's told once a pass rather than on
@@ -636,6 +638,7 @@ impl Slipstream {
             idle: Idle::new(false, settings.wallpaper.fade_after_secs),
             concentration: Default::default(),
             savers: HashMap::new(),
+            picture: crate::picture::Picture::new(&settings.wallpaper),
             wallpaper: settings.wallpaper.clone(),
             input_since_notified: false,
             screens_off: false,
@@ -947,6 +950,7 @@ impl Slipstream {
     pub fn forget_screen_drawing(&mut self, screen: &str) {
         self.drawn.chromes.remove(screen);
         self.savers.remove(screen);
+        self.picture.forget_screen(screen);
     }
 
     /// The bar button at this point on the focused screen, which is where the panels that ask

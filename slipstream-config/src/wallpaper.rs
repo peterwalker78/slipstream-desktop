@@ -1,8 +1,11 @@
-//! The living wallpaper's settings, and the table of its variations.
+//! The wallpaper's settings: the living wallpaper and the table of its variations, or a still
+//! picture of your own behind the windows.
+
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// The living wallpaper, and when the UI steps aside for it.
+/// The wallpaper behind the windows, and when the UI steps aside for the living wallpaper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Wallpaper {
@@ -14,6 +17,51 @@ pub struct Wallpaper {
     /// Minutes one variation holds before the next takes over. Ignored when only one is chosen;
     /// 0 never changes.
     pub change_every_mins: u64,
+    /// What the desktop shows behind the windows. Stepping away fades into the living wallpaper
+    /// whichever it is.
+    pub show: Backdrop,
+    /// The picture last chosen, as the file it was chosen from; empty before one has been. What
+    /// is shown is the copy Settings prepared from it at `picture_path()`.
+    pub picture: String,
+    /// How the picture is fitted to each screen.
+    pub picture_fit: PictureFit,
+}
+
+/// What the desktop shows behind the windows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Backdrop {
+    /// The living wallpaper, its variations taking turns.
+    #[default]
+    Living,
+    /// The still picture prepared at `picture_path()`.
+    Picture,
+}
+
+/// How a picture that isn't the screen's shape is fitted to it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PictureFit {
+    /// Covers the whole screen, centred, with whatever overhangs cropped off.
+    #[default]
+    Fill,
+    /// The whole picture as large as it fits, centred, with dark bars where it doesn't reach.
+    Fit,
+}
+
+/// The longest side a prepared picture may have, in pixels: an 8K screen's width.
+pub const PICTURE_LONGEST: u32 = 7680;
+
+/// The most pixels a prepared picture may have, which the compositor also holds any PNG it reads
+/// to: 32 megapixels.
+pub const PICTURE_MOST_PIXELS: u64 = 1 << 25;
+
+/// Where Settings puts the prepared copy of the chosen picture, a PNG, and where the compositor
+/// reads it from: `$XDG_DATA_HOME/slipstream/wallpaper.png`.
+pub fn picture_path() -> PathBuf {
+    crate::xdg_home("XDG_DATA_HOME", ".local/share")
+        .join("slipstream")
+        .join("wallpaper.png")
 }
 
 impl Default for Wallpaper {
@@ -22,11 +70,19 @@ impl Default for Wallpaper {
             fade_after_secs: 120,
             variations: vec![VARIATIONS[0].id.to_string()],
             change_every_mins: 10,
+            show: Backdrop::Living,
+            picture: String::new(),
+            picture_fit: PictureFit::Fill,
         }
     }
 }
 
 impl Wallpaper {
+    /// Whether the desktop behind the windows shows the picture rather than the living wallpaper.
+    pub fn shows_picture(&self) -> bool {
+        self.show == Backdrop::Picture
+    }
+
     /// The variations to cycle through: the ones named in the file, in the file's order, or all
     /// of them if it names none. Never empty — a file that names only ids nobody knows falls
     /// back to the default.
@@ -199,6 +255,48 @@ pub const VARIATIONS: &[Variation] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_from_before_pictures_keeps_the_living_wallpaper() {
+        let old = "[wallpaper]\nfade-after-secs = 300\nvariations = [\"tide\"]\n\
+                   change-every-mins = 5\n";
+        let wallpaper = crate::file::parse(old).unwrap().wallpaper;
+        assert_eq!(wallpaper.fade_after_secs, 300);
+        assert_eq!(wallpaper.variations, ["tide"]);
+        assert!(!wallpaper.shows_picture());
+        assert_eq!(wallpaper.picture, "");
+        assert_eq!(wallpaper.picture_fit, PictureFit::Fill);
+    }
+
+    #[test]
+    fn a_chosen_picture_and_its_fit_save_and_load() {
+        let mut settings = crate::Settings::default();
+        settings.wallpaper.show = Backdrop::Picture;
+        settings.wallpaper.picture = "/home/someone/Pictures/hills.jpg".into();
+        settings.wallpaper.picture_fit = PictureFit::Fit;
+        let text = toml::to_string(&settings).unwrap();
+        assert!(text.contains("show = \"picture\""), "{text}");
+        assert!(text.contains("picture-fit = \"fit\""), "{text}");
+        assert_eq!(crate::file::parse(&text).unwrap(), settings);
+        let by_hand = "[wallpaper]\nshow = \"picture\"\npicture = \"/a/b.png\"\n";
+        let wallpaper = crate::file::parse(by_hand).unwrap().wallpaper;
+        assert!(wallpaper.shows_picture());
+        assert_eq!(
+            wallpaper.picture_fit,
+            PictureFit::Fill,
+            "fill unless it says"
+        );
+    }
+
+    #[test]
+    fn the_prepared_picture_lives_in_slipstream_s_data_folder() {
+        let path = picture_path();
+        assert!(
+            path.ends_with("slipstream/wallpaper.png"),
+            "{}",
+            path.display()
+        );
+    }
 
     #[test]
     fn the_chosen_variations_are_the_file_s_own_order_and_never_empty() {

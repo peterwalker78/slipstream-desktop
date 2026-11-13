@@ -1,7 +1,10 @@
-//! The living wallpaper: when it shows, and which variations take turns.
+//! The wallpaper: the living wallpaper or a picture of your own behind the windows, when the
+//! living wallpaper comes in, and which of its variations take turns.
+
+use slipstream_config::{Backdrop, PictureFit};
 
 use super::*;
-use crate::previews;
+use crate::{picture_file, previews};
 
 /// The waits offered before the UI fades to the living wallpaper, in seconds; 0 never fades.
 pub(super) const FADE_CHOICES: [u64; 7] = [30, 60, 120, 300, 600, 1800, 0];
@@ -24,8 +27,10 @@ const NARROWEST: i32 = 240;
 pub(super) fn build(store: &Store) -> gtk::Widget {
     let page = page(
         "Wallpaper",
-        "The living wallpaper behind your windows. Tick more than one to have them take turns.",
+        "The living wallpaper or a picture of your own behind your windows. Tick more than one \
+         variation to have them take turns.",
     );
+    behind(&page, store);
 
     let cycle = group(&page, "Cycle");
     let current = store.get().wallpaper.change_every_mins;
@@ -82,7 +87,7 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         &gtk::Box::new(gtk::Orientation::Horizontal, 0),
     );
 
-    let turns = group(&page, "Pictures");
+    let turns = group(&page, "Living wallpaper");
     let chosen: Vec<&str> = store
         .get()
         .wallpaper
@@ -302,6 +307,225 @@ pub(super) fn build(store: &Store) -> gtk::Widget {
         sync_all();
     });
     page.upcast()
+}
+
+/// The fits offered, in order, with what each is called.
+const FITS: [(PictureFit, &str); 2] = [(PictureFit::Fill, "Fill"), (PictureFit::Fit, "Fit")];
+
+/// How big the picture's preview is beside its button.
+const THUMB: (i32, i32) = (160, 100);
+
+/// What's behind your windows: the living wallpaper or your own picture, the picture with the
+/// button that chooses it, and how it's fitted to the screen.
+fn behind(page: &gtk::Box, store: &Store) {
+    let card = group(page, "Behind your windows");
+    let wallpaper = store.get().wallpaper;
+    let living = gtk::CheckButton::new();
+    let own = gtk::CheckButton::new();
+    own.set_group(Some(&living));
+    living.set_active(!wallpaper.shows_picture());
+    own.set_active(wallpaper.shows_picture());
+    row(
+        &card,
+        "Living wallpaper",
+        Some("Moving pictures that take turns, chosen below."),
+        &living,
+    );
+    row(
+        &card,
+        "Your own picture",
+        Some("A still picture. When you step away, the living wallpaper still comes in."),
+        &own,
+    );
+
+    let thumb = gtk::Picture::builder()
+        .content_fit(content_fit(wallpaper.picture_fit))
+        .can_shrink(true)
+        .width_request(THUMB.0)
+        .height_request(THUMB.1)
+        .css_classes(["preview"])
+        .alternative_text("Your picture")
+        .build();
+    thumb.set_overflow(gtk::Overflow::Hidden);
+    show_thumb(&thumb);
+    let choose = gtk::Button::with_label("Choose picture…");
+    choose.set_valign(gtk::Align::Center);
+    let control = gtk::Box::builder().spacing(12).build();
+    control.append(&thumb);
+    control.append(&choose);
+    let said = row(&card, "Picture", Some(&named(&wallpaper.picture)), &control)
+        .expect("the row has a line of explanation");
+
+    let names: Vec<&str> = FITS.iter().map(|(_, name)| *name).collect();
+    let fit = gtk::DropDown::from_strings(&names);
+    fit.set_selected(
+        FITS.iter()
+            .position(|(fit, _)| *fit == wallpaper.picture_fit)
+            .unwrap_or(0) as u32,
+    );
+    {
+        let (store, thumb) = (store.clone(), thumb.clone());
+        fit.connect_selected_notify(move |fit| {
+            if let Some(&(chosen, _)) = FITS.get(fit.selected() as usize) {
+                thumb.set_content_fit(content_fit(chosen));
+                store.change(|settings| settings.wallpaper.picture_fit = chosen);
+            }
+        });
+    }
+    row(
+        &card,
+        "Fit",
+        Some(
+            "Fill covers the whole screen and trims what doesn't fit. Fit shows all of the \
+             picture, with dark bars where it doesn't reach.",
+        ),
+        &fit,
+    );
+
+    // Ticks set from here aren't taken for a choice of the user's own.
+    let settling = Rc::new(Cell::new(false));
+    let back_to_living = {
+        let (living, settling) = (living.clone(), Rc::clone(&settling));
+        move || {
+            settling.set(true);
+            living.set_active(true);
+            settling.set(false);
+        }
+    };
+    // Choosing a picture shows it straight away. Turning away from the dialog, or a file that
+    // can't be opened, leaves everything as it was.
+    let pick = {
+        let (store, own, settling) = (store.clone(), own.clone(), Rc::clone(&settling));
+        let (thumb, choose) = (thumb.clone(), choose.clone());
+        Rc::new(move || {
+            let window = choose.root().and_downcast::<gtk::Window>();
+            let (store, own, said, thumb) =
+                (store.clone(), own.clone(), said.clone(), thumb.clone());
+            let (settling, back_to_living) = (Rc::clone(&settling), back_to_living.clone());
+            gtk::glib::spawn_future_local(async move {
+                let undo = || {
+                    if !store.get().wallpaper.shows_picture() {
+                        back_to_living();
+                    }
+                };
+                let images = gtk::FileFilter::new();
+                images.set_name(Some("Pictures"));
+                images.add_mime_type("image/*");
+                let dialog = gtk::FileDialog::builder()
+                    .title("Choose a picture")
+                    .modal(true)
+                    .default_filter(&images)
+                    .build();
+                let Some(path) = dialog
+                    .open_future(window.as_ref())
+                    .await
+                    .ok()
+                    .and_then(|file| file.path())
+                else {
+                    undo();
+                    return;
+                };
+                said.set_label("Opening…");
+                let source = path.clone();
+                let prepared = gtk::gio::spawn_blocking(move || {
+                    picture_file::prepare(&source, &slipstream_config::picture_path())
+                })
+                .await
+                .unwrap_or_else(|_| Err("it couldn't be read".into()));
+                let chosen = path.to_string_lossy().into_owned();
+                match prepared {
+                    Ok(_) => {
+                        store.change(|settings| {
+                            settings.wallpaper.show = Backdrop::Picture;
+                            settings.wallpaper.picture = chosen.clone();
+                        });
+                        settling.set(true);
+                        own.set_active(true);
+                        settling.set(false);
+                        said.set_label(&named(&chosen));
+                        show_thumb(&thumb);
+                    }
+                    Err(_) => {
+                        said.set_label(&format!(
+                            "{} couldn't be opened as a picture, so nothing has changed.",
+                            file_name(&chosen)
+                        ));
+                        undo();
+                    }
+                }
+            });
+        })
+    };
+    {
+        let pick = Rc::clone(&pick);
+        choose.connect_clicked(move |_| pick());
+    }
+    living.connect_toggled({
+        let (store, settling) = (store.clone(), Rc::clone(&settling));
+        move |living| {
+            if living.is_active() && !settling.get() {
+                store.change(|settings| settings.wallpaper.show = Backdrop::Living);
+            }
+        }
+    });
+    // With no picture prepared yet, picking your own picture goes straight to choosing one.
+    let store = store.clone();
+    own.connect_toggled(move |own| {
+        if !own.is_active() || settling.get() {
+            return;
+        }
+        if slipstream_config::picture_path().is_file() {
+            store.change(|settings| settings.wallpaper.show = Backdrop::Picture);
+        } else {
+            pick();
+        }
+    });
+}
+
+/// How the preview fits the picture, the way the desktop will.
+fn content_fit(fit: PictureFit) -> gtk::ContentFit {
+    match fit {
+        PictureFit::Fill => gtk::ContentFit::Cover,
+        PictureFit::Fit => gtk::ContentFit::Contain,
+    }
+}
+
+/// Shows the prepared picture in `thumb`, read off the main thread since it can be large. With
+/// none prepared the preview stays dark.
+fn show_thumb(thumb: &gtk::Picture) {
+    let path = slipstream_config::picture_path();
+    if !path.is_file() {
+        thumb.set_paintable(None::<&gtk::gdk::Paintable>);
+        return;
+    }
+    let thumb = thumb.downgrade();
+    gtk::glib::spawn_future_local(async move {
+        let texture =
+            gtk::gio::spawn_blocking(move || gtk::gdk::Texture::from_filename(&path).ok())
+                .await
+                .ok()
+                .flatten();
+        if let (Some(thumb), Some(texture)) = (thumb.upgrade(), texture) {
+            thumb.set_paintable(Some(&texture));
+        }
+    });
+}
+
+/// The last part of a chosen file's path, which is what it's called.
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path).file_name().map_or_else(
+        || path.to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// What the picture row says about the picture chosen.
+fn named(picture: &str) -> String {
+    if picture.is_empty() {
+        "None chosen yet. Most kinds of picture file will do.".to_string()
+    } else {
+        file_name(picture)
+    }
 }
 
 /// A variation as a row of the list: its tick, then its name and what it does.

@@ -2085,7 +2085,9 @@ fn unlock_elements(
 
 /// The living wallpaper, behind everything: dim while the UI is up, full once it fades. It holds
 /// still under a window that fills the screen. Where the UI's pages have turned behind the glass,
-/// the same wallpaper lies over them.
+/// the same wallpaper lies over them. A picture of your own takes its place while the UI is up and
+/// fades with the UI, so stepping away still sinks into the living wallpaper; while the picture
+/// covers it, the living wallpaper isn't drawn at all.
 fn wallpaper_elements(
     state: &mut Slipstream,
     renderer: &mut GlesRenderer,
@@ -2108,11 +2110,18 @@ fn wallpaper_elements(
             .element(renderer, &v.name, size, scale, v.now, ui)
             .map(OutputElement::Memory),
     );
-    elements.extend(
-        saver
-            .element(renderer, v.frame(v.now), glow, paused, tween)
-            .map(OutputElement::Texture),
-    );
+    let picture = state.picture.elements(renderer, &v.name, size, scale, ui);
+    let covered = picture.is_some() && ui >= 1.0;
+    elements.extend(picture.into_iter().flatten());
+    if covered {
+        saver.hold(v.now);
+    } else {
+        elements.extend(
+            saver
+                .element(renderer, v.frame(v.now), glow, paused, tween)
+                .map(OutputElement::Texture),
+        );
+    }
     let Some(at) = fallen.windows else {
         return;
     };
