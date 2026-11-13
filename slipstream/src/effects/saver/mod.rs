@@ -268,6 +268,8 @@ pub struct Saver {
     picture: Option<(TextureRenderBuffer<GlesTexture>, ContextId<GlesTexture>)>,
     /// A band of pixels the cells are painted into on their way to the picture.
     strip: Vec<u8>,
+    /// Painted runs waiting to go up to the picture together.
+    batch: Batch,
     /// The picture's size in screen pixels.
     device: (usize, usize),
     layout: Option<Layout>,
@@ -341,6 +343,7 @@ impl Saver {
         Self {
             picture: None,
             strip: Vec::new(),
+            batch: Batch::default(),
             device: (0, 0),
             layout: None,
             from: Vec::new(),
@@ -543,6 +546,7 @@ impl Saver {
             let picture =
                 TextureRenderBuffer::from_texture(renderer, texture, 1, Transform::Normal, None);
             self.picture = Some((picture, context));
+            self.batch.unpack = pixel_buffers(renderer);
             self.device = device;
             self.shown.clear();
             self.from.clear();
@@ -590,14 +594,20 @@ impl Saver {
         if self.shown.is_empty() || self.painted != Some(key) {
             let started = thread_cpu();
             if let Some((mut picture, made_in)) = self.picture.take() {
+                let mut batch = std::mem::take(&mut self.batch);
                 let _ = picture.render().draw(|texture| {
                     let mut damage = Vec::new();
                     self.paint(along, &mut |pixels, rect| {
-                        upload(renderer, texture, pixels, rect);
+                        if batch.pixels.len() + pixels.len() > BATCH_BYTES {
+                            upload(renderer, texture, &mut batch);
+                        }
+                        batch.add(pixels, rect);
                         damage.push(rect);
                     });
+                    upload(renderer, texture, &mut batch);
                     Ok::<_, ()>(damage)
                 });
+                self.batch = batch;
                 self.picture = Some((picture, made_in));
             }
             self.cost.paint += thread_cpu().saturating_sub(started);
@@ -802,40 +812,110 @@ fn background(strip: &mut Vec<u8>, len: usize) -> &mut [u8] {
     pixels
 }
 
-/// Writes `pixels`, rows of `rect`'s width packed together, into `rect` of `texture`.
+/// How many bytes of painted runs wait before going up, so a whole-screen paint goes up a few
+/// bands at a time rather than being held in full.
+const BATCH_BYTES: usize = 512 * 1024;
+
+/// Painted runs on their way to the picture: their pixels, packed one after another, and the box
+/// each goes in with where its pixels start. Sent together they cost the driver one copy, where
+/// each run sent from memory on its own makes it wait for the graphics card.
+#[derive(Default)]
+struct Batch {
+    pixels: Vec<u8>,
+    runs: Vec<(Rectangle<i32, Buffer>, usize)>,
+    /// Whether the context has pixel buffers to send them through (OpenGL ES 3 and later).
+    unpack: bool,
+}
+
+impl Batch {
+    /// Adds `pixels`, rows of `rect`'s width packed together, to go into `rect`.
+    fn add(&mut self, pixels: &[u8], rect: Rectangle<i32, Buffer>) {
+        let len = (rect.size.w.max(0) * rect.size.h.max(0) * 4) as usize;
+        if len == 0 || pixels.len() < len {
+            return;
+        }
+        self.runs.push((rect, self.pixels.len()));
+        self.pixels.extend_from_slice(&pixels[..len]);
+    }
+}
+
+/// Whether `renderer`'s context is OpenGL ES 3 or later, which has pixel buffers.
+fn pixel_buffers(renderer: &mut GlesRenderer) -> bool {
+    renderer
+        .with_context(|gl| {
+            // SAFETY: `GetString` on the current context returns null or a string the driver
+            // keeps for the context's lifetime.
+            let version = unsafe { gl.GetString(ffi::VERSION) };
+            if version.is_null() {
+                return false;
+            }
+            // SAFETY: checked not null above; the driver's string ends in a nul.
+            let version = unsafe { std::ffi::CStr::from_ptr(version.cast()) };
+            version
+                .to_bytes()
+                .strip_prefix(b"OpenGL ES ")
+                .and_then(|rest| rest.first())
+                .is_some_and(|major| (b'3'..=b'9').contains(major))
+        })
+        .unwrap_or(false)
+}
+
+/// Writes every run in `batch` into its box of `texture`, and empties the batch.
 /// `ImportMem::update_memory` reads its data as a copy of the whole texture, which is what this
 /// avoids keeping.
-fn upload(
-    renderer: &mut GlesRenderer,
-    texture: &GlesTexture,
-    pixels: &[u8],
-    rect: Rectangle<i32, Buffer>,
-) {
-    let (x, y, w, h) = (rect.loc.x, rect.loc.y, rect.size.w, rect.size.h);
-    if w <= 0 || h <= 0 || pixels.len() < (w * h * 4) as usize {
+fn upload(renderer: &mut GlesRenderer, texture: &GlesTexture, batch: &mut Batch) {
+    if batch.runs.is_empty() {
         return;
     }
     let id = texture.tex_id();
-    let done = renderer.with_context(|gl| {
+    let unpack = batch.unpack;
+    let sent = renderer.with_context(|gl| {
         // SAFETY: plain GL calls on the renderer's own current context, writing a texture it made
-        // from a slice checked above to hold every pixel read, and putting the binding back.
+        // from pixels `Batch::add` checked to hold every run in full, read from memory or from a
+        // pixel buffer filled with them, and putting the bindings back.
         unsafe {
+            let mut buffer = 0;
+            if unpack {
+                gl.GenBuffers(1, &mut buffer);
+                gl.BindBuffer(ffi::PIXEL_UNPACK_BUFFER, buffer);
+                gl.BufferData(
+                    ffi::PIXEL_UNPACK_BUFFER,
+                    batch.pixels.len() as isize,
+                    batch.pixels.as_ptr().cast(),
+                    ffi::STREAM_DRAW,
+                );
+            }
             gl.BindTexture(ffi::TEXTURE_2D, id);
-            gl.TexSubImage2D(
-                ffi::TEXTURE_2D,
-                0,
-                x,
-                y,
-                w,
-                h,
-                ffi::RGBA,
-                ffi::UNSIGNED_BYTE,
-                pixels.as_ptr().cast(),
-            );
+            for &(rect, start) in &batch.runs {
+                // With a pixel buffer bound, the pointer is an offset into it.
+                let pixels: *const std::ffi::c_void = if unpack {
+                    std::ptr::without_provenance(start)
+                } else {
+                    batch.pixels[start..].as_ptr().cast()
+                };
+                gl.TexSubImage2D(
+                    ffi::TEXTURE_2D,
+                    0,
+                    rect.loc.x,
+                    rect.loc.y,
+                    rect.size.w,
+                    rect.size.h,
+                    ffi::RGBA,
+                    ffi::UNSIGNED_BYTE,
+                    pixels,
+                );
+            }
             gl.BindTexture(ffi::TEXTURE_2D, 0);
+            if unpack {
+                gl.BindBuffer(ffi::PIXEL_UNPACK_BUFFER, 0);
+                // Freed once the copies from it are finished.
+                gl.DeleteBuffers(1, &buffer);
+            }
         }
     });
-    if let Err(err) = done {
+    batch.pixels.clear();
+    batch.runs.clear();
+    if let Err(err) = sent {
         tracing::warn!("couldn't upload the wallpaper: {err}");
     }
 }
