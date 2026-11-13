@@ -71,6 +71,16 @@ const SCAN_DARK: f32 = 1.0 - fx::SCANLINE;
 /// so they never show past its rounded corners.
 const CORNER: f64 = 18.0 * crate::panel::DESIGN_PX as f64;
 
+/// The card at `card` drawn in from every side just far enough that its rounded corners are
+/// outside it, so nothing in it lies off the card.
+fn clear_of_corners(card: Rectangle<f64, Logical>) -> Rectangle<f64, Logical> {
+    let inset = CORNER * (1.0 - std::f64::consts::FRAC_1_SQRT_2);
+    Rectangle::new(
+        card.loc + Point::from((inset, inset)),
+        (card.size.w - 2.0 * inset, card.size.h - 2.0 * inset).into(),
+    )
+}
+
 /// The lit edge: a line `LINE` logical pixels thick, `INSET` in from the card's sides, with a
 /// glow reaching `GLOW` above and below it, its colour taken `CORE_LIGHT` of the way to white.
 const LINE: f64 = 2.0;
@@ -474,13 +484,24 @@ impl Drawer {
                     .map(FlowElement::Line),
             );
         }
-        // The pieces, each growing in or shrinking away.
+        // The pieces, each growing in or shrinking away. Over the bare card, each is cut to the
+        // card clear of its rounded corners: a piece is a crop of the panel's picture, and past
+        // the card that is its shadow, which would lie over the bare card's own a second time.
         let riders = self.plan.grow(reveal, rects, main.at, serial);
+        let clear = main
+            .painted
+            .pieces
+            .glass
+            .map(|_| clear_of_corners(whole[0]));
         for (n, rect) in rects.iter().enumerate() {
             let grown = self.plan.grown()[n];
-            if grown > 0.0 {
+            let rect = match clear {
+                Some(clear) => rect.intersection(clear),
+                None => Some(*rect),
+            };
+            if let Some(rect) = rect.filter(|_| grown > 0.0) {
                 let piece = Piece {
-                    rect: *rect,
+                    rect,
                     grown,
                     at: main.at,
                     lift,
@@ -761,6 +782,21 @@ mod tests {
         assert!((rects[0].loc.x - 9.6).abs() < 1e-9);
         assert!((rects[0].size.w - 20.8).abs() < 1e-9);
         assert!((rects[0].size.h - 8.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pieces_over_the_bare_card_never_carry_its_shadow() {
+        let card = Rectangle::<f64, Logical>::new((50.0, 40.0).into(), (400.0, 300.0).into());
+        let clear = clear_of_corners(card);
+        // A row as wide as the card, with room for a ring past it, as a search row has.
+        let row = Rectangle::<f64, Logical>::new((45.0, 35.0).into(), (410.0, 60.0).into());
+        let cut = row.intersection(clear).unwrap();
+        assert!(card.contains_rect(cut));
+        // Its top corners are inside the card's rounded corners, not in the shadow beside them.
+        let arc = card.loc + Point::from((CORNER, CORNER));
+        let corner = cut.loc;
+        let off = ((corner.x - arc.x).powi(2) + (corner.y - arc.y).powi(2)).sqrt();
+        assert!(off <= CORNER + 1e-9, "{off}");
     }
 
     #[test]
