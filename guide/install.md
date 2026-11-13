@@ -9,11 +9,41 @@ Slipstream installs **alongside** the desktop you use now. Nothing about your cu
 - Linux with **logind** (systemd-logind or elogind) or **seatd**, and a GPU whose driver supports GBM and EGL. Mesa (Intel, AMD) is what it's tested on.
 - A display manager that lists Wayland sessions: Plasma Login, SDDM, GDM, LightDM, greetd or ly. Without one, start it from a text console with `slipstream --session`. If your system logs in automatically, the installer says how to reach the session list.
 - [The libraries listed below](#the-libraries-it-needs), at those versions or newer. Debian 13, Ubuntu 26.04 and Fedora 43 have them all. The download carries its own copy of anything that changes too often to rely on, so one build runs on every current distribution.
-- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark apps, file dialogs, app shortcuts, apps keeping the screen awake), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon, bubblewrap 0.8+ (plugins). The installer offers to install whichever are missing.
+- Recommended, each for one feature: Xwayland, xdg-desktop-portal 1.17+ (dark apps, file dialogs, app shortcuts, apps keeping the screen awake), xdg-desktop-portal-wlr 0.8+ (screen sharing), WirePlumber and PipeWire tools (volume), NetworkManager (Wi-Fi), BlueZ (Bluetooth), power-profiles-daemon, bubblewrap 0.8+ (plugins). The packages recommend them (Arch lists them as optional), and the one command offers to install whichever are missing.
 
 ## Installing
 
-One command. It downloads the newest release, checks its published checksum and signature, and runs the installer, which says what it will do before writing anything:
+### From your package manager
+
+On these distributions, Slipstream comes as a package called `slipstream-desktop`, from repositories we look after ourselves. Your package manager installs it and keeps it up to date with everything else:
+
+| Distribution | How |
+|---|---|
+| Arch | From the AUR: `git clone https://aur.archlinux.org/slipstream-desktop.git`, then `makepkg -si` in that folder |
+| Debian 13 | [Add our repository](#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
+| Fedora 43 and 44 | `sudo dnf copr enable peterwalker78/slipstream-desktop`, then `sudo dnf install slipstream-desktop` |
+| openSUSE Tumbleweed | `sudo zypper addrepo https://download.opensuse.org/repositories/home:peterwalker78/openSUSE_Tumbleweed/home:peterwalker78.repo`, then `sudo zypper install slipstream-desktop` |
+| Ubuntu 26.04 | [Add our repository](#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
+
+Then log out and choose **Slipstream** on the login screen.
+
+The package is Slipstream alone. Glimmerwood, a browser, and Westering, a few quiet minutes under the night sky, go well with it; get them from [Glimmerwood's page](https://github.com/peterwalker78/glimmerwood) and [Westering's](https://github.com/peterwalker78/westering) if you'd like them.
+
+#### Debian 13 and Ubuntu 26.04
+
+Our repository is on the openSUSE Build Service, which builds the package for both. On Debian 13:
+
+```sh
+curl -fsSL https://download.opensuse.org/repositories/home:/peterwalker78/Debian_13/Release.key | sudo tee /etc/apt/keyrings/slipstream.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/slipstream.asc] https://download.opensuse.org/repositories/home:/peterwalker78/Debian_13/ /" | sudo tee /etc/apt/sources.list.d/slipstream.list
+sudo apt update && sudo apt install slipstream-desktop
+```
+
+On Ubuntu 26.04, the same three lines with `xUbuntu_26.04` in place of `Debian_13`.
+
+### Everywhere else
+
+On any other distribution, and on atomic ones such as Bazzite, Silverblue and Kinoite, whose `/usr` a package can't change without rebuilding the system image, it's one command. It downloads the newest release, checks its published checksum and signature, and runs the installer, which says what it will do before writing anything:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
@@ -47,13 +77,15 @@ Every download is built by GitHub from a tagged commit, and comes with a signed 
 | | |
 |---|---|
 | **Used daily** | Bazzite (Fedora Atomic), on real hardware. Where the rough edges are found. |
-| **Checked on every release** | Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed: each one installs the download in a container and starts it. Repeated weekly against Debian testing, Ubuntu rolling, Fedora Rawhide, Arch and Tumbleweed, so a change in a distribution shows up here first. |
+| **Checked on every release** | Debian 13, Ubuntu 26.04, Fedora 43 and 44, Arch and openSUSE Tumbleweed: each one installs the download, and builds and installs the package, in a container and starts it. Repeated weekly against Debian testing, Ubuntu rolling, Fedora Rawhide, Arch and Tumbleweed, so a change in a distribution shows up here first. |
 | **Should work** | Any distribution with [the libraries it needs](#the-libraries-it-needs), and logind or seatd: Linux Mint 23, Pop!_OS 26.04, Manjaro, EndeavourOS, CachyOS, Nobara, Omarchy, Aurora, Bluefin, Silverblue, Kinoite. Please report it if it doesn't. |
 | **Not yet** | Ubuntu 24.04 and what's built on it (Linux Mint 22, Pop!_OS 24.04, Zorin 18): the Settings app needs Pango 1.56, and they have 1.52. Debian 12 and the RHEL family, which are older still. Alpine and other musl systems, NixOS and Guix, which all need a build of their own. Systems with neither logind nor seatd. ARM machines. |
 
 Screen sharing needs xdg-desktop-portal-wlr 0.8 or newer, which is where the capture protocols Slipstream speaks arrived. Debian 13 and Ubuntu 25.10 package 0.7, so sharing doesn't work there yet; everything else does, and the installer says so plainly.
 
 ## What the installer does
+
+This is the one command's installer. A package puts the same files under `/usr` instead, and your package manager updates and removes it.
 
 - **The programs go in `/usr/local/bin`**, so everyone with an account on the machine can use Slipstream, along with the Settings app's entry, the session's systemd units and the portal settings.
 - **A copy in your own `~/.local/bin` comes first**, so a build of your own runs for you and the installed release for everyone else.
@@ -94,7 +126,7 @@ scripts/update-session     # builds in the box (or with the cargo on your system
 scripts/install-session    # once
 ```
 
-Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than glibc 2.39 and links nothing unusual. For a distribution package, a plain `cargo build --release --locked` against the system's own libraries is the right thing; nothing is vendored.
+Packaging it, or curious how the downloads are built? `scripts/build-portable` is what CI runs: it builds libdisplay-info and links it in, and `scripts/check-portable` then proves the result asks for nothing newer than glibc 2.39 and links nothing unusual. A distribution package needs none of that: a plain `cargo build --release --locked` against the system's own libraries is the right thing. [`packaging/`](../packaging) has the RPM spec, the Debian packaging and the PKGBUILD our own packages are built from, and every release carries `slipstream-desktop-VERSION.tar.xz`, the source with every crate it needs, for build services that work offline. It needs Rust 1.92 or newer; on Debian 13 that's the `rustc-web` package.
 
 ### The libraries it needs
 
@@ -119,13 +151,17 @@ libdisplay-info is linked in, because its soname changes with every release. Wit
 
 ## Updating
 
-Run the install command again: it fetches the newest release and installs it over the old one, which is safe to do at any time. From a clone, `scripts/update-session` builds and installs your own copy instead. Either way, the new version starts at your next login.
+A package updates with the rest of your system.
+
+Otherwise, run the install command again: it fetches the newest release and installs it over the old one, which is safe to do at any time. From a clone, `scripts/update-session` builds and installs your own copy instead. Either way, the new version starts at your next login.
 
 Slipstream never checks for updates by itself, and nothing here contacts the internet unless you ask it to.
 
 ## Uninstalling
 
-From another desktop, the same one command with `--uninstall`:
+A package comes off like any other: `sudo apt remove slipstream-desktop`, `sudo dnf remove slipstream-desktop`, `sudo pacman -R slipstream-desktop` or `sudo zypper remove slipstream-desktop`.
+
+Otherwise, from another desktop, the same one command with `--uninstall`:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)" -- --uninstall

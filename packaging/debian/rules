@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+# Built from the source tarball each release carries, which holds every crate it needs, so it
+# builds offline. packaging/install-files puts the files in place, as it does for the RPM and
+# the PKGBUILD.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+# The build follows the workspace's release profile and .cargo/config.toml, as the download does;
+# the RUSTFLAGS dpkg-buildflags sets would replace both.
+override_dh_auto_build:
+	cargo --version
+	env -u RUSTFLAGS cargo build --release --locked --offline -p slipstream -p slipstream-settings -p slipstream-focus
+
+override_dh_auto_test:
+
+override_dh_auto_install:
+	sh packaging/install-files $(CURDIR)/debian/slipstream-desktop debian
+
+# Release builds are stripped already.
+override_dh_dwz:
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home
+
+# Each crate in vendor/ keeps its Cargo.toml.orig, and cargo checks it is there.
+override_dh_clean:
+	dh_clean -XCargo.toml.orig

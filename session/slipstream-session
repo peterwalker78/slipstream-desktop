@@ -103,13 +103,14 @@ fi
 unset DISPLAY WAYLAND_DISPLAY
 
 # A copy in your own home wins, so a build of your own runs instead of the installed release for
-# you alone; everyone else on the machine gets the one in /usr/local.
+# you alone; everyone else on the machine gets the one installed beside this launcher, which is
+# /usr/local/bin for a download and /usr/bin for a distribution's package.
 bin="$HOME/.local/bin/slipstream"
 if [ ! -x "$bin" ]; then
-    bin=/usr/local/bin/slipstream
+    bin=$(dirname "$0")/slipstream
 fi
 if [ ! -x "$bin" ]; then
-    echo "slipstream-session: no slipstream program in ~/.local/bin or /usr/local/bin." >"$log"
+    echo "slipstream-session: no slipstream program in ~/.local/bin or $(dirname "$0")." >"$log"
     echo "Install it with scripts/install-session, or build one with scripts/update-session." >>"$log"
     exit 1
 fi

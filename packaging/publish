@@ -1,0 +1,73 @@
+#!/bin/sh
+# Hands a release to the services that build Slipstream's packages: COPR for Fedora, the openSUSE
+# Build Service for openSUSE, Debian and Ubuntu, and the AUR for Arch. Run it once the release
+# workflow has attached the source tarball.
+#
+#   packaging/publish vX.Y.Z [copr] [obs] [aur]    all three when none is named
+#
+# Needs curl, and for each service: copr-cli and rpmbuild with a COPR token in ~/.config/copr;
+# osc, signed in; git with an SSH key the AUR knows. SLIPSTREAM_COPR_PROJECT (slipstream-desktop)
+# and SLIPSTREAM_OBS_PROJECT (home:peterwalker78) say where the packages go.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd -P)
+tag=${1:?usage: packaging/publish vX.Y.Z [copr] [obs] [aur]}
+shift
+services=${*:-copr obs aur}
+version=${tag#v}
+copr_project=${SLIPSTREAM_COPR_PROJECT:-slipstream-desktop}
+obs_project=${SLIPSTREAM_OBS_PROJECT:-home:peterwalker78}
+work=${XDG_CACHE_HOME:-$HOME/.cache}/slipstream-publish/$version
+file=slipstream-desktop-$version.tar.xz
+url=https://github.com/peterwalker78/slipstream-desktop/releases/download/$tag
+
+need() {
+    for tool in "$@"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "publish: $tool isn't installed." >&2
+            exit 1
+        fi
+    done
+}
+
+need curl sha256sum
+mkdir -p "$work"
+if ! [ -r "$work/$file" ]; then
+    curl -fL --proto '=https' -o "$work/$file.part" "$url/$file"
+    curl -fsSL --proto '=https' -o "$work/$file.sha256" "$url/$file.sha256"
+    (cd "$work" && mv "$file.part" "$file" && sha256sum -c "$file.sha256")
+fi
+sh "$here/prepare" "$work/$file" "$work"
+
+for service in $services; do
+    case $service in
+        copr)
+            need copr-cli rpmbuild
+            rpmbuild -bs --define "_sourcedir $work/rpm" --define "_srcrpmdir $work" \
+                "$work/rpm/slipstream-desktop.spec"
+            copr-cli build "$copr_project" "$work"/slipstream-desktop-*.src.rpm
+            ;;
+        obs)
+            need osc
+            rm -rf "$work/osc"
+            (cd "$work" && mkdir osc && cd osc && osc checkout "$obs_project" slipstream-desktop)
+            checkout=$work/osc/$obs_project/slipstream-desktop
+            find "$checkout" -maxdepth 1 -type f ! -name '.*' -delete
+            cp "$work"/obs/* "$checkout/"
+            (cd "$checkout" && osc addremove && osc commit -m "Slipstream $version")
+            ;;
+        aur)
+            need git
+            [ -r "$work/aur/.SRCINFO" ] || { echo "publish: no .SRCINFO (prepare needs makepkg or podman)" >&2; exit 1; }
+            rm -rf "$work/aur-git"
+            git clone ssh://aur@aur.archlinux.org/slipstream-desktop.git "$work/aur-git"
+            cp "$work/aur/PKGBUILD" "$work/aur/slipstream-desktop.install" "$work/aur/.SRCINFO" \
+                "$work/aur-git/"
+            (cd "$work/aur-git" && git add PKGBUILD slipstream-desktop.install .SRCINFO \
+                && git commit -m "Slipstream $version" && git push origin HEAD:master)
+            ;;
+        *)
+            echo "publish: $service isn't copr, obs or aur" >&2
+            exit 2
+            ;;
+    esac
+done

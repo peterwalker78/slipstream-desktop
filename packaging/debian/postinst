@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ] && [ -z "${2:-}" ]; then
+    echo "Slipstream is on your login screen's list of sessions now."
+    echo "Glimmerwood, a browser, and Westering, a few quiet minutes under the night sky, go well"
+    echo "with it. They aren't part of this package: github.com/peterwalker78/glimmerwood and"
+    echo "github.com/peterwalker78/westering"
+fi
+
+#DEBHELPER#

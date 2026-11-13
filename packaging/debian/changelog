@@ -1,0 +1,5 @@
+slipstream-desktop (@DEB_VERSION@-1) unstable; urgency=medium
+
+  * Slipstream @VERSION@
+
+ -- Slipstream <4011711+peterwalker78@users.noreply.github.com>  @DEB_DATE@

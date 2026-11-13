@@ -1,0 +1,43 @@
+Source: slipstream-desktop
+Section: x11
+Priority: optional
+Maintainer: Slipstream <4011711+peterwalker78@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo-web | cargo (>= 1.92~),
+               rustc-web | rustc (>= 1.92~),
+               clang,
+               mold,
+               pkgconf,
+               libdisplay-info-dev,
+               libdrm-dev,
+               libegl-dev,
+               libgbm-dev,
+               libgtk-4-dev,
+               libinput-dev,
+               libpixman-1-dev,
+               libseat-dev,
+               libsystemd-dev,
+               libudev-dev,
+               libwayland-dev,
+               libxkbcommon-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/peterwalker78/slipstream-desktop
+Rules-Requires-Root: no
+
+Package: slipstream-desktop
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, libegl1, libpam0g
+Recommends: xwayland,
+            xdg-desktop-portal,
+            xdg-desktop-portal-wlr,
+            wireplumber,
+            pulseaudio-utils,
+            pipewire-bin,
+            network-manager,
+            bluez,
+            power-profiles-daemon,
+            bubblewrap
+Description: Keyboard-first Wayland desktop session
+ Slipstream is a keyboard-first Wayland desktop session, with tiling,
+ workspaces and a settings app of its own. It installs alongside the desktop
+ you use now: pick Slipstream from the list on the login screen.

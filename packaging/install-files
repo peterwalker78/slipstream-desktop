@@ -1,0 +1,95 @@
+#!/bin/sh
+# Installs Slipstream's built programs and session files under /usr in DESTDIR, for a
+# distribution package. The RPM spec, debian/rules and the PKGBUILD all run this after
+# `cargo build --release`, so the three packages hold the same files.
+#
+#   sh packaging/install-files DESTDIR PAM_STYLE
+#
+# PAM_STYLE says which of the system's password stacks the lock screen's PAM service includes:
+# fedora (password-auth), suse (common-auth, in /usr/lib/pam.d), debian (common-auth) or arch
+# (system-auth). scripts/install-session picks the same one on each of them.
+set -eu
+umask 022
+src=$(cd "$(dirname "$0")/.." && pwd -P)
+dest=${1:?usage: install-files DESTDIR PAM_STYLE}
+pam_style=${2:?usage: install-files DESTDIR PAM_STYLE}
+built=${CARGO_TARGET_DIR:-$src/target}/release
+
+put() {
+    install -Dm"$1" "$2" "$dest$3"
+}
+
+put 755 "$built/slipstream" /usr/bin/slipstream
+put 755 "$built/slipstream-settings" /usr/bin/slipstream-settings
+put 755 "$src/session/slipstream-session" /usr/bin/slipstream-session
+put 644 "$src/slipstream-settings/io.github.peterwalker78.SlipstreamSettings.desktop" \
+    /usr/share/applications/io.github.peterwalker78.SlipstreamSettings.desktop
+
+# Every display manager reads /usr/share/wayland-sessions.
+mkdir -p "$dest/usr/share/wayland-sessions"
+sed 's|/usr/local/bin/|/usr/bin/|g' "$src/session/slipstream.desktop" \
+    >"$dest/usr/share/wayland-sessions/slipstream.desktop"
+
+for unit in slipstream-session.target slipstream-shutdown.target slipstream-autostart.target; do
+    put 644 "$src/session/$unit" "/usr/lib/systemd/user/$unit"
+done
+
+# Focus, the plugin that comes with Slipstream, where the compositor looks beside /usr/bin.
+put 644 "$src/plugins/focus/plugin.toml" /usr/share/slipstream/bundled/focus/plugin.toml
+put 755 "$built/focus" /usr/share/slipstream/bundled/focus/focus
+
+# The portal backend the compositor answers itself, and which backend answers what. A package
+# can't know which other backends the machine will have, so every other interface goes to
+# whichever is installed.
+put 644 "$src/session/slipstream.portal" /usr/share/xdg-desktop-portal/portals/slipstream.portal
+{
+    cat "$src/session/slipstream-portals.conf"
+    echo
+    echo "# Every other interface goes to the backends installed here."
+    echo "default=*"
+} >"$dest/usr/share/xdg-desktop-portal/slipstream-portals.conf"
+chmod 644 "$dest/usr/share/xdg-desktop-portal/slipstream-portals.conf"
+
+# xdg-desktop-portal-wlr reads its settings from /etc/xdg only.
+mkdir -p "$dest/etc/xdg/xdg-desktop-portal-wlr"
+sed 's|@SLIPSTREAM@|/usr/bin/slipstream|' "$src/session/xdg-desktop-portal-wlr.conf" \
+    >"$dest/etc/xdg/xdg-desktop-portal-wlr/Slipstream"
+
+# The lock screen checks the password through a PAM service of its own.
+pam_dir=/etc/pam.d
+case $pam_style in
+    fedora) auth=password-auth account=password-auth ;;
+    suse) auth=common-auth account=common-account pam_dir=/usr/lib/pam.d ;;
+    debian) auth=common-auth account=common-account ;;
+    arch) auth=system-auth account=system-auth ;;
+    *)
+        echo "install-files: PAM_STYLE is fedora, suse, debian or arch, not $pam_style" >&2
+        exit 2
+        ;;
+esac
+mkdir -p "$dest$pam_dir"
+{
+    echo "# The password check for Slipstream's lock screen."
+    if [ "$pam_style" = debian ]; then
+        echo "@include $auth"
+        echo "@include $account"
+    else
+        echo "auth       include      $auth"
+        echo "account    include      $account"
+    fi
+} >"$dest$pam_dir/slipstream"
+
+# Licences of what is built in: fonts, adapted code, and every Rust crate (written into the
+# source tarball by scripts/package-source).
+if [ "$pam_style" = debian ]; then
+    licences=/usr/share/doc/slipstream-desktop
+else
+    licences=/usr/share/licenses/slipstream-desktop
+fi
+for file in "$src"/LICENSE "$src"/assets/fonts/*-OFL.txt "$src/assets/slipstream-logo.NOTE" \
+    "$src/slipstream/LICENSE-smallvil-MIT.txt" "$src/slipstream/LICENSE-glmatrix.txt" \
+    "$src/licences/rust-crates.txt"; do
+    if [ -f "$file" ]; then
+        put 644 "$file" "$licences/${file##*/}"
+    fi
+done

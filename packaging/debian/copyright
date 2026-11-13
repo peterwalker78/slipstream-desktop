@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Slipstream
+Source: https://github.com/peterwalker78/slipstream-desktop
+
+Files: *
+Copyright: Slipstream's authors
+License: GPL-3.0-or-later
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.
+
+Files: vendor/*
+Copyright: Each crate's authors
+License: various
+ The Rust crates built into the programs, each under the licence its own
+ folder in vendor/ names, mostly MIT or Apache-2.0. Their texts are
+ collected in /usr/share/doc/slipstream-desktop/rust-crates.txt.

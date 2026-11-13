@@ -1,8 +1,9 @@
 name: release
 
 # For a version tag: builds the one download that runs on any current distribution, attaches it to
-# the tag's GitHub release (made from CHANGELOG.md if it isn't there yet), then installs that
-# download in a container of each distribution to check it works there.
+# the tag's GitHub release (made from CHANGELOG.md if it isn't there yet) with the source tarball
+# distribution packages build from, then installs that download in a container of each
+# distribution, and builds and installs the package there, to check both work.
 on:
   push:
     tags: ["v*"]
@@ -39,7 +40,7 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates curl git build-essential clang \
             mold pkg-config meson ninja-build hwdata libxkbcommon-dev libwayland-dev libsystemd-dev \
             libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl-dev libpixman-1-dev \
-            libgtk-4-dev gh tar gzip openssh-client
+            libgtk-4-dev gh tar gzip xz-utils openssh-client
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
 
@@ -63,10 +64,24 @@ jobs:
           scripts/package-release dist
           ls dist/*-linux-*.tar.gz
 
+      # Everything a distribution package builds from, crates included, since build services
+      # build offline.
+      - name: Pack the source for distribution packages
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          scripts/package-source dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: dist/slipstream-desktop-*.tar.xz
+
       - name: Say where it was built, verifiably
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/*.tar.gz
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.tar.xz
 
       # install.sh and install-extras check the download against this signature once the
       # repository carries the public key. Without the secret the release still goes out, unsigned.
@@ -81,7 +96,7 @@ jobs:
           key=$(mktemp)
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$EXTRA_SIGNING_KEY" >"$key"
-          for file in dist/*.tar.gz; do
+          for file in dist/*.tar.gz dist/*.tar.xz; do
             ssh-keygen -q -Y sign -f "$key" -n slipstream-extra "$file"
           done
 
@@ -105,7 +120,7 @@ jobs:
           # GitHub can go on reporting an asset that has just been removed. What matters is that
           # the file ends up on the release, so "it is already there" is success, not failure.
           # The download goes up last, so it is never there without its checksum and signature.
-          for file in dist/*.sig dist/*.sha256 dist/*.tar.gz; do
+          for file in dist/*.sig dist/*.sha256 dist/*.tar.xz dist/*.tar.gz; do
             if ! [ -e "$file" ]; then
               continue
             fi
@@ -143,3 +158,34 @@ jobs:
 
       - name: Install it and check it runs
         run: sh scripts/test-on-distro --release "$TAG"
+
+  # Build the distribution package from the source tarball on each distribution, as COPR, the
+  # openSUSE Build Service and the AUR would, then install it with the system's package manager.
+  packages:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - docker.io/library/debian:13
+          - docker.io/library/ubuntu:26.04
+          - registry.fedoraproject.org/fedora:43
+          - registry.fedoraproject.org/fedora:44
+          - docker.io/library/archlinux:latest
+          - registry.opensuse.org/opensuse/tumbleweed:latest
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+
+      - name: Build the package, install it and check it runs
+        run: sh scripts/test-package-on-distro dist/slipstream-desktop-*.tar.xz

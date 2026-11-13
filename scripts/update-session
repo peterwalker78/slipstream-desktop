@@ -265,7 +265,10 @@ if [ "$extras" = yes ]; then
 else
     echo "Skipped the apps that come with Slipstream (--no-extras)."
 fi
-if [ ! -x "$launcher" ]; then
+if [ ! -x "$launcher" ] && [ -x "${SLIPSTREAM_TEST_ROOT:-}/usr/bin/slipstream-session" ]; then
+    # Installed as a package: its launcher starts the copy in ~/.local/bin for you.
+    echo "Log out and choose Slipstream on the login screen."
+elif [ ! -x "$launcher" ]; then
     echo "Run scripts/install-session once to add Slipstream to the login screen."
 # Nothing to do when the two are the same file, which is the usual case: the launcher changes
 # far less often than the programs do. Without cmp there's no telling, and a password prompt on

@@ -113,7 +113,17 @@ That's the whole idea: a desktop that stays out of your way while you work, lets
 
 ## Get Slipstream
 
-One command. It downloads the newest release, checks its published checksum and signature, and says what it will do before it writes anything:
+On these, install it with your package manager, and it updates with the rest of your system:
+
+| Distribution | How |
+|---|---|
+| Arch | From the AUR: `git clone https://aur.archlinux.org/slipstream-desktop.git`, then `makepkg -si` in that folder |
+| Debian 13 | [Add our repository](guide/install.md#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
+| Fedora 43 and 44 | `sudo dnf copr enable peterwalker78/slipstream-desktop`, then `sudo dnf install slipstream-desktop` |
+| openSUSE Tumbleweed | `sudo zypper addrepo https://download.opensuse.org/repositories/home:peterwalker78/openSUSE_Tumbleweed/home:peterwalker78.repo`, then `sudo zypper install slipstream-desktop` |
+| Ubuntu 26.04 | [Add our repository](guide/install.md#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
+
+Everywhere else, Bazzite, Silverblue and Kinoite included, it's one command. It downloads the newest release, checks its published checksum and signature, and says what it will do before it writes anything:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-desktop/main/install.sh)"
@@ -122,7 +132,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/peterwalker78/slipstream-d
 Then log out and choose **Slipstream** on the login screen. Tap Super for your apps, Super+Enter for a terminal, Super and the arrows to move around, Super+Tab for bullet time, and Super+/ for every key and the tour.
 
 - **Check it.** Read [`install.sh`](install.sh) before you run it, or confirm a download was built here: `gh attestation verify slipstream-*.tar.gz --repo peterwalker78/slipstream-desktop`.
-- **Two companion apps come with it,** Glimmerwood and Westering, as Flatpaks. The installer asks about each one first.
+- **Two companion apps go with it,** Glimmerwood and Westering. The one command offers them as Flatpaks and asks about each one first; the packages leave them to you.
 
 The same command can also try Slipstream first, or take it away again:
 

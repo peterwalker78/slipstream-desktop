@@ -270,6 +270,35 @@ rm "$work/copy with spaces/session/slipstream.desktop"
 SCRIPT="$work/copy with spaces/scripts/install-session" expect_status 1 || true
 [ -z "$(find "$r" -type f)" ] || fail "$case_name: wrote files"
 
+case_name="a session installed as a package is left to the package manager"
+fresh
+mkdir -p "$r/usr/bin"
+printf '#!/bin/sh\n' >"$r/usr/bin/slipstream-session"
+expect_status 1 || true
+grep -q "already installed here as a package" "$work/out" || fail "$case_name: $(cat "$work/out")"
+[ "$(find "$r" -type f | wc -l)" -eq 1 ] || fail "$case_name: wrote files"
+
+# The launcher starts the program installed beside it: /usr/local/bin for a download, /usr/bin
+# for a package. A copy in your own ~/.local/bin comes first.
+launch_from() {
+    rm -rf "$work/launch"
+    mkdir -p "$work/launch$1" "$work/launch/home" "$work/launch/state"
+    cp "$repo/session/slipstream-session" "$work/launch$1/"
+    printf '#!/bin/sh\necho "started %s $*"\n' "$1" >"$work/launch$1/slipstream"
+    chmod 755 "$work/launch$1/slipstream-session" "$work/launch$1/slipstream"
+    env -i PATH="$PATH" HOME="$work/launch/home" XDG_STATE_HOME="$work/launch/state" \
+        XKB_DEFAULT_LAYOUT=us "$shell" "$work/launch$1/slipstream-session" || true
+    cat "$work/launch/state/slipstream/slipstream.log" 2>/dev/null
+}
+for prefix in /usr/bin /usr/local/bin; do
+    case_name="the session launcher starts the program beside it in $prefix"
+    if [ "$(launch_from "$prefix")" = "started $prefix --session" ]; then
+        ok
+    else
+        fail "$case_name: $(launch_from "$prefix")"
+    fi
+done
+
 
 # ---------------------------------------------------------------------------------------------
 # A download carries the programs in bin/, and installs them for everyone on the machine.
