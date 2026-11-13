@@ -999,12 +999,6 @@ pub struct Look {
     pub marker: Option<f32>,
     pub strength: f32,
     pub ring: u32,
-    /// The theme's secondary and tertiary colours, which the glass no longer draws with: its
-    /// rims take the ring's colour alone.
-    #[expect(dead_code, reason = "the bar still passes them")]
-    pub secondary: u32,
-    #[expect(dead_code, reason = "the bar still passes them")]
-    pub tertiary: u32,
     /// Where a docked pane's frame carries the bar on down, in the bar's units.
     pub gap: Option<(f32, f32)>,
     /// The clock's block, its ends in the bar's units.
