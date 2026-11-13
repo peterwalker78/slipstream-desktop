@@ -7,6 +7,8 @@
 //! screen warms up (or cools down) over half an hour, the way the light outside changes, rather
 //! than all at once; turning it by hand eases over a second and lasts until the next change.
 
+use std::time::{Duration, Instant};
+
 /// How much of red, green and blue is left: `1 − 0.24 × (1 − overlay)` for each of the overlay's
 /// channels.
 pub const WARMTH: [f64; 3] = [
@@ -46,7 +48,16 @@ pub struct Night {
     /// The time zone's place, looked up once.
     location: Option<Option<(f64, f64)>>,
     last_tick: Option<f64>,
+    /// The local clock as last read, and when. Reading it reads the time zone again, so it is read
+    /// at most once a second: the schedule moves over minutes, far slower than that.
+    clock: Option<(Instant, LocalClock)>,
 }
+
+/// Minutes after midnight, the date, and how far ahead of UTC the local clock is.
+type LocalClock = (f64, (i64, u32, u32), f64);
+
+/// How long a reading of the local clock is used for.
+const CLOCK_READ: Duration = Duration::from_secs(1);
 
 impl Night {
     /// The schedule changed: it is looked at afresh on the next pass.
@@ -56,7 +67,7 @@ impl Night {
 }
 
 /// What the local clock says: minutes after midnight, the date, and how far ahead of UTC it is.
-fn local_clock() -> (f64, (i64, u32, u32), f64) {
+fn local_clock() -> LocalClock {
     let Some(tm) = slipstream_config::localtime::now() else {
         return (12.0 * 60.0, (1970, 1, 1), 0.0);
     };
@@ -105,7 +116,14 @@ impl crate::Slipstream {
             .last_tick
             .map_or(0.0, |last| (wall - last).clamp(0.0, 0.25));
         self.night.last_tick = Some(wall);
-        let (minute, date, offset) = local_clock();
+        let (minute, date, offset) = match self.night.clock {
+            Some((read, clock)) if read.elapsed() < CLOCK_READ => clock,
+            _ => {
+                let clock = local_clock();
+                self.night.clock = Some((Instant::now(), clock));
+                clock
+            }
+        };
         let location = *self
             .night
             .location
