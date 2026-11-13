@@ -16,7 +16,7 @@ use smithay::{
         },
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
     },
-    utils::{Clock, Monotonic, Rectangle, Transform},
+    utils::{Clock, Monotonic, Transform},
     wayland::presentation::Refresh,
 };
 
@@ -117,8 +117,10 @@ pub fn init_winit(
                     let screenshots = state.take_screenshots();
 
                     let size = backend.window_size();
-                    let damage = Rectangle::from_size(size);
                     let view = state.zoom_view(&output);
+                    // Only what changed since the back buffer was last drawn is drawn again, as
+                    // on a real screen; an unknown age draws everything.
+                    let age = backend.buffer_age().unwrap_or(0);
 
                     let drawn = match backend.bind() {
                         Ok((renderer, mut framebuffer)) => {
@@ -127,25 +129,27 @@ pub fn init_winit(
                                 .render_output(
                                     renderer,
                                     &mut framebuffer,
-                                    0,
+                                    age,
                                     &render::zoomed(&elements, view),
                                     render::BACKGROUND,
                                 )
-                                .map(|result| result.states)
-                                .map(|states| (elements, states))
+                                .map(|result| (result.damage.cloned(), result.states))
+                                .map(|(damage, states)| (elements, damage, states))
                                 .map_err(|err| format!("{err:?}"))
                         }
                         Err(err) => Err(format!("{err:?}")),
                     };
-                    let submitted = drawn.and_then(|drawn| {
-                        backend
-                            .submit(Some(&[damage]))
-                            .map(|()| drawn)
-                            .map_err(|err| format!("{err:?}"))
+                    // Nothing new is nothing to swap: the window keeps the picture it has.
+                    let submitted = drawn.and_then(|(elements, damage, states)| match damage {
+                        Some(damage) => backend
+                            .submit(Some(&damage))
+                            .map(|()| (elements, true, states))
+                            .map_err(|err| format!("{err:?}")),
+                        None => Ok((elements, false, states)),
                     });
                     // A frame that fails is skipped, and the next one tried, rather than taking
                     // the session down with it.
-                    let (elements, states) = match submitted {
+                    let (elements, swapped, states) = match submitted {
                         Ok(drawn) => drawn,
                         Err(err) => {
                             tracing::warn!("couldn't draw the window: {err}");
@@ -153,21 +157,20 @@ pub fn init_winit(
                             return;
                         }
                     };
-                    // Nested, the host's swap is as close to the screen as can be known.
+                    let period = output
+                        .current_mode()
+                        .filter(|mode| mode.refresh > 0)
+                        .map(|mode| Duration::from_secs_f64(1_000.0 / mode.refresh as f64));
                     state.update_scanout_outputs(&output, &states);
-                    state.presentation_feedback(&output, &states).presented(
-                        Clock::<Monotonic>::new().now(),
-                        output
-                            .current_mode()
-                            .map(|mode| {
-                                Refresh::fixed(Duration::from_secs_f64(
-                                    1_000.0 / mode.refresh as f64,
-                                ))
-                            })
-                            .unwrap_or(Refresh::Unknown),
-                        0,
-                        wp_presentation_feedback::Kind::Vsync,
-                    );
+                    // Nested, the host's swap is as close to the screen as can be known.
+                    if swapped {
+                        state.presentation_feedback(&output, &states).presented(
+                            Clock::<Monotonic>::new().now(),
+                            period.map_or(Refresh::Unknown, Refresh::fixed),
+                            0,
+                            wp_presentation_feedback::Kind::Vsync,
+                        );
+                    }
                     if state.lock.is_some() {
                         state.lock_frame_shown(&output.name());
                     }
@@ -196,9 +199,19 @@ pub fn init_winit(
                     // once, a slow frame let several more go by between reads, and windows only
                     // moved on every few frames. A recording also waits a moment for clients to
                     // answer this frame, so every window has drawn its next picture in time.
+                    // With nothing new swapped, there is no swap to pace the next frame, so it
+                    // is asked for a frame later.
                     let next = shared.clone();
                     let ask = move || next.borrow().window().request_redraw();
-                    if state.clock.stepped() {
+                    if !swapped {
+                        let _ = state.loop_handle.insert_source(
+                            Timer::from_duration(period.unwrap_or(Duration::from_millis(16))),
+                            move |_, _, _| {
+                                ask();
+                                TimeoutAction::Drop
+                            },
+                        );
+                    } else if state.clock.stepped() {
                         let _ = state.loop_handle.insert_source(
                             Timer::from_duration(RECORDING_GRACE),
                             move |_, _, _| {
