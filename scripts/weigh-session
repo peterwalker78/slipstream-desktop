@@ -6,8 +6,9 @@
 #
 #   scripts/weigh-session DESKTOP    slipstream, gnome, plasma, xfce, cosmic, niri, sway, hyprland
 #
-# `slipstream-reduced` is Slipstream with reduced motion, whose wallpaper holds still, and
-# `slipstream-wind-tunnel` is Slipstream with its bar in the wind tunnel style.
+# `slipstream-still` is Slipstream showing a still picture behind the windows, as every other
+# desktop here does, `slipstream-reduced` is Slipstream with reduced motion, whose wallpaper
+# holds still, and `slipstream-wind-tunnel` is Slipstream with its bar in the wind tunnel style.
 #
 # Run where QEMU can use KVM, such as a GitHub runner. It prints a line of `desktop megabytes
 # percent`, the percent being of one processor, and leaves a screenshot of the desktop it
@@ -71,6 +72,7 @@ inside() {
     desktop=$1
     base=${desktop%-reduced}
     base=${base%-wind-tunnel}
+    base=${base%-still}
     case $2 in
         install)
             pacman-key --init >/dev/null 2>&1 || true
@@ -90,6 +92,14 @@ inside() {
             if [ "$desktop" = slipstream-reduced ]; then
                 su "$user" -c "mkdir -p ~/.config/slipstream \
                     && printf '[motion]\nreduced = true\n' >~/.config/slipstream/settings.toml"
+            fi
+            # Slipstream with a still picture behind the windows: a one-pixel dark PNG, which is
+            # stretched over each screen, so nothing behind the windows changes.
+            if [ "$desktop" = slipstream-still ]; then
+                su "$user" -c "mkdir -p ~/.config/slipstream ~/.local/share/slipstream \
+                    && printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQkFACAACGAEtozIzzAAAAAElFTkSuQmCC' | base64 -d >~/.local/share/slipstream/wallpaper.png \
+                    && printf '[wallpaper]\nshow = \"picture\"\n' \
+                    >~/.config/slipstream/settings.toml"
             fi
             # Slipstream with its bar in the wind tunnel style, whose air moves all the time.
             if [ "$desktop" = slipstream-wind-tunnel ]; then
@@ -174,6 +184,7 @@ fi
 desktop=${1:?say which desktop: slipstream, gnome, plasma, xfce, cosmic, niri, sway or hyprland}
 base=${desktop%-reduced}
 base=${base%-wind-tunnel}
+base=${base%-still}
 wanted "$base" >/dev/null || { echo "weigh-session: $desktop isn't one this weighs." >&2; exit 2; }
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 work=${WEIGH_DIR:-$PWD/weigh-$desktop}
