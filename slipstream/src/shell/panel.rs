@@ -118,7 +118,7 @@ pub const HEAD_INSET: f32 = 26.0;
 pub const FOCUS: u32 = 0x42d3ffcc;
 /// What's on or chosen inside a panel, until the settings are read. `Slipstream::panel_accent`
 /// hands the chosen one to each panel; `AMBER` stays for what needs noticing.
-pub const ACCENT: u32 = 0xffb547ff;
+pub const ACCENT: u32 = 0x005a75ff;
 
 /// The card, `w` × `h` at (`x`, `y`), with its shadow. With nothing blurred behind it, the glass is
 /// nearly solid, as the explorer's is.

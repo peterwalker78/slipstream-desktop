@@ -79,7 +79,7 @@
 //! [borders]
 //! selected-tile = "#42d3ff"
 //! bullet-time = "#ffb547"
-//! accent = "#ffb547"
+//! accent = "#005a75"
 //!
 //! [privacy]
 //! screen-capture-allowed = ["/usr/bin/wf-recorder"]
@@ -550,8 +550,9 @@ pub const SELECTED_TILE: &str = "#42d3ff";
 /// Slipstream's amber, near-opposite the ring's cyan: cold means the live desktop, warm the slow
 /// world.
 pub const BULLET_TIME: &str = "#ffb547";
-/// The same amber: what's on inside a panel is warm against the cyan of where the keys are.
-pub const ACCENT: &str = "#ffb547";
+/// Deep teal, the cyan's own hue, darker: what's on reads as part of the same family as where
+/// the keys are.
+pub const ACCENT: &str = "#005a75";
 
 impl Default for Borders {
     fn default() -> Self {

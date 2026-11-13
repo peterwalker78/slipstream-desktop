@@ -1,5 +1,6 @@
 //! Slipstream's three colours, chosen together: the focus ring anywhere round the colour wheel,
-//! and bullet time's and the accent from it by colour theory.
+//! bullet time's from across the wheel, and the accent a deep shade of the focus ring's own hue,
+//! so that what's on reads as part of the same family rather than as a third bright colour.
 //!
 //! The wheel is OKLCH's, where hues the same distance apart look the same distance apart.
 //! Slipstream's own ice cyan and amber already sit there as a split complement, 210° apart.
@@ -15,6 +16,11 @@ const LIGHTEST: f64 = 0.85;
 const LIGHTNESS: f64 = 0.80;
 /// How vivid the wheel's colours get, at most.
 const MOST_CHROMA: f64 = 0.20;
+/// The accent's lightness: deep enough to sit under bright text and beside the bright ring
+/// without competing with it.
+const DEEP: f64 = 0.44;
+/// How vivid the accent is, as a share of the focus ring's vividness.
+const DEEP_SHARE: f64 = 0.63;
 /// Below this a colour is grey enough that its hue says nothing, so its partners are as vivid as
 /// the wheel's own.
 const GREY: f64 = 0.04;
@@ -28,30 +34,21 @@ pub struct Theme {
     pub accent: &'static str,
 }
 
-/// The sets offered. The first is Slipstream's own, which the settings start with; the rest are
-/// split complements, triads and squares on the wheel, each with its three colours kept apart so
-/// that the focus ring and bullet time never look alike.
+/// The sets offered. The first is Slipstream's own, which the settings start with. Each follows
+/// the rule `partners` keeps: bullet time's colour 210° on from the focus ring and as bright, and
+/// the accent a deep shade of the focus ring's own hue.
 pub const THEMES: [Theme; 10] = [
-    // Ice cyan, with amber both for the slow world and for what's on.
-    theme("Slipstream", "#42d3ff", "#ffb547", "#ffb547"),
-    // Split complement of 223°: 73° and 13°.
-    theme("Lagoon", "#46d3ff", "#f7b14d", "#fea4ad"),
-    // Triad of 223°: 343° and 103°.
-    theme("Neon", "#46d3ff", "#ff9bd9", "#d2c44c"),
-    // Split complement of 50°: 260° and 200°.
-    theme("Ember", "#feaa7a", "#9ec2fe", "#12dbe3"),
-    // Split complement of 300°: 150° and 90°.
-    theme("Orchid", "#ccb0ff", "#79da90", "#e4bc46"),
-    // Rectangle on 25°: 205° and 85°.
-    theme("Coral", "#fea69e", "#04daeb", "#eab946"),
-    // Split complement of 95°: 305° and 245°.
-    theme("Sunflower", "#ddbf47", "#d3adfe", "#87c8ff"),
-    // Split complement of 355°: 205° and 145°.
-    theme("Rose", "#ff9fc5", "#04daeb", "#84d987"),
-    // Triad of 15°: 135° and 255°.
-    theme("Ruby", "#ffa4aa", "#99d576", "#97c4fe"),
-    // Square on 250°: 70° and 340°.
-    theme("Glacier", "#90c6fe", "#fab050", "#fd9cdd"),
+    // Ice cyan, amber for the slow world, and deep teal for what's on.
+    theme("Slipstream", "#42d3ff", "#ffb547", "#005a75"),
+    theme("Lagoon", "#00efc8", "#fe7c75", "#006150"),
+    theme("Neon", "#81d943", "#fe6ec7", "#306104"),
+    theme("Ember", "#feaa7a", "#87b3fd", "#73462b"),
+    theme("Orchid", "#ccb0ff", "#87d297", "#594974"),
+    theme("Coral", "#fea69e", "#76c9f8", "#73443f"),
+    theme("Sunflower", "#ddbf47", "#cc9fff", "#625105"),
+    theme("Rose", "#ff9fc5", "#40d4e3", "#734055"),
+    theme("Ruby", "#ffa4aa", "#68ccf2", "#734246"),
+    theme("Glacier", "#90c6fe", "#ccc074", "#375573"),
 ];
 
 const fn theme(
@@ -78,13 +75,19 @@ pub fn hue(rgb: [f32; 3]) -> f64 {
     oklch(rgb).2
 }
 
-/// Bullet time's colour and the accent for a focus ring of `rgb`: the two either side of its
-/// opposite, 30° away from it, no more vivid than it is. Bullet time takes the one 210° on,
-/// which from ice cyan is Slipstream's amber.
+/// Bullet time's colour and the accent for a focus ring of `rgb`. Bullet time takes the hue
+/// 210° on, as vivid, which from ice cyan is Slipstream's amber; the accent is the ring's own hue,
+/// deep and calmer, which from ice cyan is Slipstream's deep teal.
 pub fn partners(rgb: [f32; 3]) -> ([f32; 3], [f32; 3]) {
     let (_, chroma, hue) = oklch(rgb);
     let chroma = if chroma < GREY { MOST_CHROMA } else { chroma };
-    (vivid(hue + 210.0, chroma), vivid(hue + 150.0, chroma))
+    (vivid(hue + 210.0, chroma), deep(hue, chroma * DEEP_SHARE))
+}
+
+/// `hue` at the accent's deep lightness, as vivid as it can be up to `chroma`.
+fn deep(hue: f64, chroma: f64) -> [f32; 3] {
+    let chroma = most_chroma(DEEP, hue, chroma);
+    linear_rgb(DEEP, chroma, hue).map(|c| encoded(c.clamp(0.0, 1.0)) as f32)
 }
 
 /// `rgb` as `#rrggbb`.
@@ -217,14 +220,27 @@ mod tests {
     }
 
     #[test]
-    fn partners_sit_either_side_of_the_opposite() {
+    fn bullet_time_sits_across_the_wheel_and_the_accent_is_the_rings_own_hue_deep() {
         for step in 0..36 {
             let focus = on_wheel(step as f64 * 10.0);
             let (bullet, accent) = partners(focus);
             assert!((apart(hue(focus), hue(bullet)) - 150.0).abs() < 2.0);
-            assert!((apart(hue(focus), hue(accent)) - 150.0).abs() < 2.0);
-            assert!((apart(hue(bullet), hue(accent)) - 60.0).abs() < 2.0);
+            assert!(apart(hue(focus), hue(accent)) < 6.0, "{}", hex(accent));
+            assert!((oklch(accent).0 - DEEP).abs() < 0.02, "{}", hex(accent));
+            assert!(oklch(focus).0 - oklch(accent).0 > 0.15, "{}", hex(accent));
         }
+    }
+
+    #[test]
+    fn slipstreams_deep_teal_is_its_cyans_accent() {
+        let (_, accent) = partners(rgb(slipstream_config::SELECTED_TILE));
+        let teal = rgb(slipstream_config::ACCENT);
+        assert!(apart(hue(accent), hue(teal)) < 6.0, "{}", hex(accent));
+        assert!(
+            (oklch(accent).0 - oklch(teal).0).abs() < 0.03,
+            "{}",
+            hex(accent)
+        );
     }
 
     #[test]
@@ -235,28 +251,36 @@ mod tests {
     }
 
     #[test]
-    fn every_theme_keeps_its_three_colours_apart() {
-        for theme in THEMES.iter().skip(1) {
+    fn every_theme_follows_the_rule() {
+        for theme in THEMES {
             let [focus, bullet, accent] = [theme.focus, theme.bullet, theme.accent].map(rgb);
             assert!(
-                apart(hue(focus), hue(bullet)) >= 55.0,
+                apart(hue(focus), hue(bullet)) >= 120.0,
                 "{}: the focus ring and bullet time look alike",
                 theme.name
             );
-            assert!(apart(hue(focus), hue(accent)) >= 55.0, "{}", theme.name);
-            assert!(apart(hue(bullet), hue(accent)) >= 55.0, "{}", theme.name);
+            assert!(apart(hue(focus), hue(accent)) < 8.0, "{}", theme.name);
+            for bright in [focus, bullet] {
+                let (lightness, ..) = oklch(bright);
+                assert!(
+                    (DARKEST - 0.01..=LIGHTEST + 0.01).contains(&lightness),
+                    "{}",
+                    theme.name
+                );
+            }
+            assert!((oklch(accent).0 - DEEP).abs() < 0.03, "{}", theme.name);
         }
     }
 
     #[test]
-    fn every_theme_colour_reads_on_the_dark() {
-        for theme in THEMES {
-            for hex in [theme.focus, theme.bullet, theme.accent] {
-                let (lightness, ..) = oklch(rgb(hex));
+    fn no_two_themes_share_a_focus_ring() {
+        for (i, one) in THEMES.iter().enumerate() {
+            for other in &THEMES[i + 1..] {
                 assert!(
-                    (DARKEST - 0.01..=LIGHTEST + 0.01).contains(&lightness),
-                    "{}: {hex}",
-                    theme.name
+                    apart(hue(rgb(one.focus)), hue(rgb(other.focus))) >= 9.0,
+                    "{} and {}",
+                    one.name,
+                    other.name
                 );
             }
         }
