@@ -34,18 +34,6 @@ if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
     exit 1
 fi
 
-# The same test the compositor makes before it refuses to nest on the session it runs in.
-live=${SLIPSTREAM_LIVE_SOCKET:-}
-if [ -n "$live" ] && [ "${SLIPSTREAM_NEST_ON_LIVE:-}" != 1 ]; then
-    case ${WAYLAND_DISPLAY:-} in
-        "" | "$live" | */"$live")
-            echo "try-slipstream: you're already using Slipstream, and it can't open a window inside itself." >&2
-            echo "Try it from another desktop, or install it to get this version at your next login." >&2
-            exit 1
-            ;;
-    esac
-fi
-
 if command -v ldd >/dev/null 2>&1; then
     libs=$(ldd "$bin" 2>&1 | sed -n 's/^[[:space:]]*\([^ ]*\) => not found.*/\1/p' | tr '\n' ' ')
     if [ -n "$libs" ]; then
@@ -77,8 +65,11 @@ if [ $# -gt 0 ]; then
     set -- --command "$1"
 fi
 
-# Not exec'd, so the scratch folder is removed when it quits.
-XDG_CONFIG_HOME=$scratch/config \
+# Not exec'd, so the scratch folder is removed when it quits. Run from inside a Slipstream
+# session, the window opens on that session: with its own scratch folders it can't touch the
+# session's settings or layout, so the compositor's refusal to nest there is waived.
+SLIPSTREAM_NEST_ON_LIVE=1 \
+    XDG_CONFIG_HOME=$scratch/config \
     XDG_STATE_HOME=$scratch/state \
     XDG_DATA_HOME=$scratch/data \
     "$bin" "$@"
