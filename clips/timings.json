@@ -1,0 +1,92 @@
+{
+ "01-typing": {
+  "in": 3.783,
+  "peak": 4.183,
+  "peakEnd": 7.517,
+  "out": 7.917
+ },
+ "02-minimise": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "03-close": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 3.85,
+  "out": 4.25
+ },
+ "04-bullet-time": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "05-step-away": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 3.85,
+  "out": 4.25
+ },
+ "06-arrangements": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.65,
+  "out": 3.05
+ },
+ "07-alt-tab": {
+  "in": 0.7,
+  "peak": 1.1,
+  "peakEnd": 2.8,
+  "out": 3.2
+ },
+ "08-workspaces": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.8,
+  "out": 3.2
+ },
+ "09-quick-settings": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "10-drag": {
+  "in": 0.783,
+  "peak": 1.183,
+  "peakEnd": 3.683,
+  "out": 4.083
+ },
+ "11-snip": {
+  "in": 2.1,
+  "peak": 2.5,
+  "peakEnd": 4.35,
+  "out": 4.75
+ },
+ "12-clipboard": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "13-explorer": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "14-plugins": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.45,
+  "out": 2.85
+ },
+ "15-dock": {
+  "in": 0.55,
+  "peak": 0.95,
+  "peakEnd": 2.95,
+  "out": 3.35
+ }
+}
