@@ -136,7 +136,12 @@ const AUTOSTART_WAIT: Duration = Duration::from_secs(10);
 
 /// What the user manager and D-Bus need to know about the session. `DISPLAY` isn't here: XWayland
 /// picks its number later and imports it itself.
-const SESSION_VARS: [&str; 11] = [
+///
+/// `QT_QPA_PLATFORMTHEME` and `GTK_USE_PORTAL` stay with the apps Slipstream starts itself. D-Bus
+/// and systemd start the portal backends too, and a backend told to ask the portal for its own
+/// theme calls xdg-desktop-portal while xdg-desktop-portal is still waiting for it to start: each
+/// waits on the other until D-Bus gives up, and every app waiting on the portal waits with them.
+const SESSION_VARS: [&str; 9] = [
     "WAYLAND_DISPLAY",
     live::LIVE_SOCKET,
     "XDG_CURRENT_DESKTOP",
@@ -145,12 +150,11 @@ const SESSION_VARS: [&str; 11] = [
     "DESKTOP_SESSION",
     "XCURSOR_THEME",
     "XCURSOR_SIZE",
-    // How apps find their theme: without these, an app D-Bus starts for another (a file
-    // manager asked to show a download) comes up light in a dark session.
     "QT_QPA_PLATFORM",
-    "QT_QPA_PLATFORMTHEME",
-    "GTK_USE_PORTAL",
 ];
+
+/// Theme settings that ask the portal, kept from the portal backends (see `SESSION_VARS`).
+const NOT_SHARED: [&str; 2] = ["QT_QPA_PLATFORMTHEME", "GTK_USE_PORTAL"];
 
 /// Whether this is the login session, for the teardown, which the watchdog reaches from another
 /// thread with no `Slipstream` to hand.
@@ -753,8 +757,8 @@ fn quiet(level: tracing::Level, locked: bool) -> bool {
     locked && level == tracing::Level::TRACE
 }
 
-/// Tells D-Bus and systemd where the display is and how apps find their theme, so anything they
-/// start (portals, services, apps opened for another app) opens on Slipstream and looks like it.
+/// Tells D-Bus and systemd where the display is, so anything they start (portals, services, apps
+/// opened for another app) opens on Slipstream.
 ///
 /// **On the calling thread, and before the session target starts.** A unit started before the
 /// import landed would come up with no `WAYLAND_DISPLAY`, connect to nothing and fail every
@@ -765,6 +769,10 @@ fn import_environment() {
     let mut import = vec!["--user".to_string(), "import-environment".to_string()];
     import.extend(SESSION_VARS.iter().map(|name| name.to_string()));
     let _ = launch::command("systemctl").args(&import).status();
+    // Earlier sessions shared these, and the user manager outlives a login.
+    let mut unset = vec!["--user".to_string(), "unset-environment".to_string()];
+    unset.extend(NOT_SHARED.iter().map(|name| name.to_string()));
+    let _ = launch::command("systemctl").args(&unset).status();
     let mut activation = vec!["--systemd".to_string()];
     activation.extend(SESSION_VARS.iter().map(|name| name.to_string()));
     let result = launch::command("dbus-update-activation-environment")
@@ -841,6 +849,13 @@ fn spawn_client(args: &[String]) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn portal_backends_are_not_told_to_ask_the_portal() {
+        for name in super::NOT_SHARED {
+            assert!(!super::SESSION_VARS.contains(&name), "{name} would reach the portal backends");
+        }
+    }
+
     #[test]
     fn nothing_at_trace_level_is_logged_while_locked() {
         use tracing::Level;
