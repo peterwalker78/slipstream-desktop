@@ -1,6 +1,6 @@
 mod capture;
 
-use std::time::Duration;
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use smithay::{
     backend::{
@@ -10,7 +10,10 @@ use smithay::{
     },
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
-        calloop::EventLoop,
+        calloop::{
+            EventLoop,
+            timer::{TimeoutAction, Timer},
+        },
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
     },
     utils::{Clock, Monotonic, Rectangle, Transform},
@@ -19,11 +22,14 @@ use smithay::{
 
 use crate::{Slipstream, render};
 
+/// How long a recording waits after each frame for clients to draw their next picture.
+const RECORDING_GRACE: Duration = Duration::from_millis(15);
+
 pub fn init_winit(
     event_loop: &mut EventLoop<Slipstream>,
     state: &mut Slipstream,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (mut backend, winit) = winit::init()?;
+    let (backend, winit) = winit::init()?;
 
     let mode = Mode {
         size: backend.window_size(),
@@ -56,11 +62,15 @@ pub fn init_winit(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let mut capture = capture::Capture::new(backend.window());
+    // Shared with the idle callback that asks for each next frame.
+    let shared = Rc::new(RefCell::new(backend));
     state.keys_let_go = !capture.held();
 
     event_loop
         .handle()
         .insert_source(winit, move |event, _, state| {
+            let mut held = shared.borrow_mut();
+            let backend = &mut *held;
             capture.dispatch();
             match &event {
                 WinitEvent::Focus(true) => capture.take(backend.window()),
@@ -181,7 +191,24 @@ pub fn init_winit(
                     state.space.refresh();
                     state.popups.cleanup();
                     let _ = state.display_handle.flush_clients();
-                    backend.window().request_redraw();
+                    // The next frame is asked for once this pass of the event loop is over, so
+                    // what clients sent while this one was drawn is read before it. Asked for at
+                    // once, a slow frame let several more go by between reads, and windows only
+                    // moved on every few frames. A recording also waits a moment for clients to
+                    // answer this frame, so every window has drawn its next picture in time.
+                    let next = shared.clone();
+                    let ask = move || next.borrow().window().request_redraw();
+                    if state.clock.stepped() {
+                        let _ = state.loop_handle.insert_source(
+                            Timer::from_duration(RECORDING_GRACE),
+                            move |_, _, _| {
+                                ask();
+                                TimeoutAction::Drop
+                            },
+                        );
+                    } else {
+                        state.loop_handle.insert_idle(move |_| ask());
+                    }
                 }
                 WinitEvent::CloseRequested => {
                     state.loop_signal.stop();

@@ -83,6 +83,11 @@ impl Clock {
         wall
     }
 
+    /// Whether a recording is stepping the clock.
+    pub fn stepped(&self) -> bool {
+        self.step.is_some()
+    }
+
     /// Steps by `step` seconds a frame from now on, for a recording; zero puts it back on real
     /// time. Either way the time it reads carries on from where it was.
     pub fn set_step(&mut self, step: f64) {
