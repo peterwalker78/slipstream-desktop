@@ -102,6 +102,16 @@ impl Store {
     /// it with the defaults. The note says so, and goes as soon as a change finds the file
     /// readable again.
     pub fn change(&self, change: impl FnOnce(&mut Settings)) {
+        self.apply(change, false);
+    }
+
+    /// As `change`, but the file is written even when nothing in it changed, so Slipstream looks
+    /// again at what it points to: a picture of your own chosen afresh after it was edited.
+    pub fn change_and_resave(&self, change: impl FnOnce(&mut Settings)) {
+        self.apply(change, true);
+    }
+
+    fn apply(&self, change: impl FnOnce(&mut Settings), always: bool) {
         let _lock = slipstream_config::lock(&self.path);
         let on_disk = match slipstream_config::read(&self.path) {
             Ok(on_disk) => on_disk,
@@ -114,7 +124,7 @@ impl Store {
         *settings = on_disk;
         let before = settings.clone();
         change(&mut settings);
-        if *settings == before {
+        if *settings == before && !always {
             self.note.hide();
             return;
         }

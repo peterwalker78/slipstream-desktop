@@ -435,7 +435,9 @@ fn behind(page: &gtk::Box, store: &Store) {
                 let chosen = path.to_string_lossy().into_owned();
                 match prepared {
                     Ok(_) => {
-                        store.change(|settings| {
+                        // Written even if this is the picture already chosen: its prepared copy
+                        // is new, and the desktop only looks again when the file is written.
+                        store.change_and_resave(|settings| {
                             settings.wallpaper.show = Backdrop::Picture;
                             settings.wallpaper.picture = chosen.clone();
                         });
