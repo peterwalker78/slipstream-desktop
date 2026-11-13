@@ -60,6 +60,7 @@ mod plugins;
 mod polkit;
 mod portal;
 mod portal_inhibit;
+mod portal_units;
 mod power;
 mod record_writer;
 mod render;
@@ -137,10 +138,9 @@ const AUTOSTART_WAIT: Duration = Duration::from_secs(10);
 /// What the user manager and D-Bus need to know about the session. `DISPLAY` isn't here: XWayland
 /// picks its number later and imports it itself.
 ///
-/// `QT_QPA_PLATFORMTHEME` and `GTK_USE_PORTAL` stay with the apps Slipstream starts itself. D-Bus
-/// and systemd start the portal backends too, and a backend told to ask the portal for its own
-/// theme calls xdg-desktop-portal while xdg-desktop-portal is still waiting for it to start: each
-/// waits on the other until D-Bus gives up, and every app waiting on the portal waits with them.
+/// How apps find their theme (`portal_units::THEME_VARS`) goes to the user manager alone, with
+/// the portal backends' units told to drop it: D-Bus starts some backends itself, and those must
+/// never be told to ask the portal for their own theme.
 const SESSION_VARS: [&str; 9] = [
     "WAYLAND_DISPLAY",
     live::LIVE_SOCKET,
@@ -152,9 +152,6 @@ const SESSION_VARS: [&str; 9] = [
     "XCURSOR_SIZE",
     "QT_QPA_PLATFORM",
 ];
-
-/// Theme settings that ask the portal, kept from the portal backends (see `SESSION_VARS`).
-const NOT_SHARED: [&str; 2] = ["QT_QPA_PLATFORMTHEME", "GTK_USE_PORTAL"];
 
 /// Whether this is the login session, for the teardown, which the watchdog reaches from another
 /// thread with no `Slipstream` to hand.
@@ -683,6 +680,7 @@ fn end_session() {
     // So a later desktop session doesn't inherit a dead display.
     let mut unset = vec!["--user".to_string(), "unset-environment".to_string()];
     unset.extend(SESSION_VARS.iter().map(|name| name.to_string()));
+    unset.extend(portal_units::THEME_VARS.iter().map(|name| name.to_string()));
     unset.push("DISPLAY".to_string());
     let _ = launch::command("systemctl").args(&unset).status();
 }
@@ -758,7 +756,8 @@ fn quiet(level: tracing::Level, locked: bool) -> bool {
 }
 
 /// Tells D-Bus and systemd where the display is, so anything they start (portals, services, apps
-/// opened for another app) opens on Slipstream.
+/// opened for another app) opens on Slipstream, and tells systemd how apps find their theme, so an
+/// app opened for another looks like the rest of the session.
 ///
 /// **On the calling thread, and before the session target starts.** A unit started before the
 /// import landed would come up with no `WAYLAND_DISPLAY`, connect to nothing and fail every
@@ -766,13 +765,17 @@ fn quiet(level: tracing::Level, locked: bool) -> bool {
 fn import_environment() {
     // Both, because they populate different places: systemd's user manager environment for units,
     // and dbus-daemon's activation environment for anything it starts itself.
+    portal_units::keep_theme_from_backends();
+    // Emptied, not removed (D-Bus can't remove one), for anything an earlier session told D-Bus.
+    // First: dbus-broker passes this on to the user manager, whose own values come next.
+    let blank = portal_units::THEME_VARS.map(|name| format!("{name}="));
+    let _ = launch::command("dbus-update-activation-environment")
+        .args(blank)
+        .status();
     let mut import = vec!["--user".to_string(), "import-environment".to_string()];
     import.extend(SESSION_VARS.iter().map(|name| name.to_string()));
+    import.extend(portal_units::THEME_VARS.iter().map(|name| name.to_string()));
     let _ = launch::command("systemctl").args(&import).status();
-    // Earlier sessions shared these, and the user manager outlives a login.
-    let mut unset = vec!["--user".to_string(), "unset-environment".to_string()];
-    unset.extend(NOT_SHARED.iter().map(|name| name.to_string()));
-    let _ = launch::command("systemctl").args(&unset).status();
     let mut activation = vec!["--systemd".to_string()];
     activation.extend(SESSION_VARS.iter().map(|name| name.to_string()));
     let result = launch::command("dbus-update-activation-environment")
@@ -850,9 +853,12 @@ fn spawn_client(args: &[String]) {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn portal_backends_are_not_told_to_ask_the_portal() {
-        for name in super::NOT_SHARED {
-            assert!(!super::SESSION_VARS.contains(&name), "{name} would reach the portal backends");
+    fn portal_backends_d_bus_starts_are_not_told_to_ask_the_portal() {
+        for name in super::portal_units::THEME_VARS {
+            assert!(
+                !super::SESSION_VARS.contains(&name),
+                "{name} would reach the portal backends"
+            );
         }
     }
 
