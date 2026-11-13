@@ -1,20 +1,19 @@
 #!/bin/sh
-# Hands a release to the services that build Slipstream's packages: COPR for Fedora, the openSUSE
-# Build Service for openSUSE, Debian and Ubuntu, and the AUR for Arch. Run it once the release
-# workflow has attached the source tarball.
+# Hands a release to the openSUSE Build Service, which builds Slipstream's packages for Arch,
+# Debian, Fedora, openSUSE and Ubuntu from one project, and optionally to the AUR. Run it once the
+# release workflow has attached the source tarball, or with that tarball already in the work
+# folder.
 #
-#   packaging/publish vX.Y.Z [copr] [obs] [aur]    all three when none is named
+#   packaging/publish vX.Y.Z [obs] [aur]    OBS alone when none is named
 #
-# Needs curl, and for each service: copr-cli and rpmbuild with a COPR token in ~/.config/copr;
-# osc, signed in; git with an SSH key the AUR knows. SLIPSTREAM_COPR_PROJECT (slipstream-desktop)
-# and SLIPSTREAM_OBS_PROJECT (home:peterwalker78) say where the packages go.
+# Needs curl, osc signed in, and for the AUR, git with an SSH key the AUR knows.
+# SLIPSTREAM_OBS_PROJECT (home:peterwalker78) says where the packages go.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd -P)
-tag=${1:?usage: packaging/publish vX.Y.Z [copr] [obs] [aur]}
+tag=${1:?usage: packaging/publish vX.Y.Z [obs] [aur]}
 shift
-services=${*:-copr obs aur}
+services=${*:-obs}
 version=${tag#v}
-copr_project=${SLIPSTREAM_COPR_PROJECT:-slipstream-desktop}
 obs_project=${SLIPSTREAM_OBS_PROJECT:-home:peterwalker78}
 work=${XDG_CACHE_HOME:-$HOME/.cache}/slipstream-publish/$version
 file=slipstream-desktop-$version.tar.xz
@@ -40,12 +39,6 @@ sh "$here/prepare" "$work/$file" "$work"
 
 for service in $services; do
     case $service in
-        copr)
-            need copr-cli rpmbuild
-            rpmbuild -bs --define "_sourcedir $work/rpm" --define "_srcrpmdir $work" \
-                "$work/rpm/slipstream-desktop.spec"
-            copr-cli build "$copr_project" "$work"/slipstream-desktop-*.src.rpm
-            ;;
         obs)
             need osc
             rm -rf "$work/osc"
@@ -53,6 +46,8 @@ for service in $services; do
             checkout=$work/osc/$obs_project/slipstream-desktop
             find "$checkout" -maxdepth 1 -type f ! -name '.*' -delete
             cp "$work"/obs/* "$checkout/"
+            # Arch builds from the PKGBUILD; OBS finds its source by the file name in its URL.
+            cp "$work/aur/PKGBUILD" "$work/aur/slipstream-desktop.install" "$checkout/"
             (cd "$checkout" && osc addremove && osc commit -m "Slipstream $version")
             ;;
         aur)
@@ -66,7 +61,7 @@ for service in $services; do
                 && git commit -m "Slipstream $version" && git push origin HEAD:master)
             ;;
         *)
-            echo "publish: $service isn't copr, obs or aur" >&2
+            echo "publish: $service isn't obs or aur" >&2
             exit 2
             ;;
     esac

@@ -114,4 +114,32 @@ if [ ! -x "$bin" ]; then
     echo "Install it with scripts/install-session, or build one with scripts/update-session." >>"$log"
     exit 1
 fi
+# A distribution package can't know which portal backends the machine will have, so it ships
+# `default=*`. Here, at each login, the backends actually installed are written in instead, in
+# the same order the installer uses: alphabetical, so no distribution is favoured, with gtk, the
+# generic one, last. The copy goes in the user's own configuration, which is read first.
+packaged_conf=/usr/share/xdg-desktop-portal/slipstream-portals.conf
+if [ -r "$packaged_conf" ] && grep -qx 'default=\*' "$packaged_conf"; then
+    backends=$(for portal in /usr/share/xdg-desktop-portal/portals/*.portal; do
+        [ -r "$portal" ] || continue
+        name=${portal##*/}
+        name=${name%.portal}
+        case $name in
+            wlr | gtk | slipstream) ;;
+            *) printf '%s\n' "$name" ;;
+        esac
+    done | sort -u | tr '\n' ';' | sed 's/;$//')
+    if [ -r /usr/share/xdg-desktop-portal/portals/gtk.portal ]; then
+        backends=${backends:+$backends;}gtk
+    fi
+    if [ -n "$backends" ]; then
+        user_conf_dir=${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal
+        wanted=$(sed "s/^default=\*\$/default=$backends/" "$packaged_conf")
+        if [ "$(cat "$user_conf_dir/slipstream-portals.conf" 2>/dev/null)" != "$wanted" ]; then
+            mkdir -p "$user_conf_dir"
+            printf '%s\n' "$wanted" >"$user_conf_dir/slipstream-portals.conf"
+        fi
+    fi
+fi
+
 exec "$bin" --session >"$log" 2>&1

@@ -19,9 +19,9 @@ On these distributions, Slipstream comes as a package called `slipstream-desktop
 
 | Distribution | How |
 |---|---|
-| Arch | From the AUR: `git clone https://aur.archlinux.org/slipstream-desktop.git`, then `makepkg -si` in that folder |
+| Arch | [Add our repository](#arch), then `sudo pacman -Syu slipstream-desktop` |
 | Debian 13 | [Add our repository](#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
-| Fedora 43 and 44 | `sudo dnf copr enable peterwalker78/slipstream-desktop`, then `sudo dnf install slipstream-desktop` |
+| Fedora 43 and 44 | `sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:peterwalker78/Fedora_$(rpm -E %fedora)/home:peterwalker78.repo`, then `sudo dnf install slipstream-desktop` |
 | openSUSE Tumbleweed | `sudo zypper addrepo https://download.opensuse.org/repositories/home:peterwalker78/openSUSE_Tumbleweed/home:peterwalker78.repo`, then `sudo zypper install slipstream-desktop` |
 | Ubuntu 26.04 | [Add our repository](#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
 
@@ -40,6 +40,17 @@ sudo apt update && sudo apt install slipstream-desktop
 ```
 
 On Ubuntu 26.04, the same three lines with `xUbuntu_26.04` in place of `Debian_13`.
+
+#### Arch
+
+The same repository builds it for Arch. Trust its signing key, add it to `/etc/pacman.conf`, then install:
+
+```sh
+curl -fsSL https://download.opensuse.org/repositories/home:/peterwalker78/Arch/x86_64/home_peterwalker78_Arch.key | sudo pacman-key --add -
+sudo pacman-key --lsign-key "$(curl -fsSL https://download.opensuse.org/repositories/home:/peterwalker78/Arch/x86_64/home_peterwalker78_Arch.key | gpg --with-colons --import-options show-only --import | awk -F: '/^fpr/ { print $10; exit }')"
+printf '\n[home_peterwalker78_Arch]\nServer = https://download.opensuse.org/repositories/home:/peterwalker78/Arch/$arch\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Syu slipstream-desktop
+```
 
 ### Everywhere else
 

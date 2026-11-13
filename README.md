@@ -117,9 +117,9 @@ On these, install it with your package manager, and it updates with the rest of 
 
 | Distribution | How |
 |---|---|
-| Arch | From the AUR: `git clone https://aur.archlinux.org/slipstream-desktop.git`, then `makepkg -si` in that folder |
+| Arch | [Add our repository](guide/install.md#arch), then `sudo pacman -Syu slipstream-desktop` |
 | Debian 13 | [Add our repository](guide/install.md#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
-| Fedora 43 and 44 | `sudo dnf copr enable peterwalker78/slipstream-desktop`, then `sudo dnf install slipstream-desktop` |
+| Fedora 43 and 44 | `sudo dnf config-manager addrepo --from-repofile=https://download.opensuse.org/repositories/home:peterwalker78/Fedora_$(rpm -E %fedora)/home:peterwalker78.repo`, then `sudo dnf install slipstream-desktop` |
 | openSUSE Tumbleweed | `sudo zypper addrepo https://download.opensuse.org/repositories/home:peterwalker78/openSUSE_Tumbleweed/home:peterwalker78.repo`, then `sudo zypper install slipstream-desktop` |
 | Ubuntu 26.04 | [Add our repository](guide/install.md#debian-13-and-ubuntu-2604), then `sudo apt install slipstream-desktop` |
 

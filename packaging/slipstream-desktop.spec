@@ -1,4 +1,4 @@
-# Slipstream for Fedora (COPR) and openSUSE (the openSUSE Build Service). Built from the source
+# Slipstream for Fedora and openSUSE, built on the openSUSE Build Service. Built from the source
 # tarball each release carries, which holds every crate it needs, so it builds offline.
 # packaging/prepare fills in the version.
 

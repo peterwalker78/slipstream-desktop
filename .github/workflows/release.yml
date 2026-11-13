@@ -159,8 +159,8 @@ jobs:
       - name: Install it and check it runs
         run: sh scripts/test-on-distro --release "$TAG"
 
-  # Build the distribution package from the source tarball on each distribution, as COPR, the
-  # openSUSE Build Service and the AUR would, then install it with the system's package manager.
+  # Build the distribution package from the source tarball on each distribution, as the openSUSE
+  # Build Service would, then install it with the system's package manager.
   packages:
     needs: release
     strategy:

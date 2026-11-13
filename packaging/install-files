@@ -39,8 +39,8 @@ put 644 "$src/plugins/focus/plugin.toml" /usr/share/slipstream/bundled/focus/plu
 put 755 "$built/focus" /usr/share/slipstream/bundled/focus/focus
 
 # The portal backend the compositor answers itself, and which backend answers what. A package
-# can't know which other backends the machine will have, so every other interface goes to
-# whichever is installed.
+# can't know which other backends the machine will have, so it says `default=*`, and the session
+# launcher writes the installed ones in, gtk last, at each login.
 put 644 "$src/session/slipstream.portal" /usr/share/xdg-desktop-portal/portals/slipstream.portal
 {
     cat "$src/session/slipstream-portals.conf"

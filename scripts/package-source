@@ -1,7 +1,7 @@
 #!/bin/sh
 # Packs the source of the commit checked out, with every crate it builds from, for distribution
 # packages: slipstream-desktop-VERSION.tar.xz, with a .sha256 beside it. Build services such as
-# COPR, the openSUSE Build Service and an AUR helper's chroot may have no network while they
+# The openSUSE Build Service and an AUR helper's chroot may have no network while they
 # build, so the crates (Smithay among them, which comes from git) travel in vendor/, and the
 # tarball's .cargo/config.toml points cargo at them.
 #

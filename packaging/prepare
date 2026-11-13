@@ -4,7 +4,7 @@
 #
 #   packaging/prepare slipstream-desktop-VERSION.tar.xz OUT_DIR
 #
-#   OUT_DIR/rpm     the spec and the tarball: rpmbuild, or an SRPM for COPR
+#   OUT_DIR/rpm     the spec and the tarball: for rpmbuild
 #   OUT_DIR/debian  the debian/ folder, to copy into the unpacked tarball for dpkg-buildpackage
 #   OUT_DIR/obs     what the openSUSE Build Service builds every distribution from: the spec, a
 #                   .dsc and debian.* files for its Debian and Ubuntu builds, and the tarball
