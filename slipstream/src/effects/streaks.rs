@@ -43,10 +43,10 @@ const WIDTH_NEAR: f32 = 4.6;
 const HEAD_FAR: f32 = 2.2;
 const HEAD_NEAR: f32 = 5.6;
 /// The faint trail behind each streak: how many of its lengths long, and how bright.
-const TRAIL: f32 = 3.0;
-const TRAIL_LIGHT: f32 = 0.12;
+pub(crate) const TRAIL: f32 = 3.0;
+pub(crate) const TRAIL_LIGHT: f32 = 0.12;
 /// Bloom: how far the light spreads, in logical pixels, and how much of it is added back.
-const BLOOM: f32 = 4.0;
+pub(crate) const BLOOM: f32 = 4.0;
 const BLOOM_LIGHT: f32 = 0.6;
 /// The name: its size and letter spacing, where it starts below the top of the card in logical
 /// pixels, and how bright it is at rest and fully lit.
@@ -521,7 +521,7 @@ fn column(
 /// Softens the light: a box blur `radius` pixels each way, across then down, added back on top.
 /// Both passes keep a running total, so a pixel costs the same whatever the radius, and the pass
 /// down walks the rows in memory order. `across` holds the first pass.
-fn bloom(sum: &mut [f32], across: &mut Vec<f32>, w: usize, h: usize, radius: usize) {
+pub(crate) fn bloom(sum: &mut [f32], across: &mut Vec<f32>, w: usize, h: usize, radius: usize) {
     if w == 0 || h == 0 {
         return;
     }
