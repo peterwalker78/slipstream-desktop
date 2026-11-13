@@ -10,7 +10,7 @@ use slipstream_config::Effects;
 use crate::{
     icons,
     keynames::KeyNames,
-    paint::Painter,
+    paint::{Painter, Shadow},
     panel,
     text::{self, Face, Style},
     tour::{self, Choosing, Kind, Rect, Scene, Stream, Typed},
@@ -20,6 +20,9 @@ use crate::{
 /// the real one's shape.
 pub const WIDTH: f32 = 640.0;
 pub const HEIGHT: f32 = 400.0;
+/// The miniature beside the real desktop, about a third of its size, which its shadows are
+/// scaled by.
+const TO_SCALE: f32 = 1.0 / 3.0;
 
 /// What the miniature follows from the real desktop, and the clock its rain falls by.
 pub struct Look<'a> {
@@ -226,12 +229,26 @@ pub fn paint(p: &mut Painter, scene: &Scene, look: &Look) {
                 continue;
             }
             if win.floating {
-                p.shadow(x, y, ww, wh, 4.0, 6.0, 14.0, fade(0x000000aa, win.alpha));
+                p.shadow(
+                    x,
+                    y,
+                    ww,
+                    wh,
+                    4.0,
+                    Shadow::WINDOW.scaled(TO_SCALE).faded(win.alpha),
+                );
             }
             if docked {
                 // The bar's own material comes down round it, with a shadow on what is behind.
                 let rim = 2.0 * win.dock;
-                p.shadow(x, y, ww, wh, 4.0, 5.0, 12.0, fade(0x00000070, win.dock));
+                p.shadow(
+                    x,
+                    y,
+                    ww,
+                    wh,
+                    4.0,
+                    Shadow::WINDOW.scaled(TO_SCALE).faded(win.dock),
+                );
                 p.fill(
                     x - rim,
                     y,
@@ -1293,7 +1310,7 @@ fn explorer(p: &mut Painter, typed: Typed, w: f32, look: &Look) {
         ]
     };
     let ch = 20.0 + rows.len() as f32 * 15.0 + 6.0;
-    p.shadow(x, y, cw, ch, 6.0, 8.0, 18.0, fade(0x000000aa, a));
+    p.shadow(x, y, cw, ch, 6.0, Shadow::PANEL.scaled(TO_SCALE).faded(a));
     p.fill(x, y, cw, ch, 6.0, fade(panel::GLASS, a));
     p.border(x, y, cw, ch, 6.0, 0.8, fade(panel::GLASS_EDGE, a));
     p.icon(
@@ -1378,7 +1395,7 @@ fn sheet(p: &mut Painter, typed: Typed, w: f32, h: f32, names: &KeyNames) {
     }
     let (cw, ch) = (w * 0.74, (h - BAR_H) * 0.74);
     let (x, y) = ((w - cw) / 2.0, BAR_H + (h - BAR_H - ch) / 2.0);
-    p.shadow(x, y, cw, ch, 6.0, 8.0, 18.0, fade(0x000000aa, a));
+    p.shadow(x, y, cw, ch, 6.0, Shadow::PANEL.scaled(TO_SCALE).faded(a));
     p.fill(x, y, cw, ch, 6.0, fade(panel::GLASS, a));
     p.border(x, y, cw, ch, 6.0, 0.8, fade(panel::GLASS_EDGE, a));
     let head = y + 12.0;
@@ -1452,7 +1469,14 @@ fn digest(p: &mut Painter, alpha: f32, w: f32, h: f32, look: &Look) {
     let (cw, ch) = (160.0, 64.0);
     let x = w - cw - EDGE - 4.0;
     let y = h - ch - EDGE - 4.0 + (1.0 - alpha) * 8.0;
-    p.shadow(x, y, cw, ch, 5.0, 6.0, 14.0, fade(0x000000aa, alpha));
+    p.shadow(
+        x,
+        y,
+        cw,
+        ch,
+        5.0,
+        Shadow::CARD.scaled(TO_SCALE).faded(alpha),
+    );
     p.fill(x, y, cw, ch, 5.0, fade(panel::NOTICE, alpha));
     p.border(x, y, cw, ch, 5.0, 0.8, fade(panel::NOTICE_EDGE, alpha));
     p.icon(
@@ -1510,7 +1534,7 @@ fn arrangements(p: &mut Painter, choosing: Choosing, w: f32, h: f32, look: &Look
     let ch = 2.0 * PADDING + HEAD_H + TILE_H;
     // Above the key going down, as the real one sits above the foot of the screen.
     let (x, y) = ((w - cw) / 2.0, h - 42.0 - ch + (1.0 - a) * 4.0);
-    p.shadow(x, y, cw, ch, 6.0, 8.0, 18.0, fade(0x000000aa, a));
+    p.shadow(x, y, cw, ch, 6.0, Shadow::PANEL.scaled(TO_SCALE).faded(a));
     p.fill(x, y, cw, ch, 6.0, fade(panel::GLASS, a));
     p.border(x, y, cw, ch, 6.0, 0.8, fade(panel::GLASS_EDGE, a));
     let tile_x = |index: usize| {
@@ -1590,7 +1614,7 @@ fn keys(p: &mut Painter, scene: &Scene, w: f32, h: f32, look: &Look) {
         let total = widths.iter().sum::<f32>() + plus_w * (parts.len() - 1) as f32 + 12.0;
         let mut x = (w - total) / 2.0;
         let glow = press.glow;
-        p.shadow(x, y, total, pill_h, 6.0, 4.0, 10.0, 0x00000088);
+        p.shadow(x, y, total, pill_h, 6.0, Shadow::CHIP);
         p.fill(x, y, total, pill_h, 6.0, 0x0b0d12e8);
         p.border(
             x,

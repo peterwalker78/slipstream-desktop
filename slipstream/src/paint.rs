@@ -97,14 +97,112 @@ fn rounded(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<tiny_skia::Pat
     path.finish()
 }
 
-/// How a glass card looks: its corners, the shadow it casts (`dy` down, `blur` wide, in its
-/// colour), its fill and the faint edge inside it.
+/// How a glass card looks: its corners, the shadow it casts, its fill and the faint edge inside it.
 #[derive(Debug, Clone, Copy)]
 pub struct CardStyle {
     pub radius: f32,
-    pub shadow: (f32, f32, u32),
+    pub shadow: Shadow,
     pub fill: u32,
     pub edge: u32,
+}
+
+/// The shadow something casts, chosen by what it is. Every shadow is made the same way: a tight,
+/// darker contact shadow hugging the edge and a wide, faint one around it that falls a little
+/// lower, both sized from how far the thing stands off what's behind it. Each fades out along a
+/// smooth curve rather than in steps, so nothing bands on a light background, and both are black
+/// and faint enough to read the same over white, colour or a picture; over near-black the card's
+/// own edge does the separating.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shadow {
+    /// How far it stands off, in layout units.
+    lift: f32,
+    /// How dark, 1 as made.
+    strength: f32,
+}
+
+/// One part of a shadow: the box moved `down`, grown by `spread` (shrunk when negative), and
+/// fading from `alpha` to nothing across `soft` either side of its outline.
+#[derive(Debug, Clone, Copy)]
+struct ShadowPart {
+    down: f32,
+    spread: f32,
+    soft: f32,
+    alpha: f32,
+}
+
+impl Shadow {
+    /// A knob, chip or key hint, sitting just off what it's on.
+    pub const CHIP: Self = Self::standing_off(4.0);
+    /// A small card of its own: a notice, a toast, a menu.
+    pub const CARD: Self = Self::standing_off(16.0);
+    /// A large panel: the explorer, quick settings, the centre, a sheet.
+    pub const PANEL: Self = Self::standing_off(24.0);
+    /// A floating window, and the docked pane.
+    pub const WINDOW: Self = Self::standing_off(28.0);
+
+    const fn standing_off(lift: f32) -> Self {
+        Self {
+            lift,
+            strength: 1.0,
+        }
+    }
+
+    /// The same shadow for something drawn `by` times its size, as in a miniature.
+    pub fn scaled(self, by: f32) -> Self {
+        Self {
+            lift: self.lift * by,
+            ..self
+        }
+    }
+
+    /// The same shadow at `alpha` of its strength, for something fading in or out.
+    pub fn faded(self, alpha: f32) -> Self {
+        Self {
+            strength: self.strength * alpha.clamp(0.0, 1.0),
+            ..self
+        }
+    }
+
+    /// The contact shadow, then the ambient one.
+    fn parts(&self) -> [ShadowPart; 2] {
+        let (lift, strength) = (self.lift, self.strength);
+        [
+            ShadowPart {
+                down: 0.1 * lift,
+                spread: 0.0,
+                soft: (0.25 * lift).max(0.5),
+                alpha: (0.24 * strength).min(1.0),
+            },
+            ShadowPart {
+                down: 0.4 * lift,
+                spread: -0.05 * lift,
+                soft: (1.4 * lift).max(0.5),
+                alpha: (0.26 * strength).min(1.0),
+            },
+        ]
+    }
+
+    /// How far it reaches past its box, in layout units: to either side, above and below.
+    pub fn reach(&self) -> (f32, f32, f32) {
+        self.parts()
+            .iter()
+            .fold((0.0f32, 0.0f32, 0.0f32), |(side, above, below), part| {
+                let out = part.spread + part.soft;
+                (
+                    side.max(out),
+                    above.max(out - part.down),
+                    below.max(out + part.down),
+                )
+            })
+    }
+}
+
+/// How much of a shadow part shows at signed distance `d` from its outline, 1 well inside to 0
+/// at `soft` outside: a smootherstep, which starts and ends flat, so neither end of the falloff
+/// shows as a line.
+fn falloff(d: f32, soft: f32) -> f32 {
+    let t = ((d + soft) / (2.0 * soft)).clamp(0.0, 1.0);
+    1.0 - t * t * t * (t * (6.0 * t - 15.0) + 10.0)
 }
 
 /// A drop shadow, and the glass card casting it if there is one, in layout units.
@@ -112,18 +210,16 @@ struct Layer {
     w: f32,
     h: f32,
     radius: f32,
-    dy: f32,
-    blur: f32,
-    shadow: u32,
+    shadow: Shadow,
     /// The card's fill and the edge inside it.
     glass: Option<(u32, u32)>,
 }
 
-/// A layer's size, shape, scale and sub-pixel offset as exact bits, and its colours.
+/// A layer's size, shape, shadow, scale and sub-pixel offset as exact bits, and its colours.
 #[derive(PartialEq)]
 struct LayerKey {
     bits: [u32; 8],
-    colours: [u32; 3],
+    colours: [u32; 2],
     glass: bool,
 }
 
@@ -319,29 +415,14 @@ impl Painter {
             .fill_rect(band, &paint_of(rgba), transform, Some(&mask));
     }
 
-    /// A soft drop shadow, like CSS `box-shadow: 0 dy blur`, built from stacked translucent
-    /// rounded rectangles, since tiny-skia can't blur.
-    // Box, corner radius, then paint: the order every painting call here takes.
-    #[allow(clippy::too_many_arguments)]
-    pub fn shadow(
-        &mut self,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        radius: f32,
-        dy: f32,
-        blur: f32,
-        rgba: u32,
-    ) {
+    /// The shadow `shadow` of the box `w` × `h` at (`x`, `y`) with corners of `radius`.
+    pub fn shadow(&mut self, x: f32, y: f32, w: f32, h: f32, radius: f32, shadow: Shadow) {
         self.layer(
             Layer {
                 w,
                 h,
                 radius,
-                dy,
-                blur,
-                shadow: rgba,
+                shadow,
                 glass: None,
             },
             x,
@@ -352,15 +433,12 @@ impl Painter {
     /// A glass card in `style` with its shadow: the shadow, a fill with a faint edge inside it,
     /// and a dark line just outside.
     pub fn card(&mut self, x: f32, y: f32, w: f32, h: f32, style: &CardStyle) {
-        let (dy, blur, shadow) = style.shadow;
         self.layer(
             Layer {
                 w,
                 h,
                 radius: style.radius,
-                dy,
-                blur,
-                shadow,
+                shadow: style.shadow,
                 glass: Some((style.fill, style.edge)),
             },
             x,
@@ -368,17 +446,17 @@ impl Painter {
         );
     }
 
-    /// A shadow or a card, with its box's corner at (`x`, `y`). A card's shadow is a dozen
-    /// anti-aliased fills the size of the card, most of a frame's time on the CPU, so each is
-    /// painted once into a pixmap of its own and copied in after that: byte for byte where the
-    /// pixmap underneath is still empty, as it is when a panel starts with its card.
+    /// A shadow or a card, with its box's corner at (`x`, `y`). Working out a card's shadow pixel
+    /// by pixel is most of a frame's time on the CPU, so each is painted once into a pixmap of its
+    /// own and copied in after that: byte for byte where the pixmap underneath is still empty, as
+    /// it is when a panel starts with its card.
     fn layer(&mut self, layer: Layer, x: f32, y: f32) {
         let f = self.f;
         // Everything the layer covers, in layout units from the box's corner: the shadow, and a
         // card's line outside its edge.
-        let mut left = -layer.blur / 2.0;
-        let mut top = layer.dy - layer.blur / 2.0;
-        let (mut right, mut bottom) = (layer.w - left, layer.h + layer.dy + layer.blur / 2.0);
+        let (side, above, below) = layer.shadow.reach();
+        let (mut left, mut top) = (-side, -above);
+        let (mut right, mut bottom) = (layer.w + side, layer.h + below);
         if layer.glass.is_some() {
             left = left.min(-1.0);
             top = top.min(-1.0);
@@ -395,15 +473,14 @@ impl Painter {
                 layer.w,
                 layer.h,
                 layer.radius,
-                layer.dy,
-                layer.blur,
+                layer.shadow.lift,
+                layer.shadow.strength,
                 f,
                 offset.0,
                 offset.1,
             ]
             .map(f32::to_bits),
             colours: [
-                layer.shadow,
                 layer.glass.map_or(0, |(fill, _)| fill),
                 layer.glass.map_or(0, |(_, edge)| edge),
             ],
@@ -468,41 +545,46 @@ impl Painter {
     }
 
     /// Paints a layer with its box's corner at (`x`, `y`) in layout units, shifted by a fraction
-    /// of a device pixel. The shadow is a dozen rounded rectangles, each grown by another step
-    /// with its corner radius grown to match, so each is exactly the set of points within that
-    /// distance of the box. Rather than fill a dozen paths, each pixel counts the ones it's inside
-    /// from its distance to the box, which takes one pass however many there are. The card's fill
-    /// and its two edge lines come from the same distance.
+    /// of a device pixel. Each part of the shadow is the box moved down and grown or shrunk, with
+    /// its corner radius grown or shrunk to match, and each pixel takes its share of it from its
+    /// distance to that outline, in one pass. The card's fill and its two edge lines come from
+    /// the distance to the box itself.
     fn paint_layer(&mut self, layer: &Layer, offset: (f32, f32), (x, y): (f32, f32)) {
-        const STEPS: i32 = 12;
         let f = self.f;
         let colour = |rgba: u32| {
             let [r, g, b, a] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
             [r * a, g * a, b * a, a]
         };
-        let [sr, sg, sb, sa] = layer.shadow.to_be_bytes();
-        let step_alpha = (sa as u32 / STEPS as u32).max(1) as f32 / 255.0;
-        let shadow = colour(u32::from_be_bytes([sr, sg, sb, 255]));
-        // (1 − a)^n: what n whole steps leave of what's below.
-        let left_after: Vec<f32> = (0..=STEPS).map(|n| (1.0 - step_alpha).powi(n)).collect();
-        let step = layer.blur / 2.0 / STEPS as f32 * f;
+        // The shadow's parts in device pixels.
+        let parts = layer.shadow.parts().map(|part| ShadowPart {
+            down: part.down * f,
+            spread: part.spread * f,
+            soft: part.soft * f,
+            alpha: part.alpha,
+        });
         let (half_w, half_h, radius) = (layer.w * f / 2.0, layer.h * f / 2.0, layer.radius * f);
         let centre = (x * f + offset.0 + half_w, y * f + offset.1 + half_h);
         let glass = layer
             .glass
             .map(|(fill, edge)| (colour(fill), colour(edge), colour(0x000000ff)));
-        // Signed distance from a pixel's centre to the box's outline, in device pixels, with the
-        // box's centre `down` pixels lower.
-        let distance = |px: f32, py: f32, down: f32| {
-            let qx = (px - centre.0).abs() - (half_w - radius);
-            let qy = (py - centre.1 - down).abs() - (half_h - radius);
-            let (ox, oy) = (qx.max(0.0), qy.max(0.0));
-            (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - radius
+        // The box grown by `t` (shrunk when negative): its half width, half height and corner
+        // radius.
+        let grown = |t: f32| {
+            let (w, h) = ((half_w + t).max(0.0), (half_h + t).max(0.0));
+            (w, h, (radius + t).clamp(0.0, w.min(h)))
         };
-        // How far either side of the centre a row `py` is within `t` of the box: the box grown by
-        // `t` is a rounded rectangle too.
+        // Signed distance from a pixel's centre to the outline of the box grown by `t`, in device
+        // pixels, with the box's centre `down` pixels lower.
+        let distance = |px: f32, py: f32, down: f32, t: f32| {
+            let (w, h, r) = grown(t);
+            let qx = (px - centre.0).abs() - (w - r);
+            let qy = (py - centre.1 - down).abs() - (h - r);
+            let (ox, oy) = (qx.max(0.0), qy.max(0.0));
+            (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - r
+        };
+        // How far either side of the centre a row `py` is inside the box grown by `t`.
         let reach = |py: f32, down: f32, t: f32| -> Option<f32> {
-            let (w, h, r) = (half_w + t, half_h + t, (radius + t).max(0.0));
+            let (w, h, r) = grown(t);
             let v = (py - centre.1 - down).abs();
             if w <= 0.0 || v > h {
                 return None;
@@ -521,27 +603,16 @@ impl Painter {
             let keep = 1.0 - src[3] * amount;
             [0, 1, 2, 3].map(|i| src[i] * amount + dst[i] * keep)
         };
-        let shadow_down = layer.dy * f;
         let pixel_at = |px: f32, py: f32| {
-            // The shadow: steps grown by `step`, `2 × step` … `STEPS × step`. Every step grown
-            // at least half a pixel past this one covers it whole; one more may cover it in part.
-            let d = distance(px, py, shadow_down);
-            let whole = (STEPS - ((d + 0.5) / step).ceil().max(0.0) as i32 + 1).clamp(0, STEPS);
-            let partial_k = STEPS - whole;
-            let partial = if partial_k >= 1 {
-                (partial_k as f32 * step + 0.5 - d).clamp(0.0, 1.0) * step_alpha
-            } else {
-                0.0
-            };
-            let alpha = 1.0 - left_after[whole as usize] * (1.0 - partial);
-            let mut out = [
-                shadow[0] * alpha,
-                shadow[1] * alpha,
-                shadow[2] * alpha,
-                alpha,
-            ];
+            // The parts laid one over the other: what each leaves of what's below, multiplied.
+            let clear = parts.iter().fold(1.0, |clear, part| {
+                let d = distance(px, py, part.down, part.spread);
+                clear * (1.0 - part.alpha * falloff(d, part.soft))
+            });
+            // Black, premultiplied.
+            let mut out = [0.0, 0.0, 0.0, 1.0 - clear];
             if let Some((fill, edge, line)) = glass {
-                let d = distance(px, py, 0.0);
+                let d = distance(px, py, 0.0, 0.0);
                 out = over(out, fill, overlap(d, f32::NEG_INFINITY, 0.0));
                 out = over(out, edge, overlap(d, -f, 0.0));
                 out = over(out, line, overlap(d, 0.0, f));
@@ -552,31 +623,26 @@ impl Painter {
         };
         let (width, height) = (self.pixmap.width() as i32, self.pixmap.height() as i32);
         let data = self.pixmap.data_mut();
-        // Well inside the card every pixel is the same: under every step, and under the fill
-        // only. Well outside everything the pixmap stays empty. Only the bands between are worked
-        // out pixel by pixel.
-        let solid_margin = step - 0.5;
+        // Well inside the card every pixel is the same: under the whole of every part, and under
+        // the fill only. Well outside everything the pixmap stays empty. Only the bands between
+        // are worked out pixel by pixel.
         let column = |at: f32| (at - 0.5).clamp(0.0, width as f32);
         for row in 0..height {
             let py = row as f32 + 0.5;
-            let outer = [
-                reach(py, shadow_down, STEPS as f32 * step + 0.5),
-                glass.and_then(|_| reach(py, 0.0, f + 0.5)),
-            ]
-            .into_iter()
-            .flatten()
-            .fold(None, |widest: Option<f32>, r| {
-                Some(widest.map_or(r, |w| w.max(r)))
-            });
+            let outer = parts
+                .iter()
+                .map(|part| reach(py, part.down, part.spread + part.soft + 0.5))
+                .chain([glass.and_then(|_| reach(py, 0.0, f + 0.5))])
+                .flatten()
+                .reduce(f32::max);
             let Some(outer) = outer else {
                 continue;
             };
-            let inner = match glass {
-                Some(_) => reach(py, 0.0, -(f + 0.5))
-                    .zip(reach(py, shadow_down, solid_margin))
-                    .map(|(a, b)| a.min(b)),
-                None => reach(py, shadow_down, solid_margin),
-            };
+            let inner = parts
+                .iter()
+                .map(|part| reach(py, part.down, part.spread - part.soft - 0.5))
+                .chain(glass.map(|_| reach(py, 0.0, -(f + 0.5))))
+                .try_fold(f32::INFINITY, |narrowest, r| r.map(|r| narrowest.min(r)));
             let (from, to) = (
                 column(centre.0 - outer).floor() as i32,
                 column(centre.0 + outer).ceil() as i32,
@@ -1001,31 +1067,51 @@ mod tests {
 mod layer_tests {
     use super::*;
 
-    const SHADOW: (f32, f32, u32) = (40.0, 110.0, 0x000000b0);
     const FILL: u32 = 0x10131af8;
     const EDGE: u32 = 0xffffff1c;
     const STYLE: CardStyle = CardStyle {
         radius: 18.0,
-        shadow: SHADOW,
+        shadow: Shadow::PANEL,
         fill: FILL,
         edge: EDGE,
     };
 
-    /// The card painted the slow way, straight onto the pixmap, a dozen fills and two strokes.
-    fn in_place(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
-        const STEPS: u32 = 12;
-        let step = 0xb0 / STEPS;
-        for i in 0..STEPS {
-            let spread = 110.0 / 2.0 * (1.0 - i as f32 / STEPS as f32);
-            p.fill(
-                x - spread,
-                y + 40.0 - spread,
-                w + 2.0 * spread,
-                h + 2.0 * spread,
-                18.0 + spread,
-                step,
-            );
+    /// `shadow` worked out the slow way, every pixel of the pixmap from its own distance to each
+    /// part's box, and laid over what's there.
+    fn shadow_in_place(
+        p: &mut Painter,
+        (x, y, w, h): (f32, f32, f32, f32),
+        r: f32,
+        shadow: Shadow,
+    ) {
+        let f = p.f;
+        let width = p.pixmap.width() as usize;
+        for (i, pixel) in p.pixmap.data_mut().chunks_exact_mut(4).enumerate() {
+            let (px, py) = ((i % width) as f32 + 0.5, (i / width) as f32 + 0.5);
+            let mut clear = 1.0;
+            for part in shadow.parts() {
+                let s = part.spread;
+                let (hw, hh) = ((w / 2.0 + s) * f, (h / 2.0 + s) * f);
+                let (cx, cy) = ((x + w / 2.0) * f, (y + h / 2.0 + part.down) * f);
+                let br = ((r + s) * f).clamp(0.0, hw.min(hh));
+                // The usual signed distance to a rounded box.
+                let qx = (px - cx).abs() - (hw - br);
+                let qy = (py - cy).abs() - (hh - br);
+                let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - br;
+                clear *= 1.0 - part.alpha * falloff(d, part.soft * f);
+            }
+            let alpha = 1.0 - clear;
+            for channel in pixel.iter_mut() {
+                *channel = (*channel as f32 * clear).round() as u8;
+            }
+            pixel[3] = (pixel[3] as f32 + alpha * 255.0).round().min(255.0) as u8;
         }
+    }
+
+    /// The card painted the slow way, straight onto the pixmap: its shadow, a fill and two
+    /// strokes.
+    fn in_place(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
+        shadow_in_place(p, (x, y, w, h), 18.0, STYLE.shadow);
         p.fill(x, y, w, h, 18.0, FILL);
         p.border(x, y, w, h, 18.0, 1.0, EDGE);
         p.border(x - 1.0, y - 1.0, w + 2.0, h + 2.0, 19.0, 1.0, 0x000000ff);
@@ -1103,35 +1189,80 @@ mod layer_tests {
 
     #[test]
     fn a_plain_shadow_matches_one_painted_in_place() {
-        let mut slow = Painter::new(300, 200, 1.25).unwrap();
-        for i in 0..12u32 {
-            let spread = 16.0 / 2.0 * (1.0 - i as f32 / 12.0);
-            slow.fill(
-                40.0 - spread,
-                30.0 + 6.0 - spread,
-                120.0 + 2.0 * spread,
-                60.0 + 2.0 * spread,
-                10.0 + spread,
-                0x99 / 12,
-            );
+        for shadow in [Shadow::CHIP, Shadow::CARD, Shadow::WINDOW.faded(0.5)] {
+            let mut slow = Painter::new(300, 200, 1.25).unwrap();
+            shadow_in_place(&mut slow, (40.3, 30.0, 120.0, 60.0), 10.0, shadow);
+            let mut fast = Painter::new(300, 200, 1.25).unwrap();
+            fast.shadow(40.3, 30.0, 120.0, 60.0, 10.0, shadow);
+            let worst = slow
+                .pixmap
+                .data()
+                .iter()
+                .zip(fast.pixmap.data())
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0);
+            assert!(worst <= 1, "{shadow:?}: {worst}");
         }
-        let mut fast = Painter::new(300, 200, 1.25).unwrap();
-        fast.shadow(40.0, 30.0, 120.0, 60.0, 10.0, 6.0, 16.0, 0x00000099);
-        let worst = slow
-            .pixmap
-            .data()
-            .iter()
-            .zip(fast.pixmap.data())
-            .map(|(a, b)| a.abs_diff(*b))
-            .max()
-            .unwrap_or(0);
-        assert!(worst <= 4, "{worst}");
     }
 
     #[test]
     fn a_layer_hanging_off_the_pixmap_is_clipped() {
         let mut p = Painter::new(100, 80, 1.0).unwrap();
         p.card(-50.0, 40.0, 300.0, 200.0, &STYLE);
-        p.shadow(80.0, -30.0, 60.0, 60.0, 10.0, 6.0, 16.0, 0x00000099);
+        p.shadow(80.0, -30.0, 60.0, 60.0, 10.0, Shadow::CARD);
+    }
+
+    /// How dark the shadow is at each pixel along a row or column, 0 to 255.
+    fn shadow_alphas(p: &Painter, pixels: impl Iterator<Item = (u32, u32)>) -> Vec<u8> {
+        pixels
+            .map(|(x, y)| p.pixmap.pixel(x, y).unwrap().alpha())
+            .collect()
+    }
+
+    #[test]
+    fn every_shadow_fades_smoothly_without_bands() {
+        for shadow in [Shadow::CARD, Shadow::PANEL, Shadow::WINDOW] {
+            let mut p = Painter::new(500, 500, 1.25).unwrap();
+            p.shadow(100.0, 100.0, 200.0, 200.0, 12.0, shadow);
+            // Out from the middle of the right side, and down from the middle of the foot.
+            let right = shadow_alphas(&p, (376..500).map(|x| (x, 250)));
+            let below = shadow_alphas(&p, (376..500).map(|y| (250, y)));
+            for fade in [right, below] {
+                assert!(
+                    fade.windows(2).all(|w| w[1] <= w[0]),
+                    "{shadow:?}: {fade:?}"
+                );
+                // No step stands out from the slope either side of it: a band is a step between
+                // two flats.
+                let drops: Vec<i32> = fade.windows(2).map(|w| (w[0] - w[1]) as i32).collect();
+                let jolt = drops
+                    .windows(3)
+                    .map(|d| d[1] - d[0].max(d[2]))
+                    .max()
+                    .unwrap();
+                assert!(jolt <= 2, "{shadow:?}: {fade:?}");
+                assert_eq!(*fade.last().unwrap(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn a_shadow_stays_light_at_its_darkest_and_falls_short() {
+        for shadow in [Shadow::CHIP, Shadow::CARD, Shadow::PANEL, Shadow::WINDOW] {
+            let (side, above, below) = shadow.reach();
+            // It falls further below than to the side, and further to the side than above.
+            assert!(below > side && side > above && above > 0.0, "{shadow:?}");
+            let mut p = Painter::new(600, 600, 1.0).unwrap();
+            p.shadow(100.0, 100.0, 300.0, 300.0, 12.0, shadow);
+            // Just outside the card it is at most about a third black, even under its foot.
+            let under = p.pixmap.pixel(250, 401).unwrap().alpha();
+            assert!(under <= 90, "{shadow:?}: {under}");
+            // And nothing is painted past its reach.
+            let past = 400 + below.ceil() as u32 + 1;
+            assert_eq!(p.pixmap.pixel(250, past).unwrap().alpha(), 0, "{shadow:?}");
+            let past = 400 + side.ceil() as u32 + 1;
+            assert_eq!(p.pixmap.pixel(past, 250).unwrap().alpha(), 0, "{shadow:?}");
+        }
     }
 }

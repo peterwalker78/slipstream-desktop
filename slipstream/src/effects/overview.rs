@@ -173,7 +173,7 @@ impl Overview {
         }
         let painted = self.hints.get(&key)?;
         let above = if name.is_some() {
-            4.0 + 24.0
+            ROOM as f64 + 24.0
         } else {
             painted.logical.h as f64 / 2.0
         };
@@ -345,6 +345,9 @@ impl Overview {
     }
 }
 
+/// Room round a hint for its shadow.
+const ROOM: f32 = 8.0;
+
 fn paint_hint(label: &str, name: Option<&str>, scale: f64, accent: u32) -> Option<Painted> {
     let small = name.is_none();
     let (box_h, px) = if small { (34.0, 22.0) } else { (48.0, 34.0) };
@@ -358,28 +361,29 @@ fn paint_hint(label: &str, name: Option<&str>, scale: f64, accent: u32) -> Optio
         .map_or(0.0, |name| text::width(name, &caption));
     let w = box_w.max(name_w + 12.0).ceil();
     let h = if small { box_h } else { box_h + 6.0 + 22.0 };
-    Painted::new(Size::from((w as i32 + 8, h as i32 + 8)), scale, |p| {
-        let x = 4.0 + (w - box_w) / 2.0;
-        p.shadow(x, 4.0, box_w, box_h, 10.0, 6.0, 16.0, 0x00000099);
-        p.fill(x, 4.0, box_w, box_h, 10.0, panel::CHIP | 0xee);
-        p.border(x, 4.0, box_w, box_h, 10.0, 2.0, accent);
+    let room = 2 * ROOM as i32;
+    Painted::new(Size::from((w as i32 + room, h as i32 + room)), scale, |p| {
+        let x = ROOM + (w - box_w) / 2.0;
+        p.shadow(x, ROOM, box_w, box_h, 10.0, crate::paint::Shadow::CHIP);
+        p.fill(x, ROOM, box_w, box_h, 10.0, panel::CHIP | 0xee);
+        p.border(x, ROOM, box_w, box_h, 10.0, 2.0, accent);
         p.text(
             label,
             x + (box_w - letter_w) / 2.0,
-            4.0 + box_h / 2.0,
+            ROOM + box_h / 2.0,
             &letter,
         );
         if let Some(name) = &name {
-            let x = 4.0 + (w - name_w - 12.0) / 2.0;
+            let x = ROOM + (w - name_w - 12.0) / 2.0;
             p.fill(
                 x,
-                4.0 + box_h + 6.0,
+                ROOM + box_h + 6.0,
                 name_w + 12.0,
                 22.0,
                 4.0,
                 panel::CHIP | 0xcc,
             );
-            p.text(name, x + 6.0, 4.0 + box_h + 6.0 + 11.0, &caption);
+            p.text(name, x + 6.0, ROOM + box_h + 6.0 + 11.0, &caption);
         }
     })
 }

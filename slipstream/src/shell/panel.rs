@@ -130,7 +130,7 @@ pub fn glass(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
 /// Large panels' card: their glass, its edge, and the soft shadow under it.
 const PANEL_CARD: crate::paint::CardStyle = crate::paint::CardStyle {
     radius: 18.0,
-    shadow: (16.0, 64.0, 0x00000048),
+    shadow: crate::paint::Shadow::PANEL,
     fill: GLASS,
     edge: GLASS_EDGE,
 };
@@ -144,9 +144,6 @@ pub const GLASS_EDGE: u32 = 0xffffff1c;
 pub const NOTICE: u32 = 0x141925ff;
 pub const NOTICE_EDGE: u32 = 0xffffff18;
 pub const NOTICE_RADIUS: f32 = 12.0;
-/// How far a notice's shadow reaches past its card: down by its offset and out by half its blur.
-/// Soft and faint, as current desktops' popups are: the card's edge does the separating.
-pub const NOTICE_SHADOW: (f32, f32, u32) = (10.0, 40.0, 0x00000040);
 pub const NOTICE_MARGIN: f32 = 48.0;
 
 /// Text that teaches a key or says something quietly: 6.4:1 on the glass, 5.4:1 in a quiet
@@ -244,8 +241,7 @@ pub fn app_placeholder(
 
 /// A notice's card, `w` × `h` at (`x`, `y`), with its shadow.
 pub fn notice(p: &mut Painter, x: f32, y: f32, w: f32, h: f32) {
-    let (dy, blur, shadow) = NOTICE_SHADOW;
-    p.shadow(x, y, w, h, NOTICE_RADIUS, dy, blur, shadow);
+    p.shadow(x, y, w, h, NOTICE_RADIUS, crate::paint::Shadow::CARD);
     p.fill(x, y, w, h, NOTICE_RADIUS, NOTICE);
     p.border(x, y, w, h, NOTICE_RADIUS, 1.0, NOTICE_EDGE);
 }
@@ -458,6 +454,14 @@ impl Slipstream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panels_and_notices_have_room_for_their_whole_shadow() {
+        let (side, above, below) = PANEL_CARD.shadow.reach();
+        assert!(side.max(above) <= MARGIN && below <= MARGIN + BELOW);
+        let (side, above, below) = crate::paint::Shadow::CARD.reach();
+        assert!(side.max(above).max(below) <= NOTICE_MARGIN);
+    }
 
     /// WCAG's contrast ratio between two colours, 0xRRGGBBAA, the alpha ignored.
     fn contrast(a: u32, b: u32) -> f64 {

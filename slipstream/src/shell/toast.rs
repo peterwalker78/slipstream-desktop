@@ -190,8 +190,7 @@ pub fn paint_card(
     };
     let prose = prose();
     let radius = panel::NOTICE_RADIUS;
-    let (dy, blur, shadow) = panel::NOTICE_SHADOW;
-    p.shadow(x, y, width, height, radius, dy, blur, shadow);
+    p.shadow(x, y, width, height, radius, crate::paint::Shadow::CARD);
     p.fill(x, y, width, height, radius, accent);
     p.fill(x + 4.0, y, width - 4.0, height, radius - 3.0, panel::NOTICE);
     p.border(x, y, width, height, radius, 1.0, panel::NOTICE_EDGE);

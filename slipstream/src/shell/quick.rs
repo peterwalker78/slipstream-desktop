@@ -737,9 +737,7 @@ fn paint_slider(
         16.0,
         16.0,
         8.0,
-        1.0,
-        3.0,
-        0x00000088,
+        crate::paint::Shadow::CHIP,
     );
     p.fill(knob - 8.0, centre - 8.0, 16.0, 16.0, 8.0, 0xffffffff);
     let value = if muted {

@@ -386,17 +386,13 @@ const TIPS_RINGS: i32 = 7;
 
 const TIPS_RING_STEP: f32 = 1.6;
 
-/// How far a floating window's shadow reaches beyond it, in logical pixels.
-const SHADOW_MARGIN: i32 = 36;
+/// Room round a floating window for its shadow, in logical pixels.
+const SHADOW_MARGIN: i32 = 50;
 /// Half the square the shadow is painted round, past the shadow's rounded corners, so the middle
 /// of each side is straight.
 const SHADOW_HALF: i32 = 12;
-/// The shadow floating windows and the docked pane cast: its corners, and how far down it falls
-/// and how soft it is, as CSS's `box-shadow: 0 10px 40px`.
+/// The corners of the box floating windows and the docked pane cast their shadow from.
 const SHADOW_RADIUS: f32 = 7.0;
-const SHADOW_DROP: f32 = 10.0;
-const SHADOW_BLUR: f32 = 40.0;
-const SHADOW_COLOUR: u32 = 0x00000040;
 
 /// A floating window's shadow round a square `2 * SHADOW_HALF + 1` logical pixels across, with
 /// `SHADOW_MARGIN` of room all round. The square itself is left clear, so a see-through window
@@ -405,16 +401,7 @@ fn paint_window_shadow(scale: f64) -> Option<paint::Painted> {
     let side = 2 * (SHADOW_MARGIN + SHADOW_HALF) + 1;
     paint::Painted::new(Size::from((side, side)), scale, |p| {
         let (m, core) = (SHADOW_MARGIN as f32, (2 * SHADOW_HALF + 1) as f32);
-        p.shadow(
-            m,
-            m,
-            core,
-            core,
-            SHADOW_RADIUS,
-            SHADOW_DROP,
-            SHADOW_BLUR,
-            SHADOW_COLOUR,
-        );
+        p.shadow(m, m, core, core, SHADOW_RADIUS, paint::Shadow::WINDOW);
         p.clear(m, m, core, core);
     })
 }
@@ -450,16 +437,7 @@ fn paint_dock_frame(
         // Drawn from well above the pane, so the corners rounded off are the lower two.
         let (x, y) = (m - edge, m - 2.0 * DOCK_RADIUS);
         let (wide, tall) = (w + 2.0 * edge, h + edge + 2.0 * DOCK_RADIUS);
-        p.shadow(
-            x,
-            y,
-            wide,
-            tall,
-            DOCK_RADIUS,
-            SHADOW_DROP,
-            SHADOW_BLUR,
-            SHADOW_COLOUR,
-        );
+        p.shadow(x, y, wide, tall, DOCK_RADIUS, paint::Shadow::WINDOW);
         p.fill(x, y, wide, tall, DOCK_RADIUS, fill);
         p.border(x, y, wide, tall, DOCK_RADIUS, 1.0, line);
         p.clear(0.0, 0.0, logical.w as f32, m - edge);
@@ -678,4 +656,17 @@ pub(super) fn paint_tips(scale: f64, key: &str, glow: u32) -> Option<(Pixmap, Si
     x += p.keycap(TIPS_UNDER_KEY, x, under_centre) + TIPS_UNDER_SPACE;
     p.text(TIPS_UNDER.1, x, under_centre, &under);
     Some((p.pixmap, size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_shadow_fits_the_room_painted_round_it() {
+        let (side, above, below) = paint::Shadow::WINDOW.reach();
+        let margin = SHADOW_MARGIN as f32;
+        assert!(side <= margin && above <= margin && below <= margin);
+        assert!(below <= DOCK_MARGIN as f32);
+    }
 }

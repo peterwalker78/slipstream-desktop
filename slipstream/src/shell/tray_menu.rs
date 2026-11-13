@@ -72,7 +72,7 @@ pub fn confirm_length(reduced_motion: bool) -> f64 {
 /// The small surfaces' look, a little lighter than the centre's glass so it stands off it.
 const CARD: CardStyle = CardStyle {
     radius: 12.0,
-    shadow: (10.0, 34.0, 0x0000006e),
+    shadow: crate::paint::Shadow::CARD,
     fill: panel::NOTICE,
     edge: 0xffffff1e,
 };
@@ -1171,6 +1171,12 @@ fn opening(since: f64, reduced_motion: bool) -> (f32, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_menu_card_has_room_for_its_whole_shadow() {
+        let (side, above, below) = CARD.shadow.reach();
+        assert!(side.max(above).max(below) <= MARGIN + 0.01);
+    }
     use crate::tray::menu::tests::{labelled, layout, node, separator};
     use zbus::zvariant::Value;
 
