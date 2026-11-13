@@ -31,7 +31,7 @@ wanted() {
 
 user=weigher
 settle=120
-sample=60
+sample=300
 
 # ---------------------------------------------------------------------------------------------
 # Inside the machine, as root.
