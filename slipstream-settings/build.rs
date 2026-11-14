@@ -202,6 +202,7 @@ const PARTS: &[(&str, &[&str])] = &[
             "settings",
             "appearance",
             "portal",
+            "portal_units",
         ],
     ),
 ];
