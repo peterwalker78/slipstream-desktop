@@ -110,7 +110,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use smithay::reexports::{
@@ -256,15 +256,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|err| err.error)?;
     }
 
-    let started = Instant::now();
     let heartbeat = Arc::new(AtomicU64::new(0));
     if hardware {
-        start_watchdog(heartbeat.clone(), started);
+        start_watchdog(heartbeat.clone());
     }
 
     // Wakes at least once a second, so the watchdog can tell idle from stuck.
     event_loop.run(Some(Duration::from_secs(1)), &mut state, move |state| {
-        heartbeat.store(started.elapsed().as_secs(), Ordering::Relaxed);
+        heartbeat.fetch_add(1, Ordering::Relaxed);
         pass(state);
     })?;
 
@@ -561,13 +560,28 @@ fn pass(state: &mut Slipstream) {
 
 /// Quits if the event loop stops turning. On real hardware a frozen compositor leaves only the
 /// power button; quitting brings the login screen back.
-fn start_watchdog(heartbeat: Arc<AtomicU64>, started: Instant) {
+///
+/// It counts its own looks rather than reading a clock: some kernels count the time asleep in
+/// the monotonic clock, so after a night shut a clock says the loop missed hours, and the
+/// watchdog could look before the loop's first pass awake. A sleep is one look whatever its
+/// length, so the loop always gets its full time to come back.
+fn start_watchdog(heartbeat: Arc<AtomicU64>) {
     const STUCK_SECS: u64 = 15;
+    const LOOK_SECS: u64 = 5;
     std::thread::spawn(move || {
+        let mut seen = heartbeat.load(Ordering::Relaxed);
+        let mut still = 0;
         loop {
-            std::thread::sleep(Duration::from_secs(5));
-            let last = heartbeat.load(Ordering::Relaxed);
-            if started.elapsed().as_secs().saturating_sub(last) > STUCK_SECS {
+            std::thread::sleep(Duration::from_secs(LOOK_SECS));
+            let now = heartbeat.load(Ordering::Relaxed);
+            if now == seen {
+                still += 1;
+            } else {
+                seen = now;
+                still = 0;
+            }
+            // Unchanged for `still` looks means stuck for at least `still * LOOK_SECS` seconds.
+            if still * LOOK_SECS > STUCK_SECS {
                 tracing::error!(
                     "the event loop has been stuck for over {STUCK_SECS} seconds; quitting so the \
                      login screen comes back"
