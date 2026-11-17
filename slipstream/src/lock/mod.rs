@@ -745,8 +745,19 @@ impl Slipstream {
     /// Something logind said about this session.
     pub fn logind_event(&mut self, event: crate::logind::Event) {
         use crate::logind::{Event, Response};
-        if matches!(event, Event::Sleep(true)) {
-            self.end_awake();
+        match &event {
+            Event::Sleep(true) => {
+                self.end_awake();
+                self.idle.going_to_sleep();
+            }
+            Event::Sleep(false) => {
+                self.idle.woke(std::time::Instant::now());
+                let now = self.wall();
+                if let Some(card) = self.battery.card.as_mut() {
+                    card.restart(now);
+                }
+            }
+            _ => {}
         }
         match crate::logind::respond(&event, self.settings.lock.before_sleep) {
             Response::Lock => {

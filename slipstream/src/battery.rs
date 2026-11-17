@@ -103,6 +103,12 @@ impl LowCard {
         now - self.since >= COUNTDOWN
     }
 
+    /// The countdown from the start again, for a machine that has just woken: the sleep counted
+    /// for nothing, and whoever opened the lid gets the whole minute.
+    pub fn restart(&mut self, now: f64) {
+        self.since = now;
+    }
+
     pub fn key(&self, sym: Keysym, now: f64) -> Act {
         if now - self.since < DEAF {
             return Act::Nothing;
@@ -277,7 +283,7 @@ impl Slipstream {
                 self.close_panels();
                 self.battery.card = Some(LowCard::new(percent, left, now));
             }
-            Some(card) if card.due(now) => {
+            Some(card) if card.due(now) && !self.idle.asleep() => {
                 self.put_low_card_away();
                 self.battery.slept_at = Some(percent);
                 tracing::info!(percent, "battery critical: sleeping");
@@ -354,6 +360,16 @@ mod tests {
             Stage::Fine,
             "charging is always fine"
         );
+    }
+
+    #[test]
+    fn waking_gives_the_countdown_its_whole_minute_again() {
+        let mut card = LowCard::new(4, None, 100.0);
+        let woke = 100.0 + 8.0 * 3600.0;
+        assert!(card.due(woke), "a night counted in the clock");
+        card.restart(woke);
+        assert!(!card.due(woke + COUNTDOWN - 1.0));
+        assert!(card.due(woke + COUNTDOWN));
     }
 
     #[test]

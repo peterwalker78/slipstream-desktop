@@ -68,6 +68,11 @@ pub struct Idle {
     locked_when_looked: bool,
     /// The UI's opacity held for a debug step, whatever the fade is doing.
     pub pinned: Option<f64>,
+    /// From logind saying the machine is going to sleep until it says it's awake, or the first
+    /// input. Some kernels count the time asleep in the monotonic clock, so a wait read across
+    /// a night shut would say hours had passed: none of them is due in that gap, and waking
+    /// starts them again (`woke`).
+    asleep: bool,
 }
 
 impl Idle {
@@ -91,6 +96,7 @@ impl Idle {
             screen_off_after: None,
             locked_when_looked: false,
             pinned: None,
+            asleep: false,
         }
     }
 
@@ -103,6 +109,9 @@ impl Idle {
     /// and nothing has held it off in that time — `held` (Awake, or a fullscreen window) or an app
     /// asking for the screen to stay awake.
     pub fn lock_due(&mut self, now: Instant, held: bool) -> bool {
+        if self.asleep {
+            return false;
+        }
         if held || self.apps_hold() {
             self.lock_idle_since = now;
             return false;
@@ -120,6 +129,9 @@ impl Idle {
     /// lock. The lock screen turns them off after `LOCKED_SCREEN_OFF`, counted from when it came
     /// up, whatever the setting: nobody is reading it.
     pub fn screen_off_due(&mut self, now: Instant, held: bool, locked: bool) -> bool {
+        if self.asleep {
+            return false;
+        }
         if locked != self.locked_when_looked {
             self.locked_when_looked = locked;
             self.screen_idle_since = now;
@@ -163,6 +175,26 @@ impl Idle {
         self.holds = holds;
     }
 
+    /// The machine is going to sleep: no wait falls due until it wakes.
+    pub fn going_to_sleep(&mut self) {
+        self.asleep = true;
+    }
+
+    /// The machine has woken: every wait starts again from `now`, as though a key had been
+    /// pressed, so opening the lid gets the lock screen's full minute and the full waits
+    /// before fading or locking. A faded UI stays faded until real input.
+    pub fn woke(&mut self, now: Instant) {
+        self.asleep = false;
+        self.last_input = now;
+        self.lock_idle_since = now;
+        self.screen_idle_since = now;
+    }
+
+    /// Between going to sleep and waking.
+    pub fn asleep(&self) -> bool {
+        self.asleep
+    }
+
     /// Starts the wait before locking again, as input does.
     pub fn restart_lock_wait(&mut self, now: Instant) {
         self.lock_idle_since = now;
@@ -189,6 +221,8 @@ impl Idle {
     /// Something was pressed or moved. Returns true if the UI was faded out, so this input only
     /// brings it back and shouldn't reach anything.
     pub fn input(&mut self, now: f64) -> bool {
+        // Someone at the keys is proof enough of being awake, should logind's word go astray.
+        self.asleep = false;
         self.last_input = Instant::now();
         self.lock_idle_since = self.last_input;
         self.screen_idle_since = self.last_input;
@@ -251,9 +285,10 @@ impl Idle {
             if self.faded {
                 self.show(now);
             }
-        } else if self
-            .timeout
-            .is_some_and(|timeout| self.last_input.elapsed() >= timeout)
+        } else if !self.asleep
+            && self
+                .timeout
+                .is_some_and(|timeout| self.last_input.elapsed() >= timeout)
         {
             self.fade(now);
         }
@@ -327,6 +362,47 @@ pub fn holders(holds: &Holds, mut name_of: impl FnMut(&str) -> String) -> Vec<Ho
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_night_asleep_counts_for_none_of_the_waits() {
+        let start = Instant::now();
+        let mut idle = Idle::new(false, 120);
+        idle.set_lock_after(5);
+        idle.set_screen_off_after(10);
+        idle.lock_idle_since = start;
+        idle.screen_idle_since = start;
+        // The lid shuts on the lock screen.
+        assert!(!idle.screen_off_due(start, false, true), "just locked");
+        idle.going_to_sleep();
+        // Some kernels count the night in the monotonic clock.
+        let woke = start + Duration::from_secs(8 * 3600);
+        assert!(!idle.lock_due(woke, false), "asleep, nothing is due");
+        assert!(!idle.screen_off_due(woke, false, true));
+
+        idle.woke(woke);
+        assert!(!idle.asleep());
+        assert!(
+            !idle.screen_off_due(woke, false, true),
+            "the lid opens on a lit lock screen"
+        );
+        assert!(!idle.screen_off_due(woke + Duration::from_secs(59), false, true));
+        assert!(
+            idle.screen_off_due(woke + Duration::from_secs(60), false, true),
+            "for the full minute"
+        );
+        assert!(!idle.lock_due(woke + Duration::from_secs(4 * 60), false));
+        assert!(idle.lock_due(woke + Duration::from_secs(5 * 60), false));
+    }
+
+    #[test]
+    fn input_ends_the_sleep_if_the_wake_never_came() {
+        let mut idle = Idle::new(false, 120);
+        idle.set_lock_after(5);
+        idle.going_to_sleep();
+        idle.input(0.0);
+        assert!(!idle.asleep());
+        assert!(idle.lock_due(Instant::now() + Duration::from_secs(5 * 60), false));
+    }
 
     #[test]
     fn the_screens_go_off_after_their_wait_and_sooner_on_the_lock_screen() {
