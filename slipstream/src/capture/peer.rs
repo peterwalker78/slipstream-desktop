@@ -311,7 +311,7 @@ mod tests {
     fn a_root_with_flatpak_info_is_a_sandbox() {
         use rustix::fs::{Mode, OFlags};
         use std::os::unix::fs::PermissionsExt;
-        let dir = crate::files::test_scratch("cap-roots");
+        let dir = slipstream_config::scratch::Scratch::new("cap-roots");
         let root = |name: &str| {
             let path = dir.join(name);
             std::fs::create_dir(&path).unwrap();

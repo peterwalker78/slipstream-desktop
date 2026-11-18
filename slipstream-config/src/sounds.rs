@@ -545,12 +545,8 @@ mod tests {
         std::fs::read_to_string(path).ok()
     }
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("slipstream-sounds-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("sounds-{name}"))
     }
 
     fn theme(base: &Path, name: &str, index: &str, sounds: &[&str]) {
@@ -613,7 +609,6 @@ mod tests {
             Some(system.join("freedesktop/stereo/complete.oga")),
             "a missing theme still reaches freedesktop"
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -621,7 +616,7 @@ mod tests {
         let root = scratch("disabled");
         theme(&root, "freedesktop", STEREO, &["bell.oga", "complete.oga"]);
         theme(&root, "quiet", STEREO, &["bell.disabled"]);
-        let bases = [root.clone()];
+        let bases = [root.to_path_buf()];
         assert_eq!(
             find("bell", "quiet", &bases, &read),
             None,
@@ -638,7 +633,6 @@ mod tests {
             "a bad theme name is skipped, not followed"
         );
         assert_eq!(find("", "quiet", &bases, &read), None);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -649,14 +643,10 @@ mod tests {
         theme(&root, "a", &inherits("b"), &[]);
         theme(&root, "b", &inherits("a"), &["found.oga"]);
         assert_eq!(
-            find("found", "a", std::slice::from_ref(&root), &read),
+            find("found", "a", &[root.to_path_buf()], &read),
             Some(root.join("b/stereo/found.oga"))
         );
-        assert_eq!(
-            find("missing", "a", std::slice::from_ref(&root), &read),
-            None
-        );
-        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(find("missing", "a", &[root.to_path_buf()], &read), None);
     }
 
     #[test]

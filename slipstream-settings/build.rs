@@ -132,7 +132,6 @@ const PARTS: &[(&str, &[&str])] = &[
             "edit",
             "media",
             "battery",
-            "files",
             "concentration",
         ],
     ),

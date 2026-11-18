@@ -108,6 +108,8 @@ mod input;
 pub mod localtime;
 mod pages;
 pub mod plugins;
+#[cfg(any(test, feature = "test-scratch"))]
+pub mod scratch;
 pub mod screens;
 pub mod shortcuts;
 pub mod sounds;

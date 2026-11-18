@@ -703,8 +703,7 @@ mod tests {
 
     #[test]
     fn lineage_walks_up_to_init_and_stops_at_a_loop_or_a_gap() {
-        let proc = std::env::temp_dir().join(format!("slipstream-lineage-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&proc);
+        let proc = slipstream_config::scratch::Scratch::new("lineage");
         let process = |pid: u32, parent: u32| {
             let dir = proc.join(pid.to_string());
             std::fs::create_dir_all(&dir).unwrap();
@@ -723,7 +722,6 @@ mod tests {
         process(501, 502);
         process(502, 501);
         assert_eq!(lineage(&proc, 501), [501, 502]);
-        std::fs::remove_dir_all(proc).unwrap();
     }
 
     #[test]

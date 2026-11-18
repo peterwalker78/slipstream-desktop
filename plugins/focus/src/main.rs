@@ -399,11 +399,7 @@ mod tests {
     #[test]
     fn a_log_that_couldn_t_be_written_says_so_until_it_can() {
         use super::{ended, timer};
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/test-scratch")
-            .join(format!("focus-log-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = slipstream_config::scratch::Scratch::new("focus-log");
         let focus = timer::Finished {
             kind: timer::Kind::Focus,
             started: 0,
@@ -440,7 +436,6 @@ mod tests {
             lines[2..].iter().all(|line| line.starts_with("- ")),
             "{text:?}"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Whatever it presses is something it acts on: its card's buttons, its tile, its answers

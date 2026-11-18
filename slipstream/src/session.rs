@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn writing_and_reading_it_back_gives_the_same_record() {
-        let dir = crate::files::test_scratch("session");
+        let dir = slipstream_config::scratch::Scratch::new("session");
         let path = dir.join(FILE_NAME);
         let record = Record::new(1, vec![Win::default()], Vec::new());
         write(&path, &record).unwrap();

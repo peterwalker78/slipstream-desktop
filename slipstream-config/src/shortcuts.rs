@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn what_is_written_reads_back_the_same() {
-        let dir = std::env::temp_dir().join(format!("slipstream-shortcuts-{}", std::process::id()));
+        let dir = crate::scratch::Scratch::new("shortcuts");
         let file = dir.join(FILE_NAME);
         write(&file, &talk()).unwrap();
         assert_eq!(read(&file), talk());
@@ -196,7 +196,6 @@ mod tests {
                 .unwrap()
                 .starts_with("# Shortcuts apps")
         );
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

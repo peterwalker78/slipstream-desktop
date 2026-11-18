@@ -927,7 +927,7 @@ mod tests {
         assert!(!run_label("htop -d 5", false).0);
         assert!(run_label("https://example.org", false).0);
         // The look-up itself: a program file in a made-up folder.
-        let dir = crate::files::test_scratch("run-label");
+        let dir = slipstream_config::scratch::Scratch::new("run-label");
         let tool = dir.join("tool");
         std::fs::write(&tool, "#!/bin/sh\n").unwrap();
         use std::os::unix::fs::PermissionsExt;

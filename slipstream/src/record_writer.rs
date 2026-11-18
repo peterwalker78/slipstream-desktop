@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn the_last_change_sent_is_what_stays() {
-        let dir = crate::files::test_scratch("record-writer");
+        let dir = slipstream_config::scratch::Scratch::new("record-writer");
         let path = dir.join("session.toml");
         let mut writer = Writer::default();
         let mut record = Record::default();

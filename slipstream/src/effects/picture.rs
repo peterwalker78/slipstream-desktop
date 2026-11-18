@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn a_missing_or_broken_picture_leaves_the_living_wallpaper() {
-        let dir = crate::files::test_scratch("picture");
+        let dir = slipstream_config::scratch::Scratch::new("picture");
         assert!(read(&dir.join("none.png")).is_none());
         let broken = dir.join("broken.png");
         std::fs::write(&broken, b"not a picture").unwrap();

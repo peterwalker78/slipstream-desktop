@@ -274,16 +274,8 @@ fn unseal(folder: std::os::fd::OwnedFd, depth: usize) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("store-{name}-{}", std::process::id()));
-        let _ = remove_tree(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("store-{name}"))
     }
 
     fn timer(root: &Path, program: &str) -> Plugin {

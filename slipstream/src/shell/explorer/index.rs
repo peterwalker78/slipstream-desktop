@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn the_walk_skips_hidden_cache_and_deep_folders() {
-        let home = crate::files::test_scratch("explorer-index");
+        let home = slipstream_config::scratch::Scratch::new("explorer-index");
         let deep = home.join("a/b/c/d/e");
         fs::create_dir_all(&deep).unwrap();
         for file in [
@@ -238,7 +238,7 @@ mod tests {
         }
         std::os::unix::fs::symlink(&home, home.join("loop")).unwrap();
         let index = walk(&home);
-        assert_eq!(index.root, home);
+        assert_eq!(index.root, *home);
         let names: Vec<String> = index
             .entries
             .iter()

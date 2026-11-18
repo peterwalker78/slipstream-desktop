@@ -153,12 +153,12 @@ mod tests {
 
     /// A process table and a notes folder in a scratch folder.
     struct Machine {
-        root: PathBuf,
+        root: slipstream_config::scratch::Scratch,
     }
 
     impl Machine {
         fn new(name: &str) -> Self {
-            let root = crate::files::test_scratch(name);
+            let root = slipstream_config::scratch::Scratch::new(name);
             fs::create_dir_all(root.join("proc")).unwrap();
             fs::create_dir_all(root.join("notes")).unwrap();
             fs::write(root.join("proc/stat"), format!("cpu 1 2 3\nbtime {BOOT}\n")).unwrap();

@@ -341,17 +341,8 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// A folder of its own for one test, under the workspace's `target/test-scratch`.
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("approval-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("approval-{name}"))
     }
 
     fn timer(root: &Path, manifest: &str, program: &str) -> Plugin {

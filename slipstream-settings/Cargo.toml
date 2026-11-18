@@ -12,3 +12,7 @@ rust-version = "1.92"
 slipstream-config.workspace = true
 gtk4.workspace = true
 pango.workspace = true
+
+[dev-dependencies]
+# Tests' scratch folders, removed when each test ends.
+slipstream-config = { workspace = true, features = ["test-scratch"] }

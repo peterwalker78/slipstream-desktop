@@ -176,12 +176,8 @@ fn bases() -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("slipstream-alert-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> slipstream_config::scratch::Scratch {
+        slipstream_config::scratch::Scratch::new(&format!("alert-{name}"))
     }
 
     #[test]
@@ -213,7 +209,6 @@ mod tests {
         assert!(!playable(Path::new("/dev/zero")), "a device");
         assert!(!playable(Path::new("ping.wav")), "relative");
         assert!(!playable(&root.join("missing.wav")));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

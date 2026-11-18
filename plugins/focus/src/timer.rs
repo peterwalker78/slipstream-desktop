@@ -400,15 +400,11 @@ mod tests {
         state.new_day("2026-10-27", 86_400);
         assert_eq!(state.today, 0);
 
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/test-scratch")
-            .join(format!("focus-state-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = slipstream_config::scratch::Scratch::new("focus-state");
         let path = dir.join("state.json");
         state.ask(Ask::Start(Kind::Focus, 50), 0, &mut Keyboard::default());
         state.save(&path).unwrap();
         assert_eq!(State::load(&path), state);
         assert_eq!(State::load(&dir.join("none.json")), State::default());
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

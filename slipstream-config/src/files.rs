@@ -74,7 +74,7 @@ fn refused(why: &'static str) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::CString, os::unix::ffi::OsStrExt, path::PathBuf, sync::mpsc, time::Duration};
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, sync::mpsc, time::Duration};
 
     use super::*;
 
@@ -90,18 +90,8 @@ mod tests {
             .expect("the read should return at once")
     }
 
-    /// An empty folder for one test, under the workspace's `target/test-scratch` rather than the
-    /// system's temporary folder, which is memory on some machines.
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("files-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("files-{name}"))
     }
 
     #[test]

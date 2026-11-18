@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn a_png_loads_scaled_into_its_square() {
-        let dir = crate::files::test_scratch("paint");
+        let dir = slipstream_config::scratch::Scratch::new("paint");
         let path = dir.join("red.png");
         let file = std::fs::File::create(&path).unwrap();
         let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 4, 2);
@@ -1264,5 +1264,17 @@ mod layer_tests {
             let past = 400 + side.ceil() as u32 + 1;
             assert_eq!(p.pixmap.pixel(past, 250).unwrap().alpha(), 0, "{shadow:?}");
         }
+    }
+
+    #[test]
+    fn a_device_that_never_ends_is_no_image() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(load_image(std::path::Path::new("/dev/zero"), 16).is_some());
+        });
+        let image = receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the read should return at once");
+        assert!(!image);
     }
 }

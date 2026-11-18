@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn one_owner_at_a_time() {
-        let dir = crate::files::test_scratch("owner");
+        let dir = slipstream_config::scratch::Scratch::new("owner");
         let first = OwnerLock::take(&dir).unwrap().expect("the first takes it");
         // A second open of the same file, as a second compositor would make.
         assert!(

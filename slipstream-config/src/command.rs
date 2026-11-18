@@ -497,12 +497,8 @@ mod tests {
         })
     }
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("slipstream-command-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join(name);
-        let _ = std::fs::remove_file(&file);
-        file
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("command-{name}"))
     }
 
     #[test]
@@ -535,7 +531,8 @@ mod tests {
 
     #[test]
     fn a_timed_out_run_takes_everything_it_started_with_it() {
-        let file = scratch("timed-out");
+        let dir = scratch("timed-out");
+        let file = dir.join("pid");
         let script = format!("sleep 30 & echo $! > '{}'; wait", file.display());
         assert_eq!(run(sh(&script), Duration::from_millis(300)), Run::TimedOut);
         assert!(gone_soon(pid_in(&file)), "the sleep it started was ended");
@@ -560,7 +557,8 @@ mod tests {
         });
         assert!(started.elapsed() < Duration::from_secs(5));
 
-        let file = scratch("left-behind");
+        let dir = scratch("left-behind");
+        let file = dir.join("pid");
         let script = format!(
             "sleep 30 >/dev/null & echo $! > '{}'; echo done",
             file.display()
@@ -574,7 +572,8 @@ mod tests {
 
     #[test]
     fn lines_arrive_one_by_one_and_ending_them_ends_the_whole_group() {
-        let file = scratch("lines");
+        let dir = scratch("lines");
+        let file = dir.join("pid");
         let script = format!(
             "sleep 30 & echo $! > '{}'; echo one; echo two; while :; do sleep 1; done",
             file.display()

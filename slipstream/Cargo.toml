@@ -52,5 +52,7 @@ features = [
 ]
 
 [dev-dependencies]
+# Tests' scratch folders, removed when each test ends.
+slipstream-config = { workspace = true, features = ["test-scratch"] }
 # Both ends of one bus connection, with no bus, for the tray's tests.
 zbus = { workspace = true, features = ["p2p"] }

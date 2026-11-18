@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# `scratch::Scratch`, folders for the workspace's tests. Asked for only by dev-dependencies.
+test-scratch = []
+
 [dependencies]
 # Stopping a command's whole process group (`command.rs`).
 libc.workspace = true

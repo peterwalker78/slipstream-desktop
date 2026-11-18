@@ -418,10 +418,7 @@ mod tests {
     /// plugin doesn't run.
     #[test]
     fn a_folder_swapped_for_a_link_once_checked_is_refused() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../target/test-scratch")
-            .join(format!("sandbox-swap-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::scratch::Scratch::new("sandbox-swap");
         std::fs::create_dir_all(root.join("notes")).unwrap();
         std::fs::create_dir_all(root.join("elsewhere")).unwrap();
         let real = std::fs::canonicalize(root.join("notes")).unwrap();

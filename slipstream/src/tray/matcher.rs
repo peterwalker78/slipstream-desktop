@@ -351,16 +351,14 @@ mod tests {
         );
     }
 
-    /// A made-up `/proc` under `target/test-scratch`, where this test process's own pid has
-    /// `cgroup` and `root` as given, so it can be held by a pidfd like a real one.
-    fn fake_proc(name: &str, cgroup: &str, flatpak_info: Option<&str>) -> std::path::PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let proc = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("matcher-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&proc);
+    /// A made-up `/proc` in a scratch folder, where this test process's own pid has `cgroup` and
+    /// `root` as given, so it can be held by a pidfd like a real one.
+    fn fake_proc(
+        name: &str,
+        cgroup: &str,
+        flatpak_info: Option<&str>,
+    ) -> slipstream_config::scratch::Scratch {
+        let proc = slipstream_config::scratch::Scratch::new(&format!("matcher-{name}"));
         let pid = proc.join(std::process::id().to_string());
         std::fs::create_dir_all(pid.join("root")).unwrap();
         std::fs::write(pid.join("cgroup"), cgroup).unwrap();

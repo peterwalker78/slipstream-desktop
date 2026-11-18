@@ -96,15 +96,8 @@ pub fn shrink(pixels: &[u8], stride: usize, from: (u32, u32), to: (u32, u32)) ->
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("target")
-            .join("test-scratch")
-            .join(format!("{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> slipstream_config::scratch::Scratch {
+        slipstream_config::scratch::Scratch::new(name)
     }
 
     #[test]

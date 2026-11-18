@@ -18,5 +18,5 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-# Its manifest, read as Slipstream reads it.
-slipstream-config.workspace = true
+# Its manifest, read as Slipstream reads it, and tests' scratch folders.
+slipstream-config = { workspace = true, features = ["test-scratch"] }

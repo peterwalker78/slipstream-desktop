@@ -238,7 +238,7 @@ mod tests {
     /// `name` keeps each test's file its own: these run on threads of their own, and one path
     /// shared between them is one test truncating another's table halfway through its read.
     fn table_in_a_file(name: &str, values: &[u16]) -> OwnedFd {
-        let dir = crate::files::test_scratch(name);
+        let dir = slipstream_config::scratch::Scratch::new(name);
         let path = dir.join("table");
         let mut file = std::fs::File::create(&path).unwrap();
         for value in values {

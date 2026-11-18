@@ -27,7 +27,6 @@ mod edit;
 mod effects;
 mod emoji;
 mod fallback;
-mod files;
 mod floating;
 mod focus;
 mod gamma;

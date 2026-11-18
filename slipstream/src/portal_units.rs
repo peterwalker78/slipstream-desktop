@@ -121,16 +121,8 @@ pub fn keep_theme_from_backends() {
 mod tests {
     use super::*;
 
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("portal-units-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> slipstream_config::scratch::Scratch {
+        slipstream_config::scratch::Scratch::new(&format!("portal-units-{name}"))
     }
 
     fn put(path: PathBuf, text: &str) {

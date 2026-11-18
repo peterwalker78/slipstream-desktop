@@ -598,17 +598,8 @@ mod tests {
 
     use super::*;
 
-    /// A scratch folder for one test, on disk under the workspace's `target/test-scratch`.
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("plugins-{name}-{}", std::process::id()));
-        let _ = store::remove_tree(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> slipstream_config::scratch::Scratch {
+        slipstream_config::scratch::Scratch::new(&format!("plugins-{name}"))
     }
 
     /// Plugins looked for in `root/plugins`, kept in `root/stores`, with each look's result

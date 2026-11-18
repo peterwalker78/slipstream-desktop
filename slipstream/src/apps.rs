@@ -920,7 +920,7 @@ Exec=firefox --new-window
 
     #[test]
     fn a_tray_items_own_theme_folder_is_searched_for_that_icon_alone() {
-        let dir = crate::files::test_scratch("theme-path");
+        let dir = slipstream_config::scratch::Scratch::new("theme-path");
         let file = |path: &str| {
             let path = dir.join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();

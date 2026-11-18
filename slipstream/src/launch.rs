@@ -840,7 +840,7 @@ x-scheme-handler/https=chosen.desktop;also-fine.desktop;
 
     #[test]
     fn the_first_settings_app_found_wins() {
-        let root = crate::files::test_scratch("settings-pages");
+        let root = slipstream_config::scratch::Scratch::new("settings-pages");
         let bin = root.join("bin");
         let data = root.join("share");
         let plugins = root.join("plugins");

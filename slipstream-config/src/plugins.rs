@@ -1468,18 +1468,8 @@ mod tests {
 
     use super::*;
 
-    /// A folder of its own for one test, under the workspace's `target/test-scratch`, never in
-    /// `/tmp`, which no plugin may read.
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("plugins-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("plugins-{name}"))
     }
 
     fn plugin(root: &Path, id: &str, manifest: &str) {
@@ -1528,7 +1518,7 @@ mod tests {
         );
         plugin(&shared, "broken", "name = \"\"\nexec = [\"x\"]\n");
         std::fs::create_dir_all(shared.join("bad name")).unwrap();
-        let (found, problems) = find_in(&[own.clone(), shared.clone()], None);
+        let (found, problems) = find_in(&[own.to_path_buf(), shared.to_path_buf()], None);
         let names: Vec<_> = found.iter().map(|p| p.manifest.name.as_str()).collect();
         assert_eq!(names, ["Disk space", "Timer"]);
         assert_eq!(
@@ -2145,7 +2135,7 @@ mod tests {
             .unwrap()
             .set_len(100 << 30)
             .unwrap();
-        let (found, problems) = find_in(std::slice::from_ref(&root), None);
+        let (found, problems) = find_in(&[root.to_path_buf()], None);
         assert!(problems.is_empty(), "{problems:?}");
         let atlas = &found[0];
         assert_eq!(atlas.manifest.name, "Atlas");

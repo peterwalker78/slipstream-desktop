@@ -286,43 +286,22 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
-    /// A folder of its own for one test, removed when it's dropped: under the workspace's
-    /// `target/test-scratch`, not the system's temporary folder, which is memory on some machines.
-    struct Scratch(PathBuf);
+    use crate::scratch::Scratch;
 
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-            let dir = manifest
-                .parent()
-                .unwrap_or(manifest)
-                .join("target/test-scratch")
-                .join(format!("config-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn names(&self) -> Vec<String> {
-            let mut names: Vec<String> = fs::read_dir(&self.0)
-                .unwrap()
-                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            names
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    /// The names in a scratch folder, sorted.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
     fn two_writers_never_share_a_temp_name() {
-        let scratch = Scratch::new("writers");
-        let path = scratch.0.join(FILE_NAME);
+        let scratch = Scratch::new("config-writers");
+        let path = scratch.join(FILE_NAME);
         write(&path, &Settings::default()).unwrap();
         let writer = |fade_after_secs: u64| {
             let path = path.clone();
@@ -344,18 +323,18 @@ mod tests {
         a.join().unwrap();
         b.join().unwrap();
         assert!(reads > 0);
-        assert_eq!(scratch.names(), [FILE_NAME]);
+        assert_eq!(names(&scratch), [FILE_NAME]);
     }
 
     #[test]
     fn a_write_leaves_no_partial_behind() {
-        let scratch = Scratch::new("partial");
-        let path = scratch.0.join(FILE_NAME);
+        let scratch = Scratch::new("config-partial");
+        let path = scratch.join(FILE_NAME);
         // One a writer that died left a while ago, one another writer is working on right now,
         // and another program's file that merely looks like one.
-        let abandoned = scratch.0.join("settings.toml.4242.1.0.partial");
-        let working = scratch.0.join("settings.toml.4343.2.0.partial");
-        let unrelated = scratch.0.join("notes.txt.partial");
+        let abandoned = scratch.join("settings.toml.4242.1.0.partial");
+        let working = scratch.join("settings.toml.4343.2.0.partial");
+        let unrelated = scratch.join("notes.txt.partial");
         for file in [&abandoned, &working, &unrelated] {
             fs::write(file, "half").unwrap();
         }
@@ -370,7 +349,7 @@ mod tests {
         }
         write(&path, &Settings::default()).unwrap();
         assert_eq!(
-            scratch.names(),
+            names(&scratch),
             [
                 "notes.txt.partial",
                 FILE_NAME,
@@ -382,8 +361,8 @@ mod tests {
 
     #[test]
     fn move_aside_keeps_the_bytes() {
-        let scratch = Scratch::new("aside");
-        let path = scratch.0.join(FILE_NAME);
+        let scratch = Scratch::new("config-aside");
+        let path = scratch.join(FILE_NAME);
         let broken = "[wallpaper]\nfade-after-secs = \"soon\"\n[[workspaces.list]]\nid = 1\nname = \"Mail\"\n";
         fs::write(&path, broken).unwrap();
         assert!(read(&path).is_err());
@@ -406,11 +385,11 @@ mod tests {
     #[test]
     fn a_linked_file_keeps_its_link_and_permissions() {
         use std::os::unix::fs::symlink;
-        let scratch = Scratch::new("linked");
-        let real = scratch.0.join("dotfiles-settings.toml");
+        let scratch = Scratch::new("config-linked");
+        let real = scratch.join("dotfiles-settings.toml");
         fs::write(&real, "").unwrap();
         fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).unwrap();
-        let path = scratch.0.join(FILE_NAME);
+        let path = scratch.join(FILE_NAME);
         symlink(&real, &path).unwrap();
         let mut settings = Settings::default();
         settings.wallpaper.fade_after_secs = 30;
@@ -428,8 +407,8 @@ mod tests {
 
     #[test]
     fn a_private_file_is_the_owner_s_alone() {
-        let scratch = Scratch::new("private");
-        let path = scratch.0.join("session.toml");
+        let scratch = Scratch::new("config-private");
+        let path = scratch.join("session.toml");
         fs::write(&path, "").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         replace_private(&path, b"x = 1\n").unwrap();
@@ -439,8 +418,8 @@ mod tests {
 
     #[test]
     fn a_held_lock_keeps_the_next_writer_waiting() {
-        let scratch = Scratch::new("lock");
-        let path = scratch.0.join(FILE_NAME);
+        let scratch = Scratch::new("config-lock");
+        let path = scratch.join(FILE_NAME);
         let held = lock(&path);
         let (sender, receiver) = std::sync::mpsc::channel();
         let waiter = {

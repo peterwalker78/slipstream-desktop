@@ -237,17 +237,8 @@ mod tests {
 
     use super::*;
 
-    /// A folder of its own for one test, under the workspace's `target/test-scratch`.
-    fn scratch(name: &str) -> PathBuf {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = manifest
-            .parent()
-            .unwrap_or(manifest)
-            .join("target/test-scratch")
-            .join(format!("contents-{name}-{}", std::process::id()));
-        let _ = super::super::store::remove_tree(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
+    fn scratch(name: &str) -> crate::scratch::Scratch {
+        crate::scratch::Scratch::new(&format!("contents-{name}"))
     }
 
     #[test]
@@ -285,7 +276,7 @@ mod tests {
         assert!(matches!(contents(&dir), Err(Unchecked::TooBig(_))));
 
         let dir = scratch("deep");
-        let mut deep = dir.clone();
+        let mut deep = dir.to_path_buf();
         for _ in 0..=MOST_DEPTH {
             deep.push("d");
         }
