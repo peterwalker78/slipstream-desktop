@@ -31,6 +31,8 @@ const PARTS: &[(&str, &[&str])] = &[
             "handlers",
             "xwayland",
             "workspace",
+            "look",
+            "state/look",
             "dock",
             "shell/slot",
             "effects/ghost",
