@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **An app can show you another window without taking the keyboard.** The app you're using can ask, over the session bus, to look at the window that holds a process: Slipstream slides to its workspace, raises it and rings it in your focus colour, while your keys still go to the app that asked. It then goes back, or stays with that window. Only the app with the keyboard can ask, and never behind the lock. [How to ask](guide/help.md#showing-another-window-from-your-app).
+
 ## 1.0.0-rc.3 - 2026-11-12
 
 - **Three looks for the bar.** Settings › Appearance picks the focus bar, as before, which quietens while you type; the wind tunnel, frosted glass with smoke drifting down it and a slow laser show in your primary colour sweeping out from the middle, with a rush of air through it as you change workspace; or the floating strip, which sits clear of the screen's edges, lined up with your windows. The wind tunnel holds still once the desktop fades, with reduced motion, and in the Power saver mode.

@@ -113,6 +113,8 @@ pub use protocols::Protocols;
 mod docked;
 mod keyboard_focus;
 mod lifecycle;
+mod look;
+pub use look::Look;
 mod screens;
 mod streams;
 mod ui;
@@ -224,6 +226,8 @@ pub struct Slipstream {
     pub zoom: crate::zoom::Zoom,
     /// Super+D: the workspace it left, and the empty one it went to.
     pub desktop_return: Option<(usize, usize)>,
+    /// Another app showing you a window while it keeps the keyboard (`look.rs`).
+    pub look: Option<Look>,
     /// A gap or a window being dragged with the pointer (`grabs.rs`).
     pub drag: Option<crate::grabs::Drag>,
     /// A tile dragged to swap, lifted and followed by the pointer, with the others drawn where a
@@ -588,6 +592,7 @@ impl Slipstream {
             night: Default::default(),
             clip_answers,
             desktop_return: None,
+            look: None,
             drag: None,
             lift: None,
             drag_retile_due: false,

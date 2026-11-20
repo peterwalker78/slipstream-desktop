@@ -50,6 +50,7 @@ mod lift;
 mod live;
 mod lock;
 mod logind;
+mod look;
 mod media;
 mod motion;
 mod nightlight;
@@ -447,6 +448,10 @@ fn start_services(
     if wanted("SLIPSTREAM_SCREENSAVER") {
         screensaver::serve(channel_into(event_loop, Slipstream::screensaver_event)?);
     }
+    // Where the app you're using asks to show you the window that holds a process.
+    if wanted("SLIPSTREAM_LOOK") {
+        look::serve(channel_into(event_loop, Slipstream::look_event)?);
+    }
     Ok(())
 }
 
@@ -545,6 +550,8 @@ fn pass(state: &mut Slipstream) {
     // Which agents are at work, for the faded desktop's traces.
     state.tick_agents();
     state.drop_dead_streams();
+    // A look at another window ends once the keyboard, the window or the lock says so.
+    state.tick_look();
     state.refresh_pointer_focus();
     // The portal picks windows to share from this list.
     let windows = state.all_open_windows();

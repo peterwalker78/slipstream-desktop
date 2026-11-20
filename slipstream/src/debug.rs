@@ -48,7 +48,9 @@
 //! (take it away again), `sckey:NAME` (a key for the card asking what a new screen should show),
 //! `lid:closed` or `lid:open` (the lid switch), `screens` (each screen, its area and what it
 //! shows, into the log), `windows` (each window's place, its own size and the size it was told,
-//! into the log), `nextscreen`, `movescreen` and `swapscreens` (Super+P, Super+Shift+P and
+//! into the log), `look:PID` or `look:APP-ID` (the app with the keyboard asking to be shown the
+//! window holding a process, as over the session bus) and `lookend:stay` or `lookend:back` (that
+//! look ending), `nextscreen`, `movescreen` and `swapscreens` (Super+P, Super+Shift+P and
 //! Super+Ctrl+P), `share:KINDS` (the screen-sharing picker, as the portal would open it, offering
 //! screens for `m`, windows for `w`, or both for `mw`) with `skey:NAME` and `sclick:X,Y` to answer
 //! it, `unshare` (a click on the bar's red dot), `polkit:MESSAGE` (the password card, as a
@@ -181,6 +183,11 @@ pub enum Step {
     /// An app named this holding the screen awake on the session bus, as an X11 app asks; an
     /// empty name lets every such hold go.
     Hold(String),
+    /// The app with the keyboard asking to look at the window holding a process, by pid or by
+    /// the app ID of one of its windows.
+    Look(String),
+    /// That look ending: staying with the window (`true`), or going back.
+    LookEnd(bool),
     /// An app asking for shortcuts through the portal: its app ID, and each shortcut's id,
     /// description and preferred keys.
     AskShortcuts(String, Vec<(String, String, Option<String>)>),
@@ -498,6 +505,9 @@ impl Script {
                         Step::NotifyCritical(app, title, body)
                     }
                     ("hold", name) => Step::Hold(name.unwrap_or_default().trim().to_string()),
+                    ("look", Some(what)) => Step::Look(what.trim().to_string()),
+                    ("lookend", Some("stay")) => Step::LookEnd(true),
+                    ("lookend", Some("back")) => Step::LookEnd(false),
                     ("wallpaper", Some(id)) => Step::Wallpaper(id.trim().to_string()),
                     ("demand", Some(value)) => Step::Demand(value.trim().parse().ok()?),
                     ("fade", Some(value)) => Step::Fade(value.trim().parse().ok()?),
@@ -672,6 +682,16 @@ mod tests {
                 "the way out has its own steps",
                 "100:logout;200:xkey:Return;300:shutdown",
                 vec![Step::LogOut, Step::ExitKey("Return".into()), Step::ShutDown],
+            ),
+            (
+                "a look names a process or an app, and ends staying or going back",
+                "100:look:4242;200:look:foot;300:lookend:stay;400:lookend:back;500:lookend:maybe",
+                vec![
+                    Step::Look("4242".into()),
+                    Step::Look("foot".into()),
+                    Step::LookEnd(true),
+                    Step::LookEnd(false),
+                ],
             ),
         ] {
             assert_eq!(

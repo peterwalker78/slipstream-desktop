@@ -77,6 +77,10 @@ const DOCK_RIM: f32 = 0.16;
 const DOCK_BAY: Color32F = Color32F::new(0.02, 0.03, 0.05, 0.55);
 /// Focus ring width in logical pixels. It sits in the gap, outside the window.
 const RING: i32 = 2;
+/// The ring round a window another app is showing you: wider than the focus ring, and set out
+/// from the window's edge, within the gap between tiles.
+const LOOK_RING: i32 = 3;
+const LOOK_GAP: f64 = 1.0;
 /// Over distant windows: dims them to 70% brightness.
 const DIM: Color32F = Color32F::new(0.0, 0.0, 0.0, 0.3);
 /// The fade at the end of a session.

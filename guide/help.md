@@ -75,6 +75,20 @@ Add plugins in **Settings → Plugins**, from a folder or an `https://` git addr
 
 To write one, see [Writing a plugin](plugins.md).
 
+## Showing another window from your app
+
+An app can show you the window that holds one of your processes for a moment, say while a key is held down, without the keyboard leaving the app. Slipstream serves `io.github.peterwalker78.Slipstream` on the session bus, with the `io.github.peterwalker78.Slipstream.Look` interface at `/io/github/peterwalker78/Slipstream`:
+
+- **`Start(u pid)`** finds the window above that process, the way a notification finds the window it came from, slides to its workspace (or brings it out of its stream), raises it and rings it in your focus colour. It answers whether it did, with a sentence saying why not. Only the app whose window has the keyboard, or a process it started, can ask, and never while the screen is locked. Asking again looks at another window instead.
+- **`End(b stay)`** goes back to where you were, or with `true` makes that window the one you're using.
+- **`Ended(b stayed)`** is sent whenever a look ends, including by itself: when the keyboard moves to another window, either window closes, the screen locks, or a minute passes.
+
+```sh
+gdbus call --session --dest io.github.peterwalker78.Slipstream \
+  --object-path /io/github/peterwalker78/Slipstream \
+  --method io.github.peterwalker78.Slipstream.Look.Start "$PID"
+```
+
 ## Bringing an AI agent's session back
 
 Slipstream has no AI in it. This is for people who run an AI coding agent of their own in a terminal: when your layout is reopened at login (**Settings → Session → Remember the layout**), a terminal that had an agent's session in it can come back in the same place, in the same folder, with that session open again.

@@ -70,8 +70,11 @@ impl Slipstream {
             .collect();
         for window in offscreen {
             // Hidden by a switch or a minimise, it's no longer the one being looked at: apps
-            // notify again, and terminals stop showing a focused cursor.
-            deactivate(&window);
+            // notify again, and terminals stop showing a focused cursor. A window that asked to
+            // look at another keeps the keyboard while it's out of view, so it stays active.
+            if !self.look.as_ref().is_some_and(|look| look.caller == window) {
+                deactivate(&window);
+            }
             self.space.unmap_elem(&window);
         }
         // A fullscreen window on a workspace being shown covers that screen, above its
@@ -132,6 +135,12 @@ impl Slipstream {
                 self.space.raise_element(&window, false);
             }
             self.restack_floating(*workspace);
+        }
+        // A window being looked at is in front of its neighbours too.
+        if let Some(target) = self.look.as_ref().map(|look| look.target.clone())
+            && self.space.element_location(&target).is_some()
+        {
+            self.space.raise_element(&target, false);
         }
         // The docked pane is in front of them all, and a fullscreen window in front of that.
         self.place_docked(now);

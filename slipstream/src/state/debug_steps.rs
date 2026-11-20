@@ -57,6 +57,24 @@ impl Slipstream {
                     }
                     self.follow_idle_inhibitors();
                 }
+                debug::Step::Look(what) => {
+                    // Asked as the app with the keyboard would ask.
+                    let caller = self
+                        .keyboard_window()
+                        .and_then(|window| self.window_pid(&window))
+                        .map(|pid| crate::notify::lineage(std::path::Path::new("/proc"), pid))
+                        .unwrap_or_default();
+                    let pid = what.parse::<u32>().ok().or_else(|| {
+                        self.window_for_app(&what)
+                            .and_then(|window| self.window_pid(&window))
+                    });
+                    let answer = self.start_look(&caller, pid.unwrap_or(0));
+                    tracing::info!(what, ?answer, "debug: look");
+                }
+                debug::Step::LookEnd(stay) => {
+                    let ended = self.end_look(stay);
+                    tracing::info!(stay, ended, "debug: look ended");
+                }
                 debug::Step::Fade(value) => {
                     self.idle.pinned = Some(1.0 - value.clamp(0.0, 1.0) as f64);
                 }

@@ -235,7 +235,7 @@ pub fn serve(events: Sender<Event>) {
 /// process and pins it with a pidfd; the ancestry is read from `/proc` and kept only if that same
 /// process is still running afterwards, so no pid in it can have been handed to another process in
 /// the meantime. The sender is normally still there, since it's waiting for this call's reply.
-async fn origin(connection: &zbus::Connection, header: &Header<'_>) -> Vec<u32> {
+pub(crate) async fn origin(connection: &zbus::Connection, header: &Header<'_>) -> Vec<u32> {
     let Some(sender) = header.sender() else {
         return Vec::new();
     };

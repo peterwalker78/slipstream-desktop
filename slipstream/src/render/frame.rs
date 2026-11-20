@@ -1304,6 +1304,25 @@ fn draw_window(
                 .map(OutputElement::Solid),
         );
     }
+    // A window another app is showing you has a ring of its own, wider and set out a little
+    // from its edge, so it reads apart from the keyboard's.
+    if state.looked_at() == Some(&drawn.window) && arriving.is_none() {
+        let alpha = drawn.alpha * (1.0 - v.zoomed_out.min(1.0) as f32);
+        world.elements.extend(
+            chrome
+                .overview
+                .outline(
+                    shown,
+                    LOOK_GAP,
+                    LOOK_RING,
+                    overview::ring(state.ring_rgb),
+                    world_scale,
+                    alpha,
+                )
+                .into_iter()
+                .map(OutputElement::Solid),
+        );
+    }
     let window = drawn.window;
     let location = (shown.loc - own.loc.to_f64())
         .to_physical(world_scale)
