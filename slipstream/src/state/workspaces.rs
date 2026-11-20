@@ -13,17 +13,9 @@ impl Slipstream {
             let active = self.active_workspace();
             self.workspaces.get_mut(active).last_focus = leaving;
         }
-        let here = self.focused_screen_name();
-        let show = self.screens.show(index, self.workspaces.count());
-        if !show.changed {
+        let Some(show) = self.show_workspace(index) else {
             return;
-        }
-        if show.moved_to.is_none() {
-            // The camera runs on wall time: moving about is never slowed, even in bullet time.
-            let wall = self.wall();
-            self.motion.slide_to(&here, index, wall);
-            self.retile();
-        }
+        };
         self.restore_focus();
         tracing::info!(
             workspace = index + 1,
@@ -31,6 +23,24 @@ impl Slipstream {
             to_another_screen = show.moved_to.is_some(),
             "switched workspace"
         );
+    }
+
+    /// Puts workspace `index` in view without touching the keyboard: the focused screen slides
+    /// over to it, or, if another screen shows it, that screen becomes the focused one. `None`
+    /// when it was already in view on the focused screen.
+    pub(super) fn show_workspace(&mut self, index: usize) -> Option<crate::screen::Show> {
+        let here = self.focused_screen_name();
+        let show = self.screens.show(index, self.workspaces.count());
+        if !show.changed {
+            return None;
+        }
+        if show.moved_to.is_none() {
+            // The camera runs on wall time: moving about is never slowed, even in bullet time.
+            let wall = self.wall();
+            self.motion.slide_to(&here, index, wall);
+            self.retile();
+        }
+        Some(show)
     }
 
     /// Super+Ctrl+P: the focused screen and the next one along trade workspaces, windows and

@@ -224,16 +224,22 @@ impl Slipstream {
         self.restore_all(std::slice::from_ref(window));
     }
 
-    /// Several windows condense out of their streams together: each starts from the stream it is
-    /// in now, before any of them have left, and the workspace retiles once around all of them
-    /// rather than once per window.
+    /// Several windows condense out of their streams together, and the last of them takes focus.
     pub fn restore_all(&mut self, windows: &[Window]) {
-        let Some(screen) = self.screen_rect(0) else {
-            return;
-        };
+        if let Some(window) = self.condense(windows) {
+            self.focus_window(&window);
+        }
+    }
+
+    /// Windows condense out of their streams onto the workspace on screen, without the keyboard
+    /// moving: each starts from the stream it is in now, before any of them have left, and the
+    /// workspace retiles once around all of them rather than once per window. Returns the last
+    /// one that came out.
+    pub(super) fn condense(&mut self, windows: &[Window]) -> Option<Window> {
+        let screen = self.screen_rect(0)?;
         // Where each one's stream sits while they are all still in the rain. Taken first,
         // because every window that leaves shifts the streams still to its left.
-        let from: Vec<(Window, Rect)> = windows
+        let mut from: Vec<(Window, Rect)> = windows
             .iter()
             .filter_map(|window| {
                 let index = self.rain.index_of(window)?;
@@ -244,7 +250,7 @@ impl Slipstream {
             })
             .collect();
         if from.is_empty() {
-            return;
+            return None;
         }
         let area = self.output_area().unwrap_or(screen);
         let now = self.clock.tick();
@@ -267,9 +273,7 @@ impl Slipstream {
             tracing::info!(window = logged_app(window), "restored from code rain");
         }
         self.retile();
-        if let Some((window, _)) = from.last() {
-            self.focus_window(window);
-        }
+        from.pop().map(|(window, _)| window)
     }
 
     /// The minimised window whose stream is under `pos`. The rain is drawn on the leftmost
