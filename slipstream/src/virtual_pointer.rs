@@ -280,3 +280,44 @@ impl Slipstream {
         pointer.frame(self);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{os::unix::net::UnixStream, sync::Arc};
+
+    use smithay::reexports::wayland_server::{Display, backend::ClientData};
+
+    use super::*;
+    use crate::{capture, state::ClientState};
+
+    /// Whether the virtual pointer's global is shown to a client made from `stream` with `data`,
+    /// as the listener would make it.
+    fn shown(stream: UnixStream, data: Arc<dyn ClientData>) -> bool {
+        let display = Display::<Slipstream>::new().expect("a display");
+        let client = display
+            .handle()
+            .insert_client(stream, data)
+            .expect("the client inserts");
+        <Slipstream as GlobalDispatch<ZwlrVirtualPointerManagerV1, ()>>::can_view(client, &())
+    }
+
+    #[test]
+    fn only_programs_outside_a_sandbox_can_use_the_virtual_pointer() {
+        // Both ends of a pair are this process: outside any sandbox, and still running.
+        let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
+        let state = ClientState::for_connection(&ours);
+        assert!(shown(ours, Arc::new(state)));
+
+        // A process that has gone can't be proven to be outside one.
+        for reap in [false, true] {
+            let state =
+                capture::with_a_client_that_has_gone("pointer", reap, ClientState::for_connection);
+            let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
+            assert!(!shown(ours, Arc::new(state)), "gone, reaped: {reap}");
+        }
+
+        // Nor can a client that has no state of ours.
+        let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
+        assert!(!shown(ours, Arc::new(())));
+    }
+}
