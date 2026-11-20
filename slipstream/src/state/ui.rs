@@ -536,27 +536,7 @@ impl Slipstream {
                 tracing::info!(app = app.id, command = ?app.exec, "starting another from the explorer");
                 self.start_app(&app);
             }
-            Item::App(app) => {
-                let names = [
-                    Some(app.id.to_lowercase()),
-                    app.wm_class.as_ref().map(|class| class.to_lowercase()),
-                ];
-                let open = self.all_open_windows().into_iter().find(|window| {
-                    window.alive()
-                        && window_app_id(window).is_some_and(|id| names.contains(&Some(id)))
-                });
-                match open {
-                    Some(window) if self.rain.contains(&window) => self.restore(&window),
-                    Some(window) => {
-                        self.activate_window(&window);
-                        tracing::info!(app = app.id, "focused an open app from the explorer");
-                    }
-                    None => {
-                        tracing::info!(app = app.id, command = ?app.exec, "launching from the explorer");
-                        self.start_app(&app);
-                    }
-                }
-            }
+            Item::App(app) => self.open_or_focus(&app, "the explorer"),
             Item::File(path) => self.open_path(&path),
             Item::Run(query) => self.run_query(&query),
             Item::Setting(page) => self.open_slipstream_settings(page),
@@ -588,6 +568,29 @@ impl Slipstream {
         }
     }
 
+    /// Focuses an app that's already open, on whichever workspace it's on or out of its stream,
+    /// and starts it if it isn't. `from` says what asked, for the log.
+    fn open_or_focus(&mut self, app: &crate::apps::App, from: &str) {
+        let names = [
+            Some(app.id.to_lowercase()),
+            app.wm_class.as_ref().map(|class| class.to_lowercase()),
+        ];
+        let open = self.all_open_windows().into_iter().find(|window| {
+            window.alive() && window_app_id(window).is_some_and(|id| names.contains(&Some(id)))
+        });
+        match open {
+            Some(window) if self.rain.contains(&window) => self.restore(&window),
+            Some(window) => {
+                self.activate_window(&window);
+                tracing::info!(app = app.id, from, "focused an open app");
+            }
+            None => {
+                tracing::info!(app = app.id, command = ?app.exec, from, "launching");
+                self.start_app(app);
+            }
+        }
+    }
+
     /// Starts an app from its desktop entry, and says so if it can't be.
     pub(super) fn start_app(&mut self, app: &crate::apps::App) {
         self.concentration.asked(std::time::Instant::now());
@@ -600,10 +603,11 @@ impl Slipstream {
         }
     }
 
-    /// One of the person's own shortcuts: starts its app, and says so if it isn't there.
+    /// One of the person's own shortcuts: focuses its app, as the explorer does, or starts it if
+    /// it isn't open, and says so if it isn't there.
     pub fn open_own_key(&mut self, id: &str) {
         match crate::apps::find(id) {
-            Some(app) => self.start_app(&app),
+            Some(app) => self.open_or_focus(&app, "a shortcut"),
             None => self.show_toast("Couldn’t start it", &format!("{id} isn’t installed")),
         }
     }

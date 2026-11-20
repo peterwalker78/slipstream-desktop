@@ -99,7 +99,7 @@ Super is not tapped for the explorer, and Ctrl+Space stays with input methods. T
 
 ## Your own shortcuts
 
-Settings → Shortcuts adds keys that open an app: choose the app, then press the keys. They can't be a key your style already uses, or one kept for typing aids, screen readers and games; Settings says which when you press one. Changing style keeps them. One the new style uses does nothing, and Settings says why, until you take it away or change back. Super+/ lists the ones that work.
+Settings → Shortcuts adds keys that open an app: choose the app, then press the keys. If the app is already open, the keys take you to it, on whichever workspace it's on. They can't be a key your style already uses, or one kept for typing aids, screen readers and games; Settings says which when you press one. Changing style keeps them. One the new style uses does nothing, and Settings says why, until you take it away or change back. Super+/ lists the ones that work.
 
 ## On a touchpad
 
