@@ -69,6 +69,9 @@ pub const DESIGN_PX: f32 = 0.8;
 /// The card's top right corner, in design pixels: 10 in from the screen's edge, and 48 down, which
 /// is 8 below the bar.
 pub const RIGHT: f32 = 10.0;
+/// How wide quick settings, the notification centre and the plugin panel are, so the panels
+/// that drop from the bar all match.
+pub const WIDTH: f32 = 480.0;
 pub const TOP: f32 = 48.0;
 /// Room around the card for its shadow, and more below it, where the shadow falls.
 pub const MARGIN: f32 = 64.0;

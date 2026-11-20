@@ -24,7 +24,7 @@ use crate::{
 };
 
 // Sizes in design pixels.
-const WIDTH: f32 = 480.0;
+const WIDTH: f32 = panel::WIDTH;
 const HEAD_H: f32 = 42.0;
 const MENU_H: f32 = 40.0;
 const TILE_H: f32 = 60.0;

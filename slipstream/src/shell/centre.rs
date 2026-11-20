@@ -29,7 +29,7 @@ use crate::{
 pub const LAUNCH_DUR: f64 = 0.22;
 
 // Sizes in design pixels.
-const WIDTH: f32 = 500.0;
+const WIDTH: f32 = panel::WIDTH;
 /// The panel reaches down to 10 from the bottom of the screen.
 const BOTTOM: f32 = 10.0;
 const CAL_PAD_X: f32 = 16.0;
