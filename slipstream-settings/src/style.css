@@ -318,6 +318,42 @@ dropdown > button {
   color: #dfe2e9;
 }
 
+/* Popovers (a dropdown's list, a text field's right-click menu) in the window's colours. GTK's
+   own theme paints the list inside one grey of its own, so the list is left see-through. */
+window.slipstream-settings popover > contents,
+window.slipstream-settings popover > arrow {
+  background-color: #1f222b;
+  color: #e6e8ee;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+window.slipstream-settings popover > contents {
+  border-radius: 10px;
+}
+
+window.slipstream-settings popover listview,
+window.slipstream-settings popover list,
+window.slipstream-settings popover scrolledwindow,
+window.slipstream-settings popover viewport {
+  background: none;
+  color: inherit;
+}
+
+window.slipstream-settings popover listview > row,
+window.slipstream-settings popover modelbutton {
+  border-radius: 7px;
+  color: inherit;
+}
+
+window.slipstream-settings popover listview > row:hover,
+window.slipstream-settings popover listview > row:selected,
+window.slipstream-settings popover listview > row:selected:hover,
+window.slipstream-settings popover modelbutton:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+}
+
 /* Keyboard focus. main.rs (`colours_css`) gives it the primary colour. */
 .side > row:focus-visible,
 .row switch:focus-visible,
