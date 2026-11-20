@@ -85,6 +85,7 @@ mod text;
 mod tray;
 mod udev;
 mod usage;
+mod virtual_pointer;
 mod vrr;
 mod watch;
 mod winit;

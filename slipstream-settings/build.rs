@@ -193,6 +193,7 @@ const PARTS: &[(&str, &[&str])] = &[
     (
         "Hardware, input and settings",
         &[
+            "virtual_pointer",
             "udev",
             "winit",
             "input",
