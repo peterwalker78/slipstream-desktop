@@ -76,17 +76,20 @@ const BACKING: u32 = 0x0b0e13b8;
 const BACKING_RADIUS: f32 = 7.0;
 const NAME: u32 = 0xaab2c0ff;
 
-/// The backing's own colour, which a task's wave is made to stand out against.
-fn backing_rgb() -> [f32; 3] {
-    let [r, g, b, _] = BACKING.to_be_bytes().map(|c| c as f32 / 255.0);
-    [r, g, b]
+/// The backing as it shows over `behind`: it lets some of the wallpaper through.
+fn backing_over(behind: [f32; 3]) -> [f32; 3] {
+    let [r, g, b, a] = BACKING.to_be_bytes().map(|c| c as f32 / 255.0);
+    std::array::from_fn(|c| [r, g, b][c] * a + behind[c] * (1.0 - a))
 }
 
 /// A task's wave colour from the tertiary, each channel 0–255: as light as it needs to be for
-/// marks that carry meaning to read on the backing, and no lighter.
+/// marks that carry meaning to read on the backing, and no lighter. It is worked out against the
+/// backing over white, the brightest anything behind it can be: the readouts show over the
+/// living wallpaper, which draws marks close to white. A colour light enough for that is lighter
+/// than the backing over anything darker, and so reads wherever it sits.
 fn task_ink(tertiary: [f32; 3]) -> [f32; 3] {
     use slipstream_config::colour::{NON_TEXT, legible};
-    legible(tertiary, backing_rgb(), NON_TEXT).map(|c| c * 255.0)
+    legible(tertiary, backing_over([1.0; 3]), NON_TEXT).map(|c| c * 255.0)
 }
 const HELPER_NAME: u32 = 0x7f8898ff;
 
@@ -913,22 +916,47 @@ mod tests {
         }
     }
 
+    /// The promise in the guide: a task's wave reads on the trace's backing, whatever wallpaper
+    /// shows through it, from the darkest to the brightest.
     #[test]
-    fn a_task_s_wave_reads_on_the_backing_in_any_colour_set() {
+    fn a_task_s_wave_reads_on_the_backing_in_any_colour_set_over_any_wallpaper() {
         use slipstream_config::colour::{NON_TEXT, contrast, oklch};
         let drawn = |ink: [f32; 3]| ink.map(|c| c.round() / 255.0);
+        let behind = [
+            [0.0; 3],
+            [1.0; 3],
+            [1.0, 0.9, 0.2],
+            [0.2, 0.9, 1.0],
+            [0.5; 3],
+        ];
+        let reads = |ink: [f32; 3]| {
+            behind
+                .iter()
+                .all(|&wallpaper| contrast(ink, backing_over(wallpaper)) >= NON_TEXT)
+        };
         // The default deep teal is too dark on the backing as it is, so it is lifted, keeping its
         // hue.
         let teal = slipstream_config::Borders::default().accent_rgb();
-        assert!(contrast(teal, backing_rgb()) < NON_TEXT);
+        assert!(!reads(teal));
         let lifted = drawn(Scope::new(false).task);
-        assert!(contrast(lifted, backing_rgb()) >= NON_TEXT);
+        assert!(reads(lifted), "{lifted:?}");
         assert!((oklch(lifted).2 - oklch(teal).2).abs() < 1.0);
-        // A tertiary that already reads is drawn as it is.
         let mut scope = Scope::new(false);
+        let set = |scope: &mut Scope, tertiary| {
+            scope.set_colours(scope.working.map(|c| c / 255.0), [1.0, 0.7, 0.3], tertiary);
+            scope.task
+        };
+        for dark in [
+            [0.0; 3],
+            [0.4, 0.0, 0.0],
+            [0.05, 0.05, 0.3],
+            [0.3, 0.2, 0.5],
+        ] {
+            assert!(reads(drawn(set(&mut scope, dark))), "{dark:?}");
+        }
+        // A tertiary that already reads is drawn as it is.
         let pale = [0.4, 0.8, 0.6];
-        scope.set_colours(scope.working.map(|c| c / 255.0), [1.0, 0.7, 0.3], pale);
-        assert_eq!(scope.task, pale.map(|c| c * 255.0));
+        assert_eq!(set(&mut scope, pale), pale.map(|c| c * 255.0));
     }
 
     #[test]
