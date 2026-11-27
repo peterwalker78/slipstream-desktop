@@ -420,6 +420,7 @@ impl Slipstream {
         }
         self.picture.set(&settings.wallpaper);
         self.ring_rgb = settings.borders.selected_tile_rgb();
+        crate::appearance::set_primary(self.ring_rgb);
         self.rain.set_ring_colour(self.ring_rgb);
         self.rain.set_effects(settings.motion.effects);
         self.explorer.effects = settings.motion.effects;

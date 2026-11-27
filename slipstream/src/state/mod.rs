@@ -541,6 +541,8 @@ impl Slipstream {
         );
         plugins.configure(&settings);
         let ring_rgb = settings.borders.selected_tile_rgb();
+        // Apps asking the portal for an accent colour are given the primary.
+        crate::appearance::set_primary(ring_rgb);
         let bullet_rgb = settings.borders.bullet_time_rgb();
         let accent_rgb = settings.borders.accent_rgb();
 

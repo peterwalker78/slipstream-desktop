@@ -2,10 +2,10 @@
 //!
 //! xdg-desktop-portal is what apps, sandboxed or not, ask when they want something from the
 //! desktop. `session/slipstream.portal` points it at the bus name below for the interfaces
-//! Slipstream answers itself — dark (`appearance.rs`), shortcuts apps keep while another
-//! app has the keyboard (`shortcuts/`), and apps asking the desktop to stay awake or not to log
-//! out yet (`portal_inhibit.rs`) — and `slipstream-portals.conf` routes them here. All are served
-//! on one connection, at the path every portal backend uses.
+//! Slipstream answers itself — dark and the accent colour (`appearance.rs`), shortcuts apps keep
+//! while another app has the keyboard (`shortcuts/`), and apps asking the desktop to stay awake or
+//! not to log out yet (`portal_inhibit.rs`) — and `slipstream-portals.conf` routes them here. All
+//! are served on one connection, at the path every portal backend uses.
 
 use std::sync::OnceLock;
 

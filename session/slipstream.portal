@@ -1,5 +1,5 @@
 # Slipstream answers three portals itself: the settings portal, which is how apps ask the desktop
-# whether to be dark or light; global shortcuts, which lets an app keep a shortcut that works
+# whether to be dark or light and what accent colour to use; global shortcuts, which lets an app keep a shortcut that works
 # while another app has the keyboard (a voice chat's push to talk); and inhibit, which is how a
 # sandboxed app asks the screen to stay awake or the session not to end yet. The compositor takes
 # this bus name while the session runs; it can't be started on demand, so nothing here makes it
