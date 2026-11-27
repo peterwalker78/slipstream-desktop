@@ -622,7 +622,7 @@ impl Slipstream {
             osd: crate::osd::Osd::new(false),
             scope: {
                 let mut scope = crate::scope::Scope::new(false);
-                scope.set_colours(ring_rgb, bullet_rgb);
+                scope.set_colours(ring_rgb, bullet_rgb, accent_rgb);
                 scope
             },
             agents_read: None,

@@ -426,7 +426,8 @@ impl Slipstream {
         self.explorer.effects = settings.motion.effects;
         self.bullet_rgb = settings.borders.bullet_time_rgb();
         self.accent_rgb = settings.borders.accent_rgb();
-        self.scope.set_colours(self.ring_rgb, self.bullet_rgb);
+        self.scope
+            .set_colours(self.ring_rgb, self.bullet_rgb, self.accent_rgb);
         if settings.workspaces != self.settings.workspaces {
             let entries = workspace_entries(&settings);
             self.set_workspaces(&entries, self.screens.len());

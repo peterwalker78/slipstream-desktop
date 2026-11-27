@@ -148,8 +148,9 @@ Slipstream has no AI in it. This is for people who set an AI coding agent of the
 - **Cyan wave:** the agent is working, itself or through subagents.
 - **Flat amber line:** the agent is open but between tasks, or the session has ended.
 - **A row under the trace for each subagent** it has working: a small wave of its own and what that subagent is doing.
+- **A row in your tertiary colour for each background task** it has running, after the subagents, listed whether the agent is working or idle.
 
-**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing: `idle` between tasks, or nothing while it works. Each line after that is a subagent it has working, by what that subagent is doing. Most agents can run a command of yours at the right moments:
+**On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing: `idle` between tasks, or nothing while it works. Each line after that is a subagent it has working, by what that subagent is doing, or a task it has running in the background: the word `task`, a tab, and what the task is. Most agents can run a command of yours at the right moments:
 
 ```sh
 # Session opens: leave an idle note (first line empty falls back to the working folder).
@@ -163,6 +164,9 @@ printf 'my-agent: the task\n\nreading the tests\nfixing the docs\n' > "$XDG_RUNT
 
 # Task ends, or agent is waiting on you: mark idle.
 printf 'my-agent: the task\nidle\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
+
+# Waiting on you with a background task still running:
+printf 'my-agent: the task\nidle\ntask\tthe dev server\n' > "$XDG_RUNTIME_DIR/slipstream/working/$AGENT_PID"
 ```
 
 The note is left in place until the session's process exits; the desktop cleans up notes whose process is gone. Tools that start agents outside the normal process tree, such as multiplexers with their own session management, can set `AGENT_NOTIFY_PID` to the agent's PID when running any hook command, to use that PID directly instead of walking the process ancestry.

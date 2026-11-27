@@ -8,7 +8,8 @@
 //! The agent's process ID sits in the readout's top right corner, so its session can be found.
 //!
 //! Under the trace, each helper the agent has working gets a row: a small wave of its own beside
-//! what it is doing.
+//! what it is doing. Each task it has running in the background gets a row after those, the same
+//! but in the tertiary colour, idle or not.
 //!
 //! A readout appears for every open session, not only ones that are currently working. When a
 //! session's process exits its readout settles amber and clears at the next key or pointer input.
@@ -16,7 +17,7 @@
 //! here draws.
 //!
 //! Reduced motion keeps the same picture without the movement: standing waves for an active
-//! agent and its helpers, and a flat line for idle or stopped.
+//! agent and its helpers and tasks, and a flat line for idle or stopped.
 
 use std::collections::HashMap;
 
@@ -57,11 +58,13 @@ const PID_GAP: i32 = 8;
 const TRACE: i32 = 44;
 const SHORTEST: i32 = 15;
 const GAP: i32 = 8;
-/// A helper's row under the trace, the small wave at its start, and the space after that wave.
+/// A helper's or task's row under the trace, the small wave at its start, and the space after
+/// that wave.
 const HELPER: i32 = 14;
 const HELPER_WAVE: i32 = 24;
 const HELPER_GAP: i32 = 6;
-/// The most rows listed under a readout; past this the last row says how many more there are.
+/// The most rows listed under a readout, helpers and tasks together; past this the last row says
+/// how many more there are.
 const MOST_ROWS: usize = 4;
 /// A trace is drawn as dots this big, this far apart.
 const DOT: f64 = 2.0;
@@ -94,6 +97,8 @@ struct Trace {
     name: String,
     /// What each of its helpers is doing.
     helpers: Vec<String>,
+    /// What each of its background tasks is.
+    tasks: Vec<String>,
     /// The agent's session is still open (its note file exists and its process is running).
     alive: bool,
     status: AgentStatus,
@@ -125,8 +130,8 @@ impl Trace {
             + 0.4 * (turn * quick - t * 1.9 + phase * 2.0).sin()
     }
 
-    /// The `nth` helper's small wave, -1 to 1: a slice of the agent's own, offset so that no two
-    /// helpers move together.
+    /// The `nth` row's small wave, -1 to 1: a slice of the agent's own, offset so that no two
+    /// rows move together.
     fn helper_wave(&self, nth: usize, across: f32, t: f32) -> f32 {
         self.wave(
             0.35 * across + 0.29 * nth as f32,
@@ -134,23 +139,37 @@ impl Trace {
         )
     }
 
-    /// The rows listed under the trace: what each helper is doing, and whether it is a helper
-    /// rather than the row saying how many more there are.
-    fn rows(&self) -> Vec<(String, bool)> {
-        rows(&self.helpers)
+    /// The rows listed under the trace: what each helper is doing, then each background task,
+    /// with what each row is.
+    fn rows(&self) -> Rows {
+        rows(&self.helpers, &self.tasks)
     }
 }
 
-/// The rows listed under a readout for `helpers`, as `Trace::rows`.
-fn rows(helpers: &[String]) -> Vec<(String, bool)> {
-    if helpers.len() <= MOST_ROWS {
-        return helpers.iter().map(|h| (h.clone(), true)).collect();
-    }
-    let mut rows: Vec<_> = helpers[..MOST_ROWS - 1]
+/// What a row under a trace stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Helper,
+    Task,
+    /// The last row, saying how many more there are than there is room for.
+    More,
+}
+
+/// The rows under a trace, each with what it stands for.
+type Rows = Vec<(String, Row)>;
+
+/// The rows listed under a readout for `helpers` and `tasks`, as `Trace::rows`.
+fn rows(helpers: &[String], tasks: &[String]) -> Rows {
+    let all = helpers
         .iter()
-        .map(|h| (h.clone(), true))
-        .collect();
-    rows.push((format!("+{} more", helpers.len() - rows.len()), false));
+        .map(|h| (h.clone(), Row::Helper))
+        .chain(tasks.iter().map(|t| (t.clone(), Row::Task)));
+    let count = helpers.len() + tasks.len();
+    if count <= MOST_ROWS {
+        return all.collect();
+    }
+    let mut rows: Vec<_> = all.take(MOST_ROWS - 1).collect();
+    rows.push((format!("+{} more", count - rows.len()), Row::More));
     rows
 }
 
@@ -219,7 +238,7 @@ struct Canvas {
     scale: f64,
     /// The backings and names, which the traces are drawn over afresh each time.
     base: Vec<u8>,
-    names: Vec<(u32, String, Vec<String>)>,
+    names: Vec<(u32, String, Rows)>,
     /// Every trace's colour and amp packed together when last painted, and when that was.
     painted: Vec<u64>,
     painted_at: f64,
@@ -232,10 +251,11 @@ pub struct Scope {
     shown: f32,
     last: Option<f64>,
     canvases: HashMap<String, Canvas>,
-    /// A wave at work, and a line that has stopped, each channel 0–255: the focused window's ring
-    /// colour and bullet time's, as the settings have them.
+    /// A wave at work, a line that has stopped, and a background task's wave, each channel
+    /// 0–255: the primary, secondary and tertiary colours, as the settings have them.
     working: [f32; 3],
     stopped: [f32; 3],
+    task: [f32; 3],
 }
 
 impl Scope {
@@ -250,17 +270,19 @@ impl Scope {
             canvases: HashMap::new(),
             working: channels(borders.selected_tile_rgb()),
             stopped: channels(borders.bullet_time_rgb()),
+            task: channels(borders.accent_rgb()),
         }
     }
 
-    /// The colours from the settings, each channel 0–1: the ring's for at work, bullet time's for
-    /// stopped. Readouts on screen repaint in them.
-    pub fn set_colours(&mut self, working: [f32; 3], stopped: [f32; 3]) {
-        let (working, stopped) = (working.map(|c| c * 255.0), stopped.map(|c| c * 255.0));
-        if (working, stopped) == (self.working, self.stopped) {
+    /// The colours from the settings, each channel 0–1: the primary for at work, the secondary
+    /// for stopped and the tertiary for background tasks. Readouts on screen repaint in them.
+    pub fn set_colours(&mut self, working: [f32; 3], stopped: [f32; 3], task: [f32; 3]) {
+        let channels = |rgb: [f32; 3]| rgb.map(|c| c * 255.0);
+        let colours = (channels(working), channels(stopped), channels(task));
+        if colours == (self.working, self.stopped, self.task) {
             return;
         }
-        (self.working, self.stopped) = (working, stopped);
+        (self.working, self.stopped, self.task) = colours;
         for canvas in self.canvases.values_mut() {
             canvas.painted.clear();
         }
@@ -277,13 +299,17 @@ impl Scope {
                     trace.seen = false;
                     trace.status = agent.status;
                     trace.helpers.clone_from(&agent.helpers);
+                    trace.tasks.clone_from(&agent.tasks);
                     // Keep the name from before going idle; only refresh while working.
                     if agent.status == AgentStatus::Active {
                         trace.name.clone_from(&agent.name);
                     }
                 }
-                // An agent that has gone has no helpers working for it either.
-                None => trace.helpers.clear(),
+                // An agent that has gone has no helpers or tasks working for it either.
+                None => {
+                    trace.helpers.clear();
+                    trace.tasks.clear();
+                }
             }
         }
         for agent in at_work {
@@ -293,6 +319,7 @@ impl Scope {
                     pid: agent.pid,
                     name: agent.name.clone(),
                     helpers: agent.helpers.clone(),
+                    tasks: agent.tasks.clone(),
                     alive: true,
                     status: agent.status,
                     seen: false,
@@ -393,10 +420,10 @@ impl Scope {
                 || !canvas
                     .names
                     .iter()
-                    .map(|(pid, name, helpers)| (pid, name, helpers))
+                    .map(|(pid, name, rows)| (*pid, name.clone(), rows.clone()))
                     .eq(traces
                         .iter()
-                        .map(|trace| (&trace.pid, &trace.name, &trace.helpers)))
+                        .map(|trace| (trace.pid, trace.name.clone(), trace.rows())))
         });
         if fresh {
             let base = base(traces, &fit, device, scale)?;
@@ -418,7 +445,7 @@ impl Scope {
                     base,
                     names: traces
                         .iter()
-                        .map(|trace| (trace.pid, trace.name.clone(), trace.helpers.clone()))
+                        .map(|trace| (trace.pid, trace.name.clone(), trace.rows()))
                         .collect(),
                     painted: Vec::new(),
                     painted_at: f64::NEG_INFINITY,
@@ -443,7 +470,7 @@ impl Scope {
                     pixels,
                     size,
                     traces,
-                    (self.working, self.stopped),
+                    (self.working, self.stopped, self.task),
                     &fit,
                     scale,
                     t,
@@ -471,7 +498,7 @@ impl Scope {
     }
 }
 
-/// The readouts' backings, names and helper rows, as premultiplied pixels `device` big.
+/// The readouts' backings, names and rows, as premultiplied pixels `device` big.
 fn base(traces: &[Trace], fit: &Fit, device: (i32, i32), scale: f64) -> Option<Vec<u8>> {
     let mut painter = Painter::new(device.0 as u32, device.1 as u32, scale as f32)?;
     let style = Style::new(Face::Mono, 11.0, NAME);
@@ -505,7 +532,7 @@ fn plot(
     pixels: &mut [u8],
     (width, height): (usize, usize),
     traces: &[Trace],
-    (working, stopped): ([f32; 3], [f32; 3]),
+    (working, stopped, task): ([f32; 3], [f32; 3], [f32; 3]),
     fit: &Fit,
     scale: f64,
     t: Option<f64>,
@@ -543,13 +570,14 @@ fn plot(
         );
         let first = trace_top + fit.trace;
         let wave_right = left + px(HELPER_WAVE) - dot;
-        for (i, _) in trace
-            .rows()
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, helper))| *helper)
-        {
-            pen.line(
+        for (i, (_, row)) in trace.rows().iter().enumerate() {
+            // A helper's wave is in the trace's own colour, a task's in the tertiary.
+            let rgb = match row {
+                Row::Helper => pen.rgb,
+                Row::Task => task,
+                Row::More => continue,
+            };
+            Pen { rgb, ..pen }.line(
                 pixels,
                 size,
                 (left, wave_right),
@@ -639,6 +667,7 @@ mod tests {
             name: name.to_string(),
             status: AgentStatus::Active,
             helpers: Vec::new(),
+            tasks: Vec::new(),
         }
     }
 
@@ -661,6 +690,7 @@ mod tests {
             pid,
             name: String::new(),
             helpers: helpers.iter().map(|h| h.to_string()).collect(),
+            tasks: Vec::new(),
             alive: true,
             status: AgentStatus::Active,
             seen: false,
@@ -676,7 +706,7 @@ mod tests {
         let (width, height) = (size.w as usize, size.h as usize);
         let mut pixels = vec![0u8; width * height * 4];
         let scope = Scope::new(false);
-        let colours = (scope.working, scope.stopped);
+        let colours = (scope.working, scope.stopped, scope.task);
         plot(
             &mut pixels,
             (width, height),
@@ -788,11 +818,111 @@ mod tests {
     #[test]
     fn past_the_room_for_rows_the_last_says_how_many_more() {
         let few = trace(300, &["a", "b"], 1.0);
-        assert_eq!(few.rows(), [("a".into(), true), ("b".into(), true)]);
+        assert_eq!(
+            few.rows(),
+            [("a".into(), Row::Helper), ("b".into(), Row::Helper)]
+        );
         let many = trace(300, &["a", "b", "c", "d", "e", "f"], 1.0);
         let rows = many.rows();
         assert_eq!(rows.len(), MOST_ROWS);
-        assert_eq!(rows[MOST_ROWS - 1], ("+3 more".to_string(), false));
+        assert_eq!(rows[MOST_ROWS - 1], ("+3 more".to_string(), Row::More));
+    }
+
+    /// A trace whose agent has `helpers` and background `tasks`.
+    fn tasked(helpers: &[&str], tasks: &[&str], level: f32) -> Trace {
+        Trace {
+            tasks: tasks.iter().map(|t| t.to_string()).collect(),
+            ..trace(300, helpers, level)
+        }
+    }
+
+    #[test]
+    fn tasks_are_listed_after_helpers_and_share_their_room() {
+        let both = tasked(&["glazing"], &["serving"], 1.0);
+        assert_eq!(
+            both.rows(),
+            [
+                ("glazing".into(), Row::Helper),
+                ("serving".into(), Row::Task)
+            ]
+        );
+        let crowded = tasked(&["a", "b"], &["c", "d", "e"], 1.0);
+        assert_eq!(
+            crowded.rows(),
+            [
+                ("a".into(), Row::Helper),
+                ("b".into(), Row::Helper),
+                ("c".into(), Row::Task),
+                ("+2 more".into(), Row::More),
+            ],
+            "helpers first, then tasks, in one count"
+        );
+        let busy = tasked(&["a", "b", "c", "d"], &["e"], 1.0);
+        assert_eq!(busy.rows()[MOST_ROWS - 1], ("+2 more".into(), Row::More));
+    }
+
+    #[test]
+    fn a_task_s_wave_is_in_the_tertiary_colour_and_a_helper_s_in_the_trace_s() {
+        let under = (PAD + LABEL + TRACE) as usize;
+        let scope = Scope::new(false);
+        let ink = |rgb: [f32; 3]| rgb.map(|c| (c * HELPER_LIT).round() as u8);
+        let row_colours = |pixels: &[u8], width: usize, row: usize| {
+            let from = (under + row * HELPER as usize) * width * 4;
+            let to = from + HELPER as usize * width * 4;
+            let mut seen: Vec<[u8; 3]> = pixels[from..to]
+                .chunks_exact(4)
+                .filter(|pixel| pixel[3] > 0)
+                .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+                .collect();
+            seen.dedup();
+            seen
+        };
+        for level in [1.0, 0.0] {
+            let (pixels, width, _) = plotted(tasked(&["glazing"], &["serving"], level), Some(0.0));
+            let trace_ink = if level > 0.0 {
+                scope.working
+            } else {
+                scope.stopped
+            };
+            assert_eq!(row_colours(&pixels, width, 0), [ink(trace_ink)]);
+            assert_eq!(row_colours(&pixels, width, 1), [ink(scope.task)]);
+        }
+    }
+
+    #[test]
+    fn an_idle_trace_keeps_its_tasks_and_a_gone_one_drops_them() {
+        let mut scope = Scope::new(false);
+        let serving = Agent {
+            tasks: vec!["serving".to_string()],
+            ..idle_agent(300, "kiln")
+        };
+        scope.follow(std::slice::from_ref(&serving));
+        assert_eq!(scope.traces[0].status, AgentStatus::Idle);
+        assert_eq!(scope.traces[0].tasks, ["serving"]);
+        scope.follow(&[]);
+        assert!(scope.traces[0].tasks.is_empty());
+    }
+
+    #[test]
+    fn reduced_motion_stands_task_waves_still_as_it_does_helpers() {
+        let under = (PAD + LABEL + TRACE) as usize;
+        let lit_rows = |pixels: &[u8], width: usize| {
+            (under..under + HELPER as usize)
+                .filter(|row| {
+                    pixels[row * width * 4..(row + 1) * width * 4]
+                        .chunks_exact(4)
+                        .any(|pixel| pixel[3] > 0)
+                })
+                .count()
+        };
+        let (standing, width, _) = plotted(tasked(&[], &["serving"], 1.0), None);
+        assert!(
+            lit_rows(&standing, width) > DOT as usize,
+            "a wave, not a line"
+        );
+        let (early, ..) = plotted(tasked(&[], &["serving"], 1.0), Some(0.0));
+        let (later, ..) = plotted(tasked(&[], &["serving"], 1.0), Some(0.5));
+        assert_ne!(early, later, "with motion, a task's wave moves");
     }
 
     #[test]

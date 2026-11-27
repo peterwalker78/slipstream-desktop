@@ -10,9 +10,11 @@
 //! is what to call the agent on screen: its own name and what it is working on, say. An empty
 //! first line falls back to the folder the agent is working in. The second line says what the
 //! agent is doing: `idle` means it is between tasks, and anything else, or no second line, that
-//! it is working. Each line after that is a helper the agent has working for it, by its task.
-//! Only the agent itself leaves a note, so its helpers are listed on its readout rather than each
-//! getting one of their own.
+//! it is working. Each line after that is a helper the agent has working for it, by its task, or
+//! a task it has running in the background: `task`, a tab, and what the task is. Background tasks
+//! have nothing to do with whether the agent is idle; an idle agent can have some running. Only
+//! the agent itself leaves a note, so its helpers and tasks are listed on its readout rather than
+//! each getting one of their own.
 
 use std::{
     fs,
@@ -29,8 +31,10 @@ const MOST_NOTES: usize = 64;
 /// A note longer than this isn't a name, and a name is cut to this many characters.
 const LONGEST_NOTE: u64 = 1024;
 const LONGEST_NAME: usize = 80;
-/// More helpers than this are more than one readout has room to list.
+/// More helpers, or tasks, than this are more than one readout has room to list.
 const MOST_HELPERS: usize = 8;
+/// What starts a line naming a background task rather than a helper.
+const TASK: &str = "task\t";
 
 /// What a note's second line says the agent is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +54,8 @@ pub struct Agent {
     pub status: AgentStatus,
     /// What each helper it has working is doing.
     pub helpers: Vec<String>,
+    /// What each task it has running in the background is.
+    pub tasks: Vec<String>,
 }
 
 /// Where agents leave these notes, if there is a runtime folder to keep them in.
@@ -88,13 +94,19 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
             if written.as_secs() + 2 < resume::started(proc, pid, ticks)? {
                 return None;
             }
-            let (note_name, status, helpers) = parse_note(&entry.path(), meta.len());
-            let name = note_name.unwrap_or_else(|| folder(proc, pid));
+            let Note {
+                name,
+                status,
+                helpers,
+                tasks,
+            } = parse_note(&entry.path(), meta.len());
+            let name = name.unwrap_or_else(|| folder(proc, pid));
             Some(Agent {
                 pid,
                 name,
                 status,
                 helpers,
+                tasks,
             })
         })
         .collect();
@@ -102,17 +114,32 @@ fn read(proc: &Path, notes: &Path, uid: u32, ticks: u64) -> Vec<Agent> {
     agents
 }
 
+/// What a note says about its agent.
+#[derive(Debug, PartialEq, Eq)]
+struct Note {
+    name: Option<String>,
+    status: AgentStatus,
+    helpers: Vec<String>,
+    tasks: Vec<String>,
+}
+
 /// What the note at `path`, `len` bytes long, says about its agent: what to call it (its first
-/// line, if that is plain text), what the agent is doing (from the second line) and what its
-/// helpers are doing (the plain lines after).
-fn parse_note(path: &Path, len: u64) -> (Option<String>, AgentStatus, Vec<String>) {
+/// line, if that is plain text), what the agent is doing (from the second line), what its
+/// helpers are doing and which tasks it has running (the plain lines after).
+fn parse_note(path: &Path, len: u64) -> Note {
+    let unread = Note {
+        name: None,
+        status: AgentStatus::Active,
+        helpers: Vec::new(),
+        tasks: Vec::new(),
+    };
     if len == 0 || len > LONGEST_NOTE {
-        return (None, AgentStatus::Active, Vec::new());
+        return unread;
     }
     // Read without blocking and only if still a small regular file: the note can be swapped for
     // a FIFO between the look and the read, and this runs on the event loop.
     let Some(text) = slipstream_config::files::read_small_text(path, LONGEST_NOTE) else {
-        return (None, AgentStatus::Active, Vec::new());
+        return unread;
     };
     let plain = |line: &str| {
         let line = line.trim();
@@ -125,8 +152,22 @@ fn parse_note(path: &Path, len: u64) -> (Option<String>, AgentStatus, Vec<String
         Some("idle") => AgentStatus::Idle,
         _ => AgentStatus::Active,
     };
-    let helpers = lines.filter_map(plain).take(MOST_HELPERS).collect();
-    (name, status, helpers)
+    let (mut helpers, mut tasks) = (Vec::new(), Vec::new());
+    for line in lines {
+        let (list, line) = match line.strip_prefix(TASK) {
+            Some(task) => (&mut tasks, task),
+            None => (&mut helpers, line),
+        };
+        if list.len() < MOST_HELPERS {
+            list.extend(plain(line));
+        }
+    }
+    Note {
+        name,
+        status,
+        helpers,
+        tasks,
+    }
 }
 
 /// The name of the folder `pid` is working in, or nothing where it can't be read.
@@ -275,6 +316,39 @@ mod tests {
         );
         assert_eq!(agents[1].status, AgentStatus::Idle);
         assert_eq!(agents[1].helpers.len(), MOST_HELPERS);
+    }
+
+    #[test]
+    fn lines_starting_task_and_a_tab_are_background_tasks() {
+        let machine = Machine::new("working-tasks");
+        machine.process(300, "/home/sam/projects/kiln");
+        machine.process(301, "/home/sam/projects/ledger");
+        machine.note_saying(
+            300,
+            "robin: firing the kiln\n\nglazing the pots\ntask\twatching the kiln\n\
+             sweeping up\ntask\tserving the shop\ntask\t\ntask watching\ntask\tbell\u{7}\n",
+            150,
+        );
+        let many: String = (0..12).map(|i| format!("task\tjob {i}\n")).collect();
+        machine.note_saying(301, &format!("robin: the ledger\nidle\n{many}"), 160);
+        let agents = machine.read();
+        assert_eq!(
+            agents[0].helpers,
+            ["glazing the pots", "sweeping up", "task watching"],
+            "a line without the word and a tab is a helper"
+        );
+        assert_eq!(
+            agents[0].tasks,
+            ["watching the kiln", "serving the shop"],
+            "plain labels only, without the prefix"
+        );
+        assert_eq!(
+            agents[1].status,
+            AgentStatus::Idle,
+            "tasks running leave an idle agent idle"
+        );
+        assert!(agents[1].helpers.is_empty());
+        assert_eq!(agents[1].tasks.len(), MOST_HELPERS);
     }
 
     #[test]
