@@ -182,8 +182,9 @@ pub fn compare(before: &Approval, now: &Approval) -> Change {
 /// Where the plugin's present files came from, as far as Slipstream's own installer can say.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
-    /// Downloaded from its published release, and the download matched the release's checksum.
-    Release,
+    /// Downloaded from its published release, and the download matched the release's checksum;
+    /// `signed` when its signature was checked against the developer's key too.
+    Release { signed: bool },
     /// Built from a checkout of its source on this computer, at this commit.
     Checkout(String),
     /// Changed after the installer put it there.
@@ -218,13 +219,14 @@ fn source_from(record: &Path, dir: &Path) -> Source {
             .next_back()
             .map(str::to_string)
     };
+    let signed = value("signed").as_deref() == Some("yes");
     let from = match value("from").as_deref() {
-        Some("release") => Source::Release,
+        Some("release") => Source::Release { signed },
         Some("checkout") => Source::Checkout(value("built").unwrap_or_default()),
         Some(_) => return Source::Unknown,
         // Recorded before the installer said which: only one of them can tell.
         None => match (value("bundle"), value("built")) {
-            (Some(_), None) => Source::Release,
+            (Some(_), None) => Source::Release { signed },
             (None, Some(commit)) => Source::Checkout(commit),
             _ => return Source::Unknown,
         },
@@ -323,9 +325,12 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
     }
     lines.push(
         match source {
-            Source::Release => {
-                "It's from the plugin's official release, and passed Slipstream's \
-                                checks."
+            Source::Release { signed: true } => {
+                "It's from the plugin's official release, signed by its developer, and passed \
+                 Slipstream's checks."
+            }
+            Source::Release { signed: false } => {
+                "It's from the plugin's official release, and passed Slipstream's checks."
             }
             Source::Checkout(_) => "You built it on this computer, from its source.",
             Source::ChangedSince => "Its files were changed after Slipstream installed it.",
@@ -363,7 +368,7 @@ mod tests {
         let now = Approval::of(&timer(&root, MANIFEST, "echo two"));
         let change = compare(&before, &now);
         assert_eq!(change, Change::default());
-        let said = explain(Some(&change), &Source::Release).join("\n");
+        let said = explain(Some(&change), &Source::Release { signed: false }).join("\n");
         assert_eq!(
             said,
             "It doesn't ask for anything new.\nIt's from the plugin's official release, and \
@@ -514,7 +519,21 @@ mod tests {
         let plugin = timer(&root, MANIFEST, "echo one");
         let record = root.join("record");
         std::fs::write(&record, "bundle=ab12\nfrom=release\n").unwrap();
-        assert_eq!(source_from(&record, &plugin.dir), Source::Release);
+        assert_eq!(
+            source_from(&record, &plugin.dir),
+            Source::Release { signed: false },
+            "recorded before signatures were"
+        );
+        std::fs::write(&record, "bundle=ab12\nfrom=release\nsigned=no\n").unwrap();
+        assert_eq!(
+            source_from(&record, &plugin.dir),
+            Source::Release { signed: false }
+        );
+        std::fs::write(&record, "bundle=ab12\nfrom=release\nsigned=yes\n").unwrap();
+        assert_eq!(
+            source_from(&record, &plugin.dir),
+            Source::Release { signed: true }
+        );
         std::fs::write(&record, "bundle=ab12\nbuilt=cd34\nfrom=checkout\n").unwrap();
         assert_eq!(
             source_from(&record, &plugin.dir),
@@ -531,8 +550,8 @@ mod tests {
             Source::Unknown,
             "which was last is unknown"
         );
-        // A file changed after the record was written wasn't the installer's doing.
-        std::fs::write(&record, "from=release\n").unwrap();
+        // A file changed after the record was written wasn't the installer's doing, signed or not.
+        std::fs::write(&record, "from=release\nsigned=yes\n").unwrap();
         let later = SystemTime::now() + Duration::from_secs(60);
         std::fs::File::options()
             .write(true)

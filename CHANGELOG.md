@@ -5,6 +5,7 @@
 - **An app can show you another window without taking the keyboard.** The app you're using can ask, over the session bus, to look at the window that holds a process: Slipstream slides to its workspace, raises it and rings it in your focus colour, while your keys still go to the app that asked. It then goes back, or stays with that window. Only the app with the keyboard can ask, and never behind the lock. [How to ask](guide/help.md#showing-another-window-from-your-app).
 - **Your own shortcuts take you to an app that's already open,** on whichever workspace it's on, as the explorer does, rather than only starting apps that aren't.
 - **Remote control with wayvnc works with the mouse too,** as do wlrctl, warpd and lan-mouse. As with the virtual keyboard, only programs outside a sandbox can use it.
+- **Extras installed from a signed release stay on through an update that asks for nothing new,** as Flatpak apps and browser extensions do. One that asks for more still waits for you, and so do your own plugins and anything built from source. [Plugins](guide/plugins.md#plugins-that-come-with-slipstream).
 - **Menus open while an input method is running.** With an input method such as fcitx5 taking text in the app in front, as it always is in a terminal, a menu no longer closes the moment it opens.
 
 

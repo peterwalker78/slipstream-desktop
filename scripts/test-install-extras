@@ -512,6 +512,7 @@ rm -rf "$work/checkout"
 plugin_conf
 expect_status 0
 grep -qx 'from=release' "$record_of" || fail "$case_name: no from=release after a bundle"
+grep -qx 'signed=no' "$record_of" || fail "$case_name: no signed=no after an unsigned bundle"
 if [ "$(grep -c '^from=' "$record_of")" -eq 1 ]; then ok; else fail "$case_name: from= twice"; fi
 
 case_name="a plugin ID that could name another folder is refused"
@@ -554,6 +555,8 @@ sign signer
 signed_conf signer
 expect_status 0
 [ -f "$plugins_dir/example/plugin.toml" ] || fail "$case_name: not installed"
+signed_record="$work/home/.local/state/slipstream/extras/example"
+if grep -qx 'signed=yes' "$signed_record"; then ok; else fail "$case_name: no signed=yes"; fi
 
 case_name="a bundle signed with another key isn't installed"
 fresh

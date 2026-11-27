@@ -38,7 +38,8 @@
 # installed or the bundle's checksum has changed. The default browser is set the first time only,
 # so choosing another browser afterwards sticks. A plugin is installed off, and Settings › Plugins
 # turns it on once you have looked at what it is. Each install records where it came from (from=
-# release or checkout), which Settings shows beside a plugin an update has held.
+# release or checkout, and for a release whether its signature was checked: signed=yes or no),
+# which Settings shows beside a plugin an update has held.
 set -eu
 umask 022
 
@@ -291,6 +292,13 @@ from_bundle() {
     fi
     record "$record_file" bundle "$want"
     record "$record_file" from release
+    # Whether the download's signature was checked, which lets a plugin's update that asks for
+    # nothing new stay on.
+    if [ -n "$bundle_signer" ]; then
+        record "$record_file" signed yes
+    else
+        record "$record_file" signed no
+    fi
     say "$1" "installed"
 }
 

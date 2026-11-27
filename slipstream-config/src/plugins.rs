@@ -181,24 +181,38 @@ impl Plugins {
             && self.fingerprints.get(&plugin.id) == Some(&plugin.fingerprint)
     }
 
-    /// Whether `plugin` may run as its folder holds it now: it is `approved`, or it comes with
-    /// Slipstream, is on, and its update asks for nothing more than it did when it was turned on
-    /// (`kept`, what it asked for then). Whoever can change the files of a plugin that comes with
-    /// Slipstream can change Slipstream itself, so asking again about a like-for-like update
-    /// would protect nothing; one that asks for more is held as any other plugin's is. It is
-    /// always compared with what was turned on, never with the update before, so a run of small
-    /// updates can't add up to more.
+    /// Whether `plugin` may run as its folder holds it now: it is `approved`, or it is on, its
+    /// update asks for nothing more than it did when it was turned on (`kept`, what it asked for
+    /// then), and the update came from somewhere that vouches for it: with Slipstream itself, or
+    /// from the plugin's release with its developer's signature checked and nothing changed since.
+    /// That is how Flatpak and browser extensions update: a like-for-like update installs
+    /// without asking, one that asks for more waits. Plugins of the person's own, and ones built
+    /// from a checkout, are held by any change. It is always compared with what was turned on,
+    /// never with the update before, so a run of small updates can't add up to more.
     pub fn runs(&self, plugin: &Plugin, kept: Option<&approval::Approval>) -> bool {
+        self.runs_from(plugin, kept, || approval::source(plugin))
+    }
+
+    /// `runs`, with where the plugin came from asked of `source` only when it decides.
+    fn runs_from(
+        &self,
+        plugin: &Plugin,
+        kept: Option<&approval::Approval>,
+        source: impl FnOnce() -> approval::Source,
+    ) -> bool {
         if self.approved(plugin) {
             return true;
         }
-        plugin.bundled
-            && plugin.too_big.is_none()
+        plugin.too_big.is_none()
             && self.is_on(&plugin.id)
             && kept.is_some_and(|kept| {
                 self.fingerprints.get(&plugin.id) == Some(&kept.fingerprint)
                     && !approval::compare(kept, &approval::Approval::of(plugin)).asks_for_more()
             })
+            && matches!(
+                source(),
+                approval::Source::Bundled | approval::Source::Release { signed: true }
+            )
     }
 }
 
@@ -2124,6 +2138,59 @@ mod tests {
         }
         wanted.set_on("timer", None);
         assert!(!wanted.runs(&updated, Some(&kept)), "off is off");
+    }
+
+    /// The promise in the guide: an extra installed from its release, with its developer's
+    /// signature checked, stays on through an update that asks for nothing more, as Flatpak apps
+    /// and browser extensions do. Unsigned, built from a checkout, changed since the installer put
+    /// it there, or asking for more: held.
+    #[test]
+    fn a_signed_release_stays_on_through_a_like_for_like_update_only() {
+        use approval::Source;
+        let root = scratch("signed");
+        let manifest = "name = \"Timer\"\nexec = [\"./timer\"]\nneeds = [\"notify\"]\n";
+        plugin(&root, "timer", manifest);
+        let look = || read(&root.join("timer")).unwrap();
+        let first = look();
+        assert!(!first.bundled);
+        let mut wanted = Plugins::default();
+        wanted.set_on("timer", Some(first.fingerprint.clone()));
+        let kept = approval::Approval::of(&first);
+
+        std::fs::write(root.join("timer").join("timer"), "echo two\n").unwrap();
+        let updated = look();
+        assert!(!wanted.approved(&updated));
+        let signed = || Source::Release { signed: true };
+        assert!(
+            wanted.runs_from(&updated, Some(&kept), signed),
+            "signed, like for like: still on"
+        );
+        for (source, why) in [
+            (Source::Release { signed: false }, "unsigned"),
+            (Source::Checkout("ab12".into()), "built from a checkout"),
+            (Source::ChangedSince, "changed since it was installed"),
+            (Source::Unknown, "not installed by Slipstream"),
+        ] {
+            assert!(
+                !wanted.runs_from(&updated, Some(&kept), || source),
+                "{why}: held"
+            );
+        }
+        assert!(
+            !wanted.runs_from(&updated, None, signed),
+            "nothing to compare with: held"
+        );
+        let asks = "name = \"Timer\"\nexec = [\"./timer\"]\nneeds = [\"notify\", \"network\"]\n";
+        std::fs::write(root.join("timer").join(MANIFEST), asks).unwrap();
+        assert!(
+            !wanted.runs_from(&look(), Some(&kept), signed),
+            "asks for more: held"
+        );
+        wanted.set_on("timer", None);
+        assert!(
+            !wanted.runs_from(&updated, Some(&kept), signed),
+            "off is off"
+        );
     }
 
     /// The promise in the guide: a plugin too big to check is listed, and can't be turned on.
