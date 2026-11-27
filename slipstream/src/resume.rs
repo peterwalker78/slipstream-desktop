@@ -13,7 +13,9 @@
 //!
 //! Only a terminal with one window and one shell is read. A process with several windows or
 //! several tabs gives no way to say which shell belongs to which window, so those are left as
-//! they were.
+//! they were. The shell is the one the terminal started, or for a terminal whose shells are
+//! started elsewhere (outside its sandbox, or by a helper), the one on the pseudo-terminal it
+//! holds the far end of.
 
 use std::{
     fs,
@@ -123,7 +125,82 @@ pub fn in_terminal(pid: u32) -> Result<Session, Miss> {
         return Err(Miss::NoNote);
     };
     let (uid, ticks) = kernel_values();
-    look(Path::new("/proc"), &notes, pid, uid, ticks)
+    let proc = Path::new("/proc");
+    look(proc, &notes, pid, uid, ticks, &Kernel { proc })
+}
+
+/// A pseudo-terminal: the devpts instance it belongs to (that file system's device number) and
+/// its number there. A terminal emulator holds the far end of one for each shell it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pty {
+    instance: u64,
+    number: u32,
+}
+
+/// Which pseudo-terminals processes have, read from the kernel or, in tests, made up.
+trait Ptys {
+    /// The pseudo-terminals `pid` holds the far end of: the ones it shows on screen.
+    fn held(&self, pid: u32) -> Vec<Pty>;
+    /// The pseudo-terminal `pid` has as its own terminal.
+    fn of(&self, pid: u32) -> Option<Pty>;
+}
+
+/// Unix 98 pseudo-terminals have these device majors.
+const PTY_MAJORS: std::ops::RangeInclusive<u32> = 136..=143;
+
+/// The kernel's own account, through `/proc`.
+struct Kernel<'a> {
+    proc: &'a Path,
+}
+
+impl Ptys for Kernel<'_> {
+    fn held(&self, pid: u32) -> Vec<Pty> {
+        let dir = self.proc.join(pid.to_string());
+        let Ok(fds) = fs::read_dir(dir.join("fd")) else {
+            return Vec::new();
+        };
+        // A far end opened through `/dev/ptmx`, rather than through a devpts instance's own
+        // `ptmx`, belongs to the instance mounted on `/dev/pts`.
+        let device = |path: &str| fs::metadata(path).ok().map(|meta| meta.dev());
+        let (ptmx, pts) = (device("/dev/ptmx"), device("/dev/pts"));
+        let mut held = Vec::new();
+        for fd in fds.flatten() {
+            let opened = fs::read_link(fd.path()).ok();
+            if opened.as_deref().and_then(Path::file_name) != Some("ptmx".as_ref()) {
+                continue;
+            }
+            let info = fs::read_to_string(dir.join("fdinfo").join(fd.file_name()));
+            let number = info.ok().and_then(|info| {
+                info.lines()
+                    .find_map(|line| line.strip_prefix("tty-index:"))
+                    .and_then(|number| number.trim().parse().ok())
+            });
+            let (Some(number), Ok(meta)) = (number, fs::metadata(fd.path())) else {
+                continue;
+            };
+            let instance = match pts {
+                Some(pts) if Some(meta.dev()) == ptmx => pts,
+                _ => meta.dev(),
+            };
+            held.push(Pty { instance, number });
+        }
+        held
+    }
+
+    fn of(&self, pid: u32) -> Option<Pty> {
+        let terminal: u64 = stat(self.proc, pid)?.get(4)?.parse().ok()?;
+        // The terminal's number says which device, but not which devpts instance: that is the
+        // file system of whichever of its standard streams is open on it.
+        let fds = self.proc.join(pid.to_string()).join("fd");
+        (0..3).find_map(|fd| {
+            let meta = fs::metadata(fds.join(fd.to_string())).ok()?;
+            let device = meta.rdev();
+            (device == terminal && PTY_MAJORS.contains(&libc::major(device))).then(|| Pty {
+                instance: meta.dev(),
+                number: libc::minor(device),
+            })
+        })
+    }
 }
 
 /// This user's id and the kernel's clock ticks a second.
@@ -134,11 +211,15 @@ fn kernel_values() -> (u32, u64) {
 }
 
 /// `in_terminal` over any process table and notes folder, so it can be tested on made-up ones.
-fn look(proc: &Path, notes: &Path, pid: u32, uid: u32, ticks: u64) -> Result<Session, Miss> {
-    let shells: Vec<u32> = children(proc, pid)
-        .into_iter()
-        .filter(|&child| leads_a_terminal(proc, child))
-        .collect();
+fn look(
+    proc: &Path,
+    notes: &Path,
+    pid: u32,
+    uid: u32,
+    ticks: u64,
+    ptys: &impl Ptys,
+) -> Result<Session, Miss> {
+    let shells = shells_of(proc, pid, ptys);
     let shell = match shells[..] {
         [shell] => shell,
         [] => return Err(Miss::NoShell),
@@ -277,6 +358,31 @@ fn leads_a_terminal(proc: &Path, pid: u32) -> bool {
     number(3) == Some(i64::from(pid)) && number(4).is_some_and(|terminal| terminal != 0)
 }
 
+/// The shells terminal `pid` shows. Most terminals start their own, but one in a sandbox has its
+/// shells started outside it and one with a helper has them started there, so for a terminal
+/// with none of its own they are the shells on the pseudo-terminals it holds the far end of.
+fn shells_of(proc: &Path, pid: u32, ptys: &impl Ptys) -> Vec<u32> {
+    let own: Vec<u32> = children(proc, pid)
+        .into_iter()
+        .filter(|&child| leads_a_terminal(proc, child))
+        .collect();
+    if !own.is_empty() {
+        return own;
+    }
+    let held = ptys.held(pid);
+    if held.is_empty() {
+        return Vec::new();
+    }
+    let Ok(dir) = fs::read_dir(proc) else {
+        return Vec::new();
+    };
+    dir.flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|&other| other != pid && leads_a_terminal(proc, other))
+        .filter(|&other| ptys.of(other).is_some_and(|pty| held.contains(&pty)))
+        .collect()
+}
+
 fn children(proc: &Path, pid: u32) -> Vec<u32> {
     let tasks = fs::read_dir(proc.join(pid.to_string()).join("task"));
     tasks
@@ -356,9 +462,27 @@ mod tests {
     const BOOT: u64 = 1_000_000;
     const TICKS: u64 = 100;
 
-    /// A process table and a notes folder in a scratch folder.
+    /// A process table and a notes folder in a scratch folder, and which pseudo-terminals its
+    /// processes have.
     struct Machine {
         root: slipstream_config::scratch::Scratch,
+        ptys: MadeUpPtys,
+    }
+
+    #[derive(Default)]
+    struct MadeUpPtys {
+        held: std::cell::RefCell<std::collections::HashMap<u32, Vec<Pty>>>,
+        of: std::cell::RefCell<std::collections::HashMap<u32, Pty>>,
+    }
+
+    impl Ptys for MadeUpPtys {
+        fn held(&self, pid: u32) -> Vec<Pty> {
+            self.held.borrow().get(&pid).cloned().unwrap_or_default()
+        }
+
+        fn of(&self, pid: u32) -> Option<Pty> {
+            self.of.borrow().get(&pid).copied()
+        }
     }
 
     impl Machine {
@@ -367,7 +491,19 @@ mod tests {
             fs::create_dir_all(root.join("proc")).unwrap();
             fs::create_dir_all(root.join("notes")).unwrap();
             fs::write(root.join("proc/stat"), format!("cpu 1 2 3\nbtime {BOOT}\n")).unwrap();
-            Self { root }
+            Self {
+                root,
+                ptys: MadeUpPtys::default(),
+            }
+        }
+
+        /// `terminal` shows pseudo-terminal `number` of devpts instance `instance`, on which
+        /// `shell` runs.
+        fn shows(&self, terminal: u32, shell: u32, instance: u64, number: u32) {
+            let pty = Pty { instance, number };
+            let mut held = self.ptys.held.borrow_mut();
+            held.entry(terminal).or_default().push(pty);
+            self.ptys.of.borrow_mut().insert(shell, pty);
         }
 
         /// A process under `parent`. A `shell` leads its own session on a terminal.
@@ -435,6 +571,7 @@ mod tests {
                 pid,
                 uid,
                 TICKS,
+                &self.ptys,
             )
         }
 
@@ -671,6 +808,38 @@ mod tests {
             );
             machine.log_out();
         }
+    }
+
+    #[test]
+    fn a_terminal_whose_shells_start_elsewhere_finds_them_by_the_terminals_it_holds() {
+        // A sandboxed terminal (10) whose shell (50) was started outside the sandbox, by a
+        // helper (2), and so isn't under it.
+        let machine = Machine::new("resume-elsewhere");
+        machine.process(10, 1, false, "/");
+        machine.process(2, 1, false, "/");
+        machine.process(50, 2, true, "/work/site");
+        machine.program(50, "/usr/bin/zsh", &["zsh"]);
+        machine.process(51, 50, false, "/work/site");
+        machine.note(51, "agent --resume 7", 200);
+        // Another terminal's shell has the same number in another devpts instance, with an agent
+        // of its own, and a third is on a terminal nobody here shows.
+        machine.process(60, 2, true, "/work/other");
+        machine.process(61, 60, false, "/work/other");
+        machine.note(61, "agent --resume 8", 200);
+        machine.process(70, 2, true, "/work/third");
+        machine.shows(40, 60, 99, 7);
+        machine.shows(41, 70, 30, 9);
+        assert_eq!(machine.why(10), Err(Miss::NoShell));
+        machine.shows(10, 50, 30, 7);
+        let session = machine.look(10).unwrap();
+        assert_eq!(session.command, "agent --resume 7");
+        assert_eq!(session.directory.as_deref(), Some("/work/site"));
+        assert_eq!(session.shell.as_deref(), Some("/usr/bin/zsh"));
+        assert_eq!(session.agent, 51);
+        // A second tab is a second shell, and which is the window's can't be told.
+        machine.process(52, 2, true, "/work/site");
+        machine.shows(10, 52, 30, 8);
+        assert_eq!(machine.why(10), Err(Miss::Shells(2)));
     }
 
     #[test]

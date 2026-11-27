@@ -103,11 +103,21 @@ At the next login that terminal is started in the folder its shell was in and ru
 
 - **Logging out doesn't stop to ask about it.** With **Remember the layout** on, a terminal with an agent's note is closed without its own "a program is still running" question, since the session comes back with the layout. Every other window is asked to close as usual.
 - **Only the note is ever run.** Slipstream never works a command out from what happens to be running, and a terminal with no note comes back as it always has: a new shell.
-- **One window, one shell.** A terminal with tabs, or one that keeps all its windows in a single process, can't say which shell belongs to which window, so it comes back as an ordinary terminal.
+- **One window, one shell.** A terminal with tabs, or one that keeps all its windows in a single process, can't say which shell belongs to which window, so it comes back as an ordinary terminal. Which terminals work, and how to set up the ones that need it, is below.
 - **The nearest note is the window's.** If the agent starts another agent of its own, which leaves a note too, the note nearest the terminal's shell is the one that comes back. Notes whose process has gone are cleared away, so nothing from an earlier login is taken for a session open now.
 - **When one doesn't come back,** the log, `~/.local/state/slipstream/slipstream.log`, says why for each terminal at logout: no note under its shell, more than one, a note older than its process, or a terminal with several windows or tabs.
 - **The conversation, not the work in progress.** What comes back is whatever the agent's own command reopens. Anything it was in the middle of running is not carried on.
 - **Where it is kept.** The command, the folder, the shell and the agent's search path go in the layout record, `~/.local/state/slipstream/session.toml`, which is deleted when you turn **Remember the layout** off. Nothing else of the agent's environment is kept.
+
+### Which terminals work
+
+Any terminal that runs each window as a program of its own, including one installed as a Flatpak: its shells run outside its sandbox, and Slipstream finds them through the terminals the window shows. A Flatpak terminal starts the shell with a search path of its own, so the agent's search path doesn't carry across; your shell's startup files still run.
+
+- **Konsole, Alacritty, kitty and foot** work as they come.
+- **Ghostty** gives each window started with a command a program of its own, so the windows it reopens are fine. A window opened from its launcher joins the program already running, because its launcher entry turns on `--gtk-single-instance=true`. Copy its `.desktop` file into `~/.local/share/applications/`, keeping the name, and change that to `--gtk-single-instance=false` in each `Exec=` line. Setting it in Ghostty's config file isn't enough, since the launcher's option wins.
+- **foot's server** (`footclient`), **`alacritty msg create-window`** and **`kitty --single-instance`** each put new windows into a program already running. Leave them off for the windows you run an agent in.
+- **GNOME Terminal and Ptyxis** run every window in one program, so their agent sessions don't come back.
+- **WezTerm** hasn't been checked yet.
 
 ## Keeping an AI agent working while you're logged out
 
