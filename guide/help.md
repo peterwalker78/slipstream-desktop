@@ -145,8 +145,8 @@ A session working in the background has no window above it, so to have its notif
 
 Slipstream has no AI in it. This is for people who set an AI coding agent of their own going and step away: once the desktop has faded to the wallpaper, every open agent session has a small oscilloscope trace at the top right, under whatever the agent says to call it. There is one trace for each open session, however many are running.
 
-- **Cyan wave:** the agent is working, itself or through subagents.
-- **Flat amber line:** the agent is open but between tasks, or the session has ended.
+- **A wave in your primary colour:** the agent is working, itself or through subagents.
+- **A flat line in your secondary colour:** the agent is open but between tasks, or the session has ended.
 - **A row under the trace for each subagent** it has working: a small wave of its own and what that subagent is doing.
 - **A row in your tertiary colour for each background task** it has running, after the subagents. Its small wave keeps moving while the task runs, even when the agent is idle. A tertiary colour too dark to stand out on the trace's backing, even with the brightest wallpaper showing through it, is drawn lighter, in the same hue.
 
@@ -174,7 +174,7 @@ The note is left in place until the session's process exits; the desktop cleans 
 A ready-made hook program for several popular agents comes with Slipstream as an extra: [agent-notify](https://github.com/peterwalker78/agent-notify), which the installer asks about along with the companion apps, and `scripts/install-extras --ask` offers later. It is a plugin too, whose card shows your plan limits; it starts off, like every plugin, until you turn it on in **Settings → Plugins**. Run `agent-notify setup` to wire up the hooks and `agent-notify status` to see what it has done. It also handles desktop notifications and leaves the notes for [bringing a session back](#bringing-an-ai-agents-session-back); `agent-notify --help` covers those and lists the agents it supports.
 
 - **Only while the desktop is faded.** Nothing is drawn over your windows; the traces come in after the wallpaper has taken the screen and go as the desktop comes back.
-- **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its amber line until you touch a key or the mouse.
+- **Every open session.** A trace shows for each session that has left a note, whether or not it is doing anything right now. A stopped session keeps its flat line until you touch a key or the mouse.
 - **One trace for each session, not each subagent.** Subagents are listed under the trace of the session that started them, up to four rows, the last saying how many more there are.
 - **Reduced motion** keeps the picture and drops the movement: standing waves for an agent at work and its subagents, and a flat line for one that is idle or has stopped.
 - **The name is the agent's to give.** Write the note again to change it. An empty first line falls back to the folder the agent is working in.
