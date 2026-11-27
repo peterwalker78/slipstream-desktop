@@ -38,6 +38,9 @@ pub struct Approval {
     pub actions: Vec<String>,
     /// The SHA-256 of each file, by its path in the plugin's folder.
     pub files: BTreeMap<String, String>,
+    /// The commands it adds outside its card, by name, each with the program in its folder it
+    /// runs (`store::commands`). A record from before these were kept has none.
+    pub commands: BTreeMap<String, String>,
 }
 
 impl Approval {
@@ -59,6 +62,15 @@ impl Approval {
                 .map(|action| action.id.clone())
                 .collect(),
             files: plugin.files.clone(),
+            commands: BTreeMap::new(),
+        }
+    }
+
+    /// What `plugin` asks for, with the commands linked to it now.
+    pub fn installed(plugin: &Plugin) -> Approval {
+        Approval {
+            commands: super::store::commands(&plugin.id, &plugin.dir),
+            ..Approval::of(plugin)
         }
     }
 }
@@ -87,7 +99,7 @@ pub fn save(plugin: &Plugin) -> Result<(), String> {
 }
 
 fn save_in(folder: &Path, plugin: &Plugin) -> Result<(), String> {
-    let approval = Approval::of(plugin);
+    let approval = Approval::installed(plugin);
     let text = toml::to_string(&approval).map_err(|err| err.to_string())?;
     std::fs::create_dir_all(folder).map_err(|err| err.to_string())?;
     crate::replace(&folder.join(format!("{}.toml", plugin.id)), text.as_bytes())
@@ -126,12 +138,15 @@ pub struct Change {
     pub keyword_added: Option<String>,
     /// The ids of the actions it now offers keys for that it didn't.
     pub actions_added: Vec<String>,
+    /// A command it adds outside its card was added, dropped, or leads to another program.
+    pub commands: bool,
 }
 
 impl Change {
     /// Whether it asks for more than was agreed to: another program, folders it didn't read,
-    /// something it didn't need, or a place to show it didn't have. Asking for less, or running
-    /// more or less often, isn't more.
+    /// something it didn't need, a place to show it didn't have, or any change to its commands,
+    /// which run outside the sandbox. Asking for less, or running more or less often, isn't
+    /// more.
     pub fn asks_for_more(&self) -> bool {
         self.program
             || !self.reads_added.is_empty()
@@ -140,6 +155,7 @@ impl Change {
             || self.tile_added
             || self.keyword_added.is_some()
             || !self.actions_added.is_empty()
+            || self.commands
     }
 }
 
@@ -176,6 +192,7 @@ pub fn compare(before: &Approval, now: &Approval) -> Change {
             .filter(|action| !before.actions.contains(action))
             .cloned()
             .collect(),
+        commands: before.commands != now.commands,
     }
 }
 
@@ -305,6 +322,10 @@ pub fn explain(change: Option<&Change>, source: &Source) -> Vec<String> {
             }
             if !change.actions_added.is_empty() {
                 wants.push("offer actions you can give keys".to_string());
+            }
+            if change.commands {
+                wants
+                    .push("change the commands it adds, which run outside the sandbox".to_string());
             }
             lines.push(match (wants.is_empty(), change.program) {
                 (true, false) => "It doesn't ask for anything new.".to_string(),
@@ -463,6 +484,48 @@ mod tests {
             ..now.clone()
         };
         assert!(!compare(&now, &fewer).asks_for_more());
+    }
+
+    /// Commands run outside the sandbox, so any change to them is more than was agreed to.
+    #[test]
+    fn an_update_that_changes_its_commands_says_so() {
+        let root = scratch("commands");
+        let command = |name: &str, program: &str| BTreeMap::from([(name.into(), program.into())]);
+        let before = Approval {
+            commands: command("timer", "bin/timer"),
+            ..Approval::of(&timer(&root, MANIFEST, "echo one"))
+        };
+        assert!(!compare(&before, &before).asks_for_more());
+        for commands in [
+            BTreeMap::new(),
+            command("tick", "bin/timer"),
+            command("timer", "bin/other"),
+            BTreeMap::from([
+                ("timer".into(), "bin/timer".into()),
+                ("tock".into(), "bin/timer".into()),
+            ]),
+        ] {
+            let now = Approval {
+                commands,
+                ..before.clone()
+            };
+            assert!(compare(&before, &now).asks_for_more(), "{:?}", now.commands);
+        }
+        let now = Approval {
+            commands: command("tick", "bin/timer"),
+            ..before.clone()
+        };
+        assert_eq!(
+            explain(
+                Some(&compare(&before, &now)),
+                &Source::Release { signed: true }
+            )[0],
+            "It now also wants to change the commands it adds, which run outside the sandbox."
+        );
+        // A record from before commands were kept has none.
+        let text = toml::to_string(&Approval::of(&timer(&root, MANIFEST, "echo one"))).unwrap();
+        let old: Approval = toml::from_str(&text.replace("[commands]\n", "")).unwrap();
+        assert!(old.commands.is_empty());
     }
 
     #[test]

@@ -166,7 +166,7 @@ fn look(approved: &plugins::Plugins) -> Looked {
                 // approval the settings hold.
                 let change = approval::load(&plugin.id)
                     .filter(|kept| approved.fingerprints.get(&plugin.id) == Some(&kept.fingerprint))
-                    .map(|kept| approval::compare(&kept, &approval::Approval::of(&plugin)));
+                    .map(|kept| approval::compare(&kept, &approval::Approval::installed(&plugin)));
                 approval::explain(change.as_ref(), &approval::source(&plugin))
             } else {
                 Vec::new()
@@ -314,7 +314,9 @@ fn plugin_card(
             }
         }
     }
-    let commands = commands_of(&plugin.id);
+    let commands: Vec<String> = store::commands(&plugin.id, &plugin.dir)
+        .into_keys()
+        .collect();
     if !commands.is_empty() {
         let one = commands.len() == 1;
         abilities.push(plugins::Ability {
@@ -593,25 +595,6 @@ fn glance_choice(
         refill();
     });
     choice
-}
-
-/// The commands Slipstream's installer linked into `~/.local/bin` from plugin `id`: they lead to
-/// its approved copy, and run as you, outside the sandbox, whenever you or your tools run them.
-fn commands_of(id: &str) -> Vec<String> {
-    let current = store::of(id).join("current");
-    let bin = slipstream_config::xdg_home("HOME", "").join(".local/bin");
-    let Ok(entries) = std::fs::read_dir(bin) else {
-        return Vec::new();
-    };
-    let mut commands: Vec<String> = entries
-        .flatten()
-        .filter(|entry| {
-            std::fs::read_link(entry.path()).is_ok_and(|target| target.starts_with(&current))
-        })
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-    commands.sort();
-    commands
 }
 
 /// A Remove button, centred in its row.

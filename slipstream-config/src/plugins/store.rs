@@ -1,11 +1,15 @@
 //! Where Slipstream keeps a plugin it has been told to run: `$XDG_STATE_HOME/slipstream/plugins/
 //! <id>/`. Turning a plugin on copies its folder into `<fingerprint>/` there, read-only, and the
 //! plugin only ever runs from that copy, so a change to its folder never runs until it is turned
-//! on again. `current` is a link to the copy that was approved, which moves in one step, so
-//! commands a plugin offers outside its card (linked from `current/…`) run what was approved too.
+//! on again, or is let run as a like-for-like update from a source that vouches for it
+//! (`Plugins::runs`).
+//! `current` is a link to the copy that runs, which moves in one step, so commands a plugin
+//! offers outside its card (linked from `current/…`, `commands`) run that copy too. They are
+//! part of what was turned on: an update that adds, drops or moves one isn't let run.
 //! `state/` is the plugin's own, for what it keeps.
 
 use std::{
+    collections::BTreeMap,
     fs, io,
     os::unix::{
         ffi::OsStrExt,
@@ -174,6 +178,37 @@ pub fn current(store: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The commands Slipstream's installer linked into `~/.local/bin` for plugin `id`, by name, each
+/// with the program in the plugin's folder `dir` it leads to through `current`. They run as you,
+/// outside the sandbox, whenever you or your tools run them. A link to a program `dir` doesn't
+/// have isn't one of its commands.
+pub fn commands(id: &str, dir: &Path) -> BTreeMap<String, String> {
+    let bin = crate::xdg_home("HOME", "").join(".local/bin");
+    commands_in(&bin, &of(id).join(CURRENT), dir)
+}
+
+fn commands_in(bin: &Path, current: &Path, dir: &Path) -> BTreeMap<String, String> {
+    let Ok(entries) = fs::read_dir(bin) else {
+        return BTreeMap::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let target = fs::read_link(entry.path()).ok()?;
+            let program = target.strip_prefix(current).ok()?;
+            let plain = program
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)));
+            (plain && dir.join(program).is_file()).then(|| {
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    program.to_string_lossy().into_owned(),
+                )
+            })
+        })
+        .collect()
+}
+
 /// Removes the copies in `store` other than `keep`, the one `current` points at and those
 /// `in_use` says something is still running from, and any copy left half written.
 pub fn prune(store: &Path, keep: Option<&str>, in_use: &dyn Fn(&Path) -> bool) {
@@ -290,6 +325,32 @@ mod tests {
         fs::set_permissions(dir.join("timer"), fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(dir.join("lib").join("words"), "tick tock").unwrap();
         super::super::read(&dir).unwrap()
+    }
+
+    #[test]
+    fn a_plugin_s_commands_are_the_links_to_its_programs() {
+        use std::os::unix::fs::symlink;
+        let root = scratch("commands");
+        let plugin = timer(&root, "#!/bin/sh\necho {}\n");
+        let (bin, current) = (root.join("bin"), root.join("store").join(CURRENT));
+        fs::create_dir_all(&bin).unwrap();
+        symlink(current.join("timer"), bin.join("timer")).unwrap();
+        symlink(current.join("lib/words"), bin.join("words")).unwrap();
+        // Not its commands: a program it doesn't have, a way out of its folder, another
+        // plugin's, and someone's own.
+        symlink(current.join("gone"), bin.join("gone")).unwrap();
+        symlink(current.join("../timer"), bin.join("up")).unwrap();
+        symlink(root.join("other/current/timer"), bin.join("other")).unwrap();
+        fs::write(bin.join("mine"), "#!/bin/sh\n").unwrap();
+        let commands = commands_in(&bin, &current, &plugin.dir);
+        assert_eq!(
+            commands.into_iter().collect::<Vec<_>>(),
+            [
+                ("timer".to_string(), "timer".to_string()),
+                ("words".to_string(), "lib/words".to_string())
+            ]
+        );
+        assert!(commands_in(&root.join("nowhere"), &current, &plugin.dir).is_empty());
     }
 
     /// The promise in the guide: a plugin runs from a read-only copy of what was approved.

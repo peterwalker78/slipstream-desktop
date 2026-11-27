@@ -26,7 +26,7 @@
 #                                      made by ssh-keygen -Y sign -n slipstream-extra, must match
 #   commands=bin/example               a plugin's programs to link into ~/.local/bin, by their paths
 #                                      in its folder, separated by spaces; each link leads to the
-#                                      copy of the plugin you approved in Settings
+#                                      copy of the plugin Slipstream runs, once you turn it on
 #   then=Run example setup             what to say once a plugin is first installed
 #   default_browser=yes                make it the default web browser, once
 #   install=no                         don't install it at all
@@ -35,11 +35,13 @@
 # A checkout is built when the app isn't installed or the checkout's commit has changed since it was
 # last built here (uncommitted changes don't count); if that build fails and the app isn't installed,
 # the bundle is installed instead, when there is one. A bundle is installed when the app isn't
-# installed or the bundle's checksum has changed. The default browser is set the first time only,
-# so choosing another browser afterwards sticks. A plugin is installed off, and Settings › Plugins
-# turns it on once you have looked at what it is. Each install records where it came from (from=
-# release or checkout, and for a release whether its signature was checked: signed=yes or no),
-# which Settings shows beside a plugin an update has held.
+# installed or the bundle's checksum has changed, except that a plugin's bundle is refused when it
+# is older than the one installed, by the version its plugin.toml gives (or gives none where the
+# installed one does). The default browser is set the first time only, so choosing another
+# browser afterwards sticks. A plugin is installed off, and Settings › Plugins turns it on once you
+# have looked at what it is. Each install records where it came from (from=release or checkout,
+# and for a release whether its signature was checked: signed=yes or no), which Settings shows
+# beside a plugin an update has held.
 set -eu
 umask 022
 
@@ -50,7 +52,7 @@ while [ $# -gt 0 ]; do
         --check) check=yes ;;
         --ask) ask=yes ;;
         -h | --help)
-            sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -101,6 +103,79 @@ failed=0
 
 # `say NAME TEXT`: a line about one app.
 say() { printf '%s: %s\n' "$1" "$2"; }
+
+# `version_of FILE`: the version a plugin.toml gives, at its top before any [table], or nothing.
+version_of() {
+    if [ -f "$1" ]; then
+        sed -n -e '/^[[:space:]]*\[/q' \
+            -e 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "$1" | head -n 1
+    fi
+}
+
+# `part_before X Y`: whether part X of a version comes before part Y, which differs from it as
+# text: no part before any, a number before a word, numbers by value and words by their letters.
+part_before() {
+    if [ -z "$1" ]; then return 0; fi
+    if [ -z "$2" ]; then return 1; fi
+    pb_x=$1 pb_y=$2 pb_x_word=no pb_y_word=no
+    case $pb_x in *[!0-9]*) pb_x_word=yes ;; esac
+    case $pb_y in *[!0-9]*) pb_y_word=yes ;; esac
+    if [ "$pb_x_word" != "$pb_y_word" ]; then
+        if [ "$pb_x_word" = no ]; then return 0; fi
+        return 1
+    fi
+    if [ "$pb_x_word" = no ]; then
+        # By value, with no arithmetic for a long number to overflow: without leading zeros the
+        # shorter is smaller, and of two the same length the first digit that differs decides.
+        pb_x=$(printf '%s' "$pb_x" | sed 's/^0*//')
+        pb_y=$(printf '%s' "$pb_y" | sed 's/^0*//')
+        if [ "${#pb_x}" -ne "${#pb_y}" ]; then
+            if [ "${#pb_x}" -lt "${#pb_y}" ]; then return 0; fi
+            return 1
+        fi
+    fi
+    if LC_ALL=C expr "x$pb_x" \< "x$pb_y" >/dev/null; then return 0; fi
+    return 1
+}
+
+# `parts_order A B FILL`: before, after or same, for the dot-separated parts of A and B taken in
+# turn, a missing part counting as FILL.
+parts_order() {
+    po_a=$1 po_b=$2
+    while [ -n "$po_a" ] || [ -n "$po_b" ]; do
+        po_x=${po_a%%.*} po_y=${po_b%%.*}
+        case $po_a in *.*) po_a=${po_a#*.} ;; *) po_a='' ;; esac
+        case $po_b in *.*) po_b=${po_b#*.} ;; *) po_b='' ;; esac
+        po_x=${po_x:-$3} po_y=${po_y:-$3}
+        if [ "$po_x" = "$po_y" ]; then continue; fi
+        if part_before "$po_x" "$po_y"; then
+            echo before
+            return 0
+        fi
+        if part_before "$po_y" "$po_x"; then
+            echo after
+            return 0
+        fi
+    done
+    echo same
+}
+
+# `version_before A B`: whether version A comes before version B. Numbers go by value, so 1.10
+# comes after 1.9, a missing one counts as 0, and a pre-release after a hyphen (1.0.0-rc.2) comes
+# before its release; a leading v is left out.
+version_before() {
+    vb_a=${1#v} vb_b=${2#v} vb_a_pre='' vb_b_pre=''
+    case $vb_a in *-*) vb_a_pre=${vb_a#*-} vb_a=${vb_a%%-*} ;; esac
+    case $vb_b in *-*) vb_b_pre=${vb_b#*-} vb_b=${vb_b%%-*} ;; esac
+    vb_order=$(parts_order "$vb_a" "$vb_b" 0)
+    if [ "$vb_order" = same ]; then
+        if [ -z "$vb_a_pre" ]; then return 1; fi
+        if [ -z "$vb_b_pre" ]; then return 0; fi
+        vb_order=$(parts_order "$vb_a_pre" "$vb_b_pre" '')
+    fi
+    if [ "$vb_order" = before ]; then return 0; fi
+    return 1
+}
 
 # `recorded FILE KEY`: what was recorded under KEY for an app, or nothing.
 recorded() {
@@ -281,6 +356,20 @@ from_bundle() {
             say "$1" "the bundle isn't a .tar.gz that could be unpacked" >&2
             return 1
         fi
+        # Never an older release than the one installed: a signed release can stay on through an
+        # update, so putting back an old one would run code with a flaw since fixed, unseen.
+        new_version=$(version_of "$unpacked/$plugin/plugin.toml")
+        old_version=$(version_of "$plugins/$plugin/plugin.toml")
+        if [ -n "$old_version" ] && [ -z "$new_version" ]; then
+            rm -rf "$unpacked"
+            say "$1" "the download gives no version, so it may be older than the $old_version installed; nothing was installed" >&2
+            return 1
+        fi
+        if [ -n "$old_version" ] && version_before "$new_version" "$old_version"; then
+            rm -rf "$unpacked"
+            say "$1" "the download is version $new_version, older than the $old_version installed; nothing was installed" >&2
+            return 1
+        fi
         if ! put_plugin "$1" "$unpacked/$plugin"; then
             rm -rf "$unpacked"
             return 1
@@ -344,10 +433,12 @@ put_plugin() {
 }
 
 # `link_commands NAME`: links the installed plugin's commands into ~/.local/bin. Each leads through
-# the current link, which Slipstream moves to the copy you approved, so a command never runs a
-# plugin you haven't seen. A program of the same name that isn't a link is someone's own, and is
-# left alone. A link from an older install that still leads to a program is kept until there is
-# an approved copy to lead to, so the command keeps working until the plugin is turned on.
+# the current link, which Slipstream moves to the copy it runs: the one you turned on, or an update
+# of it that stays on because it asks for nothing new. Slipstream counts a change to these links
+# as asking for more, so a command added, dropped or moved waits for you. A program of the same
+# name that isn't a link is someone's own, and is left alone. A link from an older install that
+# still leads to a program is kept until there is an approved copy to lead to, so the command
+# keeps working until the plugin is turned on.
 link_commands() {
     for put_command in $commands; do
         put_link=$HOME/.local/bin/${put_command##*/}

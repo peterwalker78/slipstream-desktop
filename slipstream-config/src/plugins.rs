@@ -188,16 +188,25 @@ impl Plugins {
     /// That is how Flatpak and browser extensions update: a like-for-like update installs
     /// without asking, one that asks for more waits. Plugins of the person's own, and ones built
     /// from a checkout, are held by any change. It is always compared with what was turned on,
-    /// never with the update before, so a run of small updates can't add up to more.
+    /// never with the update before, so a run of small updates can't add up to more. The
+    /// commands it adds outside its card count as asking for more whenever they change, since
+    /// they run outside the sandbox.
     pub fn runs(&self, plugin: &Plugin, kept: Option<&approval::Approval>) -> bool {
-        self.runs_from(plugin, kept, || approval::source(plugin))
+        self.runs_from(
+            plugin,
+            kept,
+            || store::commands(&plugin.id, &plugin.dir),
+            || approval::source(plugin),
+        )
     }
 
-    /// `runs`, with where the plugin came from asked of `source` only when it decides.
+    /// `runs`, with its commands asked of `commands` and where it came from of `source`, each
+    /// only when it decides.
     fn runs_from(
         &self,
         plugin: &Plugin,
         kept: Option<&approval::Approval>,
+        commands: impl FnOnce() -> BTreeMap<String, String>,
         source: impl FnOnce() -> approval::Source,
     ) -> bool {
         if self.approved(plugin) {
@@ -207,7 +216,14 @@ impl Plugins {
             && self.is_on(&plugin.id)
             && kept.is_some_and(|kept| {
                 self.fingerprints.get(&plugin.id) == Some(&kept.fingerprint)
-                    && !approval::compare(kept, &approval::Approval::of(plugin)).asks_for_more()
+                    && !approval::compare(
+                        kept,
+                        &approval::Approval {
+                            commands: commands(),
+                            ..approval::Approval::of(plugin)
+                        },
+                    )
+                    .asks_for_more()
             })
             && matches!(
                 source(),
@@ -2162,7 +2178,7 @@ mod tests {
         assert!(!wanted.approved(&updated));
         let signed = || Source::Release { signed: true };
         assert!(
-            wanted.runs_from(&updated, Some(&kept), signed),
+            wanted.runs_from(&updated, Some(&kept), BTreeMap::new, signed),
             "signed, like for like: still on"
         );
         for (source, why) in [
@@ -2172,23 +2188,58 @@ mod tests {
             (Source::Unknown, "not installed by Slipstream"),
         ] {
             assert!(
-                !wanted.runs_from(&updated, Some(&kept), || source),
+                !wanted.runs_from(&updated, Some(&kept), BTreeMap::new, || source),
                 "{why}: held"
             );
         }
         assert!(
-            !wanted.runs_from(&updated, None, signed),
+            !wanted.runs_from(&updated, None, BTreeMap::new, signed),
             "nothing to compare with: held"
         );
         let asks = "name = \"Timer\"\nexec = [\"./timer\"]\nneeds = [\"notify\", \"network\"]\n";
         std::fs::write(root.join("timer").join(MANIFEST), asks).unwrap();
         assert!(
-            !wanted.runs_from(&look(), Some(&kept), signed),
+            !wanted.runs_from(&look(), Some(&kept), BTreeMap::new, signed),
             "asks for more: held"
         );
+        // A change to the commands it adds, which run outside the sandbox, is held too: one
+        // added, one dropped, or one that leads to another program.
+        let linked = |pairs: &'static [(&'static str, &'static str)]| {
+            move || -> BTreeMap<String, String> {
+                pairs
+                    .iter()
+                    .map(|(name, program)| (name.to_string(), program.to_string()))
+                    .collect()
+            }
+        };
+        let kept_commands = approval::Approval {
+            commands: linked(&[("timer", "timer")])(),
+            ..kept.clone()
+        };
+        assert!(
+            wanted.runs_from(
+                &updated,
+                Some(&kept_commands),
+                linked(&[("timer", "timer")]),
+                signed
+            ),
+            "the same commands: still on"
+        );
+        let changed: [(&'static [(&str, &str)], &str); 4] = [
+            (&[("timer", "timer"), ("tock", "timer")], "added"),
+            (&[], "dropped"),
+            (&[("tick", "timer")], "renamed"),
+            (&[("timer", "lib/other")], "another program"),
+        ];
+        for (now, why) in changed {
+            assert!(
+                !wanted.runs_from(&updated, Some(&kept_commands), linked(now), signed),
+                "a command {why}: held"
+            );
+        }
         wanted.set_on("timer", None);
         assert!(
-            !wanted.runs_from(&updated, Some(&kept), signed),
+            !wanted.runs_from(&updated, Some(&kept), BTreeMap::new, signed),
             "off is off"
         );
     }

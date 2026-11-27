@@ -354,12 +354,14 @@ expect_count '^built' 1
 # Plugins: a folder with a plugin.toml, packed as a .tar.gz or built in a checkout.
 plugins_dir=$work/home/.local/share/slipstream/plugins
 
-# `plugin_bundle VERSION`: packs a plugin called example, whose bin/tool says VERSION, as
-# $work/bundles/example.tar.gz, and sets sha to its checksum.
+# `plugin_bundle WORD [VERSION]`: packs a plugin called example, whose bin/tool says WORD, as
+# $work/bundles/example.tar.gz, and sets sha to its checksum. Its plugin.toml gives VERSION.
 plugin_bundle() {
     rm -rf "$work/pack"
     mkdir -p "$work/pack/example/bin"
-    printf 'name = "Example"\nexec = ["bin/tool", "card"]\n' >"$work/pack/example/plugin.toml"
+    printf 'name = "Example"\n%sexec = ["bin/tool", "card"]\n[[actions]]\nversion = "99"\n' \
+        "${2:+version = \"$2\"
+}" >"$work/pack/example/plugin.toml"
     printf '#!/bin/sh\necho %s\n' "$1" >"$work/pack/example/bin/tool"
     chmod +x "$work/pack/example/bin/tool"
     echo "$1" >"$work/pack/example/only-in-$1"
@@ -514,6 +516,41 @@ expect_status 0
 grep -qx 'from=release' "$record_of" || fail "$case_name: no from=release after a bundle"
 grep -qx 'signed=no' "$record_of" || fail "$case_name: no signed=no after an unsigned bundle"
 if [ "$(grep -c '^from=' "$record_of")" -eq 1 ]; then ok; else fail "$case_name: from= twice"; fi
+
+# `installs_over WORD VERSION`: whether a bundle saying WORD, giving VERSION, installs over the
+# plugin installed. Says why not when it doesn't.
+installs_over() {
+    plugin_bundle "$1" "$2"
+    plugin_conf
+    io_status=0
+    run || io_status=$?
+    if [ "$io_status" -eq 0 ] && [ "$(cat "$plugins_dir/example/only-in-$1" 2>/dev/null)" = "$1" ]; then
+        return 0
+    fi
+    return 1
+}
+
+case_name="a release older than the one installed isn't installed"
+fresh
+installs_over one 1.9.0 || fail "$case_name: the first didn't install"
+installs_over two 1.10.0 || fail "$case_name: 1.10.0 is newer than 1.9.0"
+if installs_over three 1.9.5; then fail "$case_name: put 1.9.5 over 1.10.0"; else ok; fi
+grep -q "the download is version 1.9.5, older than the 1.10.0 installed" "$work/out" ||
+    fail "$case_name: didn't say why"
+[ "$("$plugins_dir/example/bin/tool")" = two ] || fail "$case_name: the newer one went"
+if installs_over four 1.10.0-rc.2; then fail "$case_name: a pre-release over its release"; else ok; fi
+installs_over five v1.10 || fail "$case_name: the same release again"
+installs_over six 1.11.0-rc.2 || fail "$case_name: the next release's pre-release"
+installs_over seven 1.11.0-rc.10 || fail "$case_name: rc.10 is after rc.2"
+if installs_over eight 1.11.0-beta; then fail "$case_name: beta after rc"; else ok; fi
+installs_over nine 1.11.0 || fail "$case_name: the release after its pre-release"
+installs_over ten 10000000000000000000001.0 || fail "$case_name: a long number"
+if installs_over eleven ''; then fail "$case_name: one with no version over one with"; else ok; fi
+grep -q "gives no version" "$work/out" || fail "$case_name: didn't say why there's no version"
+fresh
+installs_over one '' || fail "$case_name: no version at all"
+installs_over two '' || fail "$case_name: no versions to compare"
+installs_over three 0.1 || fail "$case_name: a version where there was none"
 
 case_name="a plugin ID that could name another folder is refused"
 fresh
