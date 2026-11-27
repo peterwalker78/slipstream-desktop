@@ -148,7 +148,7 @@ Slipstream has no AI in it. This is for people who set an AI coding agent of the
 - **Cyan wave:** the agent is working, itself or through subagents.
 - **Flat amber line:** the agent is open but between tasks, or the session has ended.
 - **A row under the trace for each subagent** it has working: a small wave of its own and what that subagent is doing.
-- **A row in your tertiary colour for each background task** it has running, after the subagents, listed whether the agent is working or idle.
+- **A row in your tertiary colour for each background task** it has running, after the subagents. Its small wave keeps moving while the task runs, even when the agent is idle. A tertiary colour too dark to see on the trace's backing is drawn lighter, in the same hue.
 
 **On its own it does nothing.** Slipstream doesn't know any agent and doesn't look for one. It works only if you have installed an agent, and that agent keeps a note while its session is open: a file named for the agent's process ID in `$XDG_RUNTIME_DIR/slipstream/working/`. The first line is what to call the trace; the second line says what the agent is doing: `idle` between tasks, or nothing while it works. Each line after that is a subagent it has working, by what that subagent is doing, or a task it has running in the background: the word `task`, a tab, and what the task is. Most agents can run a command of yours at the right moments:
 

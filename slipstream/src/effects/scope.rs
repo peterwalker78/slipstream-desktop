@@ -9,7 +9,8 @@
 //!
 //! Under the trace, each helper the agent has working gets a row: a small wave of its own beside
 //! what it is doing. Each task it has running in the background gets a row after those, the same
-//! but in the tertiary colour, idle or not.
+//! but in the tertiary colour, lightened where it needs to be to read on the backing, and its wave
+//! moves for as long as the task runs, idle or not.
 //!
 //! A readout appears for every open session, not only ones that are currently working. When a
 //! session's process exits its readout settles amber and clears at the next key or pointer input.
@@ -74,6 +75,19 @@ const PITCH: f64 = 3.0;
 const BACKING: u32 = 0x0b0e13b8;
 const BACKING_RADIUS: f32 = 7.0;
 const NAME: u32 = 0xaab2c0ff;
+
+/// The backing's own colour, which a task's wave is made to stand out against.
+fn backing_rgb() -> [f32; 3] {
+    let [r, g, b, _] = BACKING.to_be_bytes().map(|c| c as f32 / 255.0);
+    [r, g, b]
+}
+
+/// A task's wave colour from the tertiary, each channel 0–255: as light as it needs to be for
+/// marks that carry meaning to read on the backing, and no lighter.
+fn task_ink(tertiary: [f32; 3]) -> [f32; 3] {
+    use slipstream_config::colour::{NON_TEXT, legible};
+    legible(tertiary, backing_rgb(), NON_TEXT).map(|c| c * 255.0)
+}
 const HELPER_NAME: u32 = 0x7f8898ff;
 
 /// How fast a wave settles flat or rises again, as a rate a second.
@@ -137,6 +151,12 @@ impl Trace {
             0.35 * across + 0.29 * nth as f32,
             1.3 * t + 1.7 * nth as f32,
         )
+    }
+
+    /// Whether anything on the readout moves: its wave while it has one, and its tasks' for as
+    /// long as they run.
+    fn moving(&self) -> bool {
+        self.amp > 0.0 || !self.tasks.is_empty()
     }
 
     /// The rows listed under the trace: what each helper is doing, then each background task,
@@ -252,7 +272,8 @@ pub struct Scope {
     last: Option<f64>,
     canvases: HashMap<String, Canvas>,
     /// A wave at work, a line that has stopped, and a background task's wave, each channel
-    /// 0–255: the primary, secondary and tertiary colours, as the settings have them.
+    /// 0–255: the primary and secondary colours as the settings have them, and the tertiary as
+    /// `task_ink` makes it.
     working: [f32; 3],
     stopped: [f32; 3],
     task: [f32; 3],
@@ -270,7 +291,7 @@ impl Scope {
             canvases: HashMap::new(),
             working: channels(borders.selected_tile_rgb()),
             stopped: channels(borders.bullet_time_rgb()),
-            task: channels(borders.accent_rgb()),
+            task: task_ink(borders.accent_rgb()),
         }
     }
 
@@ -278,7 +299,7 @@ impl Scope {
     /// for stopped and the tertiary for background tasks. Readouts on screen repaint in them.
     pub fn set_colours(&mut self, working: [f32; 3], stopped: [f32; 3], task: [f32; 3]) {
         let channels = |rgb: [f32; 3]| rgb.map(|c| c * 255.0);
-        let colours = (channels(working), channels(stopped), channels(task));
+        let colours = (channels(working), channels(stopped), task_ink(task));
         if colours == (self.working, self.stopped, self.task) {
             return;
         }
@@ -458,7 +479,7 @@ impl Scope {
             .map(|t| ((t.colour.to_bits() as u64) << 32) | t.amp.to_bits() as u64)
             .collect();
         // A wave needs 30 fps; a change of colour repaints through `levels`.
-        let waving = !self.reduced_motion && traces.iter().any(|trace| trace.amp > 0.0);
+        let waving = !self.reduced_motion && traces.iter().any(Trace::moving);
         if levels != canvas.painted || (waving && now - canvas.painted_at >= STEP) {
             let Canvas { buffer, base, .. } = canvas;
             let size = (device.0 as usize, device.1 as usize);
@@ -571,10 +592,12 @@ fn plot(
         let first = trace_top + fit.trace;
         let wave_right = left + px(HELPER_WAVE) - dot;
         for (i, (_, row)) in trace.rows().iter().enumerate() {
-            // A helper's wave is in the trace's own colour, a task's in the tertiary.
-            let rgb = match row {
-                Row::Helper => pen.rgb,
-                Row::Task => task,
+            // A helper's wave is in the trace's own colour and settles with it. A task's is in its
+            // own colour, drawn whole so it keeps its contrast, and moves while the task runs,
+            // whether the agent is working or idle.
+            let (rgb, amp, lit) = match row {
+                Row::Helper => (pen.rgb, trace.amp, HELPER_LIT),
+                Row::Task => (task, 1.0, 1.0),
                 Row::More => continue,
             };
             Pen { rgb, ..pen }.line(
@@ -583,8 +606,8 @@ fn plot(
                 (left, wave_right),
                 (px(first + i as i32 * HELPER) + px(HELPER) / 2, px(HELPER)),
                 |across| {
-                    let lift = trace.helper_wave(i, across, time as f32) * trace.amp;
-                    (lift, HELPER_LIT)
+                    let lift = trace.helper_wave(i, across, time as f32) * amp;
+                    (lift, lit)
                 },
             );
         }
@@ -866,6 +889,7 @@ mod tests {
         let under = (PAD + LABEL + TRACE) as usize;
         let scope = Scope::new(false);
         let ink = |rgb: [f32; 3]| rgb.map(|c| (c * HELPER_LIT).round() as u8);
+        let whole = |rgb: [f32; 3]| rgb.map(|c| c.round() as u8);
         let row_colours = |pixels: &[u8], width: usize, row: usize| {
             let from = (under + row * HELPER as usize) * width * 4;
             let to = from + HELPER as usize * width * 4;
@@ -885,8 +909,38 @@ mod tests {
                 scope.stopped
             };
             assert_eq!(row_colours(&pixels, width, 0), [ink(trace_ink)]);
-            assert_eq!(row_colours(&pixels, width, 1), [ink(scope.task)]);
+            assert_eq!(row_colours(&pixels, width, 1), [whole(scope.task)]);
         }
+    }
+
+    #[test]
+    fn a_task_s_wave_reads_on_the_backing_in_any_colour_set() {
+        use slipstream_config::colour::{NON_TEXT, contrast, oklch};
+        let drawn = |ink: [f32; 3]| ink.map(|c| c.round() / 255.0);
+        // The default deep teal is too dark on the backing as it is, so it is lifted, keeping its
+        // hue.
+        let teal = slipstream_config::Borders::default().accent_rgb();
+        assert!(contrast(teal, backing_rgb()) < NON_TEXT);
+        let lifted = drawn(Scope::new(false).task);
+        assert!(contrast(lifted, backing_rgb()) >= NON_TEXT);
+        assert!((oklch(lifted).2 - oklch(teal).2).abs() < 1.0);
+        // A tertiary that already reads is drawn as it is.
+        let mut scope = Scope::new(false);
+        let pale = [0.4, 0.8, 0.6];
+        scope.set_colours(scope.working.map(|c| c / 255.0), [1.0, 0.7, 0.3], pale);
+        assert_eq!(scope.task, pale.map(|c| c * 255.0));
+    }
+
+    #[test]
+    fn an_idle_trace_lies_flat_while_its_tasks_waves_move() {
+        let idle = tasked(&[], &["serving"], 0.0);
+        assert!(idle.moving(), "redrawn while a task runs");
+        assert!(!trace(300, &[], 0.0).moving());
+        let (early, width, _) = plotted(idle.clone(), Some(0.0));
+        let (later, ..) = plotted(idle, Some(0.5));
+        let under = (PAD + LABEL + TRACE) as usize * width * 4;
+        assert_eq!(early[..under], later[..under], "the trace stays flat");
+        assert_ne!(early[under..], later[under..], "the task's wave moves");
     }
 
     #[test]
@@ -915,11 +969,15 @@ mod tests {
                 })
                 .count()
         };
-        let (standing, width, _) = plotted(tasked(&[], &["serving"], 1.0), None);
-        assert!(
-            lit_rows(&standing, width) > DOT as usize,
-            "a wave, not a line"
-        );
+        for level in [1.0, 0.0] {
+            let (standing, width, _) = plotted(tasked(&[], &["serving"], level), None);
+            assert!(
+                lit_rows(&standing, width) > DOT as usize,
+                "a standing wave, not a line, idle or not"
+            );
+            let (again, ..) = plotted(tasked(&[], &["serving"], level), None);
+            assert_eq!(standing, again);
+        }
         let (early, ..) = plotted(tasked(&[], &["serving"], 1.0), Some(0.0));
         let (later, ..) = plotted(tasked(&[], &["serving"], 1.0), Some(0.5));
         assert_ne!(early, later, "with motion, a task's wave moves");

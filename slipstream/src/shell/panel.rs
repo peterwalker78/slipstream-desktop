@@ -468,19 +468,11 @@ mod tests {
 
     /// WCAG's contrast ratio between two colours, 0xRRGGBBAA, the alpha ignored.
     fn contrast(a: u32, b: u32) -> f64 {
-        let luminance = |rgba: u32| {
-            let [r, g, b, _] = rgba.to_be_bytes().map(|c| {
-                let c = c as f64 / 255.0;
-                if c <= 0.03928 {
-                    c / 12.92
-                } else {
-                    ((c + 0.055) / 1.055).powf(2.4)
-                }
-            });
-            0.2126 * r + 0.7152 * g + 0.0722 * b
+        let rgb = |rgba: u32| {
+            let [r, g, b, _] = rgba.to_be_bytes().map(|c| c as f32 / 255.0);
+            [r, g, b]
         };
-        let (la, lb) = (luminance(a), luminance(b));
-        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+        slipstream_config::colour::contrast(rgb(a), rgb(b))
     }
 
     #[test]

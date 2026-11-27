@@ -100,6 +100,7 @@
 
 pub mod battery;
 pub mod card;
+pub mod colour;
 pub mod command;
 mod display;
 mod file;
