@@ -100,6 +100,11 @@ mod tests {
         // Both ends of a pair are this process: not in a Flatpak, and still running.
         let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
         let state = ClientState::for_connection(&ours);
+        if !capture::this_process_is_unconfined() {
+            // Confined itself, as in some containers, so rightly sandboxed.
+            assert!(!state.may_control_clipboard);
+            return;
+        }
         assert!(state.may_control_clipboard);
         assert!(!state.may_capture, "the clipboard isn't the screen");
         assert!(filter_allows(ours));

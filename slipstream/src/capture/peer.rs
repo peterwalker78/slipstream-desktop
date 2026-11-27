@@ -48,24 +48,27 @@ impl Peer {
 }
 
 /// The connecting process, only when it is still running, its root filesystem could be opened,
-/// and that root definitely has no `/.flatpak-info` — the file a Flatpak sees in its own root,
+/// that root definitely has no `/.flatpak-info` — the file a Flatpak sees in its own root,
 /// and the same check the portal makes — nor the file a plugin's sandbox has in its root
-/// (`sandbox::MARKER`). Read through `/proc`, so it is the kernel's view of the
-/// process and not anything the client said. One look serves every decision made about a new
-/// client: the capture globals here, and the clipboard's data control.
+/// (`sandbox::MARKER`), and no Linux security module confines it (`confined_by_lsm`), which is
+/// how a snap, or a program in a container, is held. Read through `/proc`, so it is the kernel's
+/// view of the process and not anything the client said. One look serves every decision made
+/// about a new client: the capture globals here, and the clipboard's data control.
 ///
 /// **Anything short of proof is `None`.** The connection's credentials name the process that
 /// called `connect`, and that process may be gone by the time the connection is accepted: a
 /// sandboxed app can connect from a child that exits at once and go on using the socket itself.
 /// A test that treated "couldn't look" as "not sandboxed" would hand that app whatever the
-/// unsandboxed get.
+/// unsandboxed get. For the same reason a kernel without `SO_PEERPIDFD` (before 6.5) proves
+/// nothing: its credentials give only a pid, which may belong to another process by the time
+/// it is looked at.
 pub fn unsandboxed_peer(stream: &UnixStream) -> Option<Peer> {
     use rustix::fs::{Mode, OFlags};
     let peer = rustix::net::sockopt::socket_peercred(stream).ok()?;
     let pid = peer.pid.as_raw_nonzero().get();
     // Held from here to the end, so the process looked at can be asked afterwards whether it is
     // still the one that connected.
-    let pidfd = peer_pidfd(stream, pid)?;
+    let pidfd = peer_pidfd(stream)?;
     // A process that has exited, zombie or reaped, has no root to open.
     let root = rustix::fs::open(
         format!("/proc/{pid}/root"),
@@ -73,7 +76,7 @@ pub fn unsandboxed_peer(stream: &UnixStream) -> Option<Peer> {
         Mode::empty(),
     )
     .ok()?;
-    if !root_is_unsandboxed(&root) {
+    if !root_is_unsandboxed(&root) || confined_by_lsm(Path::new("/proc"), pid) != Some(false) {
         return None;
     }
     // The executable itself, opened by path only, so what's looked at is the file's inode and
@@ -123,6 +126,40 @@ fn root_is_unsandboxed(root: &OwnedFd) -> bool {
         })
 }
 
+/// Whether a Linux security module confines process `pid`, read from `proc` (`/proc`, or a
+/// stand-in for one in tests): `Some(true)` when AppArmor holds it to a profile, as it does a
+/// snap or a program in a container, `Some(false)` when nothing does, and `None` when that
+/// can't be told. AppArmor's own file is the one read: on a system without AppArmor it isn't
+/// there or can't be read (`EINVAL`), and the shared `attr/current` there holds another
+/// module's label instead, such as SELinux's, which names a domain rather than saying whether
+/// the process is held to one.
+///
+/// `unconfined` is no profile at all, and a profile in `unconfined` mode only gives a program a
+/// name to hang a rule on: neither holds it. Every other label is a profile it is held to.
+fn confined_by_lsm(proc: &Path, pid: i32) -> Option<bool> {
+    let label = match std::fs::read(proc.join(format!("{pid}/attr/apparmor/current"))) {
+        Ok(label) => label,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(libc::EINVAL) =>
+        {
+            return Some(false);
+        }
+        Err(_) => return None,
+    };
+    let label = String::from_utf8_lossy(&label);
+    let label = label.trim_end_matches(['\n', '\0']).trim();
+    Some(!(label.is_empty() || label == "unconfined" || label.ends_with(" (unconfined)")))
+}
+
+/// Whether this process, which tests connect to themselves, is outside every security module's
+/// hold: where it isn't (in a container AppArmor confines, say), its own connections are rightly
+/// refused what the unsandboxed get.
+#[cfg(test)]
+pub fn this_process_is_unconfined() -> bool {
+    confined_by_lsm(Path::new("/proc"), std::process::id() as i32) == Some(false)
+}
+
 /// Whether an executable, by the path its process was started from and its file's owner and
 /// mode, is the portal's: a regular file named `xdg-desktop-portal-wlr`, owned by root and not
 /// writable by group or others, so nobody but root can have put it there. A binary replaced since
@@ -154,10 +191,9 @@ fn without_deleted(path: &Path) -> &Path {
     ))
 }
 
-/// A pidfd for the process at the other end of `stream`: `SO_PEERPIDFD`, which names exactly the
-/// process that connected, or on kernels older than 6.5, a pidfd opened from the pid its
-/// credentials gave.
-fn peer_pidfd(stream: &UnixStream, pid: i32) -> Option<OwnedFd> {
+/// A pidfd for exactly the process at the other end of `stream`, from `SO_PEERPIDFD`. Kernels
+/// older than 6.5 don't have it, and there the connection proves nothing (`unsandboxed_peer`).
+fn peer_pidfd(stream: &UnixStream) -> Option<OwnedFd> {
     let mut fd: libc::c_int = -1;
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     // SAFETY: `fd` and `len` are valid for writes of the sizes given.
@@ -170,14 +206,8 @@ fn peer_pidfd(stream: &UnixStream, pid: i32) -> Option<OwnedFd> {
             &mut len,
         )
     };
-    if got == 0 && fd >= 0 {
-        // SAFETY: the kernel has just given us this descriptor to own.
-        return Some(unsafe { OwnedFd::from_raw_fd(fd) });
-    }
-    if std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOPROTOOPT) {
-        return None;
-    }
-    pidfd_open(pid as u32)
+    // SAFETY: the kernel has just given us this descriptor to own.
+    (got == 0 && fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 /// A pidfd for whatever process has `pid` now.
@@ -358,6 +388,51 @@ mod tests {
         }
         std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_process_a_security_module_confines_is_a_sandbox() {
+        use std::os::unix::fs::PermissionsExt;
+        let proc = slipstream_config::scratch::Scratch::new("cap-lsm");
+        let mut pid = 100;
+        let mut label = |contents: Option<&str>| {
+            pid += 1;
+            let attr = proc.join(format!("{pid}/attr/apparmor"));
+            std::fs::create_dir_all(&attr).unwrap();
+            if let Some(contents) = contents {
+                std::fs::write(attr.join("current"), contents).unwrap();
+            }
+            confined_by_lsm(&proc, pid)
+        };
+        // A strictly confined snap, and a program in a container.
+        assert_eq!(label(Some("snap.example.example (enforce)\n")), Some(true));
+        assert_eq!(label(Some("container-default (enforce)\n")), Some(true));
+        assert_eq!(
+            label(Some("example (complain)\n")),
+            Some(true),
+            "held to a profile all the same"
+        );
+        // Nothing holds these.
+        assert_eq!(label(Some("unconfined\n")), Some(false));
+        assert_eq!(
+            label(Some("example (unconfined)\n")),
+            Some(false),
+            "a profile that only names the program"
+        );
+        assert_eq!(label(Some("")), Some(false));
+        assert_eq!(label(None), Some(false), "no AppArmor in this kernel");
+        // A label that can't be read proves nothing. Root can read anything, so that case only
+        // means something for anyone else.
+        let current = proc.join("200/attr/apparmor/current");
+        std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+        std::fs::write(&current, "unconfined\n").unwrap();
+        std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if unsafe { libc::geteuid() } != 0 {
+            assert_eq!(confined_by_lsm(&proc, 200), None, "unknowable is refused");
+        }
+        std::fs::create_dir_all(proc.join("201/attr/apparmor/current")).unwrap();
+        assert_eq!(confined_by_lsm(&proc, 201), None, "not a label at all");
+        std::fs::remove_dir_all(&proc).unwrap();
     }
 
     #[test]

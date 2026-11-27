@@ -306,7 +306,11 @@ mod tests {
         // Both ends of a pair are this process: outside any sandbox, and still running.
         let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
         let state = ClientState::for_connection(&ours);
-        assert!(shown(ours, Arc::new(state)));
+        // Unless this process is confined itself, as in some containers, so rightly sandboxed.
+        assert_eq!(
+            shown(ours, Arc::new(state)),
+            capture::this_process_is_unconfined()
+        );
 
         // A process that has gone can't be proven to be outside one.
         for reap in [false, true] {

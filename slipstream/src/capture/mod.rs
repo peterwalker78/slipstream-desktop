@@ -30,9 +30,9 @@
 
 mod peer;
 
-#[cfg(test)]
-pub use peer::with_a_client_that_has_gone;
 pub use peer::{Peer, pidfd_open, still_running, unsandboxed_peer};
+#[cfg(test)]
+pub use peer::{this_process_is_unconfined, with_a_client_that_has_gone};
 
 use std::{
     ffi::OsStr,
@@ -828,6 +828,10 @@ mod tests {
         // Both ends of a pair are this process: not in a Flatpak, still running, and not the
         // portal.
         let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
+        if !this_process_is_unconfined() {
+            assert!(unsandboxed_peer(&ours).is_none(), "confined is sandboxed");
+            return;
+        }
         let peer = unsandboxed_peer(&ours).expect("this process can be looked at");
         assert!(!peer.portal);
         assert!(!client_may_capture(Some(&peer)));
