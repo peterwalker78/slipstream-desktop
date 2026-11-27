@@ -98,8 +98,11 @@ const SETTLE: f32 = 3.0;
 /// The readouts come in once the desktop has gone, and leave ahead of it coming back.
 const APPEAR: f64 = 0.6;
 const LEAVE: f64 = 0.15;
-/// Traces are redrawn 30 times a second when a wave is moving.
+/// Traces are redrawn 30 times a second when a wave is moving, and 10 times a second when only
+/// the tasks' small waves are: slow enough for those to read as moving, at a third of the cost
+/// for a task that runs for hours.
 const STEP: f64 = 1.0 / 30.0;
+const TASK_STEP: f64 = 1.0 / 10.0;
 /// How many times a second the bright spot crosses a trace.
 const SWEEP: f64 = 0.6;
 /// How bright a flat line is, a wave where the spot passed longest ago, and a helper's wave.
@@ -259,9 +262,10 @@ struct Canvas {
     device: (i32, i32),
     fit: Fit,
     scale: f64,
-    /// The backings and names, which the traces are drawn over afresh each time.
+    /// The backings and names, which the traces are drawn over afresh each time, and what each
+    /// readout's were drawn for: its process, name, helpers and tasks.
     base: Vec<u8>,
-    names: Vec<(u32, String, Rows)>,
+    names: Vec<(u32, String, Vec<String>, Vec<String>)>,
     /// Every trace's colour and amp packed together when last painted, and when that was.
     painted: Vec<u64>,
     painted_at: f64,
@@ -444,10 +448,10 @@ impl Scope {
                 || !canvas
                     .names
                     .iter()
-                    .map(|(pid, name, rows)| (*pid, name.clone(), rows.clone()))
+                    .map(|(pid, name, helpers, tasks)| (pid, name, helpers, tasks))
                     .eq(traces
                         .iter()
-                        .map(|trace| (trace.pid, trace.name.clone(), trace.rows())))
+                        .map(|t| (&t.pid, &t.name, &t.helpers, &t.tasks)))
         });
         if fresh {
             let base = base(traces, &fit, device, scale)?;
@@ -469,7 +473,7 @@ impl Scope {
                     base,
                     names: traces
                         .iter()
-                        .map(|trace| (trace.pid, trace.name.clone(), trace.rows()))
+                        .map(|t| (t.pid, t.name.clone(), t.helpers.clone(), t.tasks.clone()))
                         .collect(),
                     painted: Vec::new(),
                     painted_at: f64::NEG_INFINITY,
@@ -481,9 +485,16 @@ impl Scope {
             .iter()
             .map(|t| ((t.colour.to_bits() as u64) << 32) | t.amp.to_bits() as u64)
             .collect();
-        // A wave needs 30 fps; a change of colour repaints through `levels`.
-        let waving = !self.reduced_motion && traces.iter().any(Trace::moving);
-        if levels != canvas.painted || (waving && now - canvas.painted_at >= STEP) {
+        // A change of colour repaints through `levels`.
+        let recoloured = levels != canvas.painted;
+        let step = step(traces, self.reduced_motion);
+        if recoloured || step.is_some_and(|step| now - canvas.painted_at >= step) {
+            // With every trace flat and its colour settled, only the tasks' waves change.
+            let damage = if recoloured || step == Some(STEP) {
+                vec![Rectangle::<i32, Buffer>::from_size(device.into())]
+            } else {
+                task_bands(traces, &fit, scale)
+            };
             let Canvas { buffer, base, .. } = canvas;
             let size = (device.0 as usize, device.1 as usize);
             let t = (!self.reduced_motion).then_some(now);
@@ -499,7 +510,7 @@ impl Scope {
                     scale,
                     t,
                 );
-                Ok::<_, ()>(vec![Rectangle::<i32, Buffer>::from_size(device.into())])
+                Ok::<_, ()>(damage)
             });
             drop(context);
             canvas.painted = levels;
@@ -548,6 +559,38 @@ fn base(traces: &[Trace], fit: &Fit, device: (i32, i32), scale: f64) -> Option<V
         }
     }
     Some(painter.pixmap.data().to_vec())
+}
+
+/// How long a picture of `traces` stands before the next: a trace's wave steps 30 times a
+/// second, and tasks' waves alone 10. Nothing steps under reduced motion, or with nothing moving.
+fn step(traces: &[Trace], reduced_motion: bool) -> Option<f64> {
+    if reduced_motion || !traces.iter().any(Trace::moving) {
+        None
+    } else if traces.iter().any(|trace| trace.amp > 0.0) {
+        Some(STEP)
+    } else {
+        Some(TASK_STEP)
+    }
+}
+
+/// Where the tasks' small waves are drawn, in device pixels: all that changes from one step to
+/// the next while every trace lies flat.
+fn task_bands(traces: &[Trace], fit: &Fit, scale: f64) -> Vec<Rectangle<i32, Buffer>> {
+    let px = |logical: i32| (logical as f64 * scale).round() as i32;
+    let mut bands = Vec::new();
+    for (trace, &(top, _)) in traces.iter().zip(&fit.readouts) {
+        let first = top + PAD + LABEL + fit.trace;
+        for (i, (_, row)) in trace.rows().iter().enumerate() {
+            if *row == Row::Task {
+                let row_top = first + i as i32 * HELPER;
+                bands.push(Rectangle::new(
+                    (px(PAD), px(row_top)).into(),
+                    (px(HELPER_WAVE), px(HELPER)).into(),
+                ));
+            }
+        }
+    }
+    bands
 }
 
 /// Draws every trace over `pixels`, a premultiplied picture `width` by `height`, as it stands at
@@ -969,6 +1012,53 @@ mod tests {
         let under = (PAD + LABEL + TRACE) as usize * width * 4;
         assert_eq!(early[..under], later[..under], "the trace stays flat");
         assert_ne!(early[under..], later[under..], "the task's wave moves");
+    }
+
+    /// A task can run for hours, so with nothing else moving its wave steps a third as often as
+    /// a trace's, and only where it is drawn is redrawn.
+    #[test]
+    fn tasks_alone_step_ten_times_a_second_and_redraw_only_their_waves() {
+        let idle = tasked(&["reading"], &["serving", "watching"], 0.0);
+        let one = std::slice::from_ref(&idle);
+        assert_eq!(step(one, false), Some(TASK_STEP));
+        assert_eq!(step(one, true), None, "reduced motion stands it still");
+        assert_eq!(step(&[tasked(&[], &["serving"], 1.0)], false), Some(STEP));
+        assert_eq!(step(&[trace(300, &["reading"], 0.0)], false), None);
+        let scope = Scope::new(false);
+        let colours = (scope.working, scope.stopped, scope.task);
+        let fit = Fit::new(SCREEN.into(), &[idle.rows().len()]).unwrap();
+        for scale in [1.0, 1.5, 2.0] {
+            let size = fit.size().to_f64().to_physical(scale).to_i32_round::<i32>();
+            let (width, height) = (size.w as usize, size.h as usize);
+            let at = |t| {
+                let mut pixels = vec![0u8; width * height * 4];
+                plot(
+                    &mut pixels,
+                    (width, height),
+                    one,
+                    colours,
+                    &fit,
+                    scale,
+                    Some(t),
+                );
+                pixels
+            };
+            let bands = task_bands(one, &fit, scale);
+            assert_eq!(bands.len(), 2);
+            let (early, later) = (at(0.0), at(0.37));
+            let mut changed = 0;
+            for (i, (before, after)) in early.chunks(4).zip(later.chunks(4)).enumerate() {
+                if before != after {
+                    changed += 1;
+                    let (x, y) = ((i % width) as i32, (i / width) as i32);
+                    assert!(
+                        bands.iter().any(|band| band.contains((x, y))),
+                        "({x}, {y}) changed outside the tasks' waves at scale {scale}"
+                    );
+                }
+            }
+            assert!(changed > 0, "the tasks' waves move");
+        }
     }
 
     #[test]
