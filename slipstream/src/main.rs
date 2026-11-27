@@ -741,6 +741,7 @@ fn init_logging() {
     tracing_subscriber::registry()
         .with(filter)
         .with(QuietWhileLocked)
+        .with(ClosedPopups)
         .with(format)
         .init();
 }
@@ -774,6 +775,47 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QuietWhileLocked {
 /// Whether a log line or span at `level` is dropped.
 fn quiet(level: tracing::Level, locked: bool) -> bool {
     locked && level == tracing::Level::TRACE
+}
+
+/// Drops the one Smithay error that only ever reports an app doing what it should. Closing a menu
+/// or tooltip, GTK and Chrome destroy the popup, then clear its surface and commit it. Smithay
+/// checks that last commit as if the popup were still there, looks for it to send it an error,
+/// can't find it and logs "surface missing from known popups". Nothing is wrong, and there is no
+/// one to tell: the popup has gone. Matched by message, so any other Smithay error still shows.
+struct ClosedPopups;
+
+/// Smithay's words, at `smithay::wayland::shell::xdg`.
+const CLOSED_POPUP: &str = "surface missing from known popups";
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for ClosedPopups {
+    fn event_enabled(
+        &self,
+        event: &tracing::Event<'_>,
+        _: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        !closed_popup(event)
+    }
+}
+
+/// Whether `event` is Smithay's error about a popup the app has already destroyed.
+fn closed_popup(event: &tracing::Event<'_>) -> bool {
+    struct Message(bool);
+    impl tracing::field::Visit for Message {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.0 = format!("{value:?}") == CLOSED_POPUP;
+            }
+        }
+    }
+    let metadata = event.metadata();
+    if metadata.target() != "smithay::wayland::shell::xdg"
+        || *metadata.level() != tracing::Level::ERROR
+    {
+        return false;
+    }
+    let mut message = Message(false);
+    event.record(&mut message);
+    message.0
 }
 
 /// Tells D-Bus and systemd where the display is, so anything they start (portals, services, apps
@@ -890,5 +932,54 @@ mod tests {
         assert!(!super::quiet(Level::TRACE, false));
         assert!(!super::quiet(Level::DEBUG, true));
         assert!(!super::quiet(Level::INFO, true));
+    }
+
+    #[test]
+    fn only_smithays_error_about_a_closed_popup_is_dropped() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        /// Every message that gets past the layers before it.
+        struct Kept(Arc<Mutex<Vec<String>>>);
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Kept {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                struct Text(String);
+                impl tracing::field::Visit for Text {
+                    fn record_debug(
+                        &mut self,
+                        _: &tracing::field::Field,
+                        value: &dyn std::fmt::Debug,
+                    ) {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+                let mut text = Text(String::new());
+                event.record(&mut text);
+                self.0.lock().unwrap().push(text.0);
+            }
+        }
+
+        let kept = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::registry()
+            .with(super::ClosedPopups)
+            .with(Kept(kept.clone()));
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::error!(target: "smithay::wayland::shell::xdg", "surface missing from known popups");
+            tracing::error!(target: "smithay::wayland::shell::xdg", "surface missing from known toplevels");
+            tracing::warn!(target: "smithay::wayland::shell::xdg", "surface missing from known popups");
+            tracing::error!(target: "slipstream", "surface missing from known popups");
+        });
+        assert_eq!(
+            *kept.lock().unwrap(),
+            [
+                "surface missing from known toplevels",
+                "surface missing from known popups",
+                "surface missing from known popups",
+            ]
+        );
     }
 }
