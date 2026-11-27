@@ -35,9 +35,9 @@ use smithay::{
 
 use crate::{Slipstream, capture::Peer, state::ClientState};
 
-/// Whether a connecting client may be an input method or a virtual keyboard, from
-/// `capture::unsandboxed_peer`'s look at its process: only with proof that it is outside any
-/// sandbox.
+/// Whether a connecting client may be an input method, a virtual keyboard or a virtual pointer,
+/// from `capture::unsandboxed_peer`'s look at its process: only with proof that it is outside
+/// any sandbox.
 pub fn client_may_type(peer: Option<&Peer>) -> bool {
     peer.is_some()
 }

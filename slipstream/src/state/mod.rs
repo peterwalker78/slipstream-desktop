@@ -1160,8 +1160,8 @@ pub struct ClientState {
     /// Whether the client may see the data-control globals, worked out once when it connects
     /// (`clipboard::client_may_control`): any client proven to be outside a sandbox.
     pub may_control_clipboard: bool,
-    /// Whether the client may be an input method or a virtual keyboard (`ime::client_may_type`):
-    /// likewise, any client proven to be outside a sandbox.
+    /// Whether the client may be an input method, a virtual keyboard or a virtual pointer
+    /// (`ime::client_may_type`): likewise, any client proven to be outside a sandbox.
     pub may_type: bool,
     /// Whether the client is proven to be outside a sandbox, which it has to be to draw layer
     /// surfaces or set gamma ramps.

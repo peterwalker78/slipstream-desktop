@@ -4,19 +4,21 @@
 //! Without it a VNC viewer sees the screen and can type (`ime.rs` offers the virtual keyboard)
 //! but its mouse does nothing.
 //!
-//! What a virtual pointer sends goes through the same paths as a real mouse: motion moves the one
-//! pointer and wakes the UI, buttons are `button_event`, and the wheel is held back for the
-//! overlays exactly as a real wheel is.
+//! What a virtual pointer sends goes through the same paths as a real mouse: relative motion is
+//! `pointer_moved_by` (so a locked or confined pointer holds it too), buttons are `button_event`,
+//! and the wheel is `wheel`. The buttons it holds down are let go of when it goes, so a dropped
+//! connection never leaves a click or a drag held.
 //!
-//! **Unsandboxed clients only**, as the virtual keyboard is: a client that can click anywhere can
-//! do anything the user can, so the global is shown only to a client whose process was proven,
-//! when it connected, to be outside any sandbox (`ime::may_type`).
+//! **Unsandboxed clients only** (`ime::may_type`): the global is shown only to a client whose
+//! process was proven, when it connected, to be outside any sandbox. That matters more here than
+//! for the virtual keyboard. Virtual keys only ever reach the app with the keyboard, but a
+//! virtual click lands wherever a real one would, Slipstream's own cards included: the share
+//! picker, the password prompt and the way out.
 
 use std::sync::Mutex;
 
 use smithay::{
-    backend::input::{Axis, AxisSource, ButtonState, InputTime},
-    input::pointer::AxisFrame,
+    backend::input::{AxisSource, ButtonState, InputTime},
     output::Output,
     reexports::{
         wayland_protocols_wlr::virtual_pointer::v1::server::{
@@ -25,24 +27,24 @@ use smithay::{
         },
         wayland_server::{
             Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum,
+            backend::ClientId,
             protocol::{wl_output::WlOutput, wl_pointer},
         },
     },
     utils::{Logical, Point},
 };
 
-use crate::state::Slipstream;
+use crate::{input::Wheel, state::Slipstream};
 
-/// One wheel notch is this much scroll, as for a real wheel (`v120` steps are 120 to a notch).
-const NOTCH: f64 = 15.0;
-
-/// Which screen absolute motion is spread over, and the axis events waiting for their `frame`.
+/// Which screen absolute motion is spread over, the axis events waiting for their `frame`, and
+/// the buttons held down.
 #[derive(Debug, Default)]
 pub struct VirtualPointer {
     /// The screen the client named, if it did. Without one, absolute motion goes to the same
     /// screen a touchscreen would.
     output: Option<Output>,
     pending: Mutex<Pending>,
+    held: Mutex<Held>,
 }
 
 #[derive(Debug, Default)]
@@ -51,29 +53,54 @@ struct Pending {
     time: u32,
     /// Horizontal, then vertical.
     value: [Option<f64>; 2],
+    /// In notches, as the client sends them.
     discrete: [Option<i32>; 2],
     stop: [bool; 2],
 }
 
 impl Pending {
-    fn any(&self) -> bool {
-        self.value.iter().any(Option::is_some)
+    /// The frame of scrolling these events make, if they make one. A notch is 120 in v120 units,
+    /// counted in `f64` so that no number a client sends can overflow.
+    fn wheel(self) -> Option<Wheel> {
+        let any = self.value.iter().any(Option::is_some)
             || self.discrete.iter().any(Option::is_some)
-            || self.stop.iter().any(|stop| *stop)
+            || self.stop.iter().any(|stop| *stop);
+        any.then(|| Wheel {
+            source: self.source.unwrap_or(AxisSource::Wheel),
+            time: InputTime::from_millis(self.time),
+            amount: self.value,
+            v120: self
+                .discrete
+                .map(|notches| notches.map(|n| f64::from(n) * 120.0)),
+            stop: self.stop,
+        })
     }
 }
 
-fn index(axis: Axis) -> usize {
-    match axis {
-        Axis::Horizontal => 0,
-        Axis::Vertical => 1,
+/// The buttons a virtual pointer holds down.
+#[derive(Debug, Default)]
+struct Held(Vec<u32>);
+
+impl Held {
+    fn note(&mut self, button: u32, state: ButtonState) {
+        match state {
+            ButtonState::Pressed if !self.0.contains(&button) => self.0.push(button),
+            ButtonState::Pressed => {}
+            ButtonState::Released => self.0.retain(|held| *held != button),
+        }
+    }
+
+    /// Every button still held, to let go of.
+    fn take(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.0)
     }
 }
 
-fn axis_of(axis: WEnum<wl_pointer::Axis>) -> Option<Axis> {
+/// Which of `Pending`'s pairs an axis is.
+fn index(axis: WEnum<wl_pointer::Axis>) -> Option<usize> {
     match axis {
-        WEnum::Value(wl_pointer::Axis::HorizontalScroll) => Some(Axis::Horizontal),
-        WEnum::Value(wl_pointer::Axis::VerticalScroll) => Some(Axis::Vertical),
+        WEnum::Value(wl_pointer::Axis::HorizontalScroll) => Some(0),
+        WEnum::Value(wl_pointer::Axis::VerticalScroll) => Some(1),
         _ => None,
     }
 }
@@ -133,7 +160,7 @@ impl Dispatch<ZwlrVirtualPointerManagerV1, ()> for Slipstream {
             id,
             VirtualPointer {
                 output: output.as_ref().and_then(Output::from_resource),
-                pending: Mutex::default(),
+                ..VirtualPointer::default()
             },
         );
     }
@@ -151,11 +178,13 @@ impl Dispatch<ZwlrVirtualPointerV1, VirtualPointer> for Slipstream {
     ) {
         use zwlr_virtual_pointer_v1::Request;
         let mut pending = data.pending.lock().unwrap();
+        let bad_axis =
+            || resource.post_error(zwlr_virtual_pointer_v1::Error::InvalidAxis, "bad axis");
         match request {
             Request::Motion { time, dx, dy } => {
-                state.wake_ui();
-                let pos = state.clamp_to_outputs(state.pointer_location() + Point::from((dx, dy)));
-                state.pointer_moved_to(pos, InputTime::from_millis(time));
+                // No acceleration of its own: what it sends is how far it moved.
+                let delta = Point::from((dx, dy));
+                state.pointer_moved_by(delta, delta, InputTime::from_millis(time));
             }
             Request::MotionAbsolute {
                 time,
@@ -194,15 +223,15 @@ impl Dispatch<ZwlrVirtualPointerV1, VirtualPointer> for Slipstream {
                     WEnum::Value(wl_pointer::ButtonState::Released) => ButtonState::Released,
                     _ => return,
                 };
+                data.held.lock().unwrap().note(button, button_state);
                 state.button_event(button, button_state, InputTime::from_millis(time));
             }
             Request::Axis { time, axis, value } => {
-                let Some(axis) = axis_of(axis) else {
-                    resource.post_error(zwlr_virtual_pointer_v1::Error::InvalidAxis, "bad axis");
-                    return;
+                let Some(i) = index(axis) else {
+                    return bad_axis();
                 };
                 pending.time = time;
-                pending.value[index(axis)] = Some(value);
+                pending.value[i] = Some(value);
             }
             Request::AxisSource { axis_source } => {
                 let Some(source) = source_of(axis_source) else {
@@ -215,12 +244,11 @@ impl Dispatch<ZwlrVirtualPointerV1, VirtualPointer> for Slipstream {
                 pending.source = Some(source);
             }
             Request::AxisStop { time, axis } => {
-                let Some(axis) = axis_of(axis) else {
-                    resource.post_error(zwlr_virtual_pointer_v1::Error::InvalidAxis, "bad axis");
-                    return;
+                let Some(i) = index(axis) else {
+                    return bad_axis();
                 };
                 pending.time = time;
-                pending.stop[index(axis)] = true;
+                pending.stop[i] = true;
             }
             Request::AxisDiscrete {
                 time,
@@ -228,56 +256,36 @@ impl Dispatch<ZwlrVirtualPointerV1, VirtualPointer> for Slipstream {
                 value,
                 discrete,
             } => {
-                let Some(axis) = axis_of(axis) else {
-                    resource.post_error(zwlr_virtual_pointer_v1::Error::InvalidAxis, "bad axis");
-                    return;
+                let Some(i) = index(axis) else {
+                    return bad_axis();
                 };
                 pending.time = time;
-                pending.value[index(axis)] = Some(value);
-                pending.discrete[index(axis)] = Some(discrete);
+                pending.value[i] = Some(value);
+                pending.discrete[i] = Some(discrete);
             }
             Request::Frame => {
                 let done = std::mem::take(&mut *pending);
                 drop(pending);
-                state.virtual_scroll(done);
+                if let Some(wheel) = done.wheel() {
+                    state.wheel(wheel);
+                }
             }
             _ => {}
         }
     }
-}
 
-impl Slipstream {
-    /// A virtual wheel's events for one `frame`, sent as a real wheel's are: held back from
-    /// the app under an overlay (which may scroll its own list), otherwise to the app.
-    fn virtual_scroll(&mut self, done: Pending) {
-        if !done.any() {
-            return;
+    /// Gone, by its own request or with its client: whatever it held down is let go of, so a
+    /// remote viewer that drops mid-drag doesn't leave the drag going.
+    fn destroyed(
+        state: &mut Self,
+        _client: ClientId,
+        _resource: &ZwlrVirtualPointerV1,
+        data: &VirtualPointer,
+    ) {
+        let held = data.held.lock().unwrap().take();
+        for button in held {
+            state.button_event(button, ButtonState::Released, InputTime::now());
         }
-        self.keys.super_tap.disarm();
-        self.wake_ui();
-        let amount = |axis: usize| {
-            done.value[axis].unwrap_or_else(|| f64::from(done.discrete[axis].unwrap_or(0)) * NOTCH)
-        };
-        if self.pointer_blocked() || self.over_chrome(self.pointer_location()) {
-            self.overlay_wheel(amount(1), NOTCH);
-            return;
-        }
-        let source = done.source.unwrap_or(AxisSource::Wheel);
-        let mut frame = AxisFrame::new(InputTime::from_millis(done.time)).source(source);
-        for (axis, i) in [(Axis::Horizontal, 0), (Axis::Vertical, 1)] {
-            if done.stop[i] {
-                frame = frame.stop(axis);
-            }
-            if done.value[i].is_some() || done.discrete[i].is_some() {
-                frame = frame.value(axis, amount(i));
-            }
-            if let Some(discrete) = done.discrete[i] {
-                frame = frame.v120(axis, discrete * 120);
-            }
-        }
-        let pointer = self.seat.get_pointer().unwrap();
-        pointer.axis(self, frame);
-        pointer.frame(self);
     }
 }
 
@@ -323,5 +331,38 @@ mod tests {
         // Nor can a client that has no state of ours.
         let (ours, _theirs) = UnixStream::pair().expect("a socket pair");
         assert!(!shown(ours, Arc::new(())));
+    }
+
+    #[test]
+    fn the_buttons_it_holds_are_let_go_of_when_it_goes() {
+        let mut held = Held::default();
+        held.note(272, ButtonState::Pressed);
+        held.note(273, ButtonState::Pressed);
+        held.note(273, ButtonState::Pressed);
+        held.note(272, ButtonState::Released);
+        // A release of a button it never pressed changes nothing.
+        held.note(274, ButtonState::Released);
+        assert_eq!(held.take(), [273]);
+        assert!(held.take().is_empty(), "let go of once");
+    }
+
+    #[test]
+    fn any_number_of_notches_scrolls_without_overflowing() {
+        let wheel = |discrete| {
+            Pending {
+                discrete,
+                ..Pending::default()
+            }
+            .wheel()
+            .unwrap()
+            .frame()
+        };
+        let frame = wheel([Some(i32::MIN), Some(i32::MAX)]);
+        assert_eq!(frame.v120, Some((i32::MIN, i32::MAX)));
+        // Notches alone are a wheel's: 15 of scroll each.
+        let frame = wheel([None, Some(-2)]);
+        assert_eq!(frame.axis, (0.0, -30.0));
+        assert_eq!(frame.v120, Some((0, -240)));
+        assert!(Pending::default().wheel().is_none(), "nothing to send");
     }
 }

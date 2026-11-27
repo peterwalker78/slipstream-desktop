@@ -6,10 +6,12 @@ mod button;
 mod keyboard;
 pub use keyboard::KeyTracking;
 pub mod swipe;
+mod wheel;
+pub use wheel::Wheel;
 
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, AxisSource, Event, GestureBeginEvent,
+        AbsolutePositionEvent, Axis, Event, GestureBeginEvent,
         GestureEndEvent as GestureEndEventTrait,
         GesturePinchUpdateEvent as GesturePinchUpdateEventTrait,
         GestureSwipeUpdateEvent as GestureSwipeUpdateEventTrait, InputBackend, InputEvent,
@@ -19,7 +21,7 @@ use smithay::{
     input::{
         keyboard::Keysym,
         pointer::{
-            AxisFrame, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
+            GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
             GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
             GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent, RelativeMotionEvent,
         },
@@ -269,6 +271,72 @@ impl Slipstream {
         self.pointer_followers(pos);
     }
 
+    /// The pointer moved by `delta`, `delta_unaccel` before any acceleration, from a mouse, a
+    /// touchpad or a virtual pointer: a locked pointer stays put, a confined one stays inside,
+    /// and apps that ask how far the mouse moved are told.
+    pub fn pointer_moved_by(
+        &mut self,
+        delta: Point<f64, Logical>,
+        delta_unaccel: Point<f64, Logical>,
+        time: InputTime,
+    ) {
+        self.wake_ui();
+        let pointer = self.seat.get_pointer().unwrap();
+        let from = pointer.current_location();
+        let constraint = self.active_constraint();
+        let relative = RelativeMotionEvent {
+            delta,
+            delta_unaccel,
+            time,
+        };
+        // A locked pointer stays put: the app hears only how far the mouse moved.
+        if matches!(constraint, Some(Constraint::Locked)) {
+            let under = self.pointer_target(from);
+            pointer.relative_motion(self, under, &relative);
+            pointer.frame(self);
+            return;
+        }
+        let mut pos = self.clamp_to_outputs(from + delta);
+        // A confined pointer moves along each axis only as far as it stays inside.
+        if let Some(Constraint::Confined {
+            region,
+            origin,
+            surface,
+        }) = constraint
+        {
+            let inside = |state: &Self, point: Point<f64, Logical>| {
+                let over = state
+                    .pointer_target(point)
+                    .and_then(|(focus, _)| focus.wl_surface().map(|s| s.into_owned()))
+                    .is_some_and(|under| under == surface);
+                over && region
+                    .as_ref()
+                    .is_none_or(|region| region.contains((point - origin).to_i32_round()))
+            };
+            if !inside(self, Point::from((pos.x, from.y))) {
+                pos.x = from.x;
+            }
+            if !inside(self, Point::from((pos.x, pos.y))) {
+                pos.y = from.y;
+            }
+        }
+        let serial = SERIAL_COUNTER.next_serial();
+        let under = self.motion_target(pos);
+        pointer.motion(
+            self,
+            under.clone(),
+            &MotionEvent {
+                location: pos,
+                serial,
+                time,
+            },
+        );
+        pointer.relative_motion(self, under, &relative);
+        pointer.frame(self);
+        self.update_pointer_constraint();
+        self.pointer_followers(pos);
+    }
+
     /// The screen a touchscreen or drawing tablet points at. Its coordinates are a fraction of
     /// one screen, so it has to be told which; the built-in panel is the answer for a built-in
     /// touchscreen, which is what almost every absolute device on a laptop is. Failing that, the
@@ -325,62 +393,7 @@ impl Slipstream {
             }
             // Mice and touchpads on real hardware.
             InputEvent::PointerMotion { event, .. } => {
-                self.wake_ui();
-                let pointer = self.seat.get_pointer().unwrap();
-                let delta = event.delta();
-                let from = pointer.current_location();
-                let constraint = self.active_constraint();
-                let relative = RelativeMotionEvent {
-                    delta,
-                    delta_unaccel: event.delta_unaccel(),
-                    time: event.time(),
-                };
-                // A locked pointer stays put: the app hears only how far the mouse moved.
-                if matches!(constraint, Some(Constraint::Locked)) {
-                    let under = self.pointer_target(from);
-                    pointer.relative_motion(self, under, &relative);
-                    pointer.frame(self);
-                    return;
-                }
-                let mut pos = self.clamp_to_outputs(from + delta);
-                // A confined pointer moves along each axis only as far as it stays inside.
-                if let Some(Constraint::Confined {
-                    region,
-                    origin,
-                    surface,
-                }) = constraint
-                {
-                    let inside = |state: &Self, point: Point<f64, Logical>| {
-                        let over = state
-                            .pointer_target(point)
-                            .and_then(|(focus, _)| focus.wl_surface().map(|s| s.into_owned()))
-                            .is_some_and(|under| under == surface);
-                        over && region
-                            .as_ref()
-                            .is_none_or(|region| region.contains((point - origin).to_i32_round()))
-                    };
-                    if !inside(self, Point::from((pos.x, from.y))) {
-                        pos.x = from.x;
-                    }
-                    if !inside(self, Point::from((pos.x, pos.y))) {
-                        pos.y = from.y;
-                    }
-                }
-                let serial = SERIAL_COUNTER.next_serial();
-                let under = self.motion_target(pos);
-                pointer.motion(
-                    self,
-                    under.clone(),
-                    &MotionEvent {
-                        location: pos,
-                        serial,
-                        time: event.time(),
-                    },
-                );
-                pointer.relative_motion(self, under, &relative);
-                pointer.frame(self);
-                self.update_pointer_constraint();
-                self.pointer_followers(pos);
+                self.pointer_moved_by(event.delta(), event.delta_unaccel(), event.time());
             }
             // The host's pointer when nested; tablets and touchscreens on real hardware.
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -399,73 +412,15 @@ impl Slipstream {
                 self.button_event(event.button_code(), event.state(), event.time());
             }
             InputEvent::PointerAxis { event, .. } => {
-                self.keys.super_tap.disarm();
-                self.keys.layout_tap.disarm();
-                self.wake_ui();
-                // A wheel's notch is 120 in v120 units, and 15 of scroll.
-                let amount = |axis: Axis| {
-                    event
-                        .amount(axis)
-                        .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.)
-                };
-                // Super with the wheel zooms the screen, whatever the pointer is over.
-                let held = self.seat.get_keyboard().map(|kb| kb.modifier_state());
-                if let Some(held) = held
-                    && crate::keys::zooms_with_wheel(crate::keys::Mods::from_state(&held))
-                {
-                    let notch = if event.source() == AxisSource::Finger {
-                        30.0
-                    } else {
-                        15.0
-                    };
-                    let now = self.clock.wall();
-                    self.zoom.wheel(amount(Axis::Vertical) / notch, now);
-                    return;
-                }
-                // The wheel over an overlay would otherwise scroll the window hidden under it. In
-                // the explorer and the notification centre it moves through the list instead.
-                if self.pointer_blocked() || self.over_chrome(self.pointer_location()) {
-                    let notch = if event.source() == AxisSource::Finger {
-                        30.0
-                    } else {
-                        15.0
-                    };
-                    self.overlay_wheel(amount(Axis::Vertical), notch);
-                    return;
-                }
-                let source = event.source();
-
-                let horizontal_amount = amount(Axis::Horizontal);
-                let vertical_amount = amount(Axis::Vertical);
-                let horizontal_amount_discrete = event.amount_v120(Axis::Horizontal);
-                let vertical_amount_discrete = event.amount_v120(Axis::Vertical);
-
-                let mut frame = AxisFrame::new(event.time()).source(source);
-                if horizontal_amount != 0.0 {
-                    frame = frame.value(Axis::Horizontal, horizontal_amount);
-                    if let Some(discrete) = horizontal_amount_discrete {
-                        frame = frame.v120(Axis::Horizontal, discrete as i32);
-                    }
-                }
-                if vertical_amount != 0.0 {
-                    frame = frame.value(Axis::Vertical, vertical_amount);
-                    if let Some(discrete) = vertical_amount_discrete {
-                        frame = frame.v120(Axis::Vertical, discrete as i32);
-                    }
-                }
-
-                if source == AxisSource::Finger {
-                    if event.amount(Axis::Horizontal) == Some(0.0) {
-                        frame = frame.stop(Axis::Horizontal);
-                    }
-                    if event.amount(Axis::Vertical) == Some(0.0) {
-                        frame = frame.stop(Axis::Vertical);
-                    }
-                }
-
-                let pointer = self.seat.get_pointer().unwrap();
-                pointer.axis(self, frame);
-                pointer.frame(self);
+                let both =
+                    |of: &dyn Fn(Axis) -> Option<f64>| [of(Axis::Horizontal), of(Axis::Vertical)];
+                self.wheel(Wheel {
+                    source: event.source(),
+                    time: event.time(),
+                    amount: both(&|axis| event.amount(axis)),
+                    v120: both(&|axis| event.amount_v120(axis)),
+                    stop: [false; 2],
+                });
             }
             // Touchpad swipes, pinches and holds go to the window under the pointer, except a
             // three-finger swipe, which is the desktop's.
